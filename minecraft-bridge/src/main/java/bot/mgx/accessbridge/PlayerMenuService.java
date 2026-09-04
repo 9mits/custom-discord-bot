@@ -97,31 +97,13 @@ final class PlayerMenuService implements Listener {
                     "Click to cycle: 100 / 75 / 50 / 25 / 0."
             ));
         }
-        if (category == PlayerSettingsStore.Category.PRIVACY
-                && categorySettings.size() < SETTING_SLOTS.length) {
-            inventory.setItem(SETTING_SLOTS[categorySettings.size()], pane(
-                    identities.isVisible(player.getUniqueId()),
-                    "Discord Name",
-                    "Show your linked Discord name to other players."
-            ));
-        }
         inventory.setItem(BACK_SLOT, button(Material.ARROW, "Back", "Return to all settings."));
         MenuItems.show(plugin, player, inventory);
-    }
-
-    boolean discordNameVisible(java.util.UUID playerId) {
-        return identities.isVisible(playerId);
     }
 
     java.util.Optional<String> visibleDiscordUsername(java.util.UUID playerId) {
         return playerId == null ? java.util.Optional.empty()
                 : identities.visibleUsername(playerId);
-    }
-
-    void toggleDiscordName(java.util.UUID playerId) {
-        identities.toggleVisibility(playerId);
-        // Nametags and the player list carry the name, so redraw them immediately.
-        plugin.refreshClans();
     }
 
     /** Everyone with access, their edition, and the Discord name they chose to show. */
@@ -277,10 +259,7 @@ final class PlayerMenuService implements Listener {
         try {
             List<PlayerSettingsStore.Setting> categorySettings = category.settings();
             int settingIndex = indexOf(SETTING_SLOTS, slot);
-            if (category == PlayerSettingsStore.Category.PRIVACY
-                    && settingIndex == categorySettings.size()) {
-                toggleDiscordName(player.getUniqueId());
-            } else {
+            {
                 if (category == PlayerSettingsStore.Category.AUDIO
                         && settingIndex == categorySettings.size()) {
                     settings.cycleMusicVolume(player.getUniqueId());

@@ -15,7 +15,7 @@ final class DiscordIdentityStoreTest {
     Path temporaryDirectory;
 
     @Test
-    void linkedNamesAreVisibleByDefaultAndCanBeHidden() throws Exception {
+    void aLinkedNameIsAlwaysVisible() throws Exception {
         Path file = temporaryDirectory.resolve("discord-identities.json");
         UUID minecraftUuid = UUID.randomUUID();
         DiscordIdentityStore store = new DiscordIdentityStore(file);
@@ -23,27 +23,22 @@ final class DiscordIdentityStoreTest {
         store.sync(minecraftUuid, "hellomits");
         assertEquals("hellomits", store.visibleUsername(minecraftUuid).orElseThrow());
 
-        DiscordIdentityStore.Identity hidden = store.toggle(minecraftUuid);
-        assertFalse(hidden.visible());
-        assertTrue(store.visibleUsername(minecraftUuid).isEmpty());
-
+        // Players could once hide this, which made a verified account look exactly like
+        // an unverified one. The stored flag survives in the file and is ignored.
         DiscordIdentityStore reloaded = new DiscordIdentityStore(file);
-        assertFalse(reloaded.identity(minecraftUuid).orElseThrow().visible());
+        assertEquals("hellomits", reloaded.visibleUsername(minecraftUuid).orElseThrow());
     }
 
     @Test
-    void usernameRefreshPreservesThePlayersVisibilityChoice() throws Exception {
+    void usernameRefreshReplacesTheStoredName() throws Exception {
         DiscordIdentityStore store = new DiscordIdentityStore(
                 temporaryDirectory.resolve("discord-identities.json")
         );
         UUID minecraftUuid = UUID.randomUUID();
         store.sync(minecraftUuid, "oldname");
-        store.toggle(minecraftUuid);
 
         store.sync(minecraftUuid, "newname");
 
-        DiscordIdentityStore.Identity identity = store.identity(minecraftUuid).orElseThrow();
-        assertEquals("newname", identity.username());
-        assertFalse(identity.visible());
+        assertEquals("newname", store.visibleUsername(minecraftUuid).orElseThrow());
     }
 }

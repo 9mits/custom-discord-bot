@@ -130,15 +130,6 @@ final class PlayerSettingsDialogService {
                     .action(callback((response, audience) -> cycleMusicVolume(audience)))
                     .build());
         }
-        if (category == PlayerSettingsStore.Category.PRIVACY) {
-            buttons.add(toggleButton(
-                    "Discord Name",
-                    menus.discordNameVisible(player.getUniqueId()),
-                    "Let other players see the account you linked.",
-                    audience -> toggleDiscordName(audience)
-            ));
-        }
-
         Screens.show(player, "Settings - " + category.label(),
                 Screens.body(category.description()), buttons, 1, this::open);
     }
@@ -176,20 +167,6 @@ final class PlayerSettingsDialogService {
             PlayerMenuService.error(player, "That setting could not be saved. Please try again.");
         }
         openCategory(player, category);
-    }
-
-    private void toggleDiscordName(Player player) {
-        try {
-            menus.toggleDiscordName(player.getUniqueId());
-        } catch (IllegalStateException exception) {
-            PlayerMenuService.error(player, exception.getMessage());
-        } catch (UncheckedIOException exception) {
-            plugin.getLogger().warning(
-                    "Could not save a Discord-name preference: " + exception.getMessage()
-            );
-            PlayerMenuService.error(player, "That setting could not be saved. Please try again.");
-        }
-        openCategory(player, PlayerSettingsStore.Category.PRIVACY);
     }
 
     private void cycleMusicVolume(Player player) {
