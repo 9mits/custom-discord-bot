@@ -79,16 +79,12 @@ class DiscordIdentityClearTest {
     }
 
     @Test
-    void aHiddenNameIsStillClearedRatherThanLeftBehind() throws IOException {
-        // Hidden means not drawn in game, not "not stored" — a reset still has to
-        // remove it.
+    void aStoredNameIsClearedRatherThanLeftBehind() throws IOException {
         DiscordIdentityStore store = store();
         UUID player = UUID.randomUUID();
         store.sync(player, "considerationproud");
-        store.toggle(player);
 
-        assertFalse(store.identity(player).orElseThrow().visible());
-        assertTrue(store.visibleUsername(player).isEmpty(), "precondition: hidden in game");
+        assertEquals("considerationproud", store.visibleUsername(player).orElseThrow());
         assertEquals(1, store.clearAll());
         assertTrue(store().identity(player).isEmpty());
     }

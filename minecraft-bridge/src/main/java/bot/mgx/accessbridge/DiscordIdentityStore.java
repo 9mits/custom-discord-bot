@@ -101,9 +101,18 @@ final class DiscordIdentityStore {
         return cleared;
     }
 
+    /**
+     * The linked name, whenever there is one.
+     *
+     * <p>Players used to be able to hide this from the settings menu, which meant an
+     * unlinked account and a hidden one looked identical — there was no way to tell who
+     * had actually verified. The stored {@code visible} flag is deliberately ignored
+     * rather than migrated away, so a player who had hidden their name shows it again
+     * immediately and nothing has to rewrite the file.
+     */
     synchronized Optional<String> visibleUsername(UUID minecraftUuid) {
         Identity identity = identities.get(minecraftUuid);
-        if (identity == null || !identity.visible()) {
+        if (identity == null) {
             return Optional.empty();
         }
         return Optional.of(identity.username());
@@ -113,16 +122,6 @@ final class DiscordIdentityStore {
         return Optional.ofNullable(identities.get(minecraftUuid));
     }
 
-    synchronized Identity toggle(UUID minecraftUuid) {
-        Identity previous = identities.get(minecraftUuid);
-        if (previous == null) {
-            throw new IllegalStateException("No linked Discord account is available yet.");
-        }
-        Identity updated = new Identity(previous.username(), !previous.visible());
-        identities.put(minecraftUuid, updated);
-        persistOrRollback(minecraftUuid, previous);
-        return updated;
-    }
 
     private void persistOrRollback(UUID minecraftUuid, Identity previous) {
         try {

@@ -55,55 +55,29 @@ final class DiscordIdentityService implements CommandExecutor {
                 .orElse(Component.empty());
     }
 
-    /**
-     * Whether this player is showing their linked name. A player with no linked
-     * account reads as hidden, which is what the settings pane should show them.
-     */
-    boolean isVisible(UUID minecraftUuid) {
-        return store.identity(minecraftUuid)
-                .map(DiscordIdentityStore.Identity::visible)
-                .orElse(false);
-    }
-
-    /** Flips the setting, for the settings menu; {@code /discordnames} narrates it. */
-    DiscordIdentityStore.Identity toggleVisibility(UUID minecraftUuid) {
-        DiscordIdentityStore.Identity identity = store.toggle(minecraftUuid);
-        plugin.refreshClans();
-        return identity;
-    }
-
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (!(sender instanceof Player player)) {
             sender.sendMessage("This command is available to players only.");
             return true;
         }
-        try {
-            DiscordIdentityStore.Identity identity = store.toggle(player.getUniqueId());
-            plugin.refreshClans();
-            player.sendMessage(Component.text("━━━━━━━━━━━━━━━━━━━━━━━━", BLURPLE));
-            player.sendMessage(Component.text("DISCORD NAME", BLURPLE, TextDecoration.BOLD));
-            if (identity.visible()) {
-                player.sendMessage(Component.text(
-                        "Your linked name (@" + identity.username() + ") is now visible beside your Minecraft name.",
-                        NamedTextColor.WHITE
-                ));
-            } else {
-                player.sendMessage(Component.text(
-                        "Your linked Discord name is now hidden from Minecraft chat, nametags, and the player list.",
-                        NamedTextColor.GRAY
-                ));
-            }
-            player.sendMessage(Component.text("Use /discordnames again to change this setting.", NamedTextColor.DARK_GRAY));
-            player.sendMessage(Component.text("━━━━━━━━━━━━━━━━━━━━━━━━", BLURPLE));
-        } catch (IllegalStateException exception) {
-            player.sendMessage(Component.text("DISCORD NAME » ", BLURPLE, TextDecoration.BOLD)
-                    .append(Component.text(exception.getMessage(), NamedTextColor.RED)));
-        } catch (UncheckedIOException exception) {
-            plugin.getLogger().warning("Could not save a Discord-name preference: " + exception.getMessage());
-            player.sendMessage(Component.text("DISCORD NAME » ", BLURPLE, TextDecoration.BOLD)
-                    .append(Component.text("Your setting could not be saved. Please try again.", NamedTextColor.RED)));
+        // Reports rather than toggles. Hiding a linked name made a verified player
+        // indistinguishable from an unverified one, so the name is always shown now.
+        Optional<String> linked = store.visibleUsername(player.getUniqueId());
+        player.sendMessage(Component.text("━━━━━━━━━━━━━━━━━━━━━━━━", BLURPLE));
+        player.sendMessage(Component.text("DISCORD NAME", BLURPLE, TextDecoration.BOLD));
+        if (linked.isPresent()) {
+            player.sendMessage(Component.text(
+                    "Your linked name (@" + linked.get() + ") is shown beside your Minecraft name.",
+                    NamedTextColor.WHITE
+            ));
+        } else {
+            player.sendMessage(Component.text(
+                    "No Discord account is linked to this Minecraft account yet.",
+                    NamedTextColor.GRAY
+            ));
         }
+        player.sendMessage(Component.text("━━━━━━━━━━━━━━━━━━━━━━━━", BLURPLE));
         return true;
     }
 }
