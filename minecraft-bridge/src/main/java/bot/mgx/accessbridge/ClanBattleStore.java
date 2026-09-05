@@ -41,7 +41,9 @@ final class ClanBattleStore {
 
 
     enum Kind {
-        CRATES("crates", "Crates Clan Battle", "Open the most crates!");
+        CRATES("crates", "Crates Clan Battle", "Open the most crates!"),
+        DRAGON_EGGS("dragon-eggs", "Amethyst Dragon Egg Clan Battle",
+                "Claim the most Amethyst Dragon Eggs!");
 
         private final String id;
         private final String displayName;
@@ -148,6 +150,7 @@ final class ClanBattleStore {
         List<SavedCompleted> completed = new ArrayList<>();
         Map<String, SavedBadges> badges = new LinkedHashMap<>();
         Map<String, List<SavedShardGrant>> shardGrants = new LinkedHashMap<>();
+        List<String> completedRewardSets = new ArrayList<>();
     }
 
     private static final class SavedActive {
@@ -261,6 +264,25 @@ final class ClanBattleStore {
         return contribution.score;
     }
 
+    synchronized long recordDragonEgg(UUID playerId, long now, ClanStore clans) {
+        if (state.active == null || kindOf(state.active) != Kind.DRAGON_EGGS || now >= state.active.endsAt) {
+            return 0L;
+        }
+        ClanStore.ClanView clan = clans.clanOf(playerId).orElse(null);
+        if (clan == null) return 0L;
+        long joinedAt = clan.joinedAt().getOrDefault(playerId, 0L);
+        SavedContribution prior = state.active.contributions.get(playerId.toString());
+        long previous = valid(prior, clan, joinedAt) ? prior.score : 0L;
+        SavedState before = copyState();
+        SavedContribution contribution = new SavedContribution();
+        contribution.clanId = clan.id().toString();
+        contribution.joinedAt = joinedAt;
+        contribution.score = Math.addExact(previous, 1L);
+        state.active.contributions.put(playerId.toString(), contribution);
+        persistOrRestore(before);
+        return contribution.score;
+    }
+
     synchronized CompletedView end(ClanStore clans, long now) {
         if (state.active == null) {
             throw new IllegalArgumentException("No clan battle is running.");
@@ -278,7 +300,7 @@ final class ClanBattleStore {
         for (Standing winner : winners) {
             completed.winners.add(saveWinner(winner));
             addBadge(winner.clanId(), winner.rank());
-            int shards = shardReward(winner.rank());
+            int shards = shardReward(kindOf(active), winner.rank());
             for (UUID member : winner.members()) {
                 addShardGrant(
                         member,
@@ -344,9 +366,32 @@ final class ClanBattleStore {
         return true;
     }
 
+    /** Queues one exactly-once set of individual leaderboard rewards. */
+    synchronized boolean queueShardRewardsOnce(
+            String rewardSet, Map<UUID, Integer> rewards, String source
+    ) {
+        if (rewardSet == null || rewardSet.isBlank()
+                || rewards == null || rewards.isEmpty()
+                || state.completedRewardSets.contains(rewardSet)) {
+            return false;
+        }
+        SavedState before = copyState();
+        rewards.forEach((playerId, amount) -> addShardGrant(
+                playerId,
+                UUID.nameUUIDFromBytes(("individual-leaderboard-shards:"
+                        + rewardSet + ":" + playerId).getBytes(StandardCharsets.UTF_8)),
+                amount,
+                source
+        ));
+        state.completedRewardSets.add(rewardSet);
+        persistOrRestore(before);
+        return true;
+    }
+
     synchronized int clearAll() {
         int count = (state.active == null ? 0 : 1)
-                + state.completed.size() + state.badges.size() + state.shardGrants.size();
+                + state.completed.size() + state.badges.size() + state.shardGrants.size()
+                + state.completedRewardSets.size();
         SavedState before = state;
         state = new SavedState();
         persistOrRestore(before);
@@ -439,7 +484,15 @@ final class ClanBattleStore {
         grants.add(grant);
     }
 
-    private static int shardReward(int rank) {
+    static int shardReward(Kind kind, int rank) {
+        if (kind == Kind.DRAGON_EGGS) {
+            return switch (rank) {
+                case 1 -> (int) tuned("clan-battle.dragon.first-shards", 15);
+                case 2 -> (int) tuned("clan-battle.dragon.second-shards", 10);
+                case 3 -> (int) tuned("clan-battle.dragon.third-shards", 5);
+                default -> 0;
+            };
+        }
         return switch (rank) {
             case 1 -> (int) tuned("clan-battle.gold-shards", GOLD_SHARDS);
             case 2 -> (int) tuned("clan-battle.silver-shards", SILVER_SHARDS);
@@ -497,6 +550,9 @@ final class ClanBattleStore {
             }
             if (loaded.shardGrants == null) {
                 loaded.shardGrants = new LinkedHashMap<>();
+            }
+            if (loaded.completedRewardSets == null) {
+                loaded.completedRewardSets = new ArrayList<>();
             }
             if (loaded.active != null && loaded.active.contributions == null) {
                 loaded.active.contributions = new LinkedHashMap<>();

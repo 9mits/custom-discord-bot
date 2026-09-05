@@ -1517,7 +1517,14 @@ class MinecraftLeaderboardRenderTests(unittest.TestCase):
         )
         self.assertEqual(
             tuple(self.leaderboard.boards_for("individual")),
-            ("wealth", "kills", "amethyst_crates", "amethyst_airdrops"),
+            (
+                "wealth",
+                "kills",
+                "amethyst_crates",
+                "amethyst_airdrops",
+                "dragon_damage",
+                "dragon_crystals",
+            ),
         )
 
     def test_clan_battle_uses_live_event_name_objective_rank_and_badges(self):

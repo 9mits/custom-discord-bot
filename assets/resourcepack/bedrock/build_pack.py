@@ -15,7 +15,10 @@ JAVA_SOURCE = RESOURCE_PACK / "src"
 CATALOG = BEDROCK / "catalog.json"
 MAPPINGS = BEDROCK / "mgx_items.json"
 TARGET = BEDROCK / "MysteriousSMPX-Bedrock.mcpack"
-MUSIC = JAVA_SOURCE / "assets" / "mgx" / "sounds" / "music" / "iridescent_imperium.ogg"
+MUSIC_FILES = {
+    "iridescent_imperium": JAVA_SOURCE / "assets" / "mgx" / "sounds" / "music" / "iridescent_imperium.ogg",
+    "amethyst_dragon_ascendant": JAVA_SOURCE / "assets" / "mgx" / "sounds" / "music" / "amethyst_dragon_ascendant.ogg",
+}
 JAVA_SOUNDS = JAVA_SOURCE / "assets" / "mgx" / "sounds.json"
 
 HEADER_UUID = "33d7b953-728f-43b3-a6a9-675e70370582"
@@ -56,7 +59,8 @@ def source_version(items: list[dict]) -> list[int]:
     digest = hashlib.sha256(CATALOG.read_bytes())
     for item in items:
         digest.update(icon_texture(item).read_bytes())
-    digest.update(MUSIC.read_bytes())
+    for music in MUSIC_FILES.values():
+        digest.update(music.read_bytes())
     digest.update(JAVA_SOUNDS.read_bytes())
     raw = digest.digest()
     return [int.from_bytes(raw[index:index + 2], "big") or 1 for index in (0, 2, 4)]
@@ -130,21 +134,23 @@ def main() -> None:
     MAPPINGS.write_bytes(json_bytes(mapping_document))
     pack_files["manifest.json"] = json_bytes(manifest)
     pack_files["textures/item_texture.json"] = json_bytes(atlas)
-    pack_files["sounds/music/iridescent_imperium.ogg"] = MUSIC.read_bytes()
+    for name, music in MUSIC_FILES.items():
+        pack_files[f"sounds/music/{name}.ogg"] = music.read_bytes()
     pack_files["sounds/sound_definitions.json"] = json_bytes({
         "format_version": "1.14.0",
         "sound_definitions": {
-            "mgx:iridescent_imperium": {
+            f"mgx:{name}": {
                 # The server exposes its own /settings volume. UI bypasses Bedrock's
                 # Music slider while remaining under the client's master volume.
                 "category": "ui",
                 "sounds": [{
-                    "name": "sounds/music/iridescent_imperium",
+                    "name": f"sounds/music/{name}",
                     "stream": True,
                     "is3D": False,
                     "volume": 0.72,
                 }],
             }
+            for name in MUSIC_FILES
         },
     })
     zip_files(TARGET, pack_files)

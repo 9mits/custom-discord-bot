@@ -68,6 +68,9 @@ record SettingMetadata(
         AIRDROPS("Airdrops"),
         ONLINE_REWARDS("Online Rewards"),
         HUGE_AMETHYST("Huge Amethyst"),
+        AMETHYST_BLOCKS("Amethyst Blocks"),
+        DRAGON_EVENT("Dragon Event"),
+        PERMISSIONS("Permissions"),
         ADMIN_EVENTS("Admin Events"),
         EVENT_SCHEDULE("Event Schedule"),
         AMETHYST_MOBS("Amethyst Mobs"),
@@ -141,7 +144,22 @@ record SettingMetadata(
     private static final Set<String> CAPTURED_AT_SPAWN = Set.of(
             "airdrop.lifetime-minutes",
             "huge-amethyst.lifetime-minutes",
-            "huge-amethyst.maximum-health"
+            "huge-amethyst.maximum-health",
+            "huge-amethyst.size",
+            "giant-amethyst.maximum-health",
+            "giant-amethyst.size",
+            "humongous-amethyst.maximum-health",
+            "humongous-amethyst.size",
+            "dragon-event.maximum-health",
+            "dragon-event.border-size",
+            "dragon-event.crystals",
+            "dragon-event.arena-radius",
+            "dragon-event.pillar-radius",
+            "dragon-event.pillar-base-height",
+            "dragon-event.pillar-height-step",
+            "dragon-event.portal-light-radius",
+            "dragon-event.portal-light-height",
+            "dragon-event.portal-light-level"
     );
 
     /** Derives the metadata for one definition, given every key the store knows. */
@@ -175,8 +193,11 @@ record SettingMetadata(
                 break;
         }
         String key = definition.key();
-        if (key.endsWith("one-in")) {
+        if (key.contains("one-in")) {
             return Control.ODDS;
+        }
+        if (key.equals("permissions.co-owner-weight")) {
+            return Control.COUNT;
         }
         if (isWeight(key)) {
             // Cosmetic chance is a weight by name only: it is a rate out of a fixed
@@ -188,7 +209,7 @@ record SettingMetadata(
             case "blocks" -> Control.DISTANCE;
             case "percent" -> Control.PERCENT;
             case "players" -> Control.POPULATION;
-            case "health" -> Control.HEALTH;
+            case "health", "HP" -> Control.HEALTH;
             case "attempts" -> Control.COUNT;
             case "x" -> Control.MULTIPLIER;
             case "seconds" -> Control.DURATION;
@@ -210,8 +231,17 @@ record SettingMetadata(
         if (key.startsWith("online-rewards.")) {
             return Group.ONLINE_REWARDS;
         }
-        if (key.startsWith("huge-amethyst.")) {
-            return Group.HUGE_AMETHYST;
+        if (key.startsWith("huge-amethyst.") || key.startsWith("giant-amethyst.")
+                || key.startsWith("humongous-amethyst.") || key.startsWith("amethyst-blocks.")
+                || key.startsWith("low-activity-boost.")) {
+            return Group.AMETHYST_BLOCKS;
+        }
+        if (key.startsWith("dragon-event.") || key.startsWith("dragon-crate.")
+                || key.startsWith("leaderboard.dragon.")) {
+            return Group.DRAGON_EVENT;
+        }
+        if (key.startsWith("permissions.")) {
+            return Group.PERMISSIONS;
         }
         if (key.startsWith("chaos.")) {
             return Group.ADMIN_EVENTS;
@@ -315,6 +345,11 @@ record SettingMetadata(
         // crate.<kind>.reward.<id>.weight
         if (parts.length == 5 && parts[0].equals("crate") && parts[2].equals("reward")) {
             return Optional.of("crate." + parts[1]);
+        }
+        if (key.equals("huge-amethyst.spawn-weight")
+                || key.equals("giant-amethyst.spawn-weight")
+                || key.equals("humongous-amethyst.spawn-weight")) {
+            return Optional.of("amethyst-block.tier");
         }
         // airdrop.rarity.<rarity>.weight — the suffix must be exactly "weight".
         // airdrop.rarity.<rarity>.cosmetic-weight sits beside it and is a rate out of a

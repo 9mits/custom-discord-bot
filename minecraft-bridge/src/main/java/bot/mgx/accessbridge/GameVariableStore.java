@@ -101,6 +101,7 @@ final class GameVariableStore {
         this.history = new ConfigHistory(
                 file.resolveSibling("game-variables-history.json"));
         defineCore(config);
+        defineAmethystExpansion();
         defineWorldAndMobs(config);
         definePlayerAndWorld(config);
         definePresentationAndItems(config);
@@ -155,6 +156,327 @@ final class GameVariableStore {
         changeObservers.forEach(observer -> observer.accept(""));
     }
 
+    private void defineAmethystExpansion() {
+        integer("amethyst-events.ends-at", "Amethyst event deadline", "Amethyst Events",
+                "Unix seconds for the shared event and limited crate deadline.",
+                1_789_192_800L, 0, 4_102_444_800L, "epoch seconds", false);
+        String[] tiers = {"huge", "giant", "humongous"};
+        int[] sizes = {12, 16, 20};
+        int[] health = {2750, 8250, 16500};
+        int[] weights = {80, 17, 3};
+        double[] rewards = {1, 3, 6};
+        for (int i = 0; i < tiers.length; i++) {
+            String base = tiers[i] + "-amethyst.";
+            integer(base + "size", tiers[i] + " block size", "Amethyst Blocks",
+                    "Cube side length for newly spawned blocks.", sizes[i], 4, 32, "blocks", false);
+            integer(base + "spawn-weight", tiers[i] + " spawn weight", "Amethyst Blocks",
+                    "Relative chance when the block event starts.", weights[i], 0, 10000, "weight", true);
+            if (i > 0) integer(base + "maximum-health", tiers[i] + " health", "Amethyst Blocks",
+                    "Health for newly spawned blocks.", health[i], 1, 10000000, "HP", false);
+            decimal(base + "key-multiplier", tiers[i] + " key rewards", "Amethyst Blocks",
+                    "Scales contributor key rewards.", rewards[i], 0, 1000, "multiplier");
+        }
+        integer("amethyst-blocks.shard-one-in", "Ordinary Amethyst block Shard chance", "Amethyst Blocks",
+                "One Shard roll per mined Amethyst block during the event.", 25000, 1, 1000000000, "one in", true);
+        integer("amethyst-blocks.shard-amount", "Ordinary block Shards", "Amethyst Blocks",
+                "Shards on a successful roll.", 1, 0, 64, "shards", false);
+        integer("dragon-crate.secret-one-in", "Dragon Secret chance", "Dragon Event",
+                "Hidden roll for Amethyst Dragon Ascendant.", 100_000, 1, 1_000_000_000,
+                "one in", true);
+        bool("dragon-event.enabled", "Dragon Event enabled", "Dragon Event",
+                "Whether scheduled Amethyst Dragon Events may begin.", true);
+        text("dragon-event.schedule-utc", "Daily Dragon times", "Dragon Event",
+                "Three comma-separated UTC times in HH:mm format.", "03:00,11:00,19:00", 32);
+        integer("dragon-event.portal-open-minutes", "Portal open time", "Dragon Event",
+                "Minutes before the scheduled fight when players may enter.", 5, 1, 60,
+                "minutes", false);
+        integer("dragon-event.fight-minutes", "Maximum Dragon fight", "Dragon Event",
+                "Minutes before an unfinished fight closes safely.", 45, 5, 240,
+                "minutes", false);
+        integer("dragon-event.crate-minutes", "Dragon Crate phase", "Dragon Event",
+                "Minutes the Dragon Crate remains after the kill.", 60, 1, 240,
+                "minutes", false);
+        integer("dragon-event.maximum-health", "Dragon health", "Dragon Event",
+                "Maximum health assigned to the Amethyst Dragon.", 6000, 100, 1000000,
+                "HP", false);
+        integer("dragon-event.border-size", "Dragon arena border", "Dragon Event",
+                "Width of the square event arena.", 384, 64, 2048, "blocks", false);
+        integer("dragon-event.crystals", "End Crystals", "Dragon Event",
+                "Number of reward crystals created around the arena.", 10, 1, 64,
+                "crystals", false);
+        integer("dragon-event.arena-radius", "Arena terrain radius", "Dragon Event",
+                "Radius of the Amethyst terrain treatment inside the border.", 72, 24, 256,
+                "blocks", false);
+        integer("dragon-event.pillar-radius", "Crystal pillar radius", "Dragon Event",
+                "Distance of the crystal pillars from the arena centre.", 44, 8, 200,
+                "blocks", false);
+        integer("dragon-event.pillar-base-height", "Pillar base height", "Dragon Event",
+                "Minimum height added to every crystal pillar.", 8, 1, 100,
+                "blocks", false);
+        integer("dragon-event.pillar-height-step", "Pillar height step", "Dragon Event",
+                "Height added for each pillar variation.", 3, 0, 30,
+                "blocks", false);
+        integer("dragon-event.crystal-minimum-keys", "Crystal minimum Keys", "Dragon Rewards",
+                "Fewest Keys paid to the player who destroys an End Crystal.", 20, 0, 100000,
+                "keys", false);
+        integer("dragon-event.crystal-maximum-keys", "Crystal maximum Keys", "Dragon Rewards",
+                "Most Keys paid to the player who destroys an End Crystal.", 50, 0, 100000,
+                "keys", false);
+        integer("dragon-event.damage-wave-hp", "Damage reward interval", "Dragon Rewards",
+                "Dragon HP removed between team-wide Key reward waves.", 500, 1, 1000000,
+                "HP", false);
+        integer("dragon-event.damage-wave-keys", "Damage wave Keys", "Dragon Rewards",
+                "Keys given to each active participant at every damage milestone.", 48, 0, 100000,
+                "keys", false);
+        integer("dragon-event.kill-keys", "Dragon kill Keys", "Dragon Rewards",
+                "Separate Keys given to every active participant when the Dragon dies.", 192, 0, 100000,
+                "keys", false);
+        integer("dragon-event.participation-seconds", "Active participation window", "Dragon Rewards",
+                "A player must have damaged the Dragon or broken a crystal within this many seconds for team rewards.",
+                180, 1, 3600, "seconds", false);
+        integer("dragon-event.stats-save-damage", "Damage save interval", "Dragon Rewards",
+                "Damage accumulated per player before writing leaderboard progress to disk.", 25, 1,
+                10000, "damage", false);
+        integer("dragon-event.shard-one-in", "Dragon Shard chance", "Dragon Rewards",
+                "One in this many credited Dragon damage hits also awards Shards.", 2500, 1,
+                1000000000, "one in", true);
+        integer("dragon-event.shard-amount", "Dragon Shard amount", "Dragon Rewards",
+                "Shards awarded on a successful Dragon participation roll.", 1, 0, 64,
+                "shards", false);
+        integer("dragon-event.egg-count", "Dragon Eggs", "Dragon Rewards",
+                "Claimable Amethyst Dragon Eggs spawned after each kill.", 1, 0, 16,
+                "eggs", false);
+        text("dragon-event.portal-open-message", "Portal open announcement", "Dragon Presentation",
+                "Broadcast when the spawn portal opens. Supports <minutes>.",
+                "The Amethyst Dragon Portal is open for <minutes> minutes!", 180);
+        text("dragon-event.started-message", "Dragon start announcement", "Dragon Presentation",
+                "Broadcast when the entrance closes and the fight begins.",
+                "The Amethyst Dragon Event has begun! Entry is now closed.", 180);
+        text("dragon-event.victory-message", "Dragon victory announcement", "Dragon Presentation",
+                "Broadcast when the Dragon is defeated. Supports <player>.",
+                "The Amethyst Dragon has fallen! <player> landed the final blow.", 180);
+        text("dragon-event.timeout-message", "Dragon timeout announcement", "Dragon Presentation",
+                "Broadcast when the Dragon survives until the fight timer ends.",
+                "The Amethyst Dragon escaped. The event has ended.", 180);
+        text("dragon-event.crate-closed-message", "Dragon Crate closed announcement", "Dragon Presentation",
+                "Broadcast when the reward phase finishes.",
+                "The Amethyst Dragon Crate has closed.", 180);
+        choice("dragon-event.portal-open-sound", "Portal open sound", "Dragon Presentation",
+                "Sound played server-wide when the portal opens.", "BLOCK_BEACON_ACTIVATE",
+                List.of("BLOCK_BEACON_ACTIVATE", "ENTITY_ENDER_DRAGON_GROWL", "UI_TOAST_CHALLENGE_COMPLETE"));
+        choice("dragon-event.start-sound", "Fight start sound", "Dragon Presentation",
+                "Sound played when the event begins.", "ENTITY_ENDER_DRAGON_GROWL",
+                List.of("ENTITY_ENDER_DRAGON_GROWL", "BLOCK_RESPAWN_ANCHOR_CHARGE", "ENTITY_WITHER_SPAWN"));
+        choice("dragon-event.victory-sound", "Victory sound", "Dragon Presentation",
+                "Sound played when the Dragon dies.", "UI_TOAST_CHALLENGE_COMPLETE",
+                List.of("UI_TOAST_CHALLENGE_COMPLETE", "ENTITY_ENDER_DRAGON_DEATH", "BLOCK_BEACON_POWER_SELECT"));
+        choice("dragon-event.timeout-sound", "Fight timeout sound", "Dragon Presentation",
+                "Sound played when the Dragon survives until the fight timer ends.", "BLOCK_BEACON_DEACTIVATE",
+                List.of("BLOCK_BEACON_DEACTIVATE", "ENTITY_ENDER_DRAGON_GROWL", "BLOCK_RESPAWN_ANCHOR_DEPLETE"));
+        choice("dragon-event.crate-closed-sound", "Dragon Crate close sound", "Dragon Presentation",
+                "Sound played when the Dragon Crate reward phase ends.", "BLOCK_BEACON_DEACTIVATE",
+                List.of("BLOCK_BEACON_DEACTIVATE", "BLOCK_END_PORTAL_SPAWN", "ENTITY_ENDERMAN_TELEPORT"));
+        choice("dragon-event.damage-wave-sound", "Damage reward sound", "Dragon Presentation",
+                "Sound played at each Dragon damage reward wave.", "BLOCK_AMETHYST_BLOCK_RESONATE",
+                List.of("BLOCK_AMETHYST_BLOCK_RESONATE", "BLOCK_AMETHYST_BLOCK_CHIME", "ENTITY_EXPERIENCE_ORB_PICKUP"));
+        choice("dragon-event.crystal-break-sound", "Crystal reward sound", "Dragon Presentation",
+                "Sound played when a reward crystal is destroyed.", "ENTITY_GENERIC_EXPLODE",
+                List.of("ENTITY_GENERIC_EXPLODE", "BLOCK_AMETHYST_CLUSTER_BREAK", "ENTITY_LIGHTNING_BOLT_THUNDER"));
+        choice("dragon-event.blast-sound", "Amethyst Blast sound", "Dragon Presentation",
+                "Sound played when the Dragon releases an Amethyst Blast.", "ENTITY_WARDEN_SONIC_BOOM",
+                List.of("ENTITY_WARDEN_SONIC_BOOM", "ENTITY_GENERIC_EXPLODE", "ENTITY_ENDER_DRAGON_GROWL"));
+        choice("dragon-event.egg-claim-sound", "Dragon Egg claim sound", "Dragon Presentation",
+                "Sound played for the player who claims an Amethyst Dragon Egg.", "UI_TOAST_CHALLENGE_COMPLETE",
+                List.of("UI_TOAST_CHALLENGE_COMPLETE", "BLOCK_END_PORTAL_SPAWN", "BLOCK_AMETHYST_BLOCK_CHIME"));
+        choice("dragon-event.elytra-create-sound", "Elytra creation sound", "Dragon Presentation",
+                "Sound played when an egg awakens an Amethyst Elytra.", "BLOCK_RESPAWN_ANCHOR_CHARGE",
+                List.of("BLOCK_RESPAWN_ANCHOR_CHARGE", "ITEM_TOTEM_USE", "BLOCK_BEACON_ACTIVATE"));
+        text("dragon-event.portal-hologram-title", "Portal hologram title", "Dragon Presentation",
+                "Large name above the registered portal.", "AMETHYST DRAGON PORTAL", 80);
+        text("dragon-event.ended-hologram", "Ended portal status", "Dragon Presentation",
+                "Portal hologram status after the Amethyst event deadline.", "AMETHYST EVENT ENDED", 80);
+        integer("dragon-event.portal-entry-radius", "Portal entry radius", "Dragon Event",
+                "Distance from the registered portal centre that admits a player.", 4, 1, 20,
+                "blocks", false);
+        integer("dragon-event.portal-light-radius", "Portal light radius", "Dragon Presentation",
+                "Horizontal radius of safe invisible light blocks while the portal is open.", 2, 0, 8,
+                "blocks", false);
+        integer("dragon-event.portal-light-height", "Portal light height", "Dragon Presentation",
+                "Height of the safe invisible light volume while the portal is open.", 4, 0, 16,
+                "blocks", false);
+        integer("dragon-event.portal-light-level", "Portal light level", "Dragon Presentation",
+                "Vanilla light level used while the portal is open.", 15, 0, 15,
+                "level", false);
+        integer("dragon-event.admin-start-delay-seconds", "Admin start delay", "Dragon Event",
+                "Seconds between /dragonportal start and the test fight.", 5, 1, 300,
+                "seconds", false);
+        bool("dragon-event.effects-enabled", "Dragon visual effects", "Dragon Presentation",
+                "Enables Dragon portal, fight, reward, and blast particles and lightning.", true);
+        integer("dragon-event.portal-particle-count", "Portal opening particles", "Dragon Presentation",
+                "Particle count used when the portal first opens.", 220, 0, 10000, "particles", false);
+        integer("dragon-event.portal-pulse-particles", "Portal pulse particles", "Dragon Presentation",
+                "Particles emitted around the open portal each second.", 24, 0, 10000, "particles", false);
+        integer("dragon-event.spawn-particle-count", "Dragon spawn particles", "Dragon Presentation",
+                "Dragon Breath particles emitted when the fight begins.", 300, 0, 10000, "particles", false);
+        integer("dragon-event.ambient-particle-count", "Dragon ambient particles", "Dragon Presentation",
+                "Dust particles emitted around the Dragon each second.", 18, 0, 10000, "particles", false);
+        integer("dragon-event.reward-particle-count", "Reward wave particles", "Dragon Presentation",
+                "Dust particles emitted at each damage reward milestone.", 150, 0, 10000, "particles", false);
+        integer("dragon-event.crystal-particle-count", "Crystal break particles", "Dragon Presentation",
+                "Dragon Breath particles emitted when a reward crystal breaks.", 90, 0, 10000, "particles", false);
+        integer("dragon-event.lightning-one-in", "Ambient lightning chance", "Dragon Presentation",
+                "One-in chance each second for purple visual lightning at the Dragon.", 20, 1, 1000000,
+                "one in", true);
+        integer("dragon-event.blast-one-in-per-second", "Amethyst Blast chance", "Dragon Mechanics",
+                "One-in chance each second for the Dragon's cooperative-area blast.", 18, 1, 1000000,
+                "one in", true);
+        decimal("dragon-event.blast-radius", "Amethyst Blast radius", "Dragon Mechanics",
+                "Players within this distance of the Dragon are hit by its crystal blast.", 9.0, 0.0, 100.0,
+                "blocks");
+        decimal("dragon-event.blast-damage", "Amethyst Blast damage", "Dragon Mechanics",
+                "Damage dealt by the Dragon's crystal blast.", 5.0, 0.0, 1000.0, "damage");
+        integer("dragon-event.blast-particle-count", "Amethyst Blast particles", "Dragon Presentation",
+                "Dragon Breath particles emitted by each Amethyst Blast.", 180, 0, 10000,
+                "particles", false);
+        decimal("dragon-event.blast-knockback", "Amethyst Blast knockback", "Dragon Mechanics",
+                "Horizontal knockback applied by the Amethyst Blast.", 0.8, 0.0, 10.0,
+                "velocity");
+        decimal("dragon-event.blast-lift", "Amethyst Blast lift", "Dragon Mechanics",
+                "Vertical knockback applied by the Amethyst Blast.", 0.45, 0.0, 5.0,
+                "velocity");
+        integer("dragon-event.reward-area-particle-count", "Reward area particles", "Dragon Presentation",
+                "Particles emitted when the return portal and Dragon Crate appear.", 300, 0, 10000,
+                "particles", false);
+        integer("dragon-event.reward-close-particle-count", "Reward close particles", "Dragon Presentation",
+                "Particles emitted when the Dragon Crate disappears.", 180, 0, 10000,
+                "particles", false);
+        integer("dragon-event.egg-particle-count", "Dragon Egg claim particles", "Dragon Presentation",
+                "Particles emitted when an Amethyst Dragon Egg is claimed.", 80, 0, 10000,
+                "particles", false);
+        decimal("dragon-event.effect-sound-volume", "Dragon effect sound volume", "Dragon Presentation",
+                "Volume of local crystal, blast, and reward sounds.", 1.1, 0.0, 10.0, "volume");
+        decimal("dragon-event.announcement-volume", "Dragon announcement volume", "Dragon Presentation",
+                "Volume of server-wide Dragon event announcement sounds.", 1.15, 0.0, 10.0, "volume");
+        decimal("dragon-event.announcement-pitch", "Dragon announcement pitch", "Dragon Presentation",
+                "Pitch of server-wide Dragon event announcement sounds.", 1.0, 0.5, 2.0, "pitch");
+        decimal("dragon-event.damage-wave-pitch", "Damage reward pitch", "Dragon Presentation",
+                "Pitch of the damage reward wave sound.", 0.7, 0.5, 2.0, "pitch");
+        decimal("dragon-event.crystal-break-pitch", "Crystal reward pitch", "Dragon Presentation",
+                "Pitch of the crystal destruction reward sound.", 1.35, 0.5, 2.0, "pitch");
+        decimal("dragon-event.blast-pitch", "Amethyst Blast pitch", "Dragon Presentation",
+                "Pitch of the Dragon's Amethyst Blast sound.", 1.35, 0.5, 2.0, "pitch");
+        decimal("dragon-event.egg-claim-pitch", "Dragon Egg claim pitch", "Dragon Presentation",
+                "Pitch of the Dragon Egg claim sound.", 1.1, 0.5, 2.0, "pitch");
+        decimal("dragon-event.elytra-create-pitch", "Elytra creation pitch", "Dragon Presentation",
+                "Pitch of the Amethyst Elytra creation sound.", 1.3, 0.5, 2.0, "pitch");
+        bool("low-activity-boost.enabled", "Low-activity boost enabled", "Amethyst Events",
+                "Whether world Amethyst event frequency and rewards are boosted during the configured UTC window.", true);
+        text("low-activity-boost.start-utc", "Low-activity boost start", "Amethyst Events",
+                "UTC start time in HH:mm format.", "14:00", 5);
+        text("low-activity-boost.end-utc", "Low-activity boost end", "Amethyst Events",
+                "UTC end time in HH:mm format.", "17:00", 5);
+        decimal("low-activity-boost.spawn-multiplier", "Low-activity spawn boost", "Amethyst Events",
+                "Multiplier applied to Amethyst world-event scheduling frequency.", 2.0, 0.1, 100.0,
+                "multiplier");
+        decimal("low-activity-boost.reward-multiplier", "Low-activity reward boost", "Amethyst Events",
+                "Multiplier applied to Amethyst world-event Key rewards.", 1.5, 0.0, 100.0,
+                "multiplier");
+        integer("amethyst-items.sword-damage", "Amethyst Sword bonus damage", "Amethyst Items",
+                "Extra damage dealt by an active Amethyst Sword.", 6, 0, 1000, "damage", false);
+        integer("amethyst-items.sword-sharpness-level", "Amethyst Sword Sharpness", "Amethyst Items",
+                "Unsafe enchantment level applied to newly-created Amethyst Swords.", 7, 0, 255,
+                "level", false);
+        integer("amethyst-items.hoe-fortune-level", "Amethyst Hoe Fortune", "Amethyst Items",
+                "Fortune level applied to newly-created Amethyst Hoes.", 5, 0, 255,
+                "level", false);
+        integer("amethyst-items.hoe-radius", "Amethyst Hoe radius", "Amethyst Items",
+                "Crop radius around the harvested block. One produces a 3x3 area.", 1, 0, 8,
+                "blocks", false);
+        integer("amethyst-items.bow-damage", "Amethyst Bow bonus damage", "Amethyst Items",
+                "Extra damage dealt by an active Amethyst Bow projectile.", 5, 0, 1000, "damage", false);
+        integer("amethyst-items.bow-power-level", "Amethyst Bow Power", "Amethyst Items",
+                "Power level applied to newly-created Amethyst Bows.", 7, 0, 255,
+                "level", false);
+        integer("amethyst-items.bow-infinity-level", "Amethyst Bow Infinity", "Amethyst Items",
+                "Infinity level on new Amethyst Bows. Set to zero to disable it.", 1, 0, 1,
+                "level", false);
+        integer("amethyst-items.rod-luck-level", "Fishing Rod luck", "Amethyst Items",
+                "Luck of the Sea level applied to new Amethyst Fishing Rods.", 5, 0, 255,
+                "level", false);
+        integer("amethyst-items.rod-lure-level", "Fishing Rod lure", "Amethyst Items",
+                "Lure level applied to new Amethyst Fishing Rods.", 5, 0, 255,
+                "level", false);
+        integer("amethyst-items.arrow-damage", "Amethyst Arrow bonus damage", "Amethyst Items",
+                "Extra damage dealt by a consumable Amethyst Arrow.", 8, 0, 1000, "damage", false);
+        integer("amethyst-items.impact-lightning-percent", "Crystal impact lightning", "Amethyst Items",
+                "Chance for Sword, Bow, and Arrow hits to show visual lightning.", 100, 0, 100,
+                "percent", false);
+        integer("amethyst-items.armor-protection-level", "Armor Protection", "Amethyst Items",
+                "Protection level applied to new Amethyst Armor pieces.", 5, 0, 255,
+                "level", false);
+        integer("amethyst-items.armor-resistance-level", "Armor resistance", "Amethyst Items",
+                "Resistance amplifier while wearing a complete active Amethyst set.", 1, 0, 10, "level", false);
+        integer("amethyst-items.armor-regeneration-level", "Armor regeneration", "Amethyst Items",
+                "Regeneration amplifier while wearing a complete active Amethyst set.", 0, 0, 10,
+                "level", false);
+        integer("amethyst-items.armor-effect-seconds", "Armor effect refresh", "Amethyst Items",
+                "Duration applied whenever the complete active set refreshes its effects.", 3, 1, 30,
+                "seconds", false);
+        decimal("amethyst-items.elytra-speed-multiplier", "Amethyst Elytra speed", "Amethyst Items",
+                "Gliding velocity multiplier; 1.5 is 50 percent faster.", 1.5, 1.0, 5.0,
+                "multiplier");
+        decimal("amethyst-items.elytra-boost-response", "Elytra boost response", "Amethyst Items",
+                "Fraction of the configured speed boost applied per movement tick.", 0.035, 0.0, 1.0,
+                "fraction");
+        decimal("amethyst-items.elytra-maximum-velocity", "Elytra maximum velocity", "Amethyst Items",
+                "Safety ceiling for the boosted velocity magnitude.", 3.5, 0.1, 20.0,
+                "velocity");
+        integer("amethyst-items.elytra-unbreaking-level", "Elytra Unbreaking", "Amethyst Items",
+                "Unbreaking level applied to newly-created Amethyst Elytra.", 5, 0, 255,
+                "level", false);
+        integer("amethyst-items.elytra-particle-count", "Elytra particles", "Amethyst Items",
+                "Electric sparks emitted during each boosted movement tick.", 3, 0, 100,
+                "particles", false);
+        integer("amethyst-items.apple-regeneration-seconds", "Amethyst Apple regeneration", "Amethyst Items",
+                "Regeneration duration after eating an Amethyst Apple.", 20, 0, 600, "seconds", false);
+        integer("amethyst-items.apple-regeneration-level", "Amethyst Apple regeneration level", "Amethyst Items",
+                "Regeneration amplifier granted by an Amethyst Apple.", 3, 0, 10, "level", false);
+        integer("amethyst-items.apple-absorption-hearts", "Amethyst Apple absorption", "Amethyst Items",
+                "Absorption hearts granted by an Amethyst Apple.", 10, 0, 100, "hearts", false);
+        integer("amethyst-items.apple-particle-count", "Amethyst Apple particles", "Amethyst Items",
+                "End Rod particles emitted when an Amethyst Apple is consumed.", 70, 0, 1000,
+                "particles", false);
+        integer("leaderboard.dragon.first-shards", "Dragon leaderboard #1 Shards", "Dragon Leaderboards",
+                "Shards awarded for first place on each individual Dragon leaderboard.", 15, 0, 10000, "shards", false);
+        integer("leaderboard.dragon.second-shards", "Dragon leaderboard #2 Shards", "Dragon Leaderboards",
+                "Shards awarded for second place on each individual Dragon leaderboard.", 10, 0, 10000, "shards", false);
+        integer("leaderboard.dragon.third-shards", "Dragon leaderboard #3 Shards", "Dragon Leaderboards",
+                "Shards awarded for third place on each individual Dragon leaderboard.", 5, 0, 10000, "shards", false);
+        integer("clan-battle.dragon.first-shards", "Dragon Clan #1 Shards", "Dragon Clan Battle",
+                "Shards awarded to each member of the first-place Dragon Egg clan.", 15, 0, 10000, "shards", false);
+        integer("clan-battle.dragon.second-shards", "Dragon Clan #2 Shards", "Dragon Clan Battle",
+                "Shards awarded to each member of the second-place Dragon Egg clan.", 10, 0, 10000, "shards", false);
+        integer("clan-battle.dragon.third-shards", "Dragon Clan #3 Shards", "Dragon Clan Battle",
+                "Shards awarded to each member of the third-place Dragon Egg clan.", 5, 0, 10000, "shards", false);
+        text("permissions.co-owner-parent", "Co-Owner inherited rank", "Permissions",
+                "LuckPerms group inherited by Co-Owner. OG is the server's current ORC-level rank.",
+                "og", 64);
+        text("permissions.co-owner-prefix", "Co-Owner prefix", "Permissions",
+                "LuckPerms legacy-colour prefix assigned to the Co-Owner group.",
+                "&4[CO-OWNER] ", 80);
+        integer("permissions.co-owner-prefix-priority", "Co-Owner prefix priority", "Permissions",
+                "LuckPerms priority for the Co-Owner prefix.", 95, 0, 100000, "priority", false);
+        integer("permissions.co-owner-weight", "Co-Owner weight", "Permissions",
+                "LuckPerms group weight used when resolving inherited ranks.", 95, 0, 100000,
+                "weight", false);
+        for (CrateKind kind : CrateKind.values()) {
+            decimal("crate." + kind.key() + ".animation-duration-multiplier",
+                    kind.menuName() + " animation duration", "Crates",
+                    "Scales opening timings. 0.7 makes openings 30% shorter.",
+                    0.7, 0.05, 10.0, "multiplier");
+        }
+    }
+
     private void defineCore(FileConfiguration config) {
         integer("crate.default.key-cost", "Default crate key cost", "Crates",
                 "Keys consumed by one Default Crate opening.", CrateKind.DEFAULT.keyCost(), 1, 64, "keys", false);
@@ -162,6 +484,8 @@ final class GameVariableStore {
                 "Keys consumed by one Amethyst Crate opening.", CrateKind.AMETHYST.keyCost(), 1, 64, "keys", false);
         integer("crate.shard.key-cost", "Shard crate cost", "Crates",
                 "Shards consumed by one Shard Crate opening.", CrateKind.SHARD.keyCost(), 1, 64, "shards", false);
+        integer("crate.dragon.key-cost", "Dragon crate key cost", "Crates",
+                "Keys consumed by one Dragon Crate opening.", CrateKind.DRAGON.keyCost(), 1, 64, "keys", false);
         integer("crate.keys-per-hour", "Keys per online hour", "Crates",
                 "Ordinary keys earned for each completed online hour.", CrateService.KEYS_PER_HOUR, 1, 256, "keys", false);
         integer("crate.booster-keys-per-hour", "Booster keys per online hour", "Crates",
@@ -639,16 +963,16 @@ final class GameVariableStore {
     private void defineMessages() {
         message("messages.amethyst.reward-wave",
                 "Amethyst reward wave",
-                "A contributor's message at each reward threshold. <keys> is how many they got.",
-                "<#b57edc><bold>Reward wave! </bold></#b57edc><white>You received <keys> keys.</white>");
+                "A contributor's message at each threshold. Supports <keys> and <block>.",
+                "<#b57edc><bold><block> reward wave! </bold></#b57edc><white>You received <keys> keys.</white>");
         message("messages.amethyst.block-broken",
                 "Amethyst block broken",
-                "A contributor's message when the block finally shatters. <keys> is their total.",
-                "<#b57edc><bold>Block broken! </bold></#b57edc><white>You received <keys> keys.</white>");
+                "A contributor's final message. Supports <keys> and <block>.",
+                "<#b57edc><bold><block> broken! </bold></#b57edc><white>You received <keys> keys.</white>");
         message("messages.amethyst.shattered",
                 "Amethyst shattered broadcast",
-                "Shown to the whole server when the Huge Amethyst Block is destroyed.",
-                "<#b57edc>The Huge Amethyst Block shattered! Everyone who helped break it was rewarded.</#b57edc>");
+                "Shown to the whole server when a tiered block is destroyed. Supports <block>.",
+                "<#b57edc>The <block> shattered! Everyone who helped break it was rewarded.</#b57edc>");
         // The landing announcement is a designed banner rather than a line of text, so
         // it has no template to edit; these two are the plain sentences that do.
         message("messages.airdrop.expired",
@@ -657,8 +981,8 @@ final class GameVariableStore {
                 "<white>The <rarity> Amethyst Airdrop expired unclaimed.</white>");
         message("messages.airdrop.looted",
                 "Airdrop looted broadcast",
-                "Shown when an Airdrop is emptied by players. <rarity> is its rarity.",
-                "<white>The <rarity> Amethyst Airdrop was looted.</white>");
+                "Shown when emptied. <rarity> is the rarity; <player> took the last loot.",
+                "<white>The <rarity> Amethyst Airdrop was fully looted by <player>.</white>");
         message("messages.airdrop.disturbed",
                 "Airdrop disturbed broadcast",
                 "Shown when an Airdrop is removed because its chest was interfered with.",
@@ -1532,6 +1856,10 @@ final class GameVariableStore {
     }
 
     CrateCatalog.Reward randomReward(CrateKind kind, int luckPercent, RandomGenerator random) {
+        if (kind == CrateKind.DRAGON
+                && random.nextInt(integer("dragon-crate.secret-one-in")) == 0) {
+            return CrateCatalog.cosmetic(CosmeticCatalog.hiddenDragonRewards().getFirst());
+        }
         if (kind != CrateKind.DEFAULT
                 && random.nextInt(integer("crate.hidden-amethyst-one-in")) == 0) {
             return CrateCatalog.hiddenAmethystAt(0).orElseThrow();

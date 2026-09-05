@@ -318,7 +318,7 @@ final class AdminActionRegistry {
                 yield "Gave " + player.getName() + " " + EconomyFormat.dollars(amount) + ".";
             }
             case "key" -> {
-                hand(player, plugin.crateItems().key(amount));
+                plugin.crateItems().giveKeysOrDrop(player, amount);
                 yield "Gave " + player.getName() + " " + amount + " key(s).";
             }
             case "shard" -> {

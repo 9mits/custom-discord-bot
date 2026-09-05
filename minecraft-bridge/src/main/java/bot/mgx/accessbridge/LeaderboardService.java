@@ -21,6 +21,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Predicate;
 
 /**
  * Builds ranked standings and pushes them to the Discord bot.
@@ -41,6 +42,7 @@ final class LeaderboardService implements Listener {
     private final ClanStore clans;
     private final ClanBattleStore clanBattles;
     private final PersonalNotificationService notifications;
+    private final GameVariableStore variables;
     private final long refreshTicks;
     private final AtomicBoolean publishing = new AtomicBoolean();
     private final AtomicBoolean refreshQueued = new AtomicBoolean();
@@ -59,6 +61,7 @@ final class LeaderboardService implements Listener {
             ClanStore clans,
             ClanBattleStore clanBattles,
             PersonalNotificationService notifications,
+            GameVariableStore variables,
             long refreshTicks
     ) {
         this.plugin = plugin;
@@ -67,6 +70,7 @@ final class LeaderboardService implements Listener {
         this.clans = clans;
         this.clanBattles = clanBattles;
         this.notifications = notifications;
+        this.variables = variables;
         this.refreshTicks = refreshTicks;
     }
 
@@ -183,6 +187,7 @@ final class LeaderboardService implements Listener {
         boolean announceChanges = standingsInitialized;
         individualStandings = updated;
         standings = LeaderboardStandings.bestByPlayer(updated);
+        finalizeDragonRewards(updated);
         standingsInitialized = true;
         if (announceChanges) {
             plugin.getServer().getScheduler().runTask(
@@ -229,6 +234,62 @@ final class LeaderboardService implements Listener {
 
     Optional<LeaderboardStandings.Standing> standing(UUID playerId) {
         return Optional.ofNullable(standings.get(playerId));
+    }
+
+    Optional<LeaderboardStandings.Standing> dragonStanding(UUID playerId) {
+        return bestStanding(playerId, type -> type == LeaderboardType.DRAGON_DAMAGE
+                || type == LeaderboardType.DRAGON_CRYSTALS);
+    }
+
+    Optional<LeaderboardStandings.Standing> standardStanding(UUID playerId) {
+        return bestStanding(playerId, type -> type != LeaderboardType.DRAGON_DAMAGE
+                && type != LeaderboardType.DRAGON_CRYSTALS
+                && type != LeaderboardType.DRAGON_CRATES);
+    }
+
+    private Optional<LeaderboardStandings.Standing> bestStanding(
+            UUID playerId, Predicate<LeaderboardType> accepts
+    ) {
+        return individualStandings.entrySet().stream()
+                .filter(entry -> entry.getKey().playerId().equals(playerId))
+                .map(Map.Entry::getValue)
+                .filter(standing -> accepts.test(standing.type()))
+                .min(Comparator.comparingInt(LeaderboardStandings.Standing::placement)
+                        .thenComparing(standing -> standing.type().key()));
+    }
+
+    private void finalizeDragonRewards(
+            Map<LeaderboardStandings.BoardPlayer, LeaderboardStandings.Standing> current
+    ) {
+        long endsAt = (long) variables.decimal("amethyst-events.ends-at") * 1_000L;
+        if (System.currentTimeMillis() < endsAt) {
+            return;
+        }
+        Map<UUID, Integer> rewards = new HashMap<>();
+        current.forEach((player, standing) -> {
+            if (standing.placement() > 3
+                    || (standing.type() != LeaderboardType.DRAGON_DAMAGE
+                    && standing.type() != LeaderboardType.DRAGON_CRYSTALS)) {
+                return;
+            }
+            rewards.merge(player.playerId(), dragonShardReward(standing.placement()), Math::addExact);
+        });
+        if (clanBattles.queueShardRewardsOnce(
+                "amethyst-dragon-expansion", rewards, "Amethyst Dragon Leaderboards"
+        )) {
+            plugin.getServer().getScheduler().runTask(
+                    plugin, () -> plugin.clanBattles().deliverPendingShardRewards()
+            );
+        }
+    }
+
+    private int dragonShardReward(int placement) {
+        return switch (placement) {
+            case 1 -> variables.integer("leaderboard.dragon.first-shards");
+            case 2 -> variables.integer("leaderboard.dragon.second-shards");
+            case 3 -> variables.integer("leaderboard.dragon.third-shards");
+            default -> 0;
+        };
     }
 
     private void announceImprovements(
@@ -306,6 +367,9 @@ final class LeaderboardService implements Listener {
             case BLOCKS_WALKED -> "Blocks Walked";
             case AMETHYST_CRATES -> "Amethyst Crates Opened";
             case AMETHYST_AIRDROPS -> "Amethyst Airdrops Opened";
+            case DRAGON_DAMAGE -> "Amethyst Dragon Damage";
+            case DRAGON_CRYSTALS -> "End Crystals Broken";
+            case DRAGON_CRATES -> "Dragon Crates Opened";
         };
     }
 

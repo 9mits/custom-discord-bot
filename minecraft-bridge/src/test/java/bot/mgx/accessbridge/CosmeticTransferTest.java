@@ -73,4 +73,37 @@ class CosmeticTransferTest {
         assertTrue(reloaded.isStoredBy(killer, serial));
         assertTrue(reloaded.equipped(victim, CosmeticCatalog.Category.TRAIL.name()).isEmpty());
     }
+
+    @Test
+    void ownerDeletionRemovesTheTokenAndClosesItsSerialGap(@TempDir Path directory) throws Exception {
+        Path file = directory.resolve("cosmetics.json");
+        CosmeticStore store = new CosmeticStore(file);
+        UUID owner = UUID.randomUUID();
+        UUID other = UUID.randomUUID();
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        store.mint(owner, "ember_trail", first);
+        store.mint(other, "ember_trail", second);
+        store.equip(owner, CosmeticCatalog.Category.TRAIL.name(), first);
+
+        assertTrue(store.deleteCopy(owner, first));
+        assertTrue(store.token(first).isEmpty());
+        assertEquals(1, store.token(second).orElseThrow().serialNumber());
+        assertTrue(store.equipped(owner, CosmeticCatalog.Category.TRAIL.name()).isEmpty());
+
+        CosmeticStore reloaded = new CosmeticStore(file);
+        assertTrue(reloaded.token(first).isEmpty());
+        assertEquals(1, reloaded.token(second).orElseThrow().serialNumber());
+    }
+
+    @Test
+    void deletionRequiresCustodyOfTheExactCosmetic(@TempDir Path directory) throws Exception {
+        CosmeticStore store = new CosmeticStore(directory.resolve("cosmetics.json"));
+        UUID owner = UUID.randomUUID();
+        UUID serial = UUID.randomUUID();
+        store.mint(owner, "ember_trail", serial);
+
+        assertTrue(!store.deleteCopy(UUID.randomUUID(), serial));
+        assertTrue(store.token(serial).isPresent());
+    }
 }

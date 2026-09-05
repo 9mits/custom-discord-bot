@@ -17,14 +17,30 @@ import java.util.UUID;
 
 /** Persistent Amethyst Event counters used by the two event leaderboards. */
 final class AmethystProgressStore {
-    record Counts(long cratesOpened, long airdropsOpened) {
+    record Counts(
+            long cratesOpened,
+            long airdropsOpened,
+            long dragonDamage,
+            long dragonCrystals,
+            long dragonCratesOpened,
+            long dragonEggs
+    ) {
+        Counts(long cratesOpened, long airdropsOpened) {
+            this(cratesOpened, airdropsOpened, 0L, 0L, 0L, 0L);
+        }
+
         Counts {
             cratesOpened = Math.max(0L, cratesOpened);
             airdropsOpened = Math.max(0L, airdropsOpened);
+            dragonDamage = Math.max(0L, dragonDamage);
+            dragonCrystals = Math.max(0L, dragonCrystals);
+            dragonCratesOpened = Math.max(0L, dragonCratesOpened);
+            dragonEggs = Math.max(0L, dragonEggs);
         }
 
         boolean empty() {
-            return cratesOpened == 0L && airdropsOpened == 0L;
+            return cratesOpened == 0L && airdropsOpened == 0L && dragonDamage == 0L
+                    && dragonCrystals == 0L && dragonCratesOpened == 0L && dragonEggs == 0L;
         }
     }
 
@@ -44,7 +60,11 @@ final class AmethystProgressStore {
                 JsonObject value = entry.getValue().getAsJsonObject();
                 Counts loaded = new Counts(
                         number(value, "amethyst_crates_opened"),
-                        number(value, "amethyst_airdrops_opened")
+                        number(value, "amethyst_airdrops_opened"),
+                        number(value, "dragon_damage"),
+                        number(value, "dragon_crystals"),
+                        number(value, "dragon_crates_opened"),
+                        number(value, "dragon_eggs")
                 );
                 if (!loaded.empty()) {
                     counts.put(UUID.fromString(entry.getKey()), loaded);
@@ -60,7 +80,7 @@ final class AmethystProgressStore {
     }
 
     synchronized Counts counts(UUID playerId) {
-        return counts.getOrDefault(playerId, new Counts(0L, 0L));
+        return counts.getOrDefault(playerId, new Counts(0L, 0L, 0L, 0L, 0L, 0L));
     }
 
     synchronized Map<UUID, Counts> snapshots() {
@@ -73,7 +93,9 @@ final class AmethystProgressStore {
         }
         Counts before = counts(playerId);
         Counts after = new Counts(
-                Math.addExact(before.cratesOpened(), amount), before.airdropsOpened()
+                Math.addExact(before.cratesOpened(), amount), before.airdropsOpened(),
+                before.dragonDamage(), before.dragonCrystals(), before.dragonCratesOpened(),
+                before.dragonEggs()
         );
         update(playerId, before, after);
         return after.cratesOpened();
@@ -82,7 +104,9 @@ final class AmethystProgressStore {
     synchronized long recordAirdropOpened(UUID playerId) {
         Counts before = counts(playerId);
         Counts after = new Counts(
-                before.cratesOpened(), Math.addExact(before.airdropsOpened(), 1L)
+                before.cratesOpened(), Math.addExact(before.airdropsOpened(), 1L),
+                before.dragonDamage(), before.dragonCrystals(), before.dragonCratesOpened(),
+                before.dragonEggs()
         );
         update(playerId, before, after);
         return after.airdropsOpened();
@@ -90,9 +114,56 @@ final class AmethystProgressStore {
 
     synchronized Counts set(UUID playerId, long cratesOpened, long airdropsOpened) {
         Counts before = counts(playerId);
-        Counts after = new Counts(cratesOpened, airdropsOpened);
+        Counts after = new Counts(
+                cratesOpened, airdropsOpened, before.dragonDamage(), before.dragonCrystals(),
+                before.dragonCratesOpened(), before.dragonEggs()
+        );
         update(playerId, before, after);
         return after;
+    }
+
+    synchronized long recordDragonDamage(UUID playerId, long amount) {
+        Counts before = counts(playerId);
+        Counts after = new Counts(
+                before.cratesOpened(), before.airdropsOpened(),
+                Math.addExact(before.dragonDamage(), Math.max(0L, amount)),
+                before.dragonCrystals(), before.dragonCratesOpened(), before.dragonEggs()
+        );
+        update(playerId, before, after);
+        return after.dragonDamage();
+    }
+
+    synchronized long recordDragonCrystal(UUID playerId) {
+        Counts before = counts(playerId);
+        Counts after = new Counts(
+                before.cratesOpened(), before.airdropsOpened(), before.dragonDamage(),
+                Math.addExact(before.dragonCrystals(), 1L), before.dragonCratesOpened(),
+                before.dragonEggs()
+        );
+        update(playerId, before, after);
+        return after.dragonCrystals();
+    }
+
+    synchronized long recordDragonCrate(UUID playerId) {
+        Counts before = counts(playerId);
+        Counts after = new Counts(
+                before.cratesOpened(), before.airdropsOpened(), before.dragonDamage(),
+                before.dragonCrystals(), Math.addExact(before.dragonCratesOpened(), 1L),
+                before.dragonEggs()
+        );
+        update(playerId, before, after);
+        return after.dragonCratesOpened();
+    }
+
+    synchronized long recordDragonEgg(UUID playerId) {
+        Counts before = counts(playerId);
+        Counts after = new Counts(
+                before.cratesOpened(), before.airdropsOpened(), before.dragonDamage(),
+                before.dragonCrystals(), before.dragonCratesOpened(),
+                Math.addExact(before.dragonEggs(), 1L)
+        );
+        update(playerId, before, after);
+        return after.dragonEggs();
     }
 
     synchronized int clearAll() {
@@ -137,6 +208,10 @@ final class AmethystProgressStore {
             JsonObject value = new JsonObject();
             value.addProperty("amethyst_crates_opened", progress.cratesOpened());
             value.addProperty("amethyst_airdrops_opened", progress.airdropsOpened());
+            value.addProperty("dragon_damage", progress.dragonDamage());
+            value.addProperty("dragon_crystals", progress.dragonCrystals());
+            value.addProperty("dragon_crates_opened", progress.dragonCratesOpened());
+            value.addProperty("dragon_eggs", progress.dragonEggs());
             root.add(playerId.toString(), value);
         });
         try {

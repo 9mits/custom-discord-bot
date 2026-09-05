@@ -40,6 +40,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.Predicate;
 import java.util.stream.Stream;
 
 /** Physical crate openings, published odds, hourly keys, and crash-safe pending claims. */
@@ -149,6 +150,11 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     private record Payout(CrateCatalog.Reward reward, boolean trashed) {
     }
 
+    private long animationTicks(CrateKind kind, long ticks) {
+        return Math.max(1L, Math.round(ticks * variables.decimal(
+                "crate." + kind.key() + ".animation-duration-multiplier")));
+    }
+
     private static final class RollSession {
         private final UUID playerId;
         private final List<Lane> lanes;
@@ -212,7 +218,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     private final ClanBattleService clanBattles;
     private final Map<UUID, RollSession> sessions = new HashMap<>();
     /** Players part way through an auto run, and how many crates are still owed. */
-    private final Map<UUID, Integer> autoRuns = new HashMap<>();
+    private final Map<UUID, Long> autoRuns = new HashMap<>();
     /** How many rewards Auto Trash has removed during the current auto run. */
     private final Map<UUID, Integer> autoTrashed = new HashMap<>();
     /** Set for exactly one result screen, so it can say the reward was thrown away. */
@@ -224,6 +230,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
      * the effect would end the run it interrupted.
      */
     private final Set<UUID> watchingReveal = new java.util.HashSet<>();
+    private Predicate<Player> dragonAccess = ignored -> false;
     private final Map<UUID, CrateKind> selectedKinds = new HashMap<>();
     private final Map<UUID, Long> onlineCreditStarted = new HashMap<>();
     /** A stay-reward interval resets only when the player leaves, never when they move. */
@@ -348,7 +355,15 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         openSelector(player);
     }
 
+    void dragonAccess(Predicate<Player> access) {
+        dragonAccess = access == null ? ignored -> false : access;
+    }
+
     void openFor(Player player, CrateKind kind) {
+        if (kind == CrateKind.DRAGON && !dragonAccess.test(player)) {
+            PlayerMenuService.error(player, "The Dragon Crate is only open inside the finished event arena.");
+            return;
+        }
         openKindHub(player, kind);
     }
 
@@ -616,8 +631,15 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         }
         long now = System.currentTimeMillis();
         if (!kind.available(now)) {
-            PlayerMenuService.error(player, "The Amethyst Crate event has ended.");
+            PlayerMenuService.error(player, kind == CrateKind.DRAGON
+                    ? "The Dragon Crate is closed."
+                    : "The Amethyst Crate event has ended.");
             openSelector(player);
+            return;
+        }
+        if (kind == CrateKind.DRAGON && !dragonAccess.test(player)) {
+            PlayerMenuService.error(player, "You already left this Dragon reward phase.");
+            player.closeInventory();
             return;
         }
         selectedKinds.put(playerId, kind);
@@ -736,7 +758,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         );
         session.frame++;
         session.task = plugin.getServer().getScheduler().runTaskLater(
-                plugin, () -> advance(session), session.delay()
+                plugin, () -> advance(session), animationTicks(session.kind, session.delay())
         );
     }
 
@@ -783,12 +805,12 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             ));
             if (index + 1 < session.lanes.size()) {
                 session.task = plugin.getServer().getScheduler().runTaskLater(
-                        plugin, () -> resolveLane(session, player, index + 1), LANE_REVEAL_TICKS
+                        plugin, () -> resolveLane(session, player, index + 1), animationTicks(session.kind, LANE_REVEAL_TICKS)
                 );
                 return;
             }
             endPull(session, player);
-        }, autoRuns.containsKey(session.playerId) ? 10L : 20L);
+        }, animationTicks(session.kind, autoRuns.containsKey(session.playerId) ? 10L : 20L));
     }
 
     private void endPull(RollSession session, Player player) {
@@ -822,7 +844,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                     ? trashedPreview(payout.reward())
                     : items.revealedPreview(payout.reward(), cosmeticItems));
         }
-        int keys = currencyCount(player, kind);
+        long keys = currencyCount(player, kind);
         int pull = pullSize(player);
         int cost = keyCost(kind) * pull;
         boolean canOpen = keys >= cost;
@@ -834,7 +856,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                         + kind.currency().shortName(keys) + "."
                         : "This needs " + cost + " " + kind.currency().shortName(cost) + "."
         ));
-        int possible = keys / cost;
+        long possible = keys / cost;
         inventory.setItem(RESULT_AUTO_SLOT, MenuItems.button(
                 possible > 0 ? Material.HOPPER : Material.BARRIER,
                 "Auto Open",
@@ -873,10 +895,10 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             PlayerMenuService.error(player, "Your crate is already opening.");
             return;
         }
-        int keys = currencyCount(player, kind);
+        long keys = currencyCount(player, kind);
         int pull = pullSize(player);
         int cost = keyCost(kind) * pull;
-        int opens = keys / cost;
+        long opens = keys / cost;
         if (opens <= 0) {
             PlayerMenuService.error(player, "You need " + cost + " "
                     + kind.currency().fullName(cost) + " to open this crate.");
@@ -917,9 +939,9 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
      * ends the run with the unspent keys still in the player's inventory.
      */
     private void beginAutoOpen(Player player, CrateKind kind) {
-        int keys = currencyCount(player, kind);
+        long keys = currencyCount(player, kind);
         int cost = keyCost(kind) * pullSize(player);
-        int opens = keys / cost;
+        long opens = keys / cost;
         if (opens <= 0) {
             PlayerMenuService.error(player, "You need " + cost + " "
                     + kind.currency().fullName(cost) + " to open this crate.");
@@ -942,7 +964,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         // A triple pull waits for its best drop, not its last one.
         long revealTicks = payouts.stream()
                 .mapToLong(payout ->
-                        CosmeticEffectService.revealDurationTicks(payout.reward().revealTier()))
+                        CosmeticEffectService.revealDurationTicks(payout.reward()))
                 .max().orElse(0L);
         if (revealTicks <= 0L) {
             continueAfterReward(player, payouts, kind);
@@ -961,12 +983,12 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private void continueAfterReward(Player player, List<Payout> payouts, CrateKind kind) {
-        Integer remaining = autoRuns.get(player.getUniqueId());
+        Long remaining = autoRuns.get(player.getUniqueId());
         if (remaining == null) {
             openResult(player, payouts, kind);
             return;
         }
-        int left = remaining - 1;
+        long left = remaining - 1;
         if (left <= 0 || currencyCount(player, kind) < keyCost(kind) * pullSize(player)) {
             autoRuns.remove(player.getUniqueId());
             Integer counted = autoTrashed.remove(player.getUniqueId());
@@ -1108,6 +1130,13 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                 amethystProgress.recordCratesOpened(player.getUniqueId(), 1);
             } catch (UncheckedIOException exception) {
                 plugin.getLogger().warning("Could not record Amethyst Crate opening for "
+                        + player.getUniqueId() + ": " + exception.getMessage());
+            }
+        } else if (kind == CrateKind.DRAGON) {
+            try {
+                amethystProgress.recordDragonCrate(player.getUniqueId());
+            } catch (UncheckedIOException exception) {
+                plugin.getLogger().warning("Could not record Dragon Crate opening for "
                         + player.getUniqueId() + ": " + exception.getMessage());
             }
         }
@@ -1390,16 +1419,15 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         }
     }
 
-    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPickup(EntityPickupItemEvent event) {
         if (!(event.getEntity() instanceof Player player) || !items.isKey(event.getItem().getItemStack())) {
             return;
         }
-        plugin.getServer().getScheduler().runTask(plugin, () -> {
-            if (player.isOnline()) {
-                items.upgradeLegacyKeys(player);
-            }
-        });
+        if (items.giveKeys(player, items.keyCount(event.getItem().getItemStack()))) {
+            event.setCancelled(true);
+            event.getItem().remove();
+        }
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -1418,7 +1446,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                     || player.getOpenInventory().getTopInventory().getHolder() instanceof CrateMenu) {
                 return;
             }
-            Integer left = autoRuns.remove(player.getUniqueId());
+            Long left = autoRuns.remove(player.getUniqueId());
             Integer trashed = autoTrashed.remove(player.getUniqueId());
             if (left != null && left > 0) {
                 CrateKind kind = selectedKinds.getOrDefault(
@@ -1898,19 +1926,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         if (banked <= 0) {
             return 0;
         }
-        int remaining = banked;
-        int delivered = 0;
-        while (remaining > 0) {
-            int batch = Math.min(64, remaining);
-            Map<Integer, ItemStack> leftover = player.getInventory().addItem(items.key(batch));
-            int rejected = leftover.values().stream().mapToInt(ItemStack::getAmount).sum();
-            int accepted = batch - rejected;
-            delivered += accepted;
-            remaining -= accepted;
-            if (accepted < batch) {
-                break;
-            }
-        }
+        int delivered = items.giveKeys(player, banked) ? banked : 0;
         if (delivered == 0) {
             return 0;
         }
@@ -1937,7 +1953,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         return delivered;
     }
 
-    private int currencyCount(Player player, CrateKind kind) {
+    private long currencyCount(Player player, CrateKind kind) {
         return kind.currency() == CrateKind.Currency.SHARD
                 ? items.countShards(player) : items.count(player);
     }
@@ -1956,6 +1972,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         if (count <= 0) {
             return;
         }
+        if (kind.currency() == CrateKind.Currency.KEY && items.giveKeys(player, count)) return;
         player.getInventory().addItem(currencyItem(kind, count)).values().forEach(overflow ->
                 player.getWorld().dropItemNaturally(player.getLocation(), overflow));
     }

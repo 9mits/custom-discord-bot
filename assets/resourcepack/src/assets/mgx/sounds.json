@@ -7,5 +7,14 @@
         "preload": true
       }
     ]
+  },
+  "amethyst_dragon_ascendant": {
+    "sounds": [
+      {
+        "name": "mgx:music/amethyst_dragon_ascendant",
+        "stream": true,
+        "preload": true
+      }
+    ]
   }
 }

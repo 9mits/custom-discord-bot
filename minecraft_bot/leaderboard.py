@@ -42,10 +42,15 @@ TYPE_LABELS: dict[str, str] = {
     "kills": "Most Kills",
     "amethyst_crates": "Most Amethyst Crates Opened",
     "amethyst_airdrops": "Most Amethyst Airdrops Opened",
+    "dragon_damage": "Most Amethyst Dragon Damage",
+    "dragon_crystals": "Most End Crystals Broken",
     "clan_battle": "Current Clan Battle",
 }
 #: Mirrors LeaderboardType.published on the Paper side.
-INDIVIDUAL_TYPES = ("wealth", "kills", "amethyst_crates", "amethyst_airdrops")
+INDIVIDUAL_TYPES = (
+    "wealth", "kills", "amethyst_crates", "amethyst_airdrops",
+    "dragon_damage", "dragon_crystals",
+)
 CLAN_TYPES = ("wealth", "kills", "clan_battle")
 
 CONFIG_CHANNEL = "leaderboard_channel_id"

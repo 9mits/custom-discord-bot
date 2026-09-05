@@ -93,6 +93,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private TrophyHeadStore trophyHeadStore;
     private CrateService crates;
     private AmethystItemService amethystItems;
+    private AmethystDragonService amethystDragon;
     private CrateDisplayService crateDisplays;
     private ActivityLogService activityLog;
     private CosmeticEffectService cosmeticEffects;
@@ -291,6 +292,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             AirdropGuardService.tuningSource(tuning);
             CrateOddsBalance.tuningSource(tuning);
             CrateCatalog.tuningSource(tuning);
+            CrateKind.eventEndSource(() -> (long) (gameVariables.decimal("amethyst-events.ends-at") * 1000L));
             WorldLimits.tuningSource(tuning);
             ChaosService.tuningSource(tuning);
             VerificationLobbyService.tuningSource(tuning);
@@ -349,6 +351,11 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         luckPermsService = LuckPermsService.createIfAvailable(this, rankSyncStore);
         if (luckPermsService != null) {
             luckPermsService.grantEveryoneDefaults();
+            gameVariables.onChange(key -> {
+                if (key.startsWith("permissions.co-owner-")) {
+                    luckPermsService.ensureCoOwner();
+                }
+            });
         }
         identityService = new DiscordIdentityService(this, identityStore);
         personalNotifications = new PersonalNotificationService(this, playerSettings);
@@ -404,6 +411,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 clanStore,
                 clanBattleStore,
                 personalNotifications,
+                gameVariables,
                 bridgeConfig.leaderboardRefreshTicks()
         );
         economyStore.onChange(leaderboardService::refreshSoon);
@@ -482,6 +490,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 || getCommand("crate") == null
                 || getCommand("echest") == null
                 || getCommand("cratehologram") == null
+                || getCommand("dragonportal") == null
                 || getCommand("wardrobe") == null) {
             getLogger().severe("A required Minecraft command is missing from plugin.yml.");
             getServer().getPluginManager().disablePlugin(this);
@@ -565,6 +574,18 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         amethystEvents = new AmethystEventCoordinator(
                 this, airdrops, amethystBlockEvent, gameVariables
         );
+        try {
+            amethystDragon = new AmethystDragonService(
+                    this, gameVariables, crateItems, crates, amethystItems,
+                    amethystProgress, clanBattles
+            );
+            crates.dragonAccess(amethystDragon::canOpenCrate);
+        } catch (IOException exception) {
+            getLogger().severe("MGXAccessBridge could not open the Dragon portal: "
+                    + exception.getMessage());
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        }
         getCommand("wardrobe").setExecutor(wardrobeService);
         getCommand("wardrobe").setTabCompleter(wardrobeService);
         getCommand("crate").setExecutor(crates);
@@ -580,6 +601,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(amethystMobs, this);
         getServer().getPluginManager().registerEvents(specialItems, this);
         getServer().getPluginManager().registerEvents(amethystItems, this);
+        getServer().getPluginManager().registerEvents(amethystDragon, this);
+        getCommand("dragonportal").setExecutor(amethystDragon);
+        getCommand("dragonportal").setTabCompleter(amethystDragon);
         getServer().getPluginManager().registerEvents(enderChests, this);
         try {
             crateDisplays = new CrateDisplayService(
@@ -827,6 +851,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         crates.start();
         clanBattles.start();
         amethystEvents.start();
+        amethystDragon.start();
         amethystMobs.start();
         amethystItems.start();
         amethystShop.start();
@@ -901,6 +926,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         }
         if (amethystEvents != null) {
             amethystEvents.stop();
+        }
+        if (amethystDragon != null) {
+            amethystDragon.stop();
         }
         if (amethystMobs != null) {
             amethystMobs.stop();
@@ -1976,6 +2004,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPlayerPortal(org.bukkit.event.player.PlayerPortalEvent event) {
+        if (amethystDragon != null && amethystDragon.handlePortal(event)) {
+            return;
+        }
         if (event.getTo() != null
                 && event.getTo().getWorld() != null
                 && event.getTo().getWorld().getEnvironment() == World.Environment.THE_END) {
@@ -2030,6 +2061,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPlayerRespawn(PlayerRespawnEvent event) {
+        if (amethystDragon != null && amethystDragon.handleRespawn(event)) {
+            return;
+        }
         if (event.isBedSpawn() || event.isAnchorSpawn()) {
             loadChunk(event.getRespawnLocation());
             return;

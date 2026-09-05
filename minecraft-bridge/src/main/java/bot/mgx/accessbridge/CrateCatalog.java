@@ -123,7 +123,10 @@ final class CrateCatalog {
 
         /** The original reward ID when the Shard Crate reweights an existing prize. */
         String sourceId() {
-            return id.startsWith("shard_") ? id.substring("shard_".length()) : id;
+            if (id.startsWith("shard_")) {
+                return id.substring("shard_".length());
+            }
+            return id.startsWith("dragon_") ? id.substring("dragon_".length()) : id;
         }
 
         boolean secret() {
@@ -201,12 +204,16 @@ final class CrateCatalog {
 
     private static final List<Reward> REWARDS = buildRewards();
     private static final List<Reward> AMETHYST_REWARDS = buildAmethystRewards();
+    private static final List<Reward> DRAGON_REWARDS = buildDragonRewards();
     private static final List<Reward> SHARD_REWARDS = buildShardRewards();
     private static final List<Reward> HIDDEN_AMETHYST_REWARDS =
             CosmeticCatalog.hiddenAmethystRewards().stream().map(CrateCatalog::cosmetic).toList();
     private static final Set<String> AMETHYST_EXCLUSIVE_IDS = Set.of(
             "amethyst_pickaxe", "amethyst_shovel", "amethyst_axe",
-            "amethyst_shield", "amethyst_totem"
+            "amethyst_shield", "amethyst_totem", "amethyst_sword", "amethyst_hoe",
+            "amethyst_bow", "amethyst_fishing_rod", "amethyst_helmet",
+            "amethyst_chestplate", "amethyst_leggings", "amethyst_boots",
+            "amethyst_elytra", "amethyst_arrows", "amethyst_apple"
     );
     private static final Map<String, Reward> BY_ID = indexRewards();
 
@@ -232,6 +239,10 @@ final class CrateCatalog {
         return SHARD_REWARDS;
     }
 
+    static List<Reward> dragon() {
+        return DRAGON_REWARDS;
+    }
+
     static List<Reward> hiddenAmethyst() {
         return HIDDEN_AMETHYST_REWARDS;
     }
@@ -248,6 +259,7 @@ final class CrateCatalog {
             case DEFAULT -> REWARDS;
             case AMETHYST -> AMETHYST_REWARDS;
             case SHARD -> SHARD_REWARDS;
+            case DRAGON -> DRAGON_REWARDS;
         };
     }
 
@@ -309,7 +321,9 @@ final class CrateCatalog {
     static List<Reward> everyReward() {
         return java.util.stream.Stream.of(
                         REWARDS.stream(), AMETHYST_REWARDS.stream(),
-                        HIDDEN_AMETHYST_REWARDS.stream(), SHARD_REWARDS.stream()
+                        HIDDEN_AMETHYST_REWARDS.stream(), SHARD_REWARDS.stream(),
+                        DRAGON_REWARDS.stream(), CosmeticCatalog.hiddenDragonRewards().stream()
+                                .map(CrateCatalog::cosmetic)
                 )
                 .flatMap(stream -> stream)
                 .toList();
@@ -593,14 +607,14 @@ final class CrateCatalog {
      */
     private static List<Reward> buildAmethystRewards() {
         List<Reward> rewards = new ArrayList<>();
-        // Common - 63,000 of 100,000, and every one of them purple.
+        // Common - 62,547 of 100,000, and every one of them purple.
         //
         // The geode shell was the obvious theme and the wrong one: calcite is white
         // stone and smooth basalt and tinted glass both read as black, so five
         // openings in eight paid out something that looked like rubble. What the
         // crate is called is what it should be full of.
         rewards.add(item(
-                "amethyst_shards", "32 Amethyst Shards", Category.RESOURCE, 13_000,
+                "amethyst_shards", "32 Amethyst Shards", Category.RESOURCE, 12_547,
                 "AMETHYST_SHARD", 32, "A bright stack of vanilla amethyst shards."
         ));
         rewards.add(item(
@@ -776,6 +790,32 @@ final class CrateCatalog {
                 "TOTEM_OF_UNDYING", "mgx:amethyst_totem",
                 "A one-use crystal rescue with a ten-heart shell."
         ));
+        rewards.add(amethystItem("amethyst_sword", "Amethyst Sword", Category.TREASURE, 20,
+                "DIAMOND_SWORD", "mgx:amethyst_sword",
+                "Activates for 24 hours with Dragon's Edge and crystal lifesteal."));
+        rewards.add(amethystItem("amethyst_hoe", "Amethyst Hoe", Category.TREASURE, 30,
+                "DIAMOND_HOE", "mgx:amethyst_hoe",
+                "Activates for 24 hours and harvests and replants nearby crops."));
+        rewards.add(amethystItem("amethyst_bow", "Amethyst Bow", Category.TREASURE, 10,
+                "BOW", "mgx:amethyst_bow",
+                "Activates for 24 hours with high Power and crystal impact blasts."));
+        rewards.add(amethystItem("amethyst_fishing_rod", "Amethyst Fishing Rod",
+                Category.TREASURE, 15, "FISHING_ROD", "mgx:amethyst_fishing_rod",
+                "Activates for 24 hours with high Luck of the Sea and Lure."));
+        rewards.add(amethystItem("amethyst_helmet", "Amethyst Helmet", Category.TREASURE, 6,
+                "DIAMOND_HELMET", "mgx:amethyst_helmet", "Part of the 24-hour Dragon Guard set."));
+        rewards.add(amethystItem("amethyst_chestplate", "Amethyst Chestplate", Category.TREASURE, 6,
+                "DIAMOND_CHESTPLATE", "mgx:amethyst_chestplate", "Part of the 24-hour Dragon Guard set."));
+        rewards.add(amethystItem("amethyst_leggings", "Amethyst Leggings", Category.TREASURE, 6,
+                "DIAMOND_LEGGINGS", "mgx:amethyst_leggings", "Part of the 24-hour Dragon Guard set."));
+        rewards.add(amethystItem("amethyst_boots", "Amethyst Boots", Category.TREASURE, 6,
+                "DIAMOND_BOOTS", "mgx:amethyst_boots", "Part of the 24-hour Dragon Guard set."));
+        rewards.add(amethystItem("amethyst_elytra", "Amethyst Elytra", Category.TREASURE, 2,
+                "ELYTRA", "mgx:amethyst_elytra", "Lightning Speed flies 50% faster for 24 hours."));
+        rewards.add(amethystItem("amethyst_arrows", "16 Amethyst Arrows", Category.TREASURE, 252,
+                "TIPPED_ARROW", "mgx:amethyst_arrow", "Permanent consumable crystal arrows."));
+        rewards.add(amethystItem("amethyst_apple", "Amethyst Apple", Category.TREASURE, 100,
+                "ENCHANTED_GOLDEN_APPLE", "mgx:amethyst_apple", "Permanent crystal combat consumable."));
         for (CosmeticCatalog.Definition cosmetic : CosmeticCatalog.amethystRewards()) {
             rewards.add(cosmetic(cosmetic));
         }
@@ -784,6 +824,51 @@ final class CrateCatalog {
             throw new IllegalStateException("Amethyst crate weights total " + total);
         }
         return List.copyOf(rewards);
+    }
+
+    /** One-hour post-fight pool. Frequent openings keep its strongest items scarce. */
+    private static List<Reward> buildDragonRewards() {
+        LinkedHashMap<String, Integer> weights = new LinkedHashMap<>();
+        weights.put("amethyst_arrows", 30_000);
+        weights.put("amethyst_apple", 18_000);
+        weights.put("amethyst_hoe", 9_000);
+        weights.put("amethyst_fishing_rod", 8_000);
+        weights.put("amethyst_sword", 7_000);
+        weights.put("amethyst_bow", 6_000);
+        weights.put("amethyst_pickaxe", 5_000);
+        weights.put("amethyst_shovel", 4_000);
+        weights.put("amethyst_axe", 4_000);
+        weights.put("amethyst_shield", 2_000);
+        weights.put("amethyst_totem", 1_500);
+        weights.put("amethyst_helmet", 1_000);
+        weights.put("amethyst_chestplate", 1_000);
+        weights.put("amethyst_leggings", 1_000);
+        weights.put("amethyst_boots", 1_000);
+        weights.put("amethyst_elytra", 50);
+        weights.put("amethyst_excavation_i", 50);
+        List<Reward> rewards = new ArrayList<>();
+        weights.forEach((id, weight) -> {
+            Reward source = originalAmethystReward(id);
+            rewards.add(new Reward(
+                    "dragon_" + source.id(), source.displayName(), source.category(), weight,
+                    source.materialName(), source.amount(), source.modelKey(), source.cosmeticId(),
+                    source.description()
+            ));
+        });
+        // Nine Dragon Exotic cosmetics are added by CosmeticCatalog and split this pool.
+        for (CosmeticCatalog.Definition cosmetic : CosmeticCatalog.dragonRewards()) {
+            rewards.add(cosmetic(cosmetic));
+        }
+        int total = rewards.stream().mapToInt(Reward::weight).sum();
+        if (total != TOTAL_WEIGHT) {
+            throw new IllegalStateException("Dragon crate weights total " + total);
+        }
+        return List.copyOf(rewards);
+    }
+
+    private static Reward originalAmethystReward(String id) {
+        return AMETHYST_REWARDS.stream().filter(reward -> reward.id().equals(id))
+                .findFirst().orElseThrow(() -> new IllegalStateException("Missing Amethyst reward " + id));
     }
 
     /**
@@ -804,14 +889,25 @@ final class CrateCatalog {
         rewards.add(shardCopy("heavy_core", 7_000));
         rewards.add(shardCopy("enchanted_golden_apple", 7_500));
         rewards.add(shardCopy(
-                "netherite_ingot", "2 Netherite Ingots", 9_000, 2,
+                "netherite_ingot", "2 Netherite Ingots", 3_000, 2,
                 "Two complete netherite ingots."
         ));
-        rewards.add(shardCopy("amethyst_pickaxe", 7_000));
-        rewards.add(shardCopy("amethyst_shovel", 7_000));
-        rewards.add(shardCopy("amethyst_axe", 7_000));
-        rewards.add(shardCopy("amethyst_shield", 6_500));
-        rewards.add(shardCopy("amethyst_totem", 5_060));
+        rewards.add(shardCopy("amethyst_pickaxe", 6_500));
+        rewards.add(shardCopy("amethyst_shovel", 6_500));
+        rewards.add(shardCopy("amethyst_axe", 6_500));
+        rewards.add(shardCopy("amethyst_shield", 6_000));
+        rewards.add(shardCopy("amethyst_totem", 4_530));
+        rewards.add(shardCopy("amethyst_sword", 1_000));
+        rewards.add(shardCopy("amethyst_hoe", 1_200));
+        rewards.add(shardCopy("amethyst_bow", 600));
+        rewards.add(shardCopy("amethyst_fishing_rod", 800));
+        rewards.add(shardCopy("amethyst_helmet", 300));
+        rewards.add(shardCopy("amethyst_chestplate", 300));
+        rewards.add(shardCopy("amethyst_leggings", 300));
+        rewards.add(shardCopy("amethyst_boots", 300));
+        rewards.add(shardCopy("amethyst_elytra", 50));
+        rewards.add(shardCopy("amethyst_arrows", 2_500));
+        rewards.add(shardCopy("amethyst_apple", 1_000));
 
         for (String cosmeticId : List.of(
                 "soul_requiem", "celestial_crown", "prismatic_trail",
@@ -827,6 +923,9 @@ final class CrateCatalog {
                 "crystalline_extinction", "resonant_apotheosis", "shattered_continuum"
         )) {
             rewards.add(shardCosmetic(cosmeticId, 20));
+        }
+        for (CosmeticCatalog.Definition cosmetic : CosmeticCatalog.dragonRewards()) {
+            rewards.add(shardCosmetic(cosmetic.id(), 20));
         }
         int total = rewards.stream().mapToInt(Reward::weight).sum();
         if (total != TOTAL_WEIGHT) {
@@ -893,7 +992,7 @@ final class CrateCatalog {
         );
     }
 
-    private static Reward cosmetic(CosmeticCatalog.Definition cosmetic) {
+    static Reward cosmetic(CosmeticCatalog.Definition cosmetic) {
         return new Reward(
                 "cosmetic_" + cosmetic.id(),
                 cosmetic.displayName(),

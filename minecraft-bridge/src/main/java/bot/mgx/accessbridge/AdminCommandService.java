@@ -390,14 +390,14 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         switch (operation) {
             case "start", "spawn" -> {
                 if (!(sender instanceof Player player)) {
-                    throw new IllegalArgumentException("Run the Huge Amethyst Block start command in game.");
+                    throw new IllegalArgumentException("Run the Amethyst Block start command in game.");
                 }
                 AmethystBlockEventService.Snapshot block = amethystBlocks.spawnNear(player);
                 success(sender, "Started " + block.describe() + ".");
             }
             case "status" -> {
                 AmethystBlockEventService.Snapshot block = amethystBlocks.snapshot();
-                info(sender, block == null ? "No Huge Amethyst Block is active." : block.describe());
+                info(sender, block == null ? "No Amethyst Block event is active." : block.describe());
             }
             case "damage" -> {
                 double damage;
@@ -526,8 +526,8 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         info(sender, "Active Airdrops: " + airdrops.snapshots().size() + "/"
                 + airdrops.maximumActive());
         AmethystBlockEventService.Snapshot block = amethystBlocks.snapshot();
-        info(sender, block == null ? "Huge Amethyst Block: inactive"
-                : "Huge Amethyst Block: " + block.describe());
+        info(sender, block == null ? "Amethyst Block event: inactive"
+                : "Amethyst Block event: " + block.describe());
         info(sender, "/mgxadmin event multiplier <type> <on|off> [seconds]");
         info(sender, "/mgxadmin event airdrop <start [rarity]|status|end|expire>");
         info(sender, "/mgxadmin event airdrop distance <rarity> <minimum> <maximum>");
@@ -700,7 +700,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             }
             case KEY -> {
                 int amount = (int) request.amount();
-                int count = forEachTarget(targets, player -> hand(player, crateItems.key(amount)));
+                int count = forEachTarget(targets, player -> crateItems.giveKeysOrDrop(player, amount));
                 String what = amount + (amount == 1 ? " crate key" : " crate keys");
                 success(sender, "Gave " + what + " to " + describeTargets(targets, count) + ".");
                 audit(sender, targets, what, count);
@@ -1304,7 +1304,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             }
             case "status" -> {
                 AmethystBlockEventService.Snapshot block = amethystBlocks.snapshot();
-                info(sender, block == null ? "No Huge Amethyst Block is active." : block.describe());
+                info(sender, block == null ? "No Amethyst Block event is active." : block.describe());
             }
             case "damage" -> {
                 double damage = args.length < 3 ? 1_100d : Double.parseDouble(args[2]);

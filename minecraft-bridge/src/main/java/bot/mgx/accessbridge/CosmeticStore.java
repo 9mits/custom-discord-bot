@@ -486,6 +486,34 @@ final class CosmeticStore {
         return removed.size();
     }
 
+    /** Deletes a stored copy and closes its serial gap in the same durable write. */
+    synchronized boolean deleteCopy(UUID owner, UUID serial) {
+        Token removed = tokens.get(serial);
+        if (removed == null || removed.generation() != generation
+                || !owner.equals(removed.storedOwner()) || removed.serialNumber() <= 0) {
+            return false;
+        }
+        LinkedHashMap<UUID, Token> before = new LinkedHashMap<>(tokens);
+        LinkedHashMap<UUID, LinkedHashMap<String, UUID>> selections = copyEquipped();
+        tokens.remove(serial);
+        equipped.values().forEach(values -> values.values().removeIf(serial::equals));
+        tokens.replaceAll((id, token) -> token.generation() == generation
+                && token.cosmeticId().equals(removed.cosmeticId())
+                && token.serialNumber() > removed.serialNumber()
+                ? new Token(id, token.cosmeticId(), token.generation(),
+                        token.serialNumber() - 1, token.storedOwner()) : token);
+        try {
+            save();
+        } catch (RuntimeException failure) {
+            tokens.clear();
+            tokens.putAll(before);
+            equipped.clear();
+            equipped.putAll(selections);
+            throw failure;
+        }
+        return true;
+    }
+
     /** Renumbers one cosmetic from #1 without changing custody or equipped selections. */
     synchronized int resetSerials(String cosmeticId) {
         List<Token> matching = tokens.values().stream()

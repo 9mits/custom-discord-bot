@@ -48,7 +48,8 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
 
     private enum Screen {
         HUB,
-        CATEGORY
+        CATEGORY,
+        DELETE
     }
 
     private static final class WardrobeMenu implements InventoryHolder {
@@ -238,6 +239,10 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
             if (saleMode && selected.token().serialNumber() > 0) {
                 lore.add(line("Click to list on the Auction House."));
             }
+            if (!saleMode && selected.token().serialNumber() > 0
+                    && plugin.hasOwnerRankLoaded(player.getUniqueId())) {
+                lore.add(line("Right-click to permanently delete this copy."));
+            }
             meta.lore(lore);
             icon.setItemMeta(meta);
             inventory.setItem(slot, icon);
@@ -259,6 +264,20 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
         }
         event.setCancelled(true);
         if (event.getClickedInventory() != event.getInventory()) {
+            return;
+        }
+        if (menu.screen == Screen.DELETE) {
+            UUID target = menu.tokenSlots.get(11);
+            if (event.getSlot() == 11 && plugin.hasOwnerRankLoaded(player.getUniqueId())) {
+                try {
+                    if (!store.deleteCopy(player.getUniqueId(), target)) {
+                        PlayerMenuService.error(player, "That cosmetic is no longer yours.");
+                    }
+                } catch (UncheckedIOException failure) {
+                    PlayerMenuService.error(player, "Deletion could not be saved. Nothing was removed.");
+                }
+            }
+            openCategory(player, menu.category);
             return;
         }
         if (menu.screen == Screen.HUB) {
@@ -298,6 +317,11 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
             openHub(player);
             return;
         }
+        if (!menu.saleMode && event.isRightClick() && !event.isShiftClick()
+                && plugin.hasOwnerRankLoaded(player.getUniqueId())) {
+            confirmDelete(player, serial, category);
+            return;
+        }
         if (menu.saleMode || event.isShiftClick()) {
             promptSale(player, serial, category);
             return;
@@ -317,6 +341,21 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
         if (event.getInventory().getHolder() instanceof WardrobeMenu) {
             event.setCancelled(true);
         }
+    }
+
+    private void confirmDelete(Player player, UUID serial, CosmeticCatalog.Category category) {
+        CosmeticStore.Token token = store.token(serial).orElse(null);
+        if (token == null || !store.isStoredBy(player.getUniqueId(), serial)
+                || token.serialNumber() <= 0) return;
+        WardrobeMenu menu = new WardrobeMenu(Screen.DELETE, category, false);
+        menu.inventory = Bukkit.createInventory(menu, 27, Component.text("Delete cosmetic?", ORANGE));
+        String name = CosmeticCatalog.find(token.cosmeticId()).orElseThrow().displayName();
+        menu.inventory.setItem(11, button(Material.LAVA_BUCKET, "Permanently delete",
+                name + " #" + token.serialNumber(), "This copy is removed forever.",
+                "Later serials move down to close the gap."));
+        menu.tokenSlots.put(11, serial);
+        menu.inventory.setItem(15, button(Material.BARRIER, "Cancel"));
+        MenuItems.show(plugin, player, menu.inventory);
     }
 
     private void equip(Player player, UUID serial, CosmeticCatalog.Category category) {
@@ -443,7 +482,11 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
         if (saleMode) {
             return Optional.empty();
         }
-        return leaderboard.standing(player.getUniqueId())
+        Optional<LeaderboardStandings.Standing> relevant = category == CosmeticCatalog.Category.AURA
+                ? leaderboard.dragonStanding(player.getUniqueId())
+                        .or(() -> leaderboard.standardStanding(player.getUniqueId()))
+                : leaderboard.standardStanding(player.getUniqueId());
+        return relevant
                 .flatMap(standing -> podiumRewardForMenu(standing, category, false)
                         .map(definition -> new PodiumReward(standing, definition)));
     }
@@ -455,6 +498,10 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
     ) {
         if (saleMode || standing == null || standing.placement() > 3) {
             return Optional.empty();
+        }
+        if (standing.type() == LeaderboardType.DRAGON_DAMAGE
+                || standing.type() == LeaderboardType.DRAGON_CRYSTALS) {
+            return CosmeticCatalog.dragonLeaderboardReward(standing.placement(), category);
         }
         return CosmeticCatalog.leaderboardReward(standing.placement(), category);
     }
@@ -491,6 +538,9 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
             case BLOCKS_WALKED -> "Blocks walked";
             case AMETHYST_CRATES -> "Amethyst crates opened";
             case AMETHYST_AIRDROPS -> "Amethyst airdrops opened";
+            case DRAGON_DAMAGE -> "Amethyst Dragon damage";
+            case DRAGON_CRYSTALS -> "End Crystals broken";
+            case DRAGON_CRATES -> "Dragon crates opened";
         };
     }
 

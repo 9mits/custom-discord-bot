@@ -23,8 +23,12 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockDropItemEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.event.entity.EntityShootBowEvent;
 import org.bukkit.event.entity.EntityResurrectEvent;
 import org.bukkit.event.inventory.InventoryOpenEvent;
+import org.bukkit.event.player.PlayerFishEvent;
+import org.bukkit.event.player.PlayerItemConsumeEvent;
+import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerItemDamageEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.inventory.ItemStack;
@@ -42,6 +46,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -53,10 +58,11 @@ final class AmethystItemService implements Listener {
     static final long ACTIVE_MILLIS = Duration.ofHours(24).toMillis();
     private static final TextColor AMETHYST = TextColor.color(0xB56CFF);
     private static final Set<String> TIMED_KINDS = Set.of(
-            "pickaxe", "shovel", "axe", "shield"
+            "pickaxe", "shovel", "axe", "shield", "sword", "hoe", "bow",
+            "fishing_rod", "helmet", "chestplate", "leggings", "boots", "elytra"
     );
     /** The three that break blocks, and so the three Efficiency means anything on. */
-    private static final Set<String> DIGGING_KINDS = Set.of("pickaxe", "shovel", "axe");
+    private static final Set<String> DIGGING_KINDS = Set.of("pickaxe", "shovel", "axe", "hoe");
     private static final int EFFICIENCY_LEVEL = 5;
     /** Live tuning; the constants above stay the defaults and stand alone in tests. */
     private static volatile java.util.function.ToDoubleFunction<String> tuning = key -> Double.NaN;
@@ -89,6 +95,7 @@ final class AmethystItemService implements Listener {
     private final NamespacedKey serialKey;
     private final NamespacedKey activatedKey;
     private final NamespacedKey expiresKey;
+    private final NamespacedKey arrowKey;
     private final Set<UUID> multiBreaking = new HashSet<>();
     private final Map<UUID, Integer> blockedHits = new HashMap<>();
     private Runnable auctionSweep = () -> { };
@@ -100,6 +107,7 @@ final class AmethystItemService implements Listener {
         serialKey = new NamespacedKey(plugin, "amethyst_item_serial");
         activatedKey = new NamespacedKey(plugin, "amethyst_activated_at");
         expiresKey = new NamespacedKey(plugin, "amethyst_expires_at");
+        arrowKey = new NamespacedKey(plugin, "amethyst_arrow");
     }
 
     void useAuctionSweep(Runnable auctionSweep) {
@@ -141,8 +149,94 @@ final class AmethystItemService implements Listener {
                     "Guard Burst after repeated blocks", "mgx:amethyst_shield"
             ));
             case "amethyst_totem" -> Optional.of(createTotem());
+            case "amethyst_sword" -> Optional.of(createTimed(
+                    Material.DIAMOND_SWORD, "sword", "Amethyst Sword",
+                    "Crystal Edge adds heavy bonus damage", "Violet lightning marks every hit",
+                    "mgx:amethyst_sword"));
+            case "amethyst_hoe" -> Optional.of(createTimed(
+                    Material.DIAMOND_HOE, "hoe", "Amethyst Hoe",
+                    "Harvests a 3x3 crop area", "Fortune V and automatic replanting",
+                    "mgx:amethyst_hoe"));
+            case "amethyst_bow" -> Optional.of(createTimed(
+                    Material.BOW, "bow", "Amethyst Bow",
+                    "Crystal shots deal bonus damage", "Every shot leaves violet lightning",
+                    "mgx:amethyst_bow"));
+            case "amethyst_fishing_rod" -> Optional.of(createTimed(
+                    Material.FISHING_ROD, "fishing_rod", "Amethyst Fishing Rod",
+                    "Treasure-tuned fishing", "Luck of the Sea V and Lure V",
+                    "mgx:amethyst_fishing_rod"));
+            case "amethyst_helmet" -> Optional.of(armor(Material.DIAMOND_HELMET, "helmet", "Amethyst Helmet"));
+            case "amethyst_chestplate" -> Optional.of(armor(Material.DIAMOND_CHESTPLATE, "chestplate", "Amethyst Chestplate"));
+            case "amethyst_leggings" -> Optional.of(armor(Material.DIAMOND_LEGGINGS, "leggings", "Amethyst Leggings"));
+            case "amethyst_boots" -> Optional.of(armor(Material.DIAMOND_BOOTS, "boots", "Amethyst Boots"));
+            case "amethyst_elytra" -> Optional.of(elytra());
+            case "amethyst_arrows" -> Optional.of(amethystArrows(reward.amount()));
+            case "amethyst_apple" -> Optional.of(amethystApple(reward.amount()));
             default -> Optional.empty();
         };
+    }
+
+    Optional<ItemStack> createById(String rewardId) {
+        return CrateCatalog.everyReward().stream()
+                .filter(reward -> reward.sourceId().equals(rewardId))
+                .findFirst().flatMap(this::create);
+    }
+
+    private ItemStack armor(Material material, String kind, String name) {
+        ItemStack item = createTimed(material, kind, name,
+                "Full set grants Crystal Bulwark", "Continuous resistance and regeneration",
+                "mgx:amethyst_" + kind);
+        ItemMeta meta = item.getItemMeta();
+        meta.addEnchant(Enchantment.PROTECTION,
+                (int) tuned("amethyst-items.armor-protection-level", 5), true);
+        org.bukkit.inventory.meta.components.EquippableComponent equippable = meta.getEquippable();
+        equippable.setModel(NamespacedKey.fromString("mgx:amethyst_armor"));
+        meta.setEquippable(equippable);
+        item.setItemMeta(meta);
+        return item;
+    }
+
+    private ItemStack elytra() {
+        ItemStack item = createTimed(Material.ELYTRA, "elytra", "Amethyst Elytra",
+                "Lightning Speed", "Glides 50% faster than an ordinary Elytra",
+                "mgx:amethyst_elytra");
+        ItemMeta meta = item.getItemMeta();
+        meta.addEnchant(Enchantment.UNBREAKING,
+                (int) tuned("amethyst-items.elytra-unbreaking-level", 5), true);
+        org.bukkit.inventory.meta.components.EquippableComponent equippable = meta.getEquippable();
+        equippable.setModel(NamespacedKey.fromString("mgx:amethyst_elytra"));
+        meta.setEquippable(equippable);
+        item.setItemMeta(meta);
+        return item;
+    }
+
+    private ItemStack amethystArrows(int amount) {
+        ItemStack item = new ItemStack(Material.TIPPED_ARROW, Math.clamp(amount, 1, 64));
+        ItemMeta meta = item.getItemMeta();
+        meta.displayName(Component.text("Amethyst Arrows", AMETHYST, TextDecoration.BOLD)
+                .decoration(TextDecoration.ITALIC, false));
+        meta.getPersistentDataContainer().set(arrowKey, PersistentDataType.BYTE, (byte) 1);
+        NamespacedKey model = NamespacedKey.fromString("mgx:amethyst_arrow");
+        if (model != null) meta.setItemModel(model);
+        meta.lore(List.of(line("Consumable crystal arrows that burst with lightning."),
+                line("Permanent until fired; no expiration timer.")));
+        item.setItemMeta(meta);
+        return item;
+    }
+
+    private ItemStack amethystApple(int amount) {
+        ItemStack item = new ItemStack(Material.ENCHANTED_GOLDEN_APPLE, Math.clamp(amount, 1, 64));
+        ItemMeta meta = item.getItemMeta();
+        meta.displayName(Component.text("Amethyst Apple", AMETHYST, TextDecoration.BOLD)
+                .decoration(TextDecoration.ITALIC, false));
+        meta.getPersistentDataContainer().set(kindKey, PersistentDataType.STRING, "apple");
+        NamespacedKey model = NamespacedKey.fromString("mgx:amethyst_apple");
+        if (model != null) meta.setItemModel(model);
+        meta.addEnchant(Enchantment.UNBREAKING, 1, true);
+        meta.lore(List.of(line("A permanent consumable with powerful crystal regeneration."),
+                line("Consumables do not expire.")));
+        item.setItemMeta(meta);
+        return item;
     }
 
     private ItemStack createTimed(
@@ -167,6 +261,25 @@ final class AmethystItemService implements Listener {
         // an enchantment vanilla would refuse only adds a line to its tooltip.
         if (DIGGING_KINDS.contains(kind)) {
             meta.addEnchant(Enchantment.EFFICIENCY, (int) tuned("amethyst-items.efficiency-level", EFFICIENCY_LEVEL), true);
+        }
+        switch (kind) {
+            case "sword" -> meta.addEnchant(Enchantment.SHARPNESS,
+                    (int) tuned("amethyst-items.sword-sharpness-level", 7), true);
+            case "hoe" -> meta.addEnchant(Enchantment.FORTUNE,
+                    (int) tuned("amethyst-items.hoe-fortune-level", 5), true);
+            case "bow" -> {
+                meta.addEnchant(Enchantment.POWER,
+                        (int) tuned("amethyst-items.bow-power-level", 7), true);
+                int infinity = (int) tuned("amethyst-items.bow-infinity-level", 1);
+                if (infinity > 0) meta.addEnchant(Enchantment.INFINITY, infinity, true);
+            }
+            case "fishing_rod" -> {
+                meta.addEnchant(Enchantment.LUCK_OF_THE_SEA,
+                        (int) tuned("amethyst-items.rod-luck-level", 5), true);
+                meta.addEnchant(Enchantment.LURE,
+                        (int) tuned("amethyst-items.rod-lure-level", 5), true);
+            }
+            default -> { }
         }
         NamespacedKey model = NamespacedKey.fromString(modelKey);
         if (model != null) {
@@ -201,12 +314,18 @@ final class AmethystItemService implements Listener {
     }
 
     private List<Component> inactiveLore(String ability, String detail, String kind) {
-        String trigger = kind.equals("shield")
-                ? "Timer begins on your first successful block."
-                : "Timer begins when you first break a block.";
+        String trigger = switch (kind) {
+            case "shield" -> "Timer begins on your first successful block.";
+            case "sword", "bow" -> "Timer begins on your first attack.";
+            case "fishing_rod" -> "Timer begins on your first cast.";
+            case "helmet", "chestplate", "leggings", "boots", "elytra" ->
+                    "Timer begins when equipped and used.";
+            default -> "Timer begins when you first break a block.";
+        };
+        double hours = tuned("amethyst-items.active-hours", 24d);
         return List.of(
                 line(ability), line(detail), Component.empty(),
-                line("Unbreakable for 24 hours after activation."),
+                line("Unbreakable for " + formatHours(hours) + " after activation."),
                 line(trigger),
                 line("May be enchanted before or after activation.")
         );
@@ -285,10 +404,12 @@ final class AmethystItemService implements Listener {
         old.add(activeCountdown(expires - now));
         meta.lore(old);
         item.setItemMeta(meta);
+        double hours = tuned("amethyst-items.active-hours", 24d);
         owner.sendMessage(PlayerMenuService.prefix()
                 .append(Component.text("Amethyst item activated! ", AMETHYST, TextDecoration.BOLD))
-                .append(Component.text("It expires in 24 hours.", NamedTextColor.WHITE)));
-        owner.sendActionBar(Component.text("◆ 24-HOUR AMETHYST TIMER STARTED ◆", AMETHYST,
+                .append(Component.text("It expires in " + formatHours(hours) + ".", NamedTextColor.WHITE)));
+        owner.sendActionBar(Component.text("◆ AMETHYST TIMER STARTED: " + formatHours(hours).toUpperCase(Locale.ROOT)
+                        + " ◆", AMETHYST,
                 TextDecoration.BOLD));
         owner.playSound(owner.getLocation(), Sound.BLOCK_AMETHYST_BLOCK_RESONATE, 1.2f, 1.1f);
         owner.getWorld().spawnParticle(Particle.END_ROD, owner.getLocation().add(0, 1, 0),
@@ -300,9 +421,20 @@ final class AmethystItemService implements Listener {
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onToolBreak(BlockBreakEvent event) {
         Player player = event.getPlayer();
+        if (event.getBlock().getType() == Material.AMETHYST_BLOCK
+                && ThreadLocalRandom.current().nextInt((int) tuned(
+                        "amethyst-blocks.shard-one-in", 25_000d)) == 0) {
+            int amount = (int) tuned("amethyst-blocks.shard-amount", 1d);
+            if (amount > 0) {
+                player.getInventory().addItem(plugin.crateItems().shard(amount)).values().forEach(left ->
+                        player.getWorld().dropItemNaturally(player.getLocation(), left));
+                player.sendActionBar(Component.text("◆ RARE AMETHYST SHARD FOUND ◆", AMETHYST,
+                        TextDecoration.BOLD));
+            }
+        }
         ItemStack tool = player.getInventory().getItemInMainHand();
         String kind = kind(tool).orElse("");
-        if (!Set.of("pickaxe", "shovel", "axe").contains(kind)
+        if (!Set.of("pickaxe", "shovel", "axe", "hoe").contains(kind)
                 || expired(tool, System.currentTimeMillis())) {
             return;
         }
@@ -311,6 +443,8 @@ final class AmethystItemService implements Listener {
             return;
         }
         Block centre = event.getBlock();
+        Material centreCrop = centre.getBlockData() instanceof org.bukkit.block.data.Ageable crop
+                && crop.getAge() >= crop.getMaximumAge() ? centre.getType() : null;
         boolean tree = kind.equals("axe") && Tag.LOGS.isTagged(centre.getType());
         plugin.getServer().getScheduler().runTask(plugin, () -> {
             if (!player.isOnline() || expired(tool, System.currentTimeMillis())) {
@@ -320,6 +454,8 @@ final class AmethystItemService implements Listener {
             try {
                 if (tree) {
                     fellTree(player, centre);
+                } else if (kind.equals("hoe")) {
+                    harvestCrops(player, centre, centreCrop);
                 } else {
                     boolean pickaxe = kind.equals("pickaxe");
                     boolean shovel = kind.equals("shovel");
@@ -337,6 +473,136 @@ final class AmethystItemService implements Listener {
                 multiBreaking.remove(player.getUniqueId());
             }
         });
+    }
+
+    private void harvestCrops(Player player, Block centre, Material centreCrop) {
+        int radius = (int) tuned("amethyst-items.hoe-radius", 1d);
+        for (int x = -radius; x <= radius; x++) {
+            for (int z = -radius; z <= radius; z++) {
+                Block block = centre.getRelative(x, 0, z);
+                if (x == 0 && z == 0 && centreCrop != null && block.getType().isAir()) {
+                    block.setType(centreCrop, false);
+                    continue;
+                }
+                if (!(block.getBlockData() instanceof org.bukkit.block.data.Ageable crop)
+                        || crop.getAge() < crop.getMaximumAge()) continue;
+                Material cropType = block.getType();
+                block.breakNaturally(player.getInventory().getItemInMainHand());
+                block.setType(cropType, false);
+                org.bukkit.block.data.Ageable replanted = (org.bukkit.block.data.Ageable) block.getBlockData();
+                replanted.setAge(0);
+                block.setBlockData(replanted, false);
+            }
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onBow(EntityShootBowEvent event) {
+        if (!(event.getEntity() instanceof Player player) || event.getBow() == null) return;
+        boolean specialArrow = isAmethystArrow(event.getConsumable());
+        boolean specialBow = kind(event.getBow()).filter("bow"::equals).isPresent()
+                && !expired(event.getBow(), System.currentTimeMillis());
+        if (!specialArrow && !specialBow) return;
+        if (specialBow) activate(player, event.getBow());
+        if (event.getProjectile() instanceof Projectile projectile) {
+            projectile.getPersistentDataContainer().set(arrowKey, PersistentDataType.BYTE,
+                    (byte) (specialArrow ? 2 : 1));
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onWeaponDamage(EntityDamageByEntityEvent event) {
+        Player player = event.getDamager() instanceof Player direct ? direct
+                : event.getDamager() instanceof Projectile projectile
+                && projectile.getShooter() instanceof Player shooter ? shooter : null;
+        if (player == null) return;
+        if (event.getDamager() instanceof Player) {
+            ItemStack weapon = player.getInventory().getItemInMainHand();
+            if (kind(weapon).filter("sword"::equals).isPresent()
+                    && !expired(weapon, System.currentTimeMillis())) {
+                activate(player, weapon);
+                event.setDamage(event.getDamage() + tuned("amethyst-items.sword-damage", 6d));
+                crystalLightning(event.getEntity());
+            }
+        } else if (event.getDamager() instanceof Projectile projectile) {
+            Byte mark = projectile.getPersistentDataContainer().get(arrowKey, PersistentDataType.BYTE);
+            if (mark != null) {
+                String key = mark == 2 ? "amethyst-items.arrow-damage" : "amethyst-items.bow-damage";
+                event.setDamage(event.getDamage() + tuned(key, mark == 2 ? 8d : 5d));
+                crystalLightning(event.getEntity());
+            }
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onFish(PlayerFishEvent event) {
+        ItemStack rod = event.getPlayer().getInventory().getItemInMainHand();
+        if (kind(rod).filter("fishing_rod"::equals).isPresent()
+                && !expired(rod, System.currentTimeMillis())) activate(event.getPlayer(), rod);
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onConsume(PlayerItemConsumeEvent event) {
+        if (!kind(event.getItem()).filter("apple"::equals).isPresent()) return;
+        int seconds = (int) tuned("amethyst-items.apple-regeneration-seconds", 20d);
+        if (seconds > 0) event.getPlayer().addPotionEffect(new PotionEffect(
+                PotionEffectType.REGENERATION, seconds * 20,
+                (int) tuned("amethyst-items.apple-regeneration-level", 3d)));
+        event.getPlayer().setAbsorptionAmount(Math.max(event.getPlayer().getAbsorptionAmount(),
+                tuned("amethyst-items.apple-absorption-hearts", 10d) * 2d));
+        event.getPlayer().getWorld().spawnParticle(Particle.END_ROD,
+                event.getPlayer().getLocation().add(0, 1, 0),
+                (int) tuned("amethyst-items.apple-particle-count", 70d),
+                0.7, 0.9, 0.7, 0.08);
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onWear(PlayerMoveEvent event) {
+        Player player = event.getPlayer();
+        ItemStack chest = player.getInventory().getChestplate();
+        if (player.isGliding() && kind(chest).filter("elytra"::equals).isPresent()
+                && !expired(chest, System.currentTimeMillis())) {
+            activate(player, chest);
+            double multiplier = tuned("amethyst-items.elytra-speed-multiplier", 1.5d);
+            double current = player.getVelocity().length();
+            double maximum = tuned("amethyst-items.elytra-maximum-velocity", 3.5d);
+            double response = tuned("amethyst-items.elytra-boost-response", 0.035d);
+            if (current > 0.1d && current < maximum) player.setVelocity(player.getVelocity().multiply(
+                    1d + (multiplier - 1d) * response));
+            player.getWorld().spawnParticle(Particle.ELECTRIC_SPARK, player.getLocation(),
+                    (int) tuned("amethyst-items.elytra-particle-count", 3d),
+                    0.4, 0.2, 0.4, 0.02);
+        }
+        ItemStack[] armor = player.getInventory().getArmorContents();
+        String[] kinds = {"boots", "leggings", "chestplate", "helmet"};
+        for (int index = 0; index < armor.length; index++) {
+            if (!kind(armor[index]).filter(kinds[index]::equals).isPresent()
+                    || expired(armor[index], System.currentTimeMillis())) return;
+        }
+        for (ItemStack piece : armor) activate(player, piece);
+        int effectTicks = (int) tuned("amethyst-items.armor-effect-seconds", 3d) * 20;
+        player.addPotionEffect(new PotionEffect(PotionEffectType.RESISTANCE, effectTicks,
+                (int) tuned("amethyst-items.armor-resistance-level", 1d), true, false, true));
+        player.addPotionEffect(new PotionEffect(PotionEffectType.REGENERATION, effectTicks,
+                (int) tuned("amethyst-items.armor-regeneration-level", 0d),
+                true, false, true));
+    }
+
+    private void crystalLightning(Entity target) {
+        int chance = (int) tuned("amethyst-items.impact-lightning-percent", 100d);
+        if (chance > 0 && ThreadLocalRandom.current().nextInt(100) < chance) {
+            target.getWorld().strikeLightningEffect(target.getLocation());
+        }
+    }
+
+    private boolean isAmethystArrow(ItemStack item) {
+        return item != null && item.hasItemMeta()
+                && item.getItemMeta().getPersistentDataContainer().has(arrowKey, PersistentDataType.BYTE);
+    }
+
+    private static String formatHours(double hours) {
+        return hours == Math.rint(hours) ? String.format(Locale.ROOT, "%.0f hours", hours)
+                : String.format(Locale.ROOT, "%.1f hours", hours);
     }
 
     private void fellTree(Player player, Block origin) {

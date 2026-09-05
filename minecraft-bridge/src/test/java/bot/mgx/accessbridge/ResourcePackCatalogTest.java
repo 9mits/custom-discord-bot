@@ -155,18 +155,31 @@ class ResourcePackCatalogTest {
     @Test
     void customItemIconsPreserveTheirIntendedQualityProfiles() throws Exception {
         Set<String> nativePotions = Set.of("fortune_potion.png", "crate_luck_potion.png");
-        Map<String, List<Integer>> exactLinkedIcons = Map.of(
-                "amethyst_pickaxe.png", List.of(16, 16),
-                "amethyst_shovel.png", List.of(16, 16),
-                "amethyst_axe.png", List.of(16, 16),
-                "amethyst_shield.png", List.of(64, 64),
-                "amethyst_totem.png", List.of(360, 360)
+        Map<String, List<Integer>> exactLinkedIcons = Map.ofEntries(
+                Map.entry("amethyst_pickaxe.png", List.of(16, 16)),
+                Map.entry("amethyst_shovel.png", List.of(16, 16)),
+                Map.entry("amethyst_axe.png", List.of(16, 16)),
+                Map.entry("amethyst_sword.png", List.of(16, 16)),
+                Map.entry("amethyst_hoe.png", List.of(16, 16)),
+                Map.entry("amethyst_bow.png", List.of(16, 16)),
+                Map.entry("amethyst_fishing_rod.png", List.of(16, 16)),
+                Map.entry("amethyst_helmet.png", List.of(16, 16)),
+                Map.entry("amethyst_chestplate.png", List.of(16, 16)),
+                Map.entry("amethyst_leggings.png", List.of(16, 16)),
+                Map.entry("amethyst_boots.png", List.of(16, 16)),
+                Map.entry("amethyst_elytra.png", List.of(16, 16)),
+                Map.entry("amethyst_arrow.png", List.of(16, 16)),
+                Map.entry("amethyst_apple.png", List.of(16, 16)),
+                Map.entry("amethyst_dragon_egg.png", List.of(16, 64)),
+                Map.entry("amethyst_shield.png", List.of(64, 64)),
+                Map.entry("amethyst_totem.png", List.of(360, 360))
         );
         Set<Path> icons = new HashSet<>();
         Path textures = SOURCE.resolve("assets/mgx/textures/item");
         icons.add(textures.resolve("crate_key.png"));
         icons.add(textures.resolve("fortune_potion.png"));
         icons.add(textures.resolve("crate_luck_potion.png"));
+        icons.add(textures.resolve("amethyst_dragon_egg.png"));
         icons.add(SOURCE.resolve(resolvedTexture(CosmeticCatalog.MASKED_MODEL_KEY)));
         for (CosmeticCatalog.Definition definition : CosmeticCatalog.visualEntries()) {
             icons.add(SOURCE.resolve(resolvedTexture(definition.modelKey())));
@@ -340,6 +353,7 @@ class ResourcePackCatalogTest {
         expectedBases.put("mgx:shard", "minecraft:amethyst_shard");
         expectedBases.put("mgx:fortune_potion", "minecraft:potion");
         expectedBases.put("mgx:crate_luck_potion", "minecraft:potion");
+        expectedBases.put("mgx:amethyst_dragon_egg", "minecraft:dragon_egg");
         expectedBases.put(CosmeticCatalog.MASKED_MODEL_KEY, "minecraft:black_dye");
         for (CosmeticCatalog.Definition definition : CosmeticCatalog.visualEntries()) {
             expectedBases.put(

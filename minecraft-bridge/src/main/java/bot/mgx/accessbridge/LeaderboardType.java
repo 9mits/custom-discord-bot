@@ -15,7 +15,10 @@ enum LeaderboardType {
     BLOCKS_MINED(false),
     BLOCKS_WALKED(false),
     AMETHYST_CRATES(false),
-    AMETHYST_AIRDROPS(false);
+    AMETHYST_AIRDROPS(false),
+    DRAGON_DAMAGE(false),
+    DRAGON_CRYSTALS(false),
+    DRAGON_CRATES(false);
 
     private final boolean clanEligible;
 
@@ -32,7 +35,9 @@ enum LeaderboardType {
         return this == WEALTH
                 || this == KILLS
                 || this == AMETHYST_CRATES
-                || this == AMETHYST_AIRDROPS;
+                || this == AMETHYST_AIRDROPS
+                || this == DRAGON_DAMAGE
+                || this == DRAGON_CRYSTALS;
     }
 
     /** Renders a raw figure the way players read it, not the way the game stores it. */
@@ -58,6 +63,9 @@ enum LeaderboardType {
             case BLOCKS_WALKED -> "»";
             case AMETHYST_CRATES -> "◇";
             case AMETHYST_AIRDROPS -> "◆";
+            case DRAGON_DAMAGE -> "♢";
+            case DRAGON_CRYSTALS -> "✦";
+            case DRAGON_CRATES -> "◇";
         };
     }
 
