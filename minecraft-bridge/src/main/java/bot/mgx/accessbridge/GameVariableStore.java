@@ -396,19 +396,19 @@ final class GameVariableStore {
         integer("dragon-event.dragon-summon-particle-count", "Dragon summon particles", "Dragon Presentation",
                 "Particles emitted during each Dragon summoning pulse.", 160, 0, 20000,
                 "particles", false);
-        integer("dragon-event.dragon-summon-lightning-every-pulses", "Dragon summon lightning interval", "Dragon Presentation",
-                "Visual lightning cadence during the summoning sequence.", 2, 1, 100,
+        integer("dragon-event.dragon-summon-lightning-every-pulses", "Dragon summon burst interval", "Dragon Presentation",
+                "Particle burst cadence during the summoning sequence.", 2, 1, 100,
                 "pulses", false);
         choice("dragon-event.dragon-summon-sound", "Dragon summon sound", "Dragon Presentation",
                 "Sound played during each Dragon summoning pulse.", "ENTITY_WITHER_SPAWN",
                 List.of("ENTITY_WITHER_SPAWN", "ENTITY_ENDER_DRAGON_GROWL", "BLOCK_END_PORTAL_SPAWN"));
         decimal("dragon-event.dragon-summon-pitch", "Dragon summon pitch", "Dragon Presentation",
                 "Pitch of the Dragon summoning pulse sound.", 0.65, 0.5, 2.0, "pitch");
-        integer("dragon-event.spawn-lightning-count", "Dragon arrival lightning", "Dragon Presentation",
-                "Visual lightning bolts fired around the arena when the Dragon appears.", 8, 0, 100,
-                "bolts", false);
-        decimal("dragon-event.spawn-lightning-radius", "Dragon arrival lightning radius", "Dragon Presentation",
-                "Radius of the Dragon arrival lightning ring.", 16, 0, 100,
+        integer("dragon-event.spawn-lightning-count", "Dragon arrival bursts", "Dragon Presentation",
+                "Amethyst particle bursts fired around the arena when the Dragon appears.", 8, 0, 100,
+                "bursts", false);
+        decimal("dragon-event.spawn-lightning-radius", "Dragon arrival burst radius", "Dragon Presentation",
+                "Radius of the Dragon arrival particle ring.", 16, 0, 100,
                 "blocks");
         bool("dragon-event.effects-enabled", "Dragon visual effects", "Dragon Presentation",
                 "Enables Dragon portal, fight, reward, and blast particles and lightning.", true);
@@ -428,8 +428,8 @@ final class GameVariableStore {
                 "Dust particles emitted at each damage reward milestone.", 150, 0, 10000, "particles", false);
         integer("dragon-event.crystal-particle-count", "Crystal break particles", "Dragon Presentation",
                 "Dragon Breath particles emitted when a reward crystal breaks.", 90, 0, 10000, "particles", false);
-        integer("dragon-event.lightning-one-in", "Ambient lightning chance", "Dragon Presentation",
-                "One-in chance each second for visual lightning at the Dragon.", 3, 1, 1000000,
+        integer("dragon-event.lightning-one-in", "Ambient burst chance", "Dragon Presentation",
+                "One-in chance each second for an Amethyst particle burst at the Dragon.", 3, 1, 1000000,
                 "one in", true);
         integer("dragon-event.blast-one-in-per-second", "Amethyst Blast chance", "Dragon Mechanics",
                 "One-in chance each second for the Dragon's area blast.", 4, 1, 1000000,
@@ -595,8 +595,8 @@ final class GameVariableStore {
                 "steps", false);
         integer("dragon-event.reward-spawn-animation-interval-ticks", "Reward animation interval", "Dragon Presentation",
                 "Ticks between reward-area summoning pulses.", 5, 1, 40, "ticks", false);
-        integer("dragon-event.reward-lightning-every-frames", "Reward animation lightning", "Dragon Presentation",
-                "Reward animation frames between visual lightning strikes.", 3, 1, 100, "frames", false);
+        integer("dragon-event.reward-lightning-every-frames", "Reward animation burst interval", "Dragon Presentation",
+                "Reward animation frames between purple portal bursts.", 3, 1, 100, "frames", false);
         choice("dragon-event.reward-spawn-sound", "Reward area spawn sound", "Dragon Presentation",
                 "Sound played when the Dragon Crate and return gate finish appearing.", "BLOCK_END_PORTAL_SPAWN",
                 List.of("BLOCK_END_PORTAL_SPAWN", "UI_TOAST_CHALLENGE_COMPLETE", "BLOCK_BEACON_ACTIVATE"));
