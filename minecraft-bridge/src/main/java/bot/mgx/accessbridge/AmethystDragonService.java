@@ -8,8 +8,8 @@ import net.kyori.adventure.bossbar.BossBar;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextColor;
 import net.kyori.adventure.text.format.TextDecoration;
-import org.bukkit.Bukkit;
 import org.bukkit.Axis;
+import org.bukkit.Bukkit;
 import org.bukkit.Color;
 import org.bukkit.GameRule;
 import org.bukkit.Location;
@@ -1391,26 +1391,13 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         claimableEggs.clear();
     }
 
-    /** Fills the registered frame with the same animated field created by flint and steel. */
+    /** Uses Minecraft's own ignition path so only the registered obsidian frame lights. */
     private void setPortalLit(boolean lit) {
         if (!lit) {
-            if (portal != null && portal.location() != null) {
-                Block centre = portal.location().getBlock();
-                int radius = variables.integer("dragon-event.portal-light-radius");
-                int height = variables.integer("dragon-event.portal-light-height");
-                boolean alongX = portalAlongX();
-                for (int y = -1; y <= height; y++) {
-                    for (int side = -radius; side <= radius; side++) {
-                        Block block = centre.getRelative(alongX ? side : 0, y, alongX ? 0 : side);
-                        if (block.getType() == Material.NETHER_PORTAL || block.getType() == Material.LIGHT) {
-                            block.setType(Material.AIR, false);
-                        }
-                    }
-                }
-            }
-            for (Location location : portalBlocks) {
-                if (location.getWorld() != null && (location.getBlock().getType() == Material.NETHER_PORTAL
-                        || location.getBlock().getType() == Material.LIGHT)) {
+            Set<Location> remove = new HashSet<>(portalBlocks);
+            remove.addAll(nearestPortalComponent());
+            for (Location location : remove) {
+                if (location.getWorld() != null && location.getBlock().getType() == Material.NETHER_PORTAL) {
                     location.getBlock().setType(Material.AIR, false);
                 }
             }
@@ -1419,24 +1406,138 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         }
         setPortalLit(false);
         if (portal == null || portal.location() == null) return;
+        if (igniteRegisteredFrame()) return;
+        plugin.getLogger().warning("The Amethyst Dragon portal could not ignite: register a block on its obsidian frame.");
+    }
+
+    private boolean igniteRegisteredFrame() {
         Block centre = portal.location().getBlock();
         int radius = variables.integer("dragon-event.portal-light-radius");
         int height = variables.integer("dragon-event.portal-light-height");
-        boolean alongX = portalAlongX();
-        Orientable portalData = (Orientable) Material.NETHER_PORTAL.createBlockData();
-        portalData.setAxis(alongX ? Axis.X : Axis.Z);
-        for (int y = 0; y <= height; y++) {
-            for (int side = -radius; side <= radius; side++) {
-                Block block = centre.getRelative(alongX ? side : 0, y, alongX ? 0 : side);
-                if (!block.getType().isAir() && block.getType() != Material.LIGHT) continue;
-                block.setBlockData(portalData.clone(), false);
-                portalBlocks.add(block.getLocation());
+        List<Block> candidates = new ArrayList<>();
+        for (int y = -height; y <= height; y++) {
+            for (int x = -radius; x <= radius; x++) {
+                for (int z = -radius; z <= radius; z++) {
+                    Block block = centre.getRelative(x, y, z);
+                    if (!block.getType().isAir() && block.getType() != Material.LIGHT) continue;
+                    if (!isFrame(block.getRelative(0, -1, 0))) continue;
+                    if (!isFrame(block.getRelative(1, 0, 0))
+                            && !isFrame(block.getRelative(-1, 0, 0))
+                            && !isFrame(block.getRelative(0, 0, 1))
+                            && !isFrame(block.getRelative(0, 0, -1))) continue;
+                    candidates.add(block);
+                }
             }
         }
+        candidates.sort(Comparator.comparingDouble(block ->
+                block.getLocation().distanceSquared(centre.getLocation())));
+        for (Block candidate : candidates) {
+            candidate.setType(Material.FIRE, true);
+            Set<Location> created = nearestPortalComponent();
+            if (!created.isEmpty()) {
+                portalBlocks.addAll(created);
+                return true;
+            }
+            if (candidate.getType() == Material.FIRE) candidate.setType(Material.AIR, false);
+            created = fillDetectedFrame(candidate, radius, height);
+            if (!created.isEmpty()) {
+                portalBlocks.addAll(created);
+                return true;
+            }
+        }
+        return false;
     }
 
-    private boolean portalAlongX() {
-        return portal != null && Math.abs(Math.sin(Math.toRadians(portal.yaw()))) < .7;
+    private Set<Location> fillDetectedFrame(Block corner, int maximumWidth, int maximumHeight) {
+        int[][] directions = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+        for (int[] direction : directions) {
+            int dx = direction[0];
+            int dz = direction[1];
+            if (!isFrame(corner.getRelative(-dx, 0, -dz))) continue;
+            int width = 0;
+            while (width < Math.min(21, maximumWidth * 2 + 1)
+                    && replaceablePortalInterior(corner.getRelative(dx * width, 0, dz * width))) {
+                width++;
+            }
+            if (width < 2 || !isFrame(corner.getRelative(dx * width, 0, dz * width))) continue;
+            int height = 0;
+            while (height < Math.min(21, maximumHeight)
+                    && replaceablePortalInterior(corner.getRelative(0, height, 0))) {
+                height++;
+            }
+            if (height < 3 || !isFrame(corner.getRelative(0, height, 0))) continue;
+            boolean valid = true;
+            for (int side = 0; side < width && valid; side++) {
+                if (!isFrame(corner.getRelative(dx * side, -1, dz * side))
+                        || !isFrame(corner.getRelative(dx * side, height, dz * side))) valid = false;
+                for (int y = 0; y < height && valid; y++) {
+                    if (!replaceablePortalInterior(corner.getRelative(dx * side, y, dz * side))) valid = false;
+                }
+            }
+            for (int y = 0; y < height && valid; y++) {
+                if (!isFrame(corner.getRelative(-dx, y, -dz))
+                        || !isFrame(corner.getRelative(dx * width, y, dz * width))) valid = false;
+            }
+            if (!valid) continue;
+            Orientable data = (Orientable) Material.NETHER_PORTAL.createBlockData();
+            data.setAxis(dx == 0 ? Axis.Z : Axis.X);
+            Set<Location> created = new HashSet<>();
+            for (int side = 0; side < width; side++) {
+                for (int y = 0; y < height; y++) {
+                    Block block = corner.getRelative(dx * side, y, dz * side);
+                    block.setBlockData(data.clone(), false);
+                    created.add(block.getLocation());
+                }
+            }
+            return created;
+        }
+        return Set.of();
+    }
+
+    private static boolean replaceablePortalInterior(Block block) {
+        return block.getType().isAir() || block.getType() == Material.FIRE
+                || block.getType() == Material.LIGHT || block.getType() == Material.NETHER_PORTAL;
+    }
+
+    private Set<Location> nearestPortalComponent() {
+        if (portal == null || portal.location() == null) return Set.of();
+        Block centre = portal.location().getBlock();
+        int radius = variables.integer("dragon-event.portal-light-radius");
+        int height = variables.integer("dragon-event.portal-light-height");
+        Block nearest = null;
+        double distance = Double.MAX_VALUE;
+        for (int y = -height; y <= height; y++) {
+            for (int x = -radius; x <= radius; x++) {
+                for (int z = -radius; z <= radius; z++) {
+                    Block candidate = centre.getRelative(x, y, z);
+                    if (candidate.getType() != Material.NETHER_PORTAL) continue;
+                    double candidateDistance = candidate.getLocation().distanceSquared(centre.getLocation());
+                    if (candidateDistance < distance) {
+                        nearest = candidate;
+                        distance = candidateDistance;
+                    }
+                }
+            }
+        }
+        if (nearest == null) return Set.of();
+        Set<Location> found = new HashSet<>();
+        List<Block> pending = new ArrayList<>();
+        pending.add(nearest);
+        for (int index = 0; index < pending.size() && found.size() < 4096; index++) {
+            Block block = pending.get(index);
+            if (block.getType() != Material.NETHER_PORTAL || !found.add(block.getLocation())) continue;
+            pending.add(block.getRelative(1, 0, 0));
+            pending.add(block.getRelative(-1, 0, 0));
+            pending.add(block.getRelative(0, 1, 0));
+            pending.add(block.getRelative(0, -1, 0));
+            pending.add(block.getRelative(0, 0, 1));
+            pending.add(block.getRelative(0, 0, -1));
+        }
+        return found;
+    }
+
+    private static boolean isFrame(Block block) {
+        return block.getType() == Material.OBSIDIAN;
     }
 
     @Override

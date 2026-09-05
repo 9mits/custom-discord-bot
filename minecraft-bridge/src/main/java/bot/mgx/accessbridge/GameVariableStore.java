@@ -324,11 +324,11 @@ final class GameVariableStore {
         integer("dragon-event.portal-selection-distance", "Portal selection distance", "Dragon Event",
                 "Maximum distance used by /dragonportal set.", 48, 4, 128,
                 "blocks", false);
-        integer("dragon-event.portal-light-radius", "Portal light radius", "Dragon Presentation",
-                "Half-width of the real Nether-portal field created inside the registered frame.", 10, 0, 32,
+        integer("dragon-event.portal-light-radius", "Portal frame search radius", "Dragon Presentation",
+                "Horizontal distance searched for the registered obsidian frame when it ignites.", 10, 1, 32,
                 "blocks", false);
-        integer("dragon-event.portal-light-height", "Portal light height", "Dragon Presentation",
-                "Height of the real Nether-portal field created inside the registered frame.", 18, 0, 48,
+        integer("dragon-event.portal-light-height", "Portal frame search height", "Dragon Presentation",
+                "Vertical distance searched for the registered obsidian frame when it ignites.", 18, 3, 48,
                 "blocks", false);
         integer("dragon-event.pillar-animation-interval-ticks", "Pillar animation interval", "Dragon Presentation",
                 "Ticks between each upward step while one pillar rises at a time.", 2, 1, 40,
