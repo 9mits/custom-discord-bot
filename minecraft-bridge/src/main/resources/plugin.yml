@@ -70,7 +70,7 @@ commands:
     permission: mgxaccessbridge.admin
   dragonportal:
     description: Register and inspect the Amethyst Dragon Event portal.
-    usage: /dragonportal <set|remove|status|start|start now>
+    usage: /dragonportal <set|remove|status|start|start now|summon|damage|finish|spawnmob|end>
     permission: mgxaccessbridge.admin
   whitelisted:
     description: List everyone with whitelist access and their Discord name.

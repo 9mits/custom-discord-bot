@@ -205,6 +205,19 @@ class ShopCatalogTest {
         }
     }
 
+    @Test
+    void dyeShelfContainsEveryVanillaDye() {
+        List<String> dyes = ShopCatalog.offers(ShopCatalog.Category.DYES).stream()
+                .map(ShopCatalog.Offer::material).toList();
+        assertEquals(16, dyes.size());
+        assertTrue(dyes.containsAll(List.of(
+                "WHITE_DYE", "ORANGE_DYE", "MAGENTA_DYE", "LIGHT_BLUE_DYE",
+                "YELLOW_DYE", "LIME_DYE", "PINK_DYE", "GRAY_DYE", "LIGHT_GRAY_DYE",
+                "CYAN_DYE", "PURPLE_DYE", "BLUE_DYE", "BROWN_DYE", "GREEN_DYE",
+                "RED_DYE", "BLACK_DYE"
+        )));
+    }
+
     /**
      * A name the game does not have is not a crash: {@code EconomyMenuService.materialOf}
      * falls back to BARRIER, so a typo ships as a buyable barrier block that nobody

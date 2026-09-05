@@ -111,7 +111,7 @@ final class SettingMetadataTest {
         expected.put("crate.default", 64);
         expected.put("crate.amethyst", 62);
         expected.put("crate.shard", 56);
-        expected.put("crate.dragon", 26);
+        expected.put("crate.dragon", 31);
         expected.put("amethyst-block.tier", 3);
         expected.put("airdrop.rarity", 4);
         expected.put("airdrop.loot.common", 13);
@@ -157,7 +157,7 @@ final class SettingMetadataTest {
         expected.put("crate.default", 64);
         expected.put("crate.amethyst", 62);
         expected.put("crate.shard", 56);
-        expected.put("crate.dragon", 26);
+        expected.put("crate.dragon", 31);
         expected.put("amethyst-block.tier", 3);
         expected.put("airdrop.rarity", 4);
         expected.put("airdrop.loot.common", 13);
@@ -266,13 +266,13 @@ final class SettingMetadataTest {
         }
         assertEquals(
                 Map.ofEntries(
-                        Map.entry("crates", 219),
+                        Map.entry("crates", 224),
                         Map.entry("airdrops", 119),
                         Map.entry("online_rewards", 67),
                         Map.entry("amethyst_blocks", 49),
-                        Map.entry("dragon_event", 115),
+                        Map.entry("dragon_event", 163),
                         Map.entry("permissions", 4),
-                        Map.entry("shop", 20),
+                        Map.entry("shop", 21),
                         Map.entry("admin_events", 17),
                         Map.entry("world", 14),
                         Map.entry("potions", 13),
@@ -297,7 +297,7 @@ final class SettingMetadataTest {
                 perGroup,
                 "the catalogue moved between panel pages"
         );
-        assertEquals(761, perGroup.values().stream().mapToInt(Integer::intValue).sum(),
+        assertEquals(815, perGroup.values().stream().mapToInt(Integer::intValue).sum(),
                 "group counts no longer add up to the catalogue");
     }
 
