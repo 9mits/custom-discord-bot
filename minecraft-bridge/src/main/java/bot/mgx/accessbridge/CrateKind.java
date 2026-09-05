@@ -23,12 +23,17 @@ enum CrateKind {
             TextColor.color(0xB56CFF),
             Currency.KEY, 2,
             // Saturday after next at 3:00 PM JST, resolved when the event was requested.
-            1_788_588_000_000L, CrateCatalog.amethyst()
+            1_789_192_800_000L, CrateCatalog.amethyst()
     ),
     SHARD(
             "shard", "Shard Crate", "Shard Crate", Material.ECHO_SHARD,
             TextColor.color(0x53E5FF),
             Currency.SHARD, 1, Long.MAX_VALUE, CrateCatalog.shard()
+    ),
+    DRAGON(
+            "dragon", "Amethyst Dragon Crate", "Dragon Crate", Material.DRAGON_HEAD,
+            TextColor.color(0xD98BFF),
+            Currency.KEY, 1, Long.MAX_VALUE, CrateCatalog.dragon()
     );
 
     enum Currency {
@@ -47,11 +52,11 @@ enum CrateKind {
             this.fullPlural = fullPlural;
         }
 
-        String shortName(int amount) {
+        String shortName(long amount) {
             return amount == 1 ? singular : plural;
         }
 
-        String fullName(int amount) {
+        String fullName(long amount) {
             return amount == 1 ? fullSingular : fullPlural;
         }
     }
@@ -91,6 +96,22 @@ enum CrateKind {
         this.keyCost = keyCost;
         this.closesAt = closesAt;
         this.rewards = rewards;
+    }
+
+    private static volatile java.util.function.LongSupplier eventEnd = () -> 1_789_192_800_000L;
+    private static volatile java.util.function.BooleanSupplier dragonAvailable = () -> false;
+    private static volatile java.util.function.LongSupplier dragonEnd = () -> 0L;
+
+    static void eventEndSource(java.util.function.LongSupplier source) {
+        eventEnd = source;
+    }
+
+    static void dragonAvailableSource(java.util.function.BooleanSupplier source) {
+        dragonAvailable = source == null ? () -> false : source;
+    }
+
+    static void dragonEndSource(java.util.function.LongSupplier source) {
+        dragonEnd = source == null ? () -> 0L : source;
     }
 
     String key() {
@@ -134,16 +155,18 @@ enum CrateKind {
     }
 
     boolean available(long now) {
-        return !limited() || now < closesAt;
+        if (this == DRAGON) return dragonAvailable.getAsBoolean();
+        return !limited() || now < closesAt();
     }
 
     long closesAt() {
-        return closesAt;
+        if (this == AMETHYST) return eventEnd.getAsLong();
+        return this == DRAGON ? dragonEnd.getAsLong() : closesAt;
     }
 
     /** Whether this crate closes at all. The permanent crate never does. */
     boolean limited() {
-        return closesAt != Long.MAX_VALUE;
+        return this == DRAGON || closesAt != Long.MAX_VALUE;
     }
 
     /**
@@ -155,7 +178,7 @@ enum CrateKind {
      * and the larger units drop away as they empty.
      */
     String countdown(long now) {
-        long millis = Math.max(0L, closesAt - now);
+        long millis = Math.max(0L, closesAt() - now);
         if (millis <= 0L) {
             return "ENDED";
         }
@@ -208,7 +231,7 @@ enum CrateKind {
         if (!limited()) {
             return "Always available";
         }
-        long millis = Math.max(0L, closesAt - now);
+        long millis = Math.max(0L, closesAt() - now);
         Duration duration = Duration.ofMillis(millis);
         long days = duration.toDays();
         long hours = duration.minusDays(days).toHours();

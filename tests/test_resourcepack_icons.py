@@ -12,12 +12,24 @@ RESOURCE_PACK = REPO / "assets" / "resourcepack"
 ITEM_TEXTURES = RESOURCE_PACK / "src" / "assets" / "mgx" / "textures" / "item"
 NATIVE_POTION_ICONS = {"crate_luck_potion", "fortune_potion"}
 LINKED_ICON_SIZES = {
+    "amethyst_apple": (16, 16),
+    "amethyst_arrow": (16, 16),
+    "amethyst_boots": (16, 16),
+    "amethyst_bow": (16, 16),
+    "amethyst_chestplate": (16, 16),
+    "amethyst_dragon_egg": (16, 64),
+    "amethyst_elytra": (16, 16),
+    "amethyst_fishing_rod": (16, 16),
+    "amethyst_helmet": (16, 16),
+    "amethyst_hoe": (16, 16),
+    "amethyst_leggings": (16, 16),
     "amethyst_pickaxe": (16, 16),
     "amethyst_shovel": (16, 16),
     "amethyst_axe": (16, 16),
     "amethyst_shield": (64, 64),
     "amethyst_shield_icon": (590, 876),
     "amethyst_totem": (360, 360),
+    "amethyst_sword": (16, 16),
 }
 IMPORTED_MOD_HASHES = {
     "amethyst_pickaxe": "65630e43cdb2634ae0fa77d9ac1d9bc2a2b657a59fb4ea32932d057f5afdb2d9",
@@ -27,6 +39,7 @@ IMPORTED_MOD_HASHES = {
 }
 POTION_REFERENCE = RESOURCE_PACK / "icon-sources" / "potion_of_healing_reference.png"
 EVENT_SONG_SHA256 = "768d3d503ac3e8ba39f6db1213a8296abcde9260944212fd5fe00d0f81ecc448"
+DRAGON_SONG_SHA256 = "5cf005148259f8ed415215077245e3fccaa4ca351174034109bafe4a447ade2d"
 
 
 def is_potion_liquid(colour, y):
@@ -62,7 +75,7 @@ class ResourcePackIconTests(unittest.TestCase):
 
     def test_custom_icons_are_valid_distinct_minecraft_sprites(self):
         icons = self.icon_paths()
-        self.assertEqual(64, len(icons))
+        self.assertEqual(92, len(icons))
 
         digests = set()
         for path in icons:
@@ -185,6 +198,25 @@ class ResourcePackIconTests(unittest.TestCase):
                 "mgx:iridescent_imperium",
                 definitions["sound_definitions"],
             )
+
+    def test_exact_dragon_song_ships_in_both_edition_packs(self):
+        dragon_song = (
+            RESOURCE_PACK / "src" / "assets" / "mgx" / "sounds" / "music"
+            / "amethyst_dragon_ascendant.ogg"
+        )
+        self.assertEqual(DRAGON_SONG_SHA256, hashlib.sha256(dragon_song.read_bytes()).hexdigest())
+        with zipfile.ZipFile(RESOURCE_PACK / "MysteriousSMPX.zip") as java_pack:
+            self.assertEqual(
+                dragon_song.read_bytes(),
+                java_pack.read("assets/mgx/sounds/music/amethyst_dragon_ascendant.ogg"),
+            )
+        with zipfile.ZipFile(RESOURCE_PACK / "bedrock" / "MysteriousSMPX-Bedrock.mcpack") as bedrock_pack:
+            self.assertEqual(
+                dragon_song.read_bytes(),
+                bedrock_pack.read("sounds/music/amethyst_dragon_ascendant.ogg"),
+            )
+            definitions = json.loads(bedrock_pack.read("sounds/sound_definitions.json"))
+            self.assertIn("mgx:amethyst_dragon_ascendant", definitions["sound_definitions"])
 
 
 if __name__ == "__main__":

@@ -758,7 +758,8 @@ final class SidebarService {
             case PLAYTIME -> NamedTextColor.AQUA;
             case BLOCKS_MINED -> NamedTextColor.GOLD;
             case BLOCKS_WALKED -> NamedTextColor.WHITE;
-            case AMETHYST_CRATES, AMETHYST_AIRDROPS -> NamedTextColor.LIGHT_PURPLE;
+            case AMETHYST_CRATES, AMETHYST_AIRDROPS, DRAGON_DAMAGE,
+                    DRAGON_CRYSTALS, DRAGON_CRATES -> NamedTextColor.LIGHT_PURPLE;
         };
     }
 

@@ -106,11 +106,13 @@ final class SettingMetadataTest {
         }
         assertTrue(stranded.isEmpty(), "weights with no distribution to belong to: " + stranded);
 
-        // The eight loot tables an owner actually edits, and how many rows each holds.
+        // Every distribution an owner edits, and how many rows each holds.
         Map<String, Integer> expected = new LinkedHashMap<>();
         expected.put("crate.default", 64);
-        expected.put("crate.amethyst", 51);
-        expected.put("crate.shard", 36);
+        expected.put("crate.amethyst", 62);
+        expected.put("crate.shard", 56);
+        expected.put("crate.dragon", 26);
+        expected.put("amethyst-block.tier", 3);
         expected.put("airdrop.rarity", 4);
         expected.put("airdrop.loot.common", 13);
         expected.put("airdrop.loot.rare", 13);
@@ -132,7 +134,7 @@ final class SettingMetadataTest {
                 empty.add(entry.get("table").getAsString());
             }
         }
-        assertEquals(8, tables, "expected one summary per loot table");
+        assertEquals(10, tables, "expected one summary per editable distribution");
         assertTrue(empty.isEmpty(), "distributions that cannot produce a chance: " + empty);
     }
 
@@ -153,8 +155,10 @@ final class SettingMetadataTest {
         }
         Map<String, Integer> expected = new TreeMap<>();
         expected.put("crate.default", 64);
-        expected.put("crate.amethyst", 51);
-        expected.put("crate.shard", 36);
+        expected.put("crate.amethyst", 62);
+        expected.put("crate.shard", 56);
+        expected.put("crate.dragon", 26);
+        expected.put("amethyst-block.tier", 3);
         expected.put("airdrop.rarity", 4);
         expected.put("airdrop.loot.common", 13);
         expected.put("airdrop.loot.rare", 13);
@@ -219,8 +223,23 @@ final class SettingMetadataTest {
         assertEquals(
                 List.of(
                         "airdrop.lifetime-minutes",
+                        "dragon-event.arena-radius",
+                        "dragon-event.border-size",
+                        "dragon-event.crystals",
+                        "dragon-event.maximum-health",
+                        "dragon-event.pillar-base-height",
+                        "dragon-event.pillar-height-step",
+                        "dragon-event.pillar-radius",
+                        "dragon-event.portal-light-height",
+                        "dragon-event.portal-light-level",
+                        "dragon-event.portal-light-radius",
+                        "giant-amethyst.maximum-health",
+                        "giant-amethyst.size",
                         "huge-amethyst.lifetime-minutes",
-                        "huge-amethyst.maximum-health"
+                        "huge-amethyst.maximum-health",
+                        "huge-amethyst.size",
+                        "humongous-amethyst.maximum-health",
+                        "humongous-amethyst.size"
                 ),
                 nextEvent.stream().sorted().toList(),
                 "the set of values copied into an event at spawn changed — verify the consumer"
@@ -249,10 +268,12 @@ final class SettingMetadataTest {
         }
         assertEquals(
                 Map.ofEntries(
-                        Map.entry("crates", 157),
+                        Map.entry("crates", 219),
                         Map.entry("airdrops", 119),
                         Map.entry("online_rewards", 67),
-                        Map.entry("huge_amethyst", 31),
+                        Map.entry("amethyst_blocks", 49),
+                        Map.entry("dragon_event", 73),
+                        Map.entry("permissions", 4),
                         Map.entry("shop", 20),
                         Map.entry("admin_events", 17),
                         Map.entry("world", 14),
@@ -261,16 +282,16 @@ final class SettingMetadataTest {
                         Map.entry("players", 12),
                         Map.entry("event_multipliers", 9),
                         Map.entry("crate_balance", 7),
-                        Map.entry("amethyst_shop", 5),
+                        Map.entry("amethyst_shop", 29),
                         Map.entry("clans", 4),
                         Map.entry("boss_bars", 4),
                         Map.entry("enchantments", 4),
                         Map.entry("amethyst_mobs", 3),
                         Map.entry("auction_house", 3),
                         Map.entry("perks", 3),
-                        Map.entry("clan_battles", 3),
+                        Map.entry("clan_battles", 6),
                         Map.entry("economy", 3),
-                        Map.entry("event_schedule", 2),
+                        Map.entry("event_schedule", 3),
                         Map.entry("presentation", 2),
                         Map.entry("launch", 2),
                         Map.entry("messages", 17)
@@ -278,7 +299,7 @@ final class SettingMetadataTest {
                 perGroup,
                 "the catalogue moved between panel pages"
         );
-        assertEquals(534, perGroup.values().stream().mapToInt(Integer::intValue).sum(),
+        assertEquals(719, perGroup.values().stream().mapToInt(Integer::intValue).sum(),
                 "group counts no longer add up to the catalogue");
     }
 

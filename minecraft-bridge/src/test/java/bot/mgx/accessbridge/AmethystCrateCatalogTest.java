@@ -140,10 +140,10 @@ final class AmethystCrateCatalogTest {
         for (CrateCatalog.Reward reward : CrateCatalog.amethyst()) {
             byTier.merge(reward.rarityDisplay(), reward.weight(), Integer::sum);
         }
-        assertEquals(63_000, byTier.get("Common"));
+        assertEquals(62_547, byTier.get("Common"));
         assertEquals(22_000, byTier.get("Uncommon"));
         assertEquals(11_000, byTier.get("Rare"));
-        assertEquals(3_400, byTier.get("Epic"));
+        assertEquals(3_752, byTier.get("Epic"));
         assertTrue(
                 byTier.get("Common") > byTier.get("Uncommon") + byTier.get("Rare")
                         + byTier.get("Epic"),
@@ -203,8 +203,8 @@ final class AmethystCrateCatalogTest {
     }
 
     @Test
-    void eventDeadlineIsSaturdaySeptemberFifthAtThreePmJst() {
-        assertEquals(1_788_588_000_000L, CrateKind.AMETHYST.closesAt());
+    void eventDeadlineIsExtendedExactlyOneWeekToSeptemberTwelfth() {
+        assertEquals(1_789_192_800_000L, CrateKind.AMETHYST.closesAt());
         assertEquals(1, CrateKind.DEFAULT.keyCost());
         assertEquals(2, CrateKind.AMETHYST.keyCost());
         assertTrue(CrateKind.AMETHYST.available(CrateKind.AMETHYST.closesAt() - 1));

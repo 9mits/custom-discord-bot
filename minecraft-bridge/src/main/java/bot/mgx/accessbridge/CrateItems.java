@@ -7,6 +7,7 @@ import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.entity.Player;
+import org.bukkit.entity.Item;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
@@ -21,6 +22,7 @@ final class CrateItems {
     private static final TextColor ORANGE = TextColor.color(0xFF9900);
     private static final TextColor AMETHYST = TextColor.color(0xB56CFF);
     private final NamespacedKey keyMarker;
+    private final NamespacedKey keyCountMarker;
     private final NamespacedKey shardMarker;
     private final NamespacedKey shardGrantMarker;
     private final NamespacedKey legacyKeyMarker;
@@ -33,6 +35,7 @@ final class CrateItems {
             MGXAccessBridge plugin, CosmeticStore cosmeticStore, SpecialItemService specialItems
     ) {
         keyMarker = new NamespacedKey(plugin, "crate_key");
+        keyCountMarker = new NamespacedKey(plugin, "crate_key_count");
         shardMarker = new NamespacedKey(plugin, "shard");
         shardGrantMarker = new NamespacedKey(plugin, "shard_grant");
         legacyKeyMarker = new NamespacedKey(plugin, "lootbox_key");
@@ -76,13 +79,17 @@ final class CrateItems {
         return item;
     }
 
-    ItemStack key(int amount) {
-        ItemStack item = new ItemStack(Material.TRIAL_KEY, Math.max(1, Math.min(64, amount)));
+    ItemStack key(long amount) {
+        if (amount <= 0) throw new IllegalArgumentException("Key amount must be positive.");
+        ItemStack item = new ItemStack(Material.TRIAL_KEY);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            meta.displayName(Component.text("Mysterious Crate Key", ORANGE, TextDecoration.BOLD)
+            meta.setMaxStackSize(1);
+            meta.getPersistentDataContainer().set(keyCountMarker, PersistentDataType.LONG, amount);
+            meta.displayName(Component.text("Mysterious Crate Keys × " + amount, ORANGE, TextDecoration.BOLD)
                     .decoration(TextDecoration.ITALIC, false));
             meta.lore(List.of(
+                    line("Keys: " + amount),
                     line("Opens the Default Crate: 1 key"),
                     line("Opens the Limited Amethyst Crate: 2 keys"),
                     line("Use /crate to open or inspect rewards.")
@@ -113,18 +120,96 @@ final class CrateItems {
                 .has(shardMarker, PersistentDataType.BYTE);
     }
 
-    int count(Player player) {
-        int total = 0;
+    long keyCount(ItemStack item) {
+        if (!isKey(item)) return 0L;
+        long each = item.getItemMeta().getPersistentDataContainer()
+                .getOrDefault(keyCountMarker, PersistentDataType.LONG, 1L);
+        return Math.multiplyExact(Math.max(1L, each), item.getAmount());
+    }
+
+    long count(Player player) {
+        long total = 0;
         for (ItemStack item : player.getInventory().getStorageContents()) {
-            if (isKey(item)) {
-                total += item.getAmount();
+            total = Math.addExact(total, keyCount(item));
+        }
+        return Math.addExact(total, keyCount(player.getInventory().getItemInOffHand()));
+    }
+
+    /** One transferable item holds the balance; legacy 64-stacks keep their full value. */
+    void upgradeLegacyKeys(Player player) {
+        ItemStack[] storage = player.getInventory().getStorageContents();
+        int first = -1;
+        long total = 0L;
+        for (int i = 0; i < storage.length; i++) {
+            if (!isKey(storage[i])) continue;
+            if (first < 0) first = i;
+            total = Math.addExact(total, keyCount(storage[i]));
+        }
+        ItemStack offhand = player.getInventory().getItemInOffHand();
+        if (first < 0) {
+            if (isKey(offhand)) player.getInventory().setItemInOffHand(key(keyCount(offhand)));
+            return;
+        }
+        total = Math.addExact(total, keyCount(offhand));
+        ItemStack combined = key(total);
+        for (int i = 0; i < storage.length; i++) {
+            if (isKey(storage[i])) storage[i] = i == first ? combined : null;
+        }
+        player.getInventory().setStorageContents(storage);
+        if (isKey(offhand)) player.getInventory().setItemInOffHand(null);
+    }
+
+    boolean giveKeys(Player player, long amount) {
+        if (amount <= 0) return false;
+        upgradeLegacyKeys(player);
+        ItemStack[] storage = player.getInventory().getStorageContents();
+        for (int i = 0; i < storage.length; i++) {
+            if (isKey(storage[i])) {
+                storage[i] = key(Math.addExact(keyCount(storage[i]), amount));
+                player.getInventory().setStorageContents(storage);
+                return true;
             }
         }
-        ItemStack offHand = player.getInventory().getItemInOffHand();
-        if (isKey(offHand)) {
-            total += offHand.getAmount();
+        ItemStack offhand = player.getInventory().getItemInOffHand();
+        if (isKey(offhand)) {
+            player.getInventory().setItemInOffHand(key(Math.addExact(keyCount(offhand), amount)));
+            return true;
         }
-        return total;
+        var leftovers = player.getInventory().addItem(key(amount));
+        if (leftovers.isEmpty()) return true;
+        return false;
+    }
+
+    boolean giveKeysOrDrop(Player player, long amount) {
+        if (giveKeys(player, amount)) return true;
+        Item dropped = player.getWorld().dropItemNaturally(player.getLocation(), key(amount));
+        dropped.setOwner(player.getUniqueId());
+        dropped.setPickupDelay(20);
+        return true;
+    }
+
+    boolean consume(Player player) {
+        return remove(player, 1) == 1;
+    }
+
+    int remove(Player player, int requested) {
+        int remaining = Math.max(0, requested);
+        ItemStack[] storage = player.getInventory().getStorageContents();
+        for (int i = 0; i < storage.length && remaining > 0; i++) {
+            long held = keyCount(storage[i]);
+            if (held == 0) continue;
+            int taken = (int) Math.min(held, remaining);
+            storage[i] = held == taken ? null : key(held - taken);
+            remaining -= taken;
+        }
+        player.getInventory().setStorageContents(storage);
+        long held = keyCount(player.getInventory().getItemInOffHand());
+        if (held > 0 && remaining > 0) {
+            int taken = (int) Math.min(held, remaining);
+            player.getInventory().setItemInOffHand(held == taken ? null : key(held - taken));
+            remaining -= taken;
+        }
+        return Math.max(0, requested) - remaining;
     }
 
     int countShards(Player player) {
@@ -136,89 +221,6 @@ final class CrateItems {
         }
         ItemStack offHand = player.getInventory().getItemInOffHand();
         return isShard(offHand) ? total + offHand.getAmount() : total;
-    }
-
-    void upgradeLegacyKeys(Player player) {
-        ItemStack[] storage = player.getInventory().getStorageContents();
-        boolean changed = false;
-        for (int index = 0; index < storage.length; index++) {
-            ItemStack item = storage[index];
-            if (!isKey(item) || item == null || !item.hasItemMeta()) {
-                continue;
-            }
-            var data = item.getItemMeta().getPersistentDataContainer();
-            if (data.has(keyMarker, PersistentDataType.BYTE)) {
-                continue;
-            }
-            storage[index] = key(item.getAmount());
-            changed = true;
-        }
-        if (changed) {
-            player.getInventory().setStorageContents(storage);
-        }
-        ItemStack offHand = player.getInventory().getItemInOffHand();
-        if (isLegacyKey(offHand)) {
-            player.getInventory().setItemInOffHand(key(offHand.getAmount()));
-        }
-    }
-
-    boolean consume(Player player) {
-        ItemStack[] storage = player.getInventory().getStorageContents();
-        for (int index = 0; index < storage.length; index++) {
-            ItemStack item = storage[index];
-            if (!isKey(item)) {
-                continue;
-            }
-            if (item.getAmount() == 1) {
-                storage[index] = null;
-            } else {
-                item.setAmount(item.getAmount() - 1);
-            }
-            player.getInventory().setStorageContents(storage);
-            return true;
-        }
-        ItemStack offHand = player.getInventory().getItemInOffHand();
-        if (isKey(offHand)) {
-            if (offHand.getAmount() == 1) {
-                player.getInventory().setItemInOffHand(null);
-            } else {
-                offHand.setAmount(offHand.getAmount() - 1);
-            }
-            return true;
-        }
-        return false;
-    }
-
-    int remove(Player player, int requested) {
-        int remaining = Math.max(0, requested);
-        ItemStack[] storage = player.getInventory().getStorageContents();
-        for (int index = 0; index < storage.length && remaining > 0; index++) {
-            ItemStack item = storage[index];
-            if (!isKey(item)) {
-                continue;
-            }
-            int removed = Math.min(remaining, item.getAmount());
-            remaining -= removed;
-            if (removed == item.getAmount()) {
-                storage[index] = null;
-            } else {
-                item.setAmount(item.getAmount() - removed);
-            }
-        }
-        player.getInventory().setStorageContents(storage);
-        if (remaining > 0) {
-            ItemStack offHand = player.getInventory().getItemInOffHand();
-            if (isKey(offHand)) {
-                int removed = Math.min(remaining, offHand.getAmount());
-                remaining -= removed;
-                if (removed == offHand.getAmount()) {
-                    player.getInventory().setItemInOffHand(null);
-                } else {
-                    offHand.setAmount(offHand.getAmount() - removed);
-                }
-            }
-        }
-        return requested - remaining;
     }
 
     int removeShards(Player player, int requested) {

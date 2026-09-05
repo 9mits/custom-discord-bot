@@ -18,7 +18,10 @@ record PlayerStats(
         long walkedCm,
         long wealth,
         long amethystCratesOpened,
-        long amethystAirdropsOpened
+        long amethystAirdropsOpened,
+        long dragonDamage,
+        long dragonCrystals,
+        long dragonCratesOpened
 ) {
     PlayerStats(
             UUID minecraftUuid,
@@ -32,12 +35,22 @@ record PlayerStats(
     ) {
         this(
                 minecraftUuid, username, kills, deaths, playTimeTicks,
-                blocksMined, walkedCm, wealth, 0L, 0L
+                blocksMined, walkedCm, wealth, 0L, 0L, 0L, 0L, 0L
         );
     }
 
+    PlayerStats(
+            UUID minecraftUuid, String username, long kills, long deaths,
+            long playTimeTicks, long blocksMined, long walkedCm, long wealth,
+            long amethystCratesOpened, long amethystAirdropsOpened
+    ) {
+        this(minecraftUuid, username, kills, deaths, playTimeTicks, blocksMined,
+                walkedCm, wealth, amethystCratesOpened, amethystAirdropsOpened,
+                0L, 0L, 0L);
+    }
+
     static PlayerStats empty(UUID minecraftUuid, String username) {
-        return new PlayerStats(minecraftUuid, username, 0, 0, 0, 0, 0, 0, 0, 0);
+        return new PlayerStats(minecraftUuid, username, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
     }
 
     PlayerStats withWealth(long updatedWealth) {
@@ -51,7 +64,10 @@ record PlayerStats(
                 walkedCm,
                 Math.max(0, updatedWealth),
                 amethystCratesOpened,
-                amethystAirdropsOpened
+                amethystAirdropsOpened,
+                dragonDamage,
+                dragonCrystals,
+                dragonCratesOpened
         );
     }
 
@@ -66,7 +82,10 @@ record PlayerStats(
                 walkedCm,
                 wealth,
                 amethystCratesOpened,
-                amethystAirdropsOpened
+                amethystAirdropsOpened,
+                dragonDamage,
+                dragonCrystals,
+                dragonCratesOpened
         );
     }
 
@@ -81,7 +100,10 @@ record PlayerStats(
                 walkedCm,
                 wealth,
                 progress.cratesOpened(),
-                progress.airdropsOpened()
+                progress.airdropsOpened(),
+                progress.dragonDamage(),
+                progress.dragonCrystals(),
+                progress.dragonCratesOpened()
         );
     }
 
@@ -94,6 +116,9 @@ record PlayerStats(
             case BLOCKS_WALKED -> walkedCm;
             case AMETHYST_CRATES -> amethystCratesOpened;
             case AMETHYST_AIRDROPS -> amethystAirdropsOpened;
+            case DRAGON_DAMAGE -> dragonDamage;
+            case DRAGON_CRYSTALS -> dragonCrystals;
+            case DRAGON_CRATES -> dragonCratesOpened;
         };
     }
 }

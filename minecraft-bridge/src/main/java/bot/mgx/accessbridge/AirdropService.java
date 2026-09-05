@@ -152,6 +152,7 @@ final class AirdropService implements Listener {
         /** Set when the shared event scheduler asked for this one, not a staff member. */
         private final boolean scheduled;
         private UUID firstOpener;
+        private String lastLooter;
         private BossBar bar;
         private BukkitTask expiryTask;
 
@@ -756,8 +757,10 @@ final class AirdropService implements Listener {
             List<String> forcedCosmetics
     ) {
         List<ItemStack> items = new ArrayList<>();
-        for (int portion : StackSplit.portions(contents.keys(), 64)) {
-            items.add(crateItems.key(portion));
+        int boostedKeys = (int) Math.clamp(Math.round(contents.keys()
+                * AmethystEventCoordinator.lowActivityRewardMultiplier(variables)), 0L, Integer.MAX_VALUE);
+        if (boostedKeys > 0) {
+            items.add(crateItems.key(boostedKeys));
         }
         if (contents.shards() > 0) {
             items.add(crateItems.shard(contents.shards()));
@@ -1110,7 +1113,16 @@ final class AirdropService implements Listener {
             event.setCancelled(true);
             return;
         }
-        plugin.getServer().getScheduler().runTask(plugin, this::removeIfEmpty);
+        if (!event.isCancelled() && rawSlot < top.getSize()) {
+            plugin.getServer().getScheduler().runTask(plugin, () -> {
+                if (!event.isCancelled()) {
+                    dropFor(top).ifPresent(drop -> {
+                        drop.lastLooter = player.getName();
+                        removeIfLooted(drop);
+                    });
+                }
+            });
+        }
     }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = false)
@@ -1152,6 +1164,7 @@ final class AirdropService implements Listener {
             return;
         }
         inventory.setItem(slot, null);
+        dropFor(inventory).ifPresent(drop -> drop.lastLooter = player.getName());
         player.sendMessage(PlayerMenuService.prefix()
                 .append(Component.text("You found ", NamedTextColor.WHITE))
                 .append(Component.text(definition.displayName(), AMETHYST, TextDecoration.BOLD))
@@ -1292,7 +1305,8 @@ final class AirdropService implements Listener {
         // sentence here threw out of the scheduled task on every looted drop.
         if (announce && messageKey != null && !messages.isSilenced(messageKey)) {
             broadcast(Component.text("AIRDROP » ", AMETHYST, TextDecoration.BOLD)
-                    .append(messages.render(messageKey, "rarity", drop.rarity.displayName())));
+                    .append(messages.render(messageKey, "rarity", drop.rarity.displayName(),
+                            "player", drop.lastLooter == null ? "players" : drop.lastLooter)));
         }
         if (!drop.scheduled) {
             // A staff drop is not the scheduler's event, so finishing it must not start

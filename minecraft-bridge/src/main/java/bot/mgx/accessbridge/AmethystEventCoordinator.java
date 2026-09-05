@@ -3,6 +3,9 @@ package bot.mgx.accessbridge;
 import org.bukkit.scheduler.BukkitTask;
 
 import java.time.Duration;
+import java.time.LocalTime;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeParseException;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.random.RandomGenerator;
 
@@ -113,7 +116,32 @@ final class AmethystEventCoordinator {
                 plugin.serverEventMultiplier(ServerEventType.AIRDROP),
                 plugin.serverEventMultiplier(ServerEventType.AMETHYST_BLOCK)
         );
-        return factor <= 1 ? delay : Math.max(1L, delay / factor);
+        double boost = lowActivityBoostActive()
+                ? variables.decimal("low-activity-boost.spawn-multiplier") : 1d;
+        return Math.max(1L, Math.round(delay / Math.max(1d, factor) / Math.max(0.1d, boost)));
+    }
+
+    private boolean lowActivityBoostActive() {
+        return lowActivityBoostActive(variables);
+    }
+
+    static boolean lowActivityBoostActive(GameVariableStore variables) {
+        if (!variables.bool("low-activity-boost.enabled")) return false;
+        try {
+            LocalTime now = LocalTime.now(ZoneOffset.UTC);
+            LocalTime start = LocalTime.parse(variables.string("low-activity-boost.start-utc"));
+            LocalTime end = LocalTime.parse(variables.string("low-activity-boost.end-utc"));
+            if (start.equals(end)) return true;
+            return start.isBefore(end) ? !now.isBefore(start) && now.isBefore(end)
+                    : !now.isBefore(start) || now.isBefore(end);
+        } catch (DateTimeParseException ignored) {
+            return false;
+        }
+    }
+
+    static double lowActivityRewardMultiplier(GameVariableStore variables) {
+        return lowActivityBoostActive(variables)
+                ? variables.decimal("low-activity-boost.reward-multiplier") : 1d;
     }
 
     private void schedule(long millis, Runnable action) {

@@ -108,9 +108,9 @@ final class AmethystBlockEventService implements Listener {
     private record BlockPosition(int x, int y, int z) {
     }
 
-    record Snapshot(String world, int x, int y, int z, double health, double maximumHealth) {
+    record Snapshot(String name, String world, int x, int y, int z, double health, double maximumHealth) {
         String describe() {
-            return "Huge Amethyst Block at X " + x + " • Y " + y + " • Z " + z
+            return name + " at X " + x + " • Y " + y + " • Z " + z
                     + " in the " + world + " • " + Math.max(0L, Math.round(health))
                     + "/" + Math.round(maximumHealth) + " HP";
         }
@@ -165,6 +165,29 @@ final class AmethystBlockEventService implements Listener {
     private final Set<Item> visualKeys = new HashSet<>();
 
     private ActiveBlock active;
+    private String tier = "huge";
+    private int structureSize = STRUCTURE_SIZE;
+
+    private int minOffset() { return -structureSize / 2; }
+    private int maxOffset() { return minOffset() + structureSize - 1; }
+    private String blockName() {
+        return Character.toUpperCase(tier.charAt(0)) + tier.substring(1) + " Amethyst Block";
+    }
+
+    private void chooseTier() {
+        int total = 0;
+        for (String name : List.of("huge", "giant", "humongous")) {
+            total += variables.integer(name + "-amethyst.spawn-weight");
+        }
+        int ticket = random.nextInt(Math.max(1, total));
+        tier = "huge";
+        for (String name : List.of("huge", "giant", "humongous")) {
+            ticket -= variables.integer(name + "-amethyst.spawn-weight");
+            if (ticket < 0) { tier = name; break; }
+        }
+        structureSize = variables.integer(tier + "-amethyst.size");
+    }
+
     private BukkitTask frameTask;
     private BukkitTask visualTrailTask;
     private BukkitTask finaleTask;
@@ -230,6 +253,7 @@ final class AmethystBlockEventService implements Listener {
         spawnedCallback = onSpawned;
         finishedCallback = onFinished;
         failedCallback = onFailed;
+        chooseTier();
         attemptSpawn(0);
         return true;
     }
@@ -247,10 +271,10 @@ final class AmethystBlockEventService implements Listener {
         return spawnNear(player);
     }
 
-    /** Calls a Huge Amethyst Block in near an administrator on any server. */
+    /** Calls a configured Amethyst Block tier in near an administrator on any server. */
     Snapshot spawnNear(Player player) {
         if (stopped) {
-            throw new IllegalArgumentException("Huge Amethyst Blocks are not running.");
+            throw new IllegalArgumentException("Amethyst Block events are not running.");
         }
         if (active != null || spawnedCallback != null || otherEventActive.getAsBoolean()) {
             throw new IllegalArgumentException("An Amethyst world event is already active or spawning.");
@@ -259,6 +283,7 @@ final class AmethystBlockEventService implements Listener {
                 || VerificationLobbyService.isLobbyWorld(player.getWorld())) {
             throw new IllegalArgumentException("Run this in the Overworld outside the verification lobby.");
         }
+        chooseTier();
         Location anchor = findTestAnchor(player);
         if (anchor == null) {
             throw new IllegalArgumentException("No flat, empty site was found nearby.");
@@ -273,7 +298,7 @@ final class AmethystBlockEventService implements Listener {
             return null;
         }
         return new Snapshot(
-                worldName(block.anchor.getWorld()), block.anchor.getBlockX(),
+                blockName(), worldName(block.anchor.getWorld()), block.anchor.getBlockX(),
                 block.anchor.getBlockY(), block.anchor.getBlockZ(), block.health,
                 block.maximumHealth
         );
@@ -291,7 +316,7 @@ final class AmethystBlockEventService implements Listener {
         if (active == null) {
             return false;
         }
-        removeActive(true, "The Huge Amethyst Block dissolved before it was broken.");
+        removeActive(true, "The " + blockName() + " dissolved before it was broken.");
         return true;
     }
 
@@ -310,7 +335,7 @@ final class AmethystBlockEventService implements Listener {
         }
         int attempts = variables.integer("huge-amethyst.location-attempts");
         if (attempt >= attempts) {
-            plugin.getLogger().warning("Could not find open ground for a Huge Amethyst Block after "
+            plugin.getLogger().warning("Could not find open ground for the " + blockName() + " after "
                     + attempts + " attempts; retrying this event later.");
             failScheduledSpawn();
             return;
@@ -334,7 +359,7 @@ final class AmethystBlockEventService implements Listener {
                     try {
                         create(anchor);
                     } catch (RuntimeException exception) {
-                        plugin.getLogger().warning("Could not create a Huge Amethyst Block: "
+                        plugin.getLogger().warning("Could not create the " + blockName() + ": "
                                 + exception.getMessage());
                         attemptSpawn(attempt + 1);
                         return;
@@ -387,8 +412,8 @@ final class AmethystBlockEventService implements Listener {
         World world = candidate.world();
         int highest = world.getMinHeight();
         int lowest = world.getMaxHeight();
-        for (int x = MIN_OFFSET; x <= MAX_OFFSET; x++) {
-            for (int z = MIN_OFFSET; z <= MAX_OFFSET; z++) {
+        for (int x = minOffset(); x <= maxOffset(); x++) {
+            for (int z = minOffset(); z <= maxOffset(); z++) {
                 int groundY = world.getHighestBlockYAt(
                         candidate.x() + x, candidate.z() + z,
                         HeightMap.MOTION_BLOCKING_NO_LEAVES
@@ -429,11 +454,11 @@ final class AmethystBlockEventService implements Listener {
     /** The physical cube never overwrites terrain: every column is flat and every cell is air. */
     private boolean safeSite(Location anchor) {
         World world = anchor.getWorld();
-        if (anchor.getBlockY() + STRUCTURE_SIZE + 4 >= world.getMaxHeight()) {
+        if (anchor.getBlockY() + structureSize + 4 >= world.getMaxHeight()) {
             return false;
         }
-        for (int x = MIN_OFFSET; x <= MAX_OFFSET; x++) {
-            for (int z = MIN_OFFSET; z <= MAX_OFFSET; z++) {
+        for (int x = minOffset(); x <= maxOffset(); x++) {
+            for (int z = minOffset(); z <= maxOffset(); z++) {
                 Location edge = anchor.clone().add(x, 0d, z);
                 if (!world.getWorldBorder().isInside(edge)) {
                     return false;
@@ -445,7 +470,7 @@ final class AmethystBlockEventService implements Listener {
                         || anchor.getBlockY() - (ground + 1) > 3) {
                     return false;
                 }
-                for (int y = 0; y < STRUCTURE_SIZE; y++) {
+                for (int y = 0; y < structureSize; y++) {
                     if (!world.getBlockAt(edge.getBlockX(), anchor.getBlockY() + y,
                             edge.getBlockZ()).isEmpty()) {
                         return false;
@@ -479,31 +504,31 @@ final class AmethystBlockEventService implements Listener {
             });
 
             BlockDisplay visual = world.spawn(new Location(
-                    world, anchor.getBlockX() + MIN_OFFSET, anchor.getBlockY(),
-                    anchor.getBlockZ() + MIN_OFFSET
+                    world, anchor.getBlockX() + minOffset(), anchor.getBlockY(),
+                    anchor.getBlockZ() + minOffset()
             ), BlockDisplay.class, display -> {
                 display.setBlock(Material.AMETHYST_BLOCK.createBlockData());
                 display.setViewRange(12f);
                 display.setTransformation(new Transformation(
                         new Vector3f(-0.01f, -0.01f, -0.01f), new Quaternionf(),
-                        new Vector3f(12.02f, 12.02f, 12.02f), new Quaternionf()
+                        new Vector3f(structureSize + 0.02f, structureSize + 0.02f, structureSize + 0.02f), new Quaternionf()
                 ));
                 decorate(display);
             });
             created.add(visual);
 
-            TextDisplay title = label(anchor.clone().add(0d, STRUCTURE_SIZE + 3d, 0d),
-                    Component.text("HUGE AMETHYST BLOCK", AMETHYST, TextDecoration.BOLD), 2.7f);
+            TextDisplay title = label(anchor.clone().add(0d, structureSize + 3d, 0d),
+                    Component.text(blockName().toUpperCase(java.util.Locale.ROOT), AMETHYST, TextDecoration.BOLD), 2.7f);
             created.add(title);
             long lifetimeMillis = Duration.ofMinutes(
                     variables.integer("huge-amethyst.lifetime-minutes")
             ).toMillis();
-            TextDisplay countdown = label(anchor.clone().add(0d, STRUCTURE_SIZE + 1.7d, 0d),
+            TextDisplay countdown = label(anchor.clone().add(0d, structureSize + 1.7d, 0d),
                     countdownText(lifetimeMillis), 2.0f);
             created.add(countdown);
 
             long spawnedAt = System.currentTimeMillis();
-            double maximumHealth = variables.integer("huge-amethyst.maximum-health");
+            double maximumHealth = variables.integer(tier + "-amethyst.maximum-health");
             active = new ActiveBlock(
                     anchor.clone(), marker, visual, title, countdown, Set.copyOf(chunks),
                     Map.copyOf(originals), spawnedAt, Math.addExact(spawnedAt, lifetimeMillis),
@@ -523,13 +548,13 @@ final class AmethystBlockEventService implements Listener {
             );
             spawnArrival(active);
             announce(EventBanner.chat(
-                    "Huge Amethyst Block", AMETHYST, worldName(world),
+                    blockName(), AMETHYST, worldName(world),
                     anchor.getBlockX(), anchor.getBlockY(), anchor.getBlockZ(),
                     "Mine it together within",
                     AirdropService.formatCountdown(active.expiresAt - System.currentTimeMillis())
             ));
-            plugin.getLogger().info("Spawned solid " + STRUCTURE_SIZE + "x" + STRUCTURE_SIZE
-                    + "x" + STRUCTURE_SIZE + " Huge Amethyst Block at " + coordinates(anchor)
+            plugin.getLogger().info("Spawned solid " + structureSize + "x" + structureSize
+                    + "x" + structureSize + " " + blockName() + " at " + coordinates(anchor)
                     + " in " + worldName(world));
         } catch (RuntimeException exception) {
             restoreBlocks(world, originals);
@@ -542,10 +567,10 @@ final class AmethystBlockEventService implements Listener {
 
     private Set<Chunk> ticketChunks(Location anchor) {
         World world = anchor.getWorld();
-        int minChunkX = (anchor.getBlockX() + MIN_OFFSET) >> 4;
-        int maxChunkX = (anchor.getBlockX() + MAX_OFFSET) >> 4;
-        int minChunkZ = (anchor.getBlockZ() + MIN_OFFSET) >> 4;
-        int maxChunkZ = (anchor.getBlockZ() + MAX_OFFSET) >> 4;
+        int minChunkX = (anchor.getBlockX() + minOffset()) >> 4;
+        int maxChunkX = (anchor.getBlockX() + maxOffset()) >> 4;
+        int minChunkZ = (anchor.getBlockZ() + minOffset()) >> 4;
+        int maxChunkZ = (anchor.getBlockZ() + maxOffset()) >> 4;
         Set<Chunk> chunks = new HashSet<>();
         for (int x = minChunkX; x <= maxChunkX; x++) {
             for (int z = minChunkZ; z <= maxChunkZ; z++) {
@@ -590,7 +615,7 @@ final class AmethystBlockEventService implements Listener {
             event.setCancelled(true);
             if (!block.finishing) {
                 PlayerMenuService.error(event.getPlayer(),
-                        "Use a pickaxe to mine the Huge Amethyst Block.");
+                        "Use a pickaxe to mine the " + blockName() + ".");
             }
             return;
         }
@@ -677,7 +702,7 @@ final class AmethystBlockEventService implements Listener {
         }
         long now = System.currentTimeMillis();
         if (now >= block.expiresAt) {
-            removeActive(true, "The Huge Amethyst Block dissolved before it was broken.");
+            removeActive(true, "The " + blockName() + " dissolved before it was broken.");
             return;
         }
         List<Player> miners = block.mining.keySet().stream()
@@ -770,8 +795,10 @@ final class AmethystBlockEventService implements Listener {
                     variables.integer("huge-amethyst.contribution-base-keys"),
                     variables.integer("huge-amethyst.contribution-pool-keys")
             );
-            int keys = Math.max(0, bundle.keys() + bonus);
-            giveOwned(player, crateItems.key(keys));
+            int keys = (int) Math.round(Math.max(0, bundle.keys() + bonus)
+                    * variables.decimal(tier + "-amethyst.key-multiplier")
+                    * AmethystEventCoordinator.lowActivityRewardMultiplier(variables));
+            if (keys > 0 && !crateItems.giveKeys(player, keys)) giveOwned(player, crateItems.key(keys));
             giveOwned(player, new ItemStack(Material.DIAMOND, bundle.diamonds()));
             giveOwned(player, new ItemStack(Material.EMERALD, bundle.emeralds()));
             giveOwned(player, new ItemStack(Material.GOLD_INGOT, bundle.gold()));
@@ -781,7 +808,7 @@ final class AmethystBlockEventService implements Listener {
             player.sendMessage(PlayerMenuService.prefix().append(messages.render(
                     completion ? "messages.amethyst.block-broken"
                             : "messages.amethyst.reward-wave",
-                    "keys", String.valueOf(keys))));
+                    "keys", String.valueOf(keys), "block", blockName())));
             player.playSound(player.getLocation(), Sound.UI_TOAST_CHALLENGE_COMPLETE, 1f,
                     completion ? 1.35f : 1.1f);
         }
@@ -825,7 +852,7 @@ final class AmethystBlockEventService implements Listener {
     private void launchKeyFountain(
             Location anchor, int waves, int perWave, boolean finale
     ) {
-        Location source = anchor.clone().add(0d, STRUCTURE_SIZE + 0.8d, 0d);
+        Location source = anchor.clone().add(0d, structureSize + 0.8d, 0d);
         World world = source.getWorld();
         for (int wave = 0; wave < waves; wave++) {
             int currentWave = wave;
@@ -890,7 +917,7 @@ final class AmethystBlockEventService implements Listener {
         }
         if (bossBar != null) {
             bossBar.progress(0f);
-            bossBar.name(Component.text("HUGE AMETHYST BLOCK • SHATTERING", AMETHYST,
+            bossBar.name(Component.text(blockName().toUpperCase(java.util.Locale.ROOT) + " • SHATTERING", AMETHYST,
                     TextDecoration.BOLD));
         }
         block.title.text(Component.text("AMETHYST CORE SHATTERED!", NamedTextColor.LIGHT_PURPLE,
@@ -907,7 +934,7 @@ final class AmethystBlockEventService implements Listener {
         ServerEvent.of(
                 "amethyst_block_break", ServerEvent.CATEGORY_CRATE, null, "Server",
                 plugin::recordServerEvent
-        ).summary("Players broke the Huge Amethyst Block")
+        ).summary("Players broke the " + blockName())
                 .detail("world", worldName(block.anchor.getWorld()))
                 .detail("coordinates", coordinates(block.anchor))
                 .detail("contributors", String.valueOf(block.damage.size()))
@@ -990,7 +1017,8 @@ final class AmethystBlockEventService implements Listener {
                 // component rather than pushed through removeActive's plain-text path.
                 if (!messages.isSilenced("messages.amethyst.shattered")) {
                     announce(Component.text("AMETHYST EVENT » ", AMETHYST, TextDecoration.BOLD)
-                            .append(messages.render("messages.amethyst.shattered")));
+                            .append(messages.render("messages.amethyst.shattered",
+                                    "block", blockName())));
                 }
                 removeActive(false, null);
             }
@@ -1072,7 +1100,7 @@ final class AmethystBlockEventService implements Listener {
 
     private Component bossTitle(ActiveBlock block) {
         return EventBanner.bossBar(
-                "Huge Amethyst Block", AMETHYST,
+                blockName(), AMETHYST,
                 block.anchor.getBlockX(), block.anchor.getBlockY(), block.anchor.getBlockZ(),
                 EventBanner.number(Math.max(0L, Math.round(block.health))) + " HP",
                 AirdropService.formatCountdown(block.expiresAt - System.currentTimeMillis())
@@ -1190,6 +1218,7 @@ final class AmethystBlockEventService implements Listener {
     private void writeJournal(Location anchor) {
         YamlConfiguration state = new YamlConfiguration();
         state.set("world", anchor.getWorld().getName());
+        state.set("size", structureSize);
         state.set("x", anchor.getBlockX());
         state.set("y", anchor.getBlockY());
         state.set("z", anchor.getBlockZ());
@@ -1217,9 +1246,11 @@ final class AmethystBlockEventService implements Listener {
         Location anchor = new Location(
                 world, state.getInt("x"), state.getInt("y"), state.getInt("z")
         );
+        structureSize = state.getInt("size", STRUCTURE_SIZE);
         clearCubeToAir(anchor);
+        structureSize = STRUCTURE_SIZE;
         clearJournal();
-        plugin.getLogger().info("Restored an interrupted Huge Amethyst Block at "
+        plugin.getLogger().info("Restored an interrupted Amethyst Block event at "
                 + coordinates(anchor) + ".");
     }
 
@@ -1232,7 +1263,7 @@ final class AmethystBlockEventService implements Listener {
         }
     }
 
-    private static void clearCubeToAir(Location anchor) {
+    private void clearCubeToAir(Location anchor) {
         forEachCubeBlock(anchor, block -> {
             if (block.getType() == Material.AMETHYST_BLOCK) {
                 block.setType(Material.AIR, false);
@@ -1246,23 +1277,23 @@ final class AmethystBlockEventService implements Listener {
         ).setBlockData(data, false));
     }
 
-    private static boolean contains(ActiveBlock active, Block block) {
+    private boolean contains(ActiveBlock active, Block block) {
         if (!block.getWorld().equals(active.anchor.getWorld())) {
             return false;
         }
         int dx = block.getX() - active.anchor.getBlockX();
         int dy = block.getY() - active.anchor.getBlockY();
         int dz = block.getZ() - active.anchor.getBlockZ();
-        return dx >= MIN_OFFSET && dx <= MAX_OFFSET
-                && dz >= MIN_OFFSET && dz <= MAX_OFFSET
-                && dy >= 0 && dy < STRUCTURE_SIZE;
+        return dx >= minOffset() && dx <= maxOffset()
+                && dz >= minOffset() && dz <= maxOffset()
+                && dy >= 0 && dy < structureSize;
     }
 
-    private static void forEachCubeBlock(Location anchor, java.util.function.Consumer<Block> use) {
+    private void forEachCubeBlock(Location anchor, java.util.function.Consumer<Block> use) {
         World world = anchor.getWorld();
-        for (int x = MIN_OFFSET; x <= MAX_OFFSET; x++) {
-            for (int y = 0; y < STRUCTURE_SIZE; y++) {
-                for (int z = MIN_OFFSET; z <= MAX_OFFSET; z++) {
+        for (int x = minOffset(); x <= maxOffset(); x++) {
+            for (int y = 0; y < structureSize; y++) {
+                for (int z = minOffset(); z <= maxOffset(); z++) {
                     use.accept(world.getBlockAt(
                             anchor.getBlockX() + x,
                             anchor.getBlockY() + y,
@@ -1277,9 +1308,9 @@ final class AmethystBlockEventService implements Listener {
         return new BlockPosition(block.getX(), block.getY(), block.getZ());
     }
 
-    private static Location cubeCentre(Location anchor) {
+    private Location cubeCentre(Location anchor) {
         return new Location(anchor.getWorld(), anchor.getBlockX(),
-                anchor.getBlockY() + STRUCTURE_SIZE / 2d, anchor.getBlockZ());
+                anchor.getBlockY() + structureSize / 2d, anchor.getBlockZ());
     }
 
     private static int healthPercent(double health, double maximumHealth) {

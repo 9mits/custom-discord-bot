@@ -22,7 +22,9 @@ final class AmethystBlockEventServiceTest {
         assertTrue(source.contains("BlockBreakEvent"));
         assertTrue(source.contains("block.setType(Material.AMETHYST_BLOCK, false)"));
         assertTrue(source.contains("BlockDisplay visual"));
-        assertTrue(source.contains("new Vector3f(12.02f, 12.02f, 12.02f)"));
+        assertTrue(source.contains("new Vector3f(structureSize + 0.02f"));
+        assertTrue(source.contains("List.of(\"huge\", \"giant\", \"humongous\")"));
+        assertTrue(source.contains("structureSize = variables.integer(tier + \"-amethyst.size\")"));
         assertFalse(source.contains("EntityDamageByEntityEvent"));
         assertFalse(source.contains("Interaction interaction"));
     }

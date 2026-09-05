@@ -101,6 +101,27 @@ final class LuckPermsService {
                     return null;
                 });
         makeOwnerCosmetic();
+        ensureCoOwner();
+    }
+
+    /** A hand-assigned LuckPerms rank; deliberately absent from Discord rank sync. */
+    void ensureCoOwner() {
+        String parent = plugin.gameVariables().string("permissions.co-owner-parent").strip().toLowerCase();
+        String prefix = plugin.gameVariables().string("permissions.co-owner-prefix");
+        int priority = plugin.gameVariables().integer("permissions.co-owner-prefix-priority");
+        int weight = plugin.gameVariables().integer("permissions.co-owner-weight");
+        luckPerms.getGroupManager().modifyGroup("co-owner", group -> {
+            group.data().clear(node -> NodeType.PREFIX.matches(node) || NodeType.WEIGHT.matches(node));
+            group.data().add(InheritanceNode.builder(parent).build());
+            group.data().add(PrefixNode.builder(prefix, priority).build());
+            group.data().add(WeightNode.builder(weight).build());
+        }).thenRun(() -> plugin.getLogger().info(
+                        "LuckPerms co-owner inherits " + parent + " and is not Discord-managed."
+                ))
+                .exceptionally(throwable -> {
+                    plugin.getLogger().log(Level.WARNING, "Could not configure the co-owner group", throwable);
+                    return null;
+                });
     }
 
     /** Prefix only. No wildcards, no WorldGuard bypass, no keep-inventory, no gamemode. */

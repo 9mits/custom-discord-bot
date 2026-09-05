@@ -24,10 +24,15 @@ final class AmethystProgressStoreTest {
 
         assertEquals(3L, store.recordCratesOpened(player, 3));
         assertEquals(1L, store.recordAirdropOpened(player));
-        assertEquals(2, changes.get());
+        assertEquals(125L, store.recordDragonDamage(player, 125));
+        assertEquals(1L, store.recordDragonCrystal(player));
+        assertEquals(1L, store.recordDragonCrate(player));
+        assertEquals(1L, store.recordDragonEgg(player));
+        assertEquals(6, changes.get());
 
         AmethystProgressStore reloaded = new AmethystProgressStore(file);
-        assertEquals(new AmethystProgressStore.Counts(3L, 1L), reloaded.counts(player));
+        assertEquals(new AmethystProgressStore.Counts(3L, 1L, 125L, 1L, 1L, 1L),
+                reloaded.counts(player));
         assertEquals(1, reloaded.snapshots().size());
     }
 

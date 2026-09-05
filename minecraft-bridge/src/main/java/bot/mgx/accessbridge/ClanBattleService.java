@@ -147,6 +147,15 @@ final class ClanBattleService implements Listener {
         }
     }
 
+    void recordDragonEgg(Player player) {
+        try {
+            store.recordDragonEgg(player.getUniqueId(), System.currentTimeMillis(), clans);
+        } catch (ArithmeticException | UncheckedIOException exception) {
+            plugin.getLogger().warning("Could not record a Dragon Egg Clan Battle point for "
+                    + player.getUniqueId() + ": " + exception.getMessage());
+        }
+    }
+
     void start() {
         reconcileGalaxyRewards();
         for (Player player : Bukkit.getOnlinePlayers()) {
@@ -199,16 +208,21 @@ final class ClanBattleService implements Listener {
     private void reconcileGalaxyRewards() {
         for (ClanBattleStore.CompletedView battle : store.completed()) {
             for (ClanBattleStore.Standing winner : battle.winners()) {
-                if (winner.rank() != 1) {
-                    continue;
+                String rewardId;
+                if (battle.kind() == ClanBattleStore.Kind.DRAGON_EGGS) {
+                    rewardId = CosmeticCatalog.dragonClanReward(winner.rank(), CosmeticCatalog.Category.AURA)
+                            .map(CosmeticCatalog.Definition::id).orElse(null);
+                } else {
+                    rewardId = winner.rank() == 1 ? ClanBattleStore.GALACTIC_CONQUEST_ID : null;
                 }
+                if (rewardId == null) continue;
                 for (UUID member : winner.members()) {
-                    UUID serial = UUID.nameUUIDFromBytes(("clan-battle-aura:"
+                    UUID serial = UUID.nameUUIDFromBytes(("clan-battle-cosmetic:"
                             + battle.id() + ":" + member).getBytes(StandardCharsets.UTF_8));
                     try {
-                        cosmetics.mint(member, ClanBattleStore.GALACTIC_CONQUEST_ID, serial);
+                        cosmetics.mint(member, rewardId, serial);
                     } catch (IllegalArgumentException | UncheckedIOException exception) {
-                        plugin.getLogger().warning("Could not grant Galactic Conquest to "
+                        plugin.getLogger().warning("Could not grant Clan Battle cosmetic to "
                                 + member + ": " + exception.getMessage());
                     }
                 }
@@ -239,6 +253,13 @@ final class ClanBattleService implements Listener {
                 continue;
             }
             completeCarriedGrant(player, grant, notify);
+        }
+    }
+
+    /** Delivers rewards queued by a leaderboard finalization to players already online. */
+    void deliverPendingShardRewards() {
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            deliverShardGrants(player, true);
         }
     }
 
@@ -293,22 +314,20 @@ final class ClanBattleService implements Listener {
             return;
         }
         for (ClanBattleStore.Standing winner : completed.winners()) {
-            int shards = switch (winner.rank()) {
-                case 1 -> 10;
-                case 2 -> 5;
-                default -> 3;
-            };
+            int shards = ClanBattleStore.shardReward(completed.kind(), winner.rank());
             TextColor colour = switch (winner.rank()) {
                 case 1 -> GOLD;
                 case 2 -> SILVER;
                 default -> BRONZE;
             };
-            String extra = winner.rank() == 1 ? " + Galactic Conquest aura" : "";
+            String unit = completed.kind() == ClanBattleStore.Kind.DRAGON_EGGS ? " eggs" : " openings";
+            String extra = completed.kind() == ClanBattleStore.Kind.DRAGON_EGGS
+                    ? " + custom clan cosmetic" : winner.rank() == 1 ? " + Galactic Conquest aura" : "";
             PlayerBroadcast.broadcast(settings,
                 PlayerSettingsStore.Setting.CLAN_BATTLE_ANNOUNCEMENTS, prefix()
                     .append(Component.text("#" + winner.rank() + " [" + winner.clanName() + "]",
                             colour, TextDecoration.BOLD))
-                    .append(Component.text(" — " + winner.score() + " openings — "
+                    .append(Component.text(" — " + winner.score() + unit + " — "
                             + shards + " Shards per member" + extra, NamedTextColor.WHITE)));
         }
     }

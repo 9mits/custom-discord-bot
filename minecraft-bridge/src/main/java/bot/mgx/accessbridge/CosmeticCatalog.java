@@ -17,6 +17,7 @@ final class CosmeticCatalog {
     static final int SECRET_WEIGHT = 3;
     static final String HIDDEN_AMETHYST_COSMETIC_ID = "iridescent_imperium";
     static final int HIDDEN_AMETHYST_ONE_IN = 500_000;
+    static final String DRAGON_SECRET_COSMETIC_ID = "amethyst_dragon_ascendant";
 
     enum Category {
         KILL_EFFECT("Kill Effects"),
@@ -237,7 +238,8 @@ final class CosmeticCatalog {
             Map.entry("resonant_shatter", OddsFamily.AMETHYST),
             Map.entry("crystalfall_wake", OddsFamily.AMETHYST),
             Map.entry("airdrop_apotheosis", OddsFamily.AMETHYST),
-            Map.entry(HIDDEN_AMETHYST_COSMETIC_ID, OddsFamily.GENUINE)
+            Map.entry(HIDDEN_AMETHYST_COSMETIC_ID, OddsFamily.GENUINE),
+            Map.entry(DRAGON_SECRET_COSMETIC_ID, OddsFamily.GENUINE)
     );
 
     private static final List<Definition> DEFINITIONS = List.of(
@@ -432,6 +434,54 @@ final class CosmeticCatalog {
             )
     );
 
+    /** Nine animated Dragon Exotics, three in every wardrobe category. */
+    private static final List<Definition> DRAGON_REWARDS = List.of(
+            cosmetic("dragonheart_rupture", "Dragonheart Rupture", Category.KILL_EFFECT, 156,
+                    "END_CRYSTAL", "A dragon-heart crystal erupts into violet shockwaves."),
+            cosmetic("crystal_wingfall", "Crystal Wingfall", Category.KILL_EFFECT, 156,
+                    "AMETHYST_CLUSTER", "Spectral crystal wings close over the final blow."),
+            cosmetic("endscale_cataclysm", "Endscale Cataclysm", Category.KILL_EFFECT, 156,
+                    "DRAGON_BREATH", "Amethyst scales spiral into a resonant blast."),
+            cosmetic("amethyst_dragon_crown", "Amethyst Dragon Crown", Category.AURA, 156,
+                    "DRAGON_HEAD", "A living crown and crystal wings orbit their champion."),
+            cosmetic("violet_wyrm_orbit", "Violet Wyrm Orbit", Category.AURA, 156,
+                    "ENDER_EYE", "Twin violet wyrms coil through a bright crystal orbit."),
+            cosmetic("geode_sovereignty", "Geode Sovereignty", Category.AURA, 155,
+                    "BUDDING_AMETHYST", "A royal geode throne unfolds around its wearer."),
+            cosmetic("dragonflight_wake", "Dragonflight Wake", Category.TRAIL, 155,
+                    "ELYTRA", "Wingbeats and violet embers chase every step."),
+            cosmetic("shardwing_procession", "Shardwing Procession", Category.TRAIL, 155,
+                    "AMETHYST_SHARD", "Paired crystal wings sweep through the travelled path."),
+            cosmetic("crystalfire_trail", "Crystalfire Trail", Category.TRAIL, 155,
+                    "END_ROD", "Purple dragonfire dances and fractures behind the wearer.")
+    );
+
+    private static final List<Definition> HIDDEN_DRAGON_REWARDS = List.of(
+            new Definition(
+                    DRAGON_SECRET_COSMETIC_ID, "Amethyst Dragon Ascendant", Category.AURA,
+                    1, true, "DRAGON_EGG", "mgx:cosmetic/" + DRAGON_SECRET_COSMETIC_ID,
+                    "A music-synced Amethyst Dragon circles a living crystal throne.", 0
+            )
+    );
+
+    private static final List<Definition> DRAGON_LEADERBOARD_REWARDS = List.of(
+            leaderboardCosmetic("dragon_podium_1", "Dragon's First Crown", Category.AURA, 1,
+                    "DRAGON_HEAD", "Held by #1 on either Amethyst Dragon leaderboard."),
+            leaderboardCosmetic("dragon_podium_2", "Dragon's Silver Fang", Category.AURA, 2,
+                    "GHAST_TEAR", "Held by #2 on either Amethyst Dragon leaderboard."),
+            leaderboardCosmetic("dragon_podium_3", "Dragon's Bronze Scale", Category.AURA, 3,
+                    "COPPER_INGOT", "Held by #3 on either Amethyst Dragon leaderboard.")
+    );
+
+    private static final List<Definition> DRAGON_CLAN_REWARDS = List.of(
+            cosmetic("dragon_clan_1", "Sovereign Brood", Category.AURA, 1,
+                    "DRAGON_EGG", "Awarded to the #1 clan in the Dragon Egg Clan Battle."),
+            cosmetic("dragon_clan_2", "Crystal Vanguard", Category.AURA, 1,
+                    "AMETHYST_CLUSTER", "Awarded to the #2 clan in the Dragon Egg Clan Battle."),
+            cosmetic("dragon_clan_3", "Violet Kin", Category.AURA, 1,
+                    "AMETHYST_SHARD", "Awarded to the #3 clan in the Dragon Egg Clan Battle.")
+    );
+
     /** Permanent ownership awarded to every member of a first-place clan battle roster. */
     private static final List<Definition> CLAN_BATTLE_REWARDS = List.of(
             cosmetic(
@@ -458,7 +508,8 @@ final class CosmeticCatalog {
     }
 
     static boolean isClanBattleReward(String cosmeticId) {
-        return cosmeticId != null && CLAN_BATTLE_REWARDS.stream()
+        return cosmeticId != null && java.util.stream.Stream.concat(
+                        CLAN_BATTLE_REWARDS.stream(), DRAGON_CLAN_REWARDS.stream())
                 .anyMatch(definition -> definition.id().equalsIgnoreCase(cosmeticId));
     }
     private static final List<Definition> LEADERBOARD_REWARDS = List.of(
@@ -539,6 +590,20 @@ final class CosmeticCatalog {
      */
     private static volatile java.util.function.Supplier<Map<Definition, String>> additions =
             Map::of;
+    private static final Map<String, String> EFFECT_ALIASES = Map.ofEntries(
+            Map.entry("dragonheart_rupture", "violet_detonation"),
+            Map.entry("crystal_wingfall", "crystal_guillotine"),
+            Map.entry("endscale_cataclysm", "resonant_shatter"),
+            Map.entry("amethyst_dragon_crown", "amethyst_ascension"),
+            Map.entry("violet_wyrm_orbit", "airdrop_apotheosis"),
+            Map.entry("geode_sovereignty", "geode_cathedral"),
+            Map.entry("dragonflight_wake", "crystalfall_wake"),
+            Map.entry("shardwing_procession", "shardstorm_wake"),
+            Map.entry("crystalfire_trail", "geode_bloom"),
+            Map.entry("dragon_clan_1", "galactic_conquest"),
+            Map.entry("dragon_clan_2", "amethyst_ascension"),
+            Map.entry("dragon_clan_3", "geode_cathedral")
+    );
 
     static void additionSource(java.util.function.Supplier<Map<Definition, String>> source) {
         if (source != null) {
@@ -552,7 +617,10 @@ final class CosmeticCatalog {
             return "";
         }
         String worn = additions.get().get(definition);
-        return worn == null || worn.isBlank() ? definition.id() : worn;
+        if (worn != null && !worn.isBlank()) {
+            return worn;
+        }
+        return EFFECT_ALIASES.getOrDefault(definition.id(), definition.id());
     }
 
     static Optional<Definition> find(String id) {
@@ -587,6 +655,14 @@ final class CosmeticCatalog {
         return HIDDEN_AMETHYST_REWARDS;
     }
 
+    static List<Definition> dragonRewards() {
+        return DRAGON_REWARDS;
+    }
+
+    static List<Definition> hiddenDragonRewards() {
+        return HIDDEN_DRAGON_REWARDS;
+    }
+
     static List<Definition> amethystAirdropRewards() {
         return AMETHYST_AIRDROP_REWARDS;
     }
@@ -596,7 +672,9 @@ final class CosmeticCatalog {
         return java.util.stream.Stream.of(
                         DEFINITIONS.stream(), AMETHYST_REWARDS.stream(),
                         HIDDEN_AMETHYST_REWARDS.stream(), AMETHYST_AIRDROP_REWARDS.stream(),
-                        CLAN_BATTLE_REWARDS.stream(), LEADERBOARD_REWARDS.stream()
+                        DRAGON_REWARDS.stream(), HIDDEN_DRAGON_REWARDS.stream(),
+                        CLAN_BATTLE_REWARDS.stream(), DRAGON_CLAN_REWARDS.stream(),
+                        LEADERBOARD_REWARDS.stream(), DRAGON_LEADERBOARD_REWARDS.stream()
                 )
                 .flatMap(stream -> stream)
                 .toList();
@@ -608,6 +686,20 @@ final class CosmeticCatalog {
 
     static Optional<Definition> leaderboardReward(int rank, Category category) {
         return LEADERBOARD_REWARDS.stream()
+                .filter(definition -> definition.leaderboardRank() == rank)
+                .filter(definition -> definition.category() == category)
+                .findFirst();
+    }
+
+    static Optional<Definition> dragonLeaderboardReward(int rank, Category category) {
+        return DRAGON_LEADERBOARD_REWARDS.stream()
+                .filter(definition -> definition.leaderboardRank() == rank)
+                .filter(definition -> definition.category() == category)
+                .findFirst();
+    }
+
+    static Optional<Definition> dragonClanReward(int rank, Category category) {
+        return DRAGON_CLAN_REWARDS.stream()
                 .filter(definition -> definition.leaderboardRank() == rank)
                 .filter(definition -> definition.category() == category)
                 .findFirst();

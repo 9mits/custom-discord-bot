@@ -5,6 +5,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -146,5 +147,29 @@ final class ClanBattleStoreTest {
 
         ClanBattleStore reloaded = new ClanBattleStore(directory.resolve("battles.json"));
         assertEquals(8_640_000L, reloaded.active(clans).orElseThrow().endsAt());
+    }
+
+    @Test
+    void individualLeaderboardShardSetsQueueExactlyOnceAndSurviveReload() throws Exception {
+        Path file = directory.resolve("battles.json");
+        ClanBattleStore battles = new ClanBattleStore(file);
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+
+        assertTrue(battles.queueShardRewardsOnce(
+                "dragon-2026", Map.of(first, 15, second, 10), "Dragon Leaderboards"
+        ));
+        assertFalse(battles.queueShardRewardsOnce(
+                "dragon-2026", Map.of(first, 99), "Dragon Leaderboards"
+        ));
+
+        ClanBattleStore reloaded = new ClanBattleStore(file);
+        assertEquals(List.of(15), reloaded.shardGrants(first).stream()
+                .map(ClanBattleStore.ShardGrant::amount).toList());
+        assertEquals(List.of(10), reloaded.shardGrants(second).stream()
+                .map(ClanBattleStore.ShardGrant::amount).toList());
+        assertFalse(reloaded.queueShardRewardsOnce(
+                "dragon-2026", Map.of(first, 99), "Dragon Leaderboards"
+        ));
     }
 }

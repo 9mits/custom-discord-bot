@@ -83,6 +83,15 @@
         "bedrock_options": {
           "icon": "mgx:cosmetic_void_collapse"
         }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/violet_wyrm_orbit",
+        "bedrock_identifier": "mgx:cosmetic_violet_wyrm_orbit",
+        "display_name": "Violet Wyrm Orbit",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_violet_wyrm_orbit"
+        }
       }
     ],
     "minecraft:soul_lantern": [
@@ -191,6 +200,24 @@
         "display_name": "Shard",
         "bedrock_options": {
           "icon": "mgx:shard"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/shardwing_procession",
+        "bedrock_identifier": "mgx:cosmetic_shardwing_procession",
+        "display_name": "Shardwing Procession",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_shardwing_procession"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/dragon_clan_3",
+        "bedrock_identifier": "mgx:cosmetic_dragon_clan_3",
+        "display_name": "Violet Kin",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_dragon_clan_3"
         }
       }
     ],
@@ -450,6 +477,15 @@
         "bedrock_options": {
           "icon": "mgx:cosmetic_bronze_cataclysm"
         }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/dragon_podium_3",
+        "bedrock_identifier": "mgx:cosmetic_dragon_podium_3",
+        "display_name": "Dragon's Bronze Scale",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_dragon_podium_3"
+        }
       }
     ],
     "minecraft:copper_block": [
@@ -547,6 +583,15 @@
         "bedrock_options": {
           "icon": "mgx:cosmetic_airdrop_apotheosis"
         }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/geode_sovereignty",
+        "bedrock_identifier": "mgx:cosmetic_geode_sovereignty",
+        "display_name": "Geode Sovereignty",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_geode_sovereignty"
+        }
       }
     ],
     "minecraft:amethyst_cluster": [
@@ -585,6 +630,24 @@
         "bedrock_options": {
           "icon": "mgx:cosmetic_resonant_shatter"
         }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/crystal_wingfall",
+        "bedrock_identifier": "mgx:cosmetic_crystal_wingfall",
+        "display_name": "Crystal Wingfall",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_crystal_wingfall"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/dragon_clan_2",
+        "bedrock_identifier": "mgx:cosmetic_dragon_clan_2",
+        "display_name": "Crystal Vanguard",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_dragon_clan_2"
+        }
       }
     ],
     "minecraft:end_crystal": [
@@ -595,6 +658,15 @@
         "display_name": "Violet Detonation",
         "bedrock_options": {
           "icon": "mgx:cosmetic_violet_detonation"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/dragonheart_rupture",
+        "bedrock_identifier": "mgx:cosmetic_dragonheart_rupture",
+        "display_name": "Dragonheart Rupture",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_dragonheart_rupture"
         }
       }
     ],
@@ -617,6 +689,218 @@
         "display_name": "Crystalline Extinction",
         "bedrock_options": {
           "icon": "mgx:cosmetic_crystalline_extinction"
+        }
+      }
+    ],
+    "minecraft:diamond_sword": [
+      {
+        "type": "definition",
+        "model": "mgx:amethyst_sword",
+        "bedrock_identifier": "mgx:amethyst_sword",
+        "display_name": "Amethyst Sword",
+        "bedrock_options": {
+          "icon": "mgx:amethyst_sword"
+        }
+      }
+    ],
+    "minecraft:diamond_hoe": [
+      {
+        "type": "definition",
+        "model": "mgx:amethyst_hoe",
+        "bedrock_identifier": "mgx:amethyst_hoe",
+        "display_name": "Amethyst Hoe",
+        "bedrock_options": {
+          "icon": "mgx:amethyst_hoe"
+        }
+      }
+    ],
+    "minecraft:bow": [
+      {
+        "type": "definition",
+        "model": "mgx:amethyst_bow",
+        "bedrock_identifier": "mgx:amethyst_bow",
+        "display_name": "Amethyst Bow",
+        "bedrock_options": {
+          "icon": "mgx:amethyst_bow"
+        }
+      }
+    ],
+    "minecraft:fishing_rod": [
+      {
+        "type": "definition",
+        "model": "mgx:amethyst_fishing_rod",
+        "bedrock_identifier": "mgx:amethyst_fishing_rod",
+        "display_name": "Amethyst Fishing Rod",
+        "bedrock_options": {
+          "icon": "mgx:amethyst_fishing_rod"
+        }
+      }
+    ],
+    "minecraft:diamond_helmet": [
+      {
+        "type": "definition",
+        "model": "mgx:amethyst_helmet",
+        "bedrock_identifier": "mgx:amethyst_helmet",
+        "display_name": "Amethyst Helmet",
+        "bedrock_options": {
+          "icon": "mgx:amethyst_helmet"
+        }
+      }
+    ],
+    "minecraft:diamond_chestplate": [
+      {
+        "type": "definition",
+        "model": "mgx:amethyst_chestplate",
+        "bedrock_identifier": "mgx:amethyst_chestplate",
+        "display_name": "Amethyst Chestplate",
+        "bedrock_options": {
+          "icon": "mgx:amethyst_chestplate"
+        }
+      }
+    ],
+    "minecraft:diamond_leggings": [
+      {
+        "type": "definition",
+        "model": "mgx:amethyst_leggings",
+        "bedrock_identifier": "mgx:amethyst_leggings",
+        "display_name": "Amethyst Leggings",
+        "bedrock_options": {
+          "icon": "mgx:amethyst_leggings"
+        }
+      }
+    ],
+    "minecraft:diamond_boots": [
+      {
+        "type": "definition",
+        "model": "mgx:amethyst_boots",
+        "bedrock_identifier": "mgx:amethyst_boots",
+        "display_name": "Amethyst Boots",
+        "bedrock_options": {
+          "icon": "mgx:amethyst_boots"
+        }
+      }
+    ],
+    "minecraft:elytra": [
+      {
+        "type": "definition",
+        "model": "mgx:amethyst_elytra",
+        "bedrock_identifier": "mgx:amethyst_elytra",
+        "display_name": "Amethyst Elytra",
+        "bedrock_options": {
+          "icon": "mgx:amethyst_elytra"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/dragonflight_wake",
+        "bedrock_identifier": "mgx:cosmetic_dragonflight_wake",
+        "display_name": "Dragonflight Wake",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_dragonflight_wake"
+        }
+      }
+    ],
+    "minecraft:tipped_arrow": [
+      {
+        "type": "definition",
+        "model": "mgx:amethyst_arrow",
+        "bedrock_identifier": "mgx:amethyst_arrow",
+        "display_name": "Amethyst Arrow",
+        "bedrock_options": {
+          "icon": "mgx:amethyst_arrow"
+        }
+      }
+    ],
+    "minecraft:enchanted_golden_apple": [
+      {
+        "type": "definition",
+        "model": "mgx:amethyst_apple",
+        "bedrock_identifier": "mgx:amethyst_apple",
+        "display_name": "Amethyst Apple",
+        "bedrock_options": {
+          "icon": "mgx:amethyst_apple"
+        }
+      }
+    ],
+    "minecraft:dragon_egg": [
+      {
+        "type": "definition",
+        "model": "mgx:amethyst_dragon_egg",
+        "bedrock_identifier": "mgx:amethyst_dragon_egg",
+        "display_name": "Amethyst Dragon Egg",
+        "bedrock_options": {
+          "icon": "mgx:amethyst_dragon_egg"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/amethyst_dragon_ascendant",
+        "bedrock_identifier": "mgx:cosmetic_amethyst_dragon_ascendant",
+        "display_name": "Amethyst Dragon Ascendant",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_amethyst_dragon_ascendant"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/dragon_clan_1",
+        "bedrock_identifier": "mgx:cosmetic_dragon_clan_1",
+        "display_name": "Sovereign Brood",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_dragon_clan_1"
+        }
+      }
+    ],
+    "minecraft:dragon_breath": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/endscale_cataclysm",
+        "bedrock_identifier": "mgx:cosmetic_endscale_cataclysm",
+        "display_name": "Endscale Cataclysm",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_endscale_cataclysm"
+        }
+      }
+    ],
+    "minecraft:dragon_head": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/amethyst_dragon_crown",
+        "bedrock_identifier": "mgx:cosmetic_amethyst_dragon_crown",
+        "display_name": "Amethyst Dragon Crown",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_amethyst_dragon_crown"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/dragon_podium_1",
+        "bedrock_identifier": "mgx:cosmetic_dragon_podium_1",
+        "display_name": "Dragon's First Crown",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_dragon_podium_1"
+        }
+      }
+    ],
+    "minecraft:end_rod": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/crystalfire_trail",
+        "bedrock_identifier": "mgx:cosmetic_crystalfire_trail",
+        "display_name": "Crystalfire Trail",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_crystalfire_trail"
+        }
+      }
+    ],
+    "minecraft:ghast_tear": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/dragon_podium_2",
+        "bedrock_identifier": "mgx:cosmetic_dragon_podium_2",
+        "display_name": "Dragon's Silver Fang",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_dragon_podium_2"
         }
       }
     ]

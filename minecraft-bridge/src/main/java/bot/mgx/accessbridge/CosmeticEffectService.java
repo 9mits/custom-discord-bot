@@ -137,6 +137,8 @@ final class CosmeticEffectService implements Listener {
     private static final float AURA_SOUND_VOLUME = 0.45f;
     private static final String MUSIC_AURA_ID = CosmeticCatalog.HIDDEN_AMETHYST_COSMETIC_ID;
     private static final String MUSIC_AURA_SOUND = "mgx:iridescent_imperium";
+    private static final String DRAGON_MUSIC_AURA_ID = CosmeticCatalog.DRAGON_SECRET_COSMETIC_ID;
+    private static final String DRAGON_MUSIC_AURA_SOUND = "mgx:amethyst_dragon_ascendant";
     private static final String RARITY_NAMEPLATE_TAG = "mgx_cosmetic_rarity_nameplate";
     private static final TextColor SECRET_REVEAL_COLOUR = TextColor.color(0xC77DFF);
     /** Client-side sky the reveals borrow. Dusk for an Exotic, dead midnight for a Secret. */
@@ -169,13 +171,17 @@ final class CosmeticEffectService implements Listener {
 
     private static final class MusicAuraState {
         private final long startedAtMillis;
+        private final String sound;
+        private final long durationMillis;
         private final Set<UUID> listeners = new HashSet<>();
         /** Includes muted nearby viewers so raising 0% can restart the synced loop. */
         private final Map<UUID, Integer> observedVolumes = new HashMap<>();
         private long loop = -1L;
 
-        MusicAuraState(long startedAtMillis) {
+        MusicAuraState(long startedAtMillis, String sound, long durationMillis) {
             this.startedAtMillis = startedAtMillis;
+            this.sound = sound;
+            this.durationMillis = durationMillis;
         }
     }
 
@@ -296,8 +302,8 @@ final class CosmeticEffectService implements Listener {
                     player, CosmeticCatalog.Category.TRAIL
             );
             syncRarityNameplate(player, aura);
-            if (aura.map(CosmeticCatalog.Definition::id).filter(MUSIC_AURA_ID::equals).isPresent()) {
-                syncMusicAura(player);
+            if (aura.filter(CosmeticEffectService::isMusicAura).isPresent()) {
+                syncMusicAura(player, aura.orElseThrow());
             } else {
                 stopMusicAura(player.getUniqueId());
             }
@@ -634,6 +640,13 @@ final class CosmeticEffectService implements Listener {
         };
     }
 
+    static long revealDurationTicks(CrateCatalog.Reward reward) {
+        if (reward != null && DRAGON_MUSIC_AURA_ID.equals(reward.cosmeticId())) {
+            return DragonMusicTimeline.SAMPLE_COUNT * REVEAL_FRAME_TICKS;
+        }
+        return revealDurationTicks(reward == null ? CrateCatalog.RevealTier.NONE : reward.revealTier());
+    }
+
     void playCrateReveal(Player player, CrateCatalog.Reward reward) {
         switch (reward.revealTier()) {
             case NONE, LEGENDARY -> { }
@@ -783,6 +796,10 @@ final class CosmeticEffectService implements Listener {
     }
 
     private void playGenuineSecretReveal(Player player, CrateCatalog.Reward reward) {
+        if (DRAGON_MUSIC_AURA_ID.equals(reward.cosmeticId())) {
+            playDragonGenuineSecretReveal(player, reward);
+            return;
+        }
         player.closeInventory();
         beginFloatingPlayer(player);
         player.showTitle(Title.title(
@@ -912,6 +929,74 @@ final class CosmeticEffectService implements Listener {
                 activeRevealBars.remove(bar);
             }
         });
+    }
+
+    private void playDragonGenuineSecretReveal(Player player, CrateCatalog.Reward reward) {
+        player.closeInventory();
+        beginFloatingPlayer(player);
+        int oneIn = plugin.gameVariables().integer("dragon-crate.secret-one-in");
+        player.showTitle(Title.title(
+                Component.text("✦ SECRET ✦", TextColor.color(0xDCA8FF), TextDecoration.BOLD),
+                Component.text("AMETHYST DRAGON ASCENDANT • 1 IN " + String.format("%,d", oneIn),
+                        NamedTextColor.LIGHT_PURPLE, TextDecoration.BOLD),
+                Title.Times.times(Duration.ofMillis(100), Duration.ofSeconds(8),
+                        Duration.ofSeconds(2))
+        ));
+        BossBar bar = BossBar.bossBar(
+                Component.text(player.getName() + " awakened " + reward.displayName(),
+                        TextColor.color(0xDCA8FF), TextDecoration.BOLD),
+                1f, BossBar.Color.PURPLE, BossBar.Overlay.NOTCHED_20
+        );
+        activeRevealBars.add(bar);
+        for (Player viewer : plugin.getServer().getOnlinePlayers()) {
+            viewer.showBossBar(bar);
+            viewer.showTitle(Title.title(
+                    Component.text("✦ SECRET ✦", NamedTextColor.LIGHT_PURPLE,
+                            TextDecoration.BOLD),
+                    Component.text(player.getName() + " found " + reward.displayName(),
+                            NamedTextColor.GOLD),
+                    Title.Times.times(Duration.ofMillis(120), Duration.ofSeconds(4),
+                            Duration.ofMillis(800))
+            ));
+            globalPlayerPulse(viewer, true);
+            playMusicFor(viewer, DRAGON_MUSIC_AURA_SOUND);
+        }
+        beginRevealAtmosphere(player, true);
+        Location base = floatingPlayers.get(player.getUniqueId()).returnLocation().clone();
+        animate(player, base.clone().add(0d, 1d, 0d), DragonMusicTimeline.SAMPLE_COUNT,
+                REVEAL_FRAME_TICKS, step -> {
+            floatGenuineWinner(player, step);
+            bar.progress(Math.max(0f, 1f - step / (float) (DragonMusicTimeline.SAMPLE_COUNT - 1)));
+            if (player.isOnline()) {
+                Location centre = player.getLocation().add(0d, 0.9d, 0d);
+                drawDragonMusicFormation(player, centre, DragonMusicTimeline.at(step * 100L), step, null);
+            }
+            if (step == DragonMusicTimeline.SAMPLE_COUNT - 1) {
+                for (Player viewer : plugin.getServer().getOnlinePlayers()) {
+                    viewer.stopSound(DRAGON_MUSIC_AURA_SOUND, SoundCategory.MASTER);
+                    viewer.hideBossBar(bar);
+                    globalPlayerPulse(viewer, false);
+                }
+                activeRevealBars.remove(bar);
+                endRevealAtmosphere(player);
+                restoreFloatingPlayer(player.getUniqueId());
+            }
+        });
+    }
+
+    private void playMusicFor(Player viewer, String sound) {
+        int volume = settings.musicVolume(viewer.getUniqueId());
+        if (volume <= 0) {
+            return;
+        }
+        viewer.playSound(
+                net.kyori.adventure.sound.Sound.sound(
+                        net.kyori.adventure.key.Key.key(sound),
+                        net.kyori.adventure.sound.Sound.Source.MASTER,
+                        volume / 100.0f, 1f
+                ),
+                net.kyori.adventure.sound.Sound.Emitter.self()
+        );
     }
 
     private void playServerwideRevealSound(Sound sound, float volume, float pitch) {
@@ -1113,6 +1198,10 @@ final class CosmeticEffectService implements Listener {
             drawIridescentImperium(owner, centre, moving);
             return;
         }
+        if (definition.id().equals(DRAGON_MUSIC_AURA_ID)) {
+            drawAmethystDragonAscendant(owner, centre, moving);
+            return;
+        }
         if (definition.secret()) {
             drawSecretAura(owner, definition, centre, phase, step);
             return;
@@ -1133,10 +1222,31 @@ final class CosmeticEffectService implements Listener {
         }
     }
 
-    private void syncMusicAura(Player owner) {
+    private static boolean isMusicAura(CosmeticCatalog.Definition definition) {
+        return definition != null && (MUSIC_AURA_ID.equals(definition.id())
+                || DRAGON_MUSIC_AURA_ID.equals(definition.id()));
+    }
+
+    private static String musicAuraSound(CosmeticCatalog.Definition definition) {
+        return DRAGON_MUSIC_AURA_ID.equals(definition.id())
+                ? DRAGON_MUSIC_AURA_SOUND : MUSIC_AURA_SOUND;
+    }
+
+    private static long musicAuraDuration(CosmeticCatalog.Definition definition) {
+        return DRAGON_MUSIC_AURA_ID.equals(definition.id())
+                ? DragonMusicTimeline.DURATION_MILLIS : MusicAuraTimeline.DURATION_MILLIS;
+    }
+
+    private void syncMusicAura(Player owner, CosmeticCatalog.Definition definition) {
         long now = System.currentTimeMillis();
+        String sound = musicAuraSound(definition);
+        long durationMillis = musicAuraDuration(definition);
+        MusicAuraState existing = musicAuraStates.get(owner.getUniqueId());
+        if (existing != null && !existing.sound.equals(sound)) {
+            stopMusicAura(owner.getUniqueId());
+        }
         MusicAuraState state = musicAuraStates.computeIfAbsent(
-                owner.getUniqueId(), ignored -> new MusicAuraState(now)
+                owner.getUniqueId(), ignored -> new MusicAuraState(now, sound, durationMillis)
         );
         List<Player> currentViewers = listeners(owner);
         Set<UUID> currentViewerIds = new HashSet<>();
@@ -1156,7 +1266,7 @@ final class CosmeticEffectService implements Listener {
             }
             Player listener = plugin.getServer().getPlayer(listenerId);
             if (listener != null) {
-                listener.stopSound(MUSIC_AURA_SOUND, SoundCategory.MASTER);
+                listener.stopSound(state.sound, SoundCategory.MASTER);
             }
             state.listeners.remove(listenerId);
         }
@@ -1167,17 +1277,17 @@ final class CosmeticEffectService implements Listener {
         // keeping both the song and every beat-driven visual on the same timestamp.
         if (volumeChanged) {
             stopMusicAura(owner.getUniqueId());
-            state = new MusicAuraState(now);
+            state = new MusicAuraState(now, sound, durationMillis);
             musicAuraStates.put(owner.getUniqueId(), state);
         }
-        long loop = Math.max(0L, now - state.startedAtMillis) / MusicAuraTimeline.DURATION_MILLIS;
+        long loop = Math.max(0L, now - state.startedAtMillis) / state.durationMillis;
         if (state.loop == loop) {
             return;
         }
         for (UUID listenerId : List.copyOf(state.listeners)) {
             Player listener = plugin.getServer().getPlayer(listenerId);
             if (listener != null) {
-                listener.stopSound(MUSIC_AURA_SOUND, SoundCategory.MASTER);
+                listener.stopSound(state.sound, SoundCategory.MASTER);
             }
         }
         state.listeners.clear();
@@ -1191,7 +1301,7 @@ final class CosmeticEffectService implements Listener {
             }
             viewer.playSound(
                     net.kyori.adventure.sound.Sound.sound(
-                            net.kyori.adventure.key.Key.key(MUSIC_AURA_SOUND),
+                            net.kyori.adventure.key.Key.key(state.sound),
                             net.kyori.adventure.sound.Sound.Source.MASTER,
                             volume / 100.0f,
                             1f
@@ -1210,7 +1320,7 @@ final class CosmeticEffectService implements Listener {
         for (UUID listenerId : state.listeners) {
             Player listener = plugin.getServer().getPlayer(listenerId);
             if (listener != null) {
-                listener.stopSound(MUSIC_AURA_SOUND, SoundCategory.MASTER);
+                listener.stopSound(state.sound, SoundCategory.MASTER);
             }
         }
     }
@@ -1348,6 +1458,87 @@ final class CosmeticEffectService implements Listener {
                     0.25d + hit * 0.45d, 0.4d + hit * 0.6d, 0.25d + hit * 0.45d,
                     0.02d + hit * 0.04d, null,
                     PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        }
+    }
+
+    private void drawAmethystDragonAscendant(Player owner, Location centre, boolean moving) {
+        MusicAuraState state = musicAuraStates.get(owner.getUniqueId());
+        if (state == null) {
+            return;
+        }
+        long elapsed = Math.max(0L, System.currentTimeMillis() - state.startedAtMillis);
+        long phaseMillis = elapsed % DragonMusicTimeline.DURATION_MILLIS;
+        drawDragonMusicFormation(owner, centre, DragonMusicTimeline.at(phaseMillis),
+                (int) (phaseMillis / DragonMusicTimeline.SAMPLE_MILLIS),
+                PlayerSettingsStore.Setting.OWN_AURA_VISIBLE, moving);
+    }
+
+    private void drawDragonMusicFormation(
+            Player owner,
+            Location centre,
+            MusicAuraTimeline.Sample sample,
+            int step,
+            PlayerSettingsStore.Setting visibility
+    ) {
+        drawDragonMusicFormation(owner, centre, sample, step, visibility, false);
+    }
+
+    /** Dragon wings, crown and breath all pulse from the supplied song's 100 ms envelope. */
+    private void drawDragonMusicFormation(
+            Player owner,
+            Location centre,
+            MusicAuraTimeline.Sample sample,
+            int step,
+            PlayerSettingsStore.Setting visibility,
+            boolean moving
+    ) {
+        double bass = sample.bass();
+        double mid = sample.mid();
+        double high = sample.high();
+        double hit = Math.max(0d, Math.min(1d, (sample.onset() - 0.08d) * 2.1d));
+        double time = step / 10d;
+        double spread = moving ? 0.62d : 1d;
+        Color deep = Color.fromRGB(72, 16, 122);
+        Color amethyst = Color.fromRGB(184, 82, 255);
+        Color shine = Color.fromRGB(239, 199, 255);
+        Vector side = horizontalSide(owner);
+        Vector forward = new Vector(-side.getZ(), 0d, side.getX());
+
+        Location heart = centre.clone().add(0d, 0.15d + bass * 0.55d, 0d);
+        drawVerticalGem(owner, heart, side, 0.42d + bass * 0.25d,
+                time * 0.8d, deep, shine);
+        for (int wing = -1; wing <= 1; wing += 2) {
+            Location root = heart.clone().add(side.clone().multiply(wing * 0.32d));
+            for (int bone = 0; bone < 5; bone++) {
+                double reach = (0.7d + bone * 0.28d + mid * 0.75d + hit * 0.55d) * spread;
+                Location tip = root.clone()
+                        .add(side.clone().multiply(wing * reach))
+                        .add(forward.clone().multiply(Math.sin(time * 2.2d + bone) * 0.2d))
+                        .add(0d, 0.72d - bone * 0.21d + high * 0.55d, 0d);
+                drawLine(owner, root, tip, 4, bone % 2 == 0 ? amethyst : shine,
+                        0.88f + (float) hit * 0.35f, visibility);
+            }
+        }
+        double orbit = (0.95d + mid * 0.9d + hit * 0.75d) * spread;
+        for (int scale = 0; scale < 18; scale++) {
+            double angle = time * 1.3d + scale * Math.PI * 2d / 18d;
+            Location at = heart.clone()
+                    .add(side.clone().multiply(Math.cos(angle) * orbit))
+                    .add(forward.clone().multiply(Math.sin(angle) * orbit * 0.75d))
+                    .add(0d, Math.sin(angle * 3d) * (0.3d + high * 0.4d), 0d);
+            dust(owner, at, scale % 3 == 0 ? shine : amethyst,
+                    scale % 3 == 0 ? 1.15f : 0.8f, visibility);
+        }
+        Location crown = centre.clone().add(0d, 1.35d + bass * 0.42d + hit * 0.6d, 0d);
+        drawRing(owner, crown, (0.48d + high * 0.42d) * spread, 14,
+                -time * 1.5d, shine, 0.95f, visibility);
+        drawRing(owner, centre.clone().add(0d, -0.88d, 0d), orbit * 1.2d, 28,
+                time * 1.8d, deep, 1.05f, visibility);
+        if (!moving && hit > 0.32d) {
+            spawn(owner, heart, Particle.DRAGON_BREATH, 4 + (int) Math.round(hit * 8d),
+                    0.35d, 0.45d, 0.35d, 0.02d, null, visibility);
+            spawn(owner, crown, hit > 0.72d ? Particle.FLASH : Particle.END_ROD,
+                    1, 0d, 0d, 0d, 0d, null, visibility);
         }
     }
 
@@ -3785,7 +3976,8 @@ final class CosmeticEffectService implements Listener {
      * is meant to be noticed once, not listened to.
      */
     private void playAuraAmbience(Player owner, CosmeticCatalog.Definition aura) {
-        if (frame % (long) tuned("cosmetics.aura.sound-every", AURA_SOUND_FRAMES) != 0L || aura.id().equals(MUSIC_AURA_ID)) {
+        if (frame % (long) tuned("cosmetics.aura.sound-every", AURA_SOUND_FRAMES) != 0L
+                || isMusicAura(aura)) {
             return;
         }
         String sound = auraAmbience(aura);

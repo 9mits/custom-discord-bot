@@ -68,6 +68,10 @@ commands:
     description: Place or remove persistent physical crate chests.
     usage: /cratehologram <set default|set amethyst|set shard|remove>
     permission: mgxaccessbridge.admin
+  dragonportal:
+    description: Register and inspect the Amethyst Dragon Event portal.
+    usage: /dragonportal <set|remove|status|start>
+    permission: mgxaccessbridge.admin
   whitelisted:
     description: List everyone with whitelist access and their Discord name.
     usage: /whitelisted [page]
