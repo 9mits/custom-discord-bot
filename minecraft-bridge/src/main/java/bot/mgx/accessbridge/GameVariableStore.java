@@ -275,7 +275,7 @@ final class GameVariableStore {
                 List.of("PINK", "BLUE", "RED", "GREEN", "YELLOW", "PURPLE", "WHITE"));
         choice("dragon-event.sky-style", "Dragon arena sky", "Dragon Presentation",
                 "PHASED is bright before combat, dark during combat, and bright after victory. END stays black.",
-                "PHASED", List.of("PHASED", "END", "OVERWORLD"));
+                "END", List.of("END", "PHASED", "OVERWORLD"));
         integer("dragon-event.bright-sky-time", "Dragon bright sky time", "Dragon Presentation",
                 "World time used during admission, summoning, victory, and rewards with the PHASED sky.",
                 6000, 0, 24000, "ticks", false);
@@ -469,10 +469,10 @@ final class GameVariableStore {
                 "Dragon Breath particles emitted before each targeted attack.", 80, 0, 10000,
                 "particles", false);
         integer("dragon-event.minions-per-wave", "Amethyst mobs per wave", "Dragon Mechanics",
-                "Amethyst Zombies, Skeletons, and hostile Golems spawned in each arena wave.", 18, 0, 100,
+                "Amethyst Zombies, Skeletons, and hostile Golems spawned in each arena wave.", 30, 0, 100,
                 "mobs", false);
         integer("dragon-event.minion-maximum-alive", "Maximum arena mobs", "Dragon Mechanics",
-                "Maximum Dragon minions alive at once.", 48, 0, 200,
+                "Maximum Dragon minions alive at once.", 80, 0, 200,
                 "mobs", false);
         integer("dragon-event.minion-wave-seconds", "Amethyst mob wave interval", "Dragon Mechanics",
                 "Seconds between minion reinforcement checks.", 25, 5, 1800,
