@@ -828,44 +828,55 @@ final class CrateCatalog {
 
     /** One-hour post-fight pool. Frequent openings keep its strongest items scarce. */
     private static List<Reward> buildDragonRewards() {
-        LinkedHashMap<String, Integer> weights = new LinkedHashMap<>();
-        // Players can spend hundreds of fight-earned Keys in this one-hour phase.
-        // Useful themed commons keep those opening volumes from turning temporary
-        // equipment into routine loot while every individual weight remains live-tunable.
-        weights.put("amethyst_shards", 18_000);
-        weights.put("amethyst_blocks", 12_000);
-        weights.put("amethyst_purpur", 10_000);
-        weights.put("amethyst_experience_bottles", 8_000);
-        weights.put("amethyst_golden_carrots", 8_300);
-        weights.put("amethyst_arrows", 12_000);
-        weights.put("amethyst_apple", 7_000);
-        weights.put("amethyst_hoe", 4_000);
-        weights.put("amethyst_fishing_rod", 3_500);
-        weights.put("amethyst_sword", 3_000);
-        weights.put("amethyst_bow", 2_500);
-        weights.put("amethyst_pickaxe", 2_500);
-        weights.put("amethyst_shovel", 2_000);
-        weights.put("amethyst_axe", 2_000);
-        weights.put("amethyst_shield", 1_000);
-        weights.put("amethyst_totem", 750);
-        weights.put("amethyst_helmet", 500);
-        weights.put("amethyst_chestplate", 500);
-        weights.put("amethyst_leggings", 500);
-        weights.put("amethyst_boots", 500);
-        weights.put("amethyst_elytra", 25);
-        weights.put("amethyst_excavation_i", 25);
+        LinkedHashMap<String, int[]> weights = new LinkedHashMap<>();
+        // Three openings per second for the full hour is 10,800 rolls. The pool is
+        // therefore 99.158% modest purple building, food and enchanting supplies.
+        // Each chase item remains slightly easier than in the ordinary Amethyst Crate,
+        // while the volume can no longer flood the server with temporary equipment.
+        weights.put("amethyst_shards", new int[]{17_000, 8});
+        weights.put("amethyst_blocks", new int[]{15_000, 4});
+        weights.put("amethyst_purpur", new int[]{14_000, 8});
+        weights.put("amethyst_purple_glass", new int[]{12_000, 8});
+        weights.put("amethyst_purple_concrete", new int[]{12_000, 8});
+        weights.put("amethyst_clusters", new int[]{9_000, 4});
+        weights.put("amethyst_golden_carrots", new int[]{8_000, 4});
+        weights.put("amethyst_experience_bottles", new int[]{7_000, 4});
+        weights.put("amethyst_glowstone", new int[]{5_158, 8});
+        weights.put("amethyst_arrows", new int[]{378, 0});
+        weights.put("amethyst_apple", new int[]{150, 0});
+        weights.put("amethyst_hoe", new int[]{45, 0});
+        weights.put("amethyst_fishing_rod", new int[]{23, 0});
+        weights.put("amethyst_sword", new int[]{30, 0});
+        weights.put("amethyst_bow", new int[]{15, 0});
+        weights.put("amethyst_pickaxe", new int[]{30, 0});
+        weights.put("amethyst_shovel", new int[]{38, 0});
+        weights.put("amethyst_axe", new int[]{45, 0});
+        weights.put("amethyst_shield", new int[]{8, 0});
+        weights.put("amethyst_totem", new int[]{15, 0});
+        weights.put("amethyst_helmet", new int[]{9, 0});
+        weights.put("amethyst_chestplate", new int[]{9, 0});
+        weights.put("amethyst_leggings", new int[]{9, 0});
+        weights.put("amethyst_boots", new int[]{9, 0});
+        weights.put("amethyst_elytra", new int[]{3, 0});
+        weights.put("amethyst_excavation_i", new int[]{8, 0});
         List<Reward> rewards = new ArrayList<>();
-        weights.forEach((id, weight) -> {
+        weights.forEach((id, values) -> {
             Reward source = originalAmethystReward(id);
             rewards.add(new Reward(
-                    "dragon_" + source.id(), source.displayName(), source.category(), weight,
-                    source.materialName(), source.amount(), source.modelKey(), source.cosmeticId(),
+                    "dragon_" + source.id(), source.displayName(), source.category(), values[0],
+                    source.materialName(), values[1] == 0 ? source.amount() : values[1],
+                    source.modelKey(), source.cosmeticId(),
                     source.description()
             ));
         });
-        // Nine Dragon Exotic cosmetics are added by CosmeticCatalog and split this pool.
+        // At sustained maximum speed, each Dragon Exotic averages below one copy.
         for (CosmeticCatalog.Definition cosmetic : CosmeticCatalog.dragonRewards()) {
-            rewards.add(cosmetic(cosmetic));
+            Reward source = cosmetic(cosmetic);
+            rewards.add(new Reward(
+                    source.id(), source.displayName(), source.category(), 2,
+                    source.materialName(), source.amount(), source.modelKey(),
+                    source.cosmeticId(), source.description()
+            ));
         }
         int total = rewards.stream().mapToInt(Reward::weight).sum();
         if (total != TOTAL_WEIGHT) {
@@ -1042,7 +1053,8 @@ final class CrateCatalog {
         Map<String, Reward> indexed = new LinkedHashMap<>();
         for (Reward reward : java.util.stream.Stream.of(
                         REWARDS.stream(), AMETHYST_REWARDS.stream(),
-                        HIDDEN_AMETHYST_REWARDS.stream(), SHARD_REWARDS.stream()
+                        HIDDEN_AMETHYST_REWARDS.stream(), DRAGON_REWARDS.stream(),
+                        SHARD_REWARDS.stream()
                 ).flatMap(stream -> stream).toList()) {
             if (indexed.putIfAbsent(reward.id(), reward) != null) {
                 throw new IllegalStateException("Duplicate crate reward ID " + reward.id());

@@ -110,7 +110,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     private static final String PORTAL_DISPLAY_TAG = "mgx_dragon_portal_display";
     private static final String PORTAL_STATUS_TAG = "mgx_dragon_portal_status";
 
-    enum Phase { WAITING, PORTAL_OPEN, SUMMONING, FIGHT, REWARDS }
+    enum Phase { WAITING, PORTAL_OPEN, SUMMONING, FIGHT, VICTORY, REWARDS }
 
     private record Portal(UUID worldId, double x, double y, double z, float yaw) {
         Location location() {
@@ -159,6 +159,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     private int effectFrame;
     private Location rewardChest;
     private Location returnGate;
+    private long runGeneration;
     private final List<PillarSpec> pillarSpecs = new ArrayList<>();
     private final Set<UUID> entrants = new HashSet<>();
     private final Set<UUID> departed = new HashSet<>();
@@ -216,6 +217,10 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         if (arena != null && !arena.getPlayers().isEmpty()) {
             sendEveryoneHome();
         }
+        if (arena != null) {
+            clearArenaEntities();
+            clearRewardArea();
+        }
         phase = Phase.WAITING;
         scheduledAt = nextEvent(Instant.now());
         refreshPortalDisplay();
@@ -250,7 +255,8 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
 
     boolean handleRespawn(PlayerRespawnEvent event) {
         if (!isArena(event.getPlayer().getWorld())
-                || (phase != Phase.SUMMONING && phase != Phase.FIGHT && phase != Phase.REWARDS)) {
+                || (phase != Phase.SUMMONING && phase != Phase.FIGHT
+                && phase != Phase.VICTORY && phase != Phase.REWARDS)) {
             return false;
         }
         event.setRespawnLocation(arenaSpawn());
@@ -346,6 +352,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         }
         prepareRun();
         phase = Phase.PORTAL_OPEN;
+        refreshPortalDisplay();
         setPortalLit(true);
         createAdmissionBar();
         announce(render(variables.string("dragon-event.portal-open-message"),
@@ -355,6 +362,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     }
 
     private void prepareRun() {
+        runGeneration++;
         ensureArena();
         prepareArena();
         entrants.clear();
@@ -396,6 +404,8 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                 + variables.integer("dragon-event.summoning-timeout-seconds") * 1000L;
         announce(variables.string("dragon-event.portal-closed-message"),
                 configuredSound("dragon-event.portal-closed-sound", Sound.BLOCK_END_PORTAL_SPAWN));
+        refreshPortalDisplay();
+        spawnMinionWave();
         animatePillars();
     }
 
@@ -429,7 +439,6 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         );
         entrants.stream().map(Bukkit::getPlayer).filter(java.util.Objects::nonNull)
                 .forEach(player -> player.showBossBar(dragonBar));
-        spawnMinionWave();
         lastAggressiveAttackAt = 0L;
         lastMinionWaveAt = System.currentTimeMillis();
         lastChaosAt = 0L;
@@ -437,6 +446,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         CrateKind.dragonAvailableSource(() -> crateAvailable());
         announce(variables.string("dragon-event.started-message"),
                 configuredSound("dragon-event.start-sound", Sound.ENTITY_ENDER_DRAGON_GROWL));
+        refreshPortalDisplay();
         if (variables.bool("dragon-event.effects-enabled")) {
             arena.spawnParticle(Particle.DRAGON_BREATH, dragon.getLocation(),
                     variables.integer("dragon-event.spawn-particle-count"), 8, 5, 8, 0.08, 1.0f);
@@ -464,17 +474,141 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
             resetSchedule();
             return;
         }
-        phase = Phase.REWARDS;
-        phaseEndsAt = System.currentTimeMillis()
-                + variables.integer("dragon-event.crate-minutes") * 60_000L;
+        Location deathAt = dragon == null ? new Location(arena, .5, 86, .5)
+                : dragon.getLocation().clone();
+        phase = Phase.VICTORY;
+        phaseEndsAt = 0L;
         for (UUID playerId : activeParticipants()) {
             giveKeys(playerId, variables.integer("dragon-event.kill-keys"));
         }
-        keyWaterfall(new Location(arena, 0.5, 86, 0.5),
-                variables.integer("dragon-event.death-key-effect-count"));
         String name = killer == null ? "the team" : killer.getName();
         announce(render(variables.string("dragon-event.victory-message"), "player", name),
                 configuredSound("dragon-event.victory-sound", Sound.UI_TOAST_CHALLENGE_COMPLETE));
+        refreshPortalDisplay();
+        animateDragonDeath(deathAt);
+    }
+
+    /** A staged collapse, cutting beam and expanding shockwave before rewards appear. */
+    private void animateDragonDeath(Location deathAt) {
+        cancelSummoningTask();
+        if (!variables.bool("dragon-event.effects-enabled")) {
+            beginRewardPhase(deathAt);
+            return;
+        }
+        long generation = runGeneration;
+        int frames = variables.integer("dragon-event.death-animation-frames");
+        long interval = variables.integer("dragon-event.death-animation-interval-ticks");
+        int[] frame = {0};
+        summoningTask = plugin.getServer().getScheduler().runTaskTimer(plugin, () -> {
+            if (phase != Phase.VICTORY || runGeneration != generation || arena == null) {
+                cancelSummoningTask();
+                return;
+            }
+            try {
+                dragonDeathFrame(deathAt, frame[0], frames);
+                frame[0]++;
+                if (frame[0] < frames) return;
+                cancelSummoningTask();
+                dragonDeathClimax(deathAt);
+                beginRewardPhase(deathAt);
+            } catch (RuntimeException exception) {
+                plugin.getLogger().log(Level.SEVERE,
+                        "The Dragon death sequence failed; opening rewards safely.", exception);
+                cancelSummoningTask();
+                beginRewardPhase(deathAt);
+            }
+        }, 0L, interval);
+    }
+
+    private void dragonDeathFrame(Location centre, int frame, int frames) {
+        double progress = (frame + 1d) / Math.max(1, frames);
+        double maximumRadius = variables.decimal("dragon-event.death-animation-radius");
+        double radius = Math.max(.6, maximumRadius * (1d - progress));
+        int ringPoints = variables.integer("dragon-event.death-ring-points");
+        double spin = progress * Math.PI * 8d;
+        for (int point = 0; point < ringPoints; point++) {
+            double angle = Math.PI * 2d * point / ringPoints + spin;
+            double y = Math.sin(angle * 3d + spin) * (1.2d + progress * 3d);
+            Location particle = centre.clone().add(Math.cos(angle) * radius, y, Math.sin(angle) * radius);
+            arena.spawnParticle(Particle.DUST, particle, 1, 0, 0, 0, 0,
+                    (point & 1) == 0 ? BRIGHT : DARK);
+            if (point % 6 == 0) arena.spawnParticle(Particle.REVERSE_PORTAL, particle, 1, 0, 0, 0, .02);
+        }
+
+        int beamPoints = variables.integer("dragon-event.death-beam-points");
+        double beamHeight = variables.decimal("dragon-event.death-beam-height");
+        for (int point = 0; point < beamPoints; point++) {
+            double fraction = point / (double) Math.max(1, beamPoints - 1);
+            double y = (fraction - .35d) * beamHeight;
+            Location vertical = centre.clone().add(0, y, 0);
+            if (point % 4 == 0) {
+                arena.spawnParticle(Particle.END_ROD, vertical, 1, 0, 0, 0, 0);
+            } else {
+                arena.spawnParticle(Particle.DUST, vertical, 1, 0, 0, 0, 0, BRIGHT);
+            }
+
+            double across = (fraction - .5d) * maximumRadius * 2d;
+            double angle = progress * Math.PI;
+            Location cutting = centre.clone().add(Math.cos(angle) * across,
+                    Math.sin(progress * Math.PI) * 2d, Math.sin(angle) * across);
+            arena.spawnParticle(Particle.DUST, cutting, 1, 0, 0, 0, 0,
+                    point % 3 == 0 ? BRIGHT : DARK);
+        }
+
+        if (frame % variables.integer("dragon-event.death-lightning-every-frames") == 0) {
+            double angle = spin * .5d;
+            int x = (int) Math.round(centre.getX() + Math.cos(angle) * Math.max(3d, radius));
+            int z = (int) Math.round(centre.getZ() + Math.sin(angle) * Math.max(3d, radius));
+            arena.strikeLightningEffect(new Location(arena, x + .5,
+                    arena.getHighestBlockYAt(x, z) + 1, z + .5));
+        }
+        if (frame % variables.integer("dragon-event.death-sound-every-frames") == 0) {
+            arena.playSound(centre,
+                    configuredSound("dragon-event.death-pulse-sound", Sound.BLOCK_RESPAWN_ANCHOR_CHARGE),
+                    (float) variables.decimal("dragon-event.effect-sound-volume"),
+                    (float) Math.min(2d, variables.decimal("dragon-event.death-pulse-pitch")
+                            + progress * 1.25d));
+        }
+    }
+
+    private void dragonDeathClimax(Location centre) {
+        int particles = variables.integer("dragon-event.death-climax-particle-count");
+        arena.spawnParticle(Particle.EXPLOSION_EMITTER, centre, 1);
+        arena.spawnParticle(Particle.DRAGON_BREATH, centre, particles,
+                8, 6, 8, .18, 1.0f);
+        arena.spawnParticle(Particle.END_ROD, centre, Math.max(1, particles / 2),
+                12, 8, 12, .22);
+        arena.spawnParticle(Particle.DUST, centre, particles,
+                10, 6, 10, .08, BRIGHT);
+        double radius = variables.decimal("dragon-event.death-animation-radius");
+        int points = variables.integer("dragon-event.death-ring-points") * 2;
+        for (int point = 0; point < points; point++) {
+            double angle = Math.PI * 2d * point / points;
+            Location wave = centre.clone().add(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
+            if (point % 3 == 0) {
+                arena.spawnParticle(Particle.END_ROD, wave, 1, 0, 0, 0, 0);
+            } else {
+                arena.spawnParticle(Particle.DUST, wave, 1, 0, 0, 0, 0, BRIGHT);
+            }
+        }
+        arena.playSound(centre,
+                configuredSound("dragon-event.death-climax-sound", Sound.ENTITY_WARDEN_SONIC_BOOM),
+                (float) variables.decimal("dragon-event.effect-sound-volume"),
+                (float) variables.decimal("dragon-event.death-climax-pitch"));
+    }
+
+    private void beginRewardPhase(Location deathAt) {
+        if (phase != Phase.VICTORY || arena == null) return;
+        phase = Phase.REWARDS;
+        phaseEndsAt = System.currentTimeMillis()
+                + variables.integer("dragon-event.crate-minutes") * 60_000L;
+        dragon = null;
+        int x = deathAt.getBlockX();
+        int z = deathAt.getBlockZ();
+        Location waterfall = new Location(arena, x + .5,
+                arena.getHighestBlockYAt(x, z) + 5d, z + .5);
+        keyWaterfall(waterfall, variables.integer("dragon-event.death-key-effect-count"));
+        refreshPortalDisplay();
         spawnRewardArea();
     }
 
@@ -503,6 +637,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         dragonMaximumHealth = 0d;
         dragonHealth = 0d;
         dragonHealthScale = 1d;
+        runGeneration++;
         setPortalLit(false);
         CrateKind.dragonAvailableSource(() -> false);
         scheduledAt = nextEvent(Instant.now().plusSeconds(30));
@@ -616,6 +751,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
 
     private void animatePillars() {
         cancelSummoningTask();
+        clearSummoningCrystals();
         if (pillarSpecs.isEmpty()) {
             spawnAllCrystals();
             plugin.getServer().getScheduler().runTask(plugin, this::beginDragonSummoning);
@@ -643,7 +779,6 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                         ? pillarSpecs.get(pillarIndex[0]).base() : 0;
                 if (pillarIndex[0] < pillarSpecs.size()) return;
                 cancelSummoningTask();
-                spawnAllCrystals();
                 plugin.getServer().getScheduler().runTask(plugin, this::beginDragonSummoning);
             } catch (RuntimeException exception) {
                 plugin.getLogger().log(Level.SEVERE,
@@ -658,7 +793,8 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
             for (int pz = spec.z() - spec.width(); pz <= spec.z() + spec.width(); pz++) {
                 if ((px - spec.x()) * (px - spec.x()) + (pz - spec.z()) * (pz - spec.z())
                         > spec.width() * spec.width()) continue;
-                Material material = ((y + spec.index()) % 9 == 0)
+                Material material = ((y + spec.index())
+                        % variables.integer("dragon-event.pillar-amethyst-band-every-layers") == 0)
                         ? Material.AMETHYST_BLOCK : Material.OBSIDIAN;
                 arena.getBlockAt(px, y, pz).setType(material, false);
             }
@@ -677,8 +813,9 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     private void finishPillar(PillarSpec spec) {
         finishPillarStructure(spec);
         Location spawn = new Location(arena, spec.x() + .5, spec.top() + 2d, spec.z() + .5);
+        spawnCrystal(spawn);
         if (variables.bool("dragon-event.effects-enabled")) {
-            arena.spawnParticle(Particle.FLASH, spawn, 1);
+            arena.spawnParticle(Particle.FLASH, spawn, 1, 0, 0, 0, 0, BRIGHT.getColor());
             arena.spawnParticle(Particle.END_ROD, spawn,
                     variables.integer("dragon-event.pillar-complete-particle-count"), 2.5, 3, 2.5, .12);
             arena.strikeLightningEffect(spawn);
@@ -697,12 +834,16 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     }
 
     private void spawnAllCrystals() {
-        arena.getEntitiesByClass(EnderCrystal.class).stream()
-                .filter(crystal -> crystal.getScoreboardTags().contains(CRYSTAL_TAG))
-                .forEach(Entity::remove);
+        clearSummoningCrystals();
         for (PillarSpec spec : pillarSpecs) {
             spawnCrystal(new Location(arena, spec.x() + .5, spec.top() + 2d, spec.z() + .5));
         }
+    }
+
+    private void clearSummoningCrystals() {
+        arena.getEntitiesByClass(EnderCrystal.class).stream()
+                .filter(crystal -> crystal.getScoreboardTags().contains(CRYSTAL_TAG))
+                .forEach(Entity::remove);
     }
 
     private void spawnCrystal(Location spawn) {
@@ -824,7 +965,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     }
 
     private void spawnMinionWave() {
-        if (arena == null || phase != Phase.FIGHT) return;
+        if (arena == null || (phase != Phase.SUMMONING && phase != Phase.FIGHT)) return;
         int alive = (int) arena.getEntities().stream()
                 .filter(entity -> entity.getScoreboardTags().contains(MINION_TAG)).count();
         int cap = variables.integer("dragon-event.minion-maximum-alive");
@@ -843,6 +984,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     }
 
     private void animateMinionSpawn(Location spawn, EntityType type, int index) {
+        long generation = runGeneration;
         if (variables.bool("dragon-event.effects-enabled")) {
             arena.spawnParticle(Particle.REVERSE_PORTAL, spawn.clone().add(0, 1, 0),
                     variables.integer("dragon-event.minion-spawn-particle-count"), .7, 1.1, .7, .08);
@@ -851,7 +993,8 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         }
         long delay = (long) index * variables.integer("dragon-event.minion-spawn-interval-ticks");
         plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
-            if (phase != Phase.FIGHT || arena == null) return;
+            if (runGeneration != generation || arena == null
+                    || (phase != Phase.SUMMONING && phase != Phase.FIGHT)) return;
             LivingEntity minion = amethystMobs.deploy(spawn, type);
             if (minion == null) return;
             minion.addScoreboardTag(MINION_TAG);
@@ -865,8 +1008,8 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
             if (attackDamage != null) attackDamage.setBaseValue(
                     variables.decimal("dragon-event.minion-attack-damage"));
             var movement = minion.getAttribute(Attribute.MOVEMENT_SPEED);
-            if (movement != null) movement.setBaseValue(Math.min(movement.getDefaultValue() *
-                    variables.decimal("dragon-event.minion-speed-multiplier"), 1d));
+            if (movement != null) movement.setBaseValue(movement.getBaseValue()
+                    * variables.decimal("dragon-event.minion-speed-multiplier"));
             if (minion instanceof Mob mob) {
                 mob.setAware(true);
                 mob.setAggressive(true);
@@ -1150,7 +1293,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
             return;
         }
         if (!fromArena || toArena) return;
-        if (phase == Phase.SUMMONING || phase == Phase.FIGHT) {
+        if (phase == Phase.SUMMONING || phase == Phase.FIGHT || phase == Phase.VICTORY) {
             event.setCancelled(true);
             event.getPlayer().sendActionBar(Component.text(
                     "The Dragon arena is sealed until the fight ends.", NamedTextColor.RED));
@@ -1724,7 +1867,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
             case PORTAL_OPEN -> render(variables.string("dragon-event.portal-open-status"), "time",
                     duration(scheduledAt.toEpochMilli() - System.currentTimeMillis()));
             case SUMMONING -> variables.string("dragon-event.portal-summoning-status");
-            case FIGHT, REWARDS -> render(variables.string("dragon-event.portal-next-event-status"),
+            case FIGHT, VICTORY, REWARDS -> render(variables.string("dragon-event.portal-next-event-status"),
                     "time", duration(scheduledAt == null ? 0L
                             : scheduledAt.toEpochMilli() - System.currentTimeMillis()));
         };
@@ -1801,13 +1944,11 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
 
     private void clearArenaEntities() {
         if (arena == null) return;
-        arena.getEntities().stream().filter(entity -> !(entity instanceof Player))
-                .filter(entity -> entity instanceof EnderDragon || entity instanceof EnderCrystal
-                        || entity.getScoreboardTags().contains(DRAGON_TAG)
-                        || entity.getScoreboardTags().contains(CRYSTAL_TAG)
-                        || entity.getScoreboardTags().contains(MINION_TAG)
-                        || entity.getScoreboardTags().contains(KEY_EFFECT_TAG)
-                        || entity.getScoreboardTags().contains(DISPLAY_TAG))
+        // This is a dedicated disposable event world. Removing every non-player entity
+        // is intentional: untagged mob drops, arrows, XP, old labels and entities saved
+        // by an interrupted run must never leak into the next Dragon event.
+        arena.getEntities().stream()
+                .filter(entity -> !(entity instanceof Player))
                 .forEach(Entity::remove);
     }
 
