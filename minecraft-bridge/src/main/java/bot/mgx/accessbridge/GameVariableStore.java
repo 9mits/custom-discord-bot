@@ -271,7 +271,7 @@ final class GameVariableStore {
                 "Boss bar during combat. Supports <hp> and <time>.",
                 "AMETHYST DRAGON  •  <hp> HP  •  <time>", 120);
         choice("dragon-event.fight-bossbar-color", "Dragon fight boss bar colour", "Dragon Presentation",
-                "Colour of the single custom Dragon health bar.", "PURPLE",
+                "Colour of the Dragon's native health bar.", "PURPLE",
                 List.of("PINK", "BLUE", "RED", "GREEN", "YELLOW", "PURPLE", "WHITE"));
         choice("dragon-event.sky-style", "Dragon arena sky", "Dragon Presentation",
                 "Sky used by the separate Dragon arena world. END gives the black End sky; OVERWORLD restores the old sky.",
