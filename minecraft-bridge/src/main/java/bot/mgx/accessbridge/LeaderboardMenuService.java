@@ -46,9 +46,9 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
     private static final int HUB_CLANS_KILLS = 12;
     private static final int HUB_PLAYERS_WEALTH = 14;
     private static final int HUB_PLAYERS_KILLS = 16;
-    private static final int HUB_AMETHYST_CRATES = 20;
+    private static final int HUB_DRAGON_DAMAGE = 20;
     private static final int HUB_REWARDS = 13;
-    private static final int HUB_AMETHYST_AIRDROPS = 24;
+    private static final int HUB_DRAGON_CRYSTALS = 24;
     private static final int HUB_CLAN_BATTLE = 4;
     private static final DateTimeFormatter JOINED =
             DateTimeFormatter.ofPattern("d MMM yyyy", Locale.UK).withZone(ZoneId.systemDefault());
@@ -122,17 +122,17 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
                 "Who has the most money."));
         inventory.setItem(HUB_PLAYERS_KILLS, button(Material.DIAMOND_SWORD, "Player with most kills",
                 "Player kills, highest first."));
-        inventory.setItem(HUB_AMETHYST_CRATES, button(Material.AMETHYST_BLOCK,
-                "Most Amethyst Crates Opened", "The Amethyst Event crate race."));
+        inventory.setItem(HUB_DRAGON_DAMAGE, button(Material.DRAGON_HEAD,
+                "Most Amethyst Dragon Damage", "Damage dealt during Dragon Events."));
         inventory.setItem(HUB_REWARDS, button(Material.NETHER_STAR, "Podium cosmetics",
                 "Exclusive sets for player leaderboard #1, #2 and #3.",
                 "They update automatically and can never be traded."));
-        inventory.setItem(HUB_AMETHYST_AIRDROPS, button(Material.CHEST,
-                "Most Amethyst Airdrops Opened", "First player to open each Airdrop scores."));
+        inventory.setItem(HUB_DRAGON_CRYSTALS, button(Material.END_CRYSTAL,
+                "Most End Crystals Broken", "Reward crystals destroyed during Dragon Events."));
         ClanBattleStore.ActiveView battle = clanBattles.active(clans).orElse(null);
         inventory.setItem(HUB_CLAN_BATTLE, button(Material.NETHER_STAR,
                 battle == null ? "Current Clan Battle" : battle.kind().displayName(),
-                battle == null ? "No Clan Battle is running." : "Open the most crates!",
+                battle == null ? "No Clan Battle is running." : battle.kind().objective(),
                 battle == null ? "Check back when one starts."
                         : "Ends in " + ClanBattleCountdown.clock(
                                 battle.endsAt() - System.currentTimeMillis()) + ".",
@@ -158,8 +158,8 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
         List<JsonObject> rows = rows("individual", board);
         String title = switch (board) {
             case "kills" -> "Most kills";
-            case "amethyst_crates" -> "Amethyst Crates Opened";
-            case "amethyst_airdrops" -> "Amethyst Airdrops Opened";
+            case "dragon_damage" -> "Amethyst Dragon Damage";
+            case "dragon_crystals" -> "End Crystals Broken";
             default -> "Richest players";
         };
         Inventory inventory = create(
@@ -337,8 +337,8 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
                     case HUB_CLANS_KILLS -> openClans(player, "kills", 1);
                     case HUB_PLAYERS_WEALTH -> openPlayers(player, "wealth", 1);
                     case HUB_PLAYERS_KILLS -> openPlayers(player, "kills", 1);
-                    case HUB_AMETHYST_CRATES -> openPlayers(player, "amethyst_crates", 1);
-                    case HUB_AMETHYST_AIRDROPS -> openPlayers(player, "amethyst_airdrops", 1);
+                    case HUB_DRAGON_DAMAGE -> openPlayers(player, "dragon_damage", 1);
+                    case HUB_DRAGON_CRYSTALS -> openPlayers(player, "dragon_crystals", 1);
                     case HUB_CLAN_BATTLE -> openClanBattle(player, 1);
                     case HUB_REWARDS -> openRewards(player);
                     default -> { }
@@ -346,11 +346,11 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
             }
             case LEADERBOARD_PLAYERS_WEALTH -> pagePlayers(player, "wealth", menu, slot);
             case LEADERBOARD_PLAYERS_KILLS -> pagePlayers(player, "kills", menu, slot);
-            case LEADERBOARD_PLAYERS_AMETHYST_CRATES -> pagePlayers(
-                    player, "amethyst_crates", menu, slot
+            case LEADERBOARD_PLAYERS_DRAGON_DAMAGE -> pagePlayers(
+                    player, "dragon_damage", menu, slot
             );
-            case LEADERBOARD_PLAYERS_AMETHYST_AIRDROPS -> pagePlayers(
-                    player, "amethyst_airdrops", menu, slot
+            case LEADERBOARD_PLAYERS_DRAGON_CRYSTALS -> pagePlayers(
+                    player, "dragon_crystals", menu, slot
             );
             case LEADERBOARD_CLANS -> pageClans(player, "wealth", menu, slot);
             case LEADERBOARD_CLANS_KILLS -> pageClans(player, "kills", menu, slot);
@@ -449,10 +449,10 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
                     player, "wealth", Math.max(1, back.page()));
             case LEADERBOARD_PLAYERS_KILLS -> openPlayers(
                     player, "kills", Math.max(1, back.page()));
-            case LEADERBOARD_PLAYERS_AMETHYST_CRATES -> openPlayers(
-                    player, "amethyst_crates", Math.max(1, back.page()));
-            case LEADERBOARD_PLAYERS_AMETHYST_AIRDROPS -> openPlayers(
-                    player, "amethyst_airdrops", Math.max(1, back.page()));
+            case LEADERBOARD_PLAYERS_DRAGON_DAMAGE -> openPlayers(
+                    player, "dragon_damage", Math.max(1, back.page()));
+            case LEADERBOARD_PLAYERS_DRAGON_CRYSTALS -> openPlayers(
+                    player, "dragon_crystals", Math.max(1, back.page()));
             case MAIN_MENU -> {
                 player.closeInventory();
                 Screens.home(player);
@@ -493,8 +493,8 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
         return kind == Menu.Kind.LEADERBOARD_HUB
                 || kind == Menu.Kind.LEADERBOARD_PLAYERS_WEALTH
                 || kind == Menu.Kind.LEADERBOARD_PLAYERS_KILLS
-                || kind == Menu.Kind.LEADERBOARD_PLAYERS_AMETHYST_CRATES
-                || kind == Menu.Kind.LEADERBOARD_PLAYERS_AMETHYST_AIRDROPS
+                || kind == Menu.Kind.LEADERBOARD_PLAYERS_DRAGON_DAMAGE
+                || kind == Menu.Kind.LEADERBOARD_PLAYERS_DRAGON_CRYSTALS
                 || kind == Menu.Kind.LEADERBOARD_CLANS
                 || kind == Menu.Kind.LEADERBOARD_CLANS_KILLS
                 || kind == Menu.Kind.LEADERBOARD_CLAN_BATTLE
@@ -505,8 +505,8 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
     private static Menu.Kind playerKind(String board) {
         return switch (board) {
             case "kills" -> Menu.Kind.LEADERBOARD_PLAYERS_KILLS;
-            case "amethyst_crates" -> Menu.Kind.LEADERBOARD_PLAYERS_AMETHYST_CRATES;
-            case "amethyst_airdrops" -> Menu.Kind.LEADERBOARD_PLAYERS_AMETHYST_AIRDROPS;
+            case "dragon_damage" -> Menu.Kind.LEADERBOARD_PLAYERS_DRAGON_DAMAGE;
+            case "dragon_crystals" -> Menu.Kind.LEADERBOARD_PLAYERS_DRAGON_CRYSTALS;
             default -> Menu.Kind.LEADERBOARD_PLAYERS_WEALTH;
         };
     }

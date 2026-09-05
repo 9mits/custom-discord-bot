@@ -10,12 +10,12 @@ final class HologramBoardTest {
     @Test
     void eventBoardsHaveStableAdminAliases() {
         assertEquals(
-                HologramService.Board.AMETHYST_CRATES,
-                HologramService.Board.fromKey("amethyst-crates")
+                HologramService.Board.DRAGON_DAMAGE,
+                HologramService.Board.fromKey("dragon-damage")
         );
         assertEquals(
-                HologramService.Board.AMETHYST_AIRDROPS,
-                HologramService.Board.fromKey("amethyst_airdrops")
+                HologramService.Board.DRAGON_CRYSTALS,
+                HologramService.Board.fromKey("dragon_crystals")
         );
         assertEquals(
                 HologramService.Board.CLAN_BATTLE,
@@ -30,8 +30,8 @@ final class HologramBoardTest {
                 () -> HologramService.Board.fromKey("not-a-board")
         );
 
-        assertTrue(failure.getMessage().contains("amethyst-crates"));
-        assertTrue(failure.getMessage().contains("amethyst-airdrops"));
+        assertTrue(failure.getMessage().contains("dragon-damage"));
+        assertTrue(failure.getMessage().contains("dragon-crystals"));
         assertTrue(failure.getMessage().contains("clan-battle"));
     }
 }

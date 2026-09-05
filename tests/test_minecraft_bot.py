@@ -1520,8 +1520,6 @@ class MinecraftLeaderboardRenderTests(unittest.TestCase):
             (
                 "wealth",
                 "kills",
-                "amethyst_crates",
-                "amethyst_airdrops",
                 "dragon_damage",
                 "dragon_crystals",
             ),

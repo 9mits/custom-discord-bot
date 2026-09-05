@@ -238,6 +238,21 @@ final class ClanBattleStore {
         return state.active == null ? Optional.empty() : Optional.of(activeView(clans));
     }
 
+    /** Retires the previous crate race and starts the Dragon Egg battle with a clean score. */
+    synchronized boolean ensureDragonEggBattle(long now, long endsAt) {
+        if (endsAt <= now || (state.active != null && kindOf(state.active) == Kind.DRAGON_EGGS)) return false;
+        if (state.active != null && kindOf(state.active) != Kind.CRATES) return false;
+        SavedState before = copyState();
+        SavedActive replacement = new SavedActive();
+        replacement.id = UUID.randomUUID().toString();
+        replacement.kind = Kind.DRAGON_EGGS.id();
+        replacement.startedAt = now;
+        replacement.endsAt = endsAt;
+        state.active = replacement;
+        persistOrRestore(before);
+        return true;
+    }
+
     synchronized long recordCrate(UUID playerId, long now, ClanStore clans) {
         if (state.active == null || kindOf(state.active) != Kind.CRATES) {
             return 0L;

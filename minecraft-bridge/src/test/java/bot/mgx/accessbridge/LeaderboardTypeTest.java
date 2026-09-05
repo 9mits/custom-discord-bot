@@ -40,8 +40,10 @@ class LeaderboardTypeTest {
         assertFalse(LeaderboardType.AMETHYST_AIRDROPS.clanEligible());
         assertTrue(LeaderboardType.WEALTH.published());
         assertTrue(LeaderboardType.KILLS.published());
-        assertTrue(LeaderboardType.AMETHYST_CRATES.published());
-        assertTrue(LeaderboardType.AMETHYST_AIRDROPS.published());
+        assertFalse(LeaderboardType.AMETHYST_CRATES.published());
+        assertFalse(LeaderboardType.AMETHYST_AIRDROPS.published());
+        assertTrue(LeaderboardType.DRAGON_DAMAGE.published());
+        assertTrue(LeaderboardType.DRAGON_CRYSTALS.published());
         assertFalse(LeaderboardType.PLAYTIME.published());
         assertFalse(LeaderboardType.BLOCKS_MINED.published());
     }

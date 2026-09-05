@@ -545,6 +545,10 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 this, clanBattleStore, clanStore, crateItems, cosmeticStore,
                 leaderboardService, playerSettings
         );
+        clanBattleStore.ensureDragonEggBattle(
+                System.currentTimeMillis(),
+                (long) gameVariables.decimal("amethyst-events.ends-at") * 1000L
+        );
         crates = new CrateService(
                 this,
                 crateStore,
@@ -577,7 +581,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         try {
             amethystDragon = new AmethystDragonService(
                     this, gameVariables, crateItems, crates, amethystItems,
-                    amethystProgress, clanBattles
+                    amethystProgress, clanBattles, amethystMobs
             );
             crates.dragonAccess(amethystDragon::canOpenCrate);
         } catch (IOException exception) {

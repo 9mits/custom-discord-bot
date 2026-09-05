@@ -12,7 +12,7 @@
     eventBoard: "amethyst_airdrops"
   };
   var defaultBoards = ["wealth", "kills"];
-  var eventBoards = ["amethyst_airdrops", "amethyst_crates"];
+  var eventBoards = ["dragon_damage", "dragon_crystals"];
   var labels = {
     wealth: "Richest",
     kills: "Most Kills",
