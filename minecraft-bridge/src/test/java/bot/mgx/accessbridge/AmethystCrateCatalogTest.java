@@ -286,6 +286,21 @@ final class AmethystCrateCatalogTest {
     }
 
     @Test
+    void dragonChestUsesTheSameHologramLayoutAsTheAmethystCrate() {
+        long closes = CrateKind.AMETHYST.closesAt();
+        long now = closes - Duration.ofMinutes(60).toMillis();
+        CrateKind.dragonEndSource(() -> closes);
+        CrateKind.dragonAvailableSource(() -> true);
+        List<Component> dragon = CrateDisplayService.hologramLines(CrateKind.DRAGON, 1, now);
+        assertEquals(4, dragon.size());
+        assertEquals("Amethyst Dragon Crate",
+                ((net.kyori.adventure.text.TextComponent) dragon.get(0)).content());
+        assertEquals("1 Mysterious Crate Key",
+                ((net.kyori.adventure.text.TextComponent) dragon.get(1)).content());
+        assertEquals(CrateKind.AMETHYST.countdownLines(now), dragon.subList(2, 4));
+    }
+
+    @Test
     void timedEquipmentHasUniqueModelsAndTwentyFourHourDuration() {
         assertEquals(86_400_000L, AmethystItemService.ACTIVE_MILLIS);
         Set<String> models = new HashSet<>();

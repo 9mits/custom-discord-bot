@@ -392,7 +392,8 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 if (!(sender instanceof Player player)) {
                     throw new IllegalArgumentException("Run the Amethyst Block start command in game.");
                 }
-                AmethystBlockEventService.Snapshot block = amethystBlocks.spawnNear(player);
+                String tier = args.length > 3 ? args[3] : null;
+                AmethystBlockEventService.Snapshot block = amethystBlocks.spawnNear(player, tier);
                 success(sender, "Started " + block.describe() + ".");
             }
             case "status" -> {
@@ -433,7 +434,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 success(sender, "Expired the active block.");
             }
             default -> throw new IllegalArgumentException(
-                    "Use /mgxadmin event amethyst-block <start|status|damage|finish|end|expire>."
+                    "Use /mgxadmin event amethyst-block <start [huge|giant|humongous|random]|status|damage|finish|end|expire>."
             );
         }
     }
@@ -531,7 +532,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         info(sender, "/mgxadmin event multiplier <type> <on|off> [seconds]");
         info(sender, "/mgxadmin event airdrop <start [rarity]|status|end|expire>");
         info(sender, "/mgxadmin event airdrop distance <rarity> <minimum> <maximum>");
-        info(sender, "/mgxadmin event amethyst-block <start|status|damage [hp]|finish|end|expire>");
+        info(sender, "/mgxadmin event amethyst-block <start [huge|giant|humongous|random]|status|damage [hp]|finish|end|expire>");
         info(sender, "/mgxadmin event schedule <status|set <minimum> <maximum>|reset>");
         info(sender, "/mgxadmin event admin <effect|list|controls|stop> [options]");
         ServerEventService events = plugin.serverEvents();
@@ -1298,7 +1299,8 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 if (!(sender instanceof Player player)) {
                     throw new IllegalArgumentException("Run this spawn test in game.");
                 }
-                AmethystBlockEventService.Snapshot block = amethystBlocks.spawnTest(player);
+                String tier = args.length > 2 ? args[2] : null;
+                AmethystBlockEventService.Snapshot block = amethystBlocks.spawnTest(player, tier);
                 success(sender, "Spawned " + block.describe() + ".");
                 info(sender, "Mine it normally, or use damage/finish/expire to test each path.");
             }
@@ -1333,7 +1335,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             }
             default -> {
                 heading(sender, "Huge Amethyst Block test suite");
-                info(sender, "/mgxadmin testamethystblock spawn|status|damage [hp]|finish|expire|remove");
+                info(sender, "/mgxadmin testamethystblock spawn [huge|giant|humongous|random]|status|damage [hp]|finish|expire|remove");
             }
         }
     }
@@ -1709,9 +1711,12 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                     return List.of();
                 }
                 if (category.equals("amethyst-block") || category.equals("block")) {
-                    return args.length == 3 ? partial(args[2], List.of(
-                            "start", "status", "damage", "finish", "end", "expire"
-                    )) : List.of();
+                    if (args.length == 3) return partial(args[2], List.of(
+                            "start", "status", "damage", "finish", "end", "expire"));
+                    if (args.length == 4 && args[2].equalsIgnoreCase("start")) {
+                        return partial(args[3], List.of("huge", "giant", "humongous", "random"));
+                    }
+                    return List.of();
                 }
                 if (category.equals("schedule")) {
                     return args.length == 3
@@ -1753,6 +1758,16 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             }
             if (args.length == 4) {
                 return partial(args[3], List.of("confirm"));
+            }
+            return List.of();
+        }
+        if (action.equals("testamethystblock") || action.equals("testhugeblock")) {
+            if (args.length == 2) {
+                return partial(args[1], List.of(
+                        "spawn", "status", "damage", "finish", "expire", "remove"));
+            }
+            if (args.length == 3 && args[1].equalsIgnoreCase("spawn")) {
+                return partial(args[2], List.of("huge", "giant", "humongous", "random"));
             }
             return List.of();
         }

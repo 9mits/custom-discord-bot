@@ -38,6 +38,7 @@ final class ShopCatalog {
         WOOL("Wool", "WHITE_WOOL"),
         CONCRETE("Concrete", "LIGHT_BLUE_CONCRETE"),
         TERRACOTTA("Terracotta", "ORANGE_TERRACOTTA"),
+        DYES("Dyes", "PURPLE_DYE"),
         NETHER("Nether", "NETHERRACK"),
         OCEAN("Ocean", "PRISMARINE"),
         FARMING("Farming", "WHEAT"),
@@ -448,6 +449,7 @@ final class ShopCatalog {
                 dyed("TERRACOTTA", 64, 6_000),
                 dyed("GLAZED_TERRACOTTA", 64, 9_000)
         ));
+        catalog.put(Category.DYES, dyed("DYE", 16, 1_600));
         catalog.put(Category.NETHER, List.of(
                 offer("NETHERRACK", 64, 360),
                 offer("BLACKSTONE", 64, 810),

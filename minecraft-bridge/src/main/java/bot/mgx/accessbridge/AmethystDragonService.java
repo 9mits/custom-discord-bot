@@ -32,6 +32,8 @@ import org.bukkit.entity.EnderDragon;
 import org.bukkit.entity.DragonFireball;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
+import org.bukkit.entity.ArmorStand;
+import org.bukkit.entity.IronGolem;
 import org.bukkit.entity.Item;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Mob;
@@ -105,6 +107,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     private static final String KEY_EFFECT_TAG = "mgx_dragon_key_effect";
     private static final String CRATE_LABEL_TAG = "mgx_dragon_crate_label";
     private static final String CRATE_COUNTDOWN_TAG = "mgx_dragon_crate_countdown";
+    private static final String PORTAL_DISPLAY_TAG = "mgx_dragon_portal_display";
     private static final String PORTAL_STATUS_TAG = "mgx_dragon_portal_status";
 
     enum Phase { WAITING, PORTAL_OPEN, SUMMONING, FIGHT, REWARDS }
@@ -116,7 +119,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         }
     }
 
-    private record PillarSpec(int index, int x, int z, int top, int width) {}
+    private record PillarSpec(int index, int x, int z, int base, int top, int width) {}
 
     private static final class RunStats {
         double damage;
@@ -152,12 +155,17 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     private BossBar dragonBar;
     private long lastAggressiveAttackAt;
     private long lastMinionWaveAt;
+    private long lastChaosAt;
+    private int effectFrame;
+    private Location rewardChest;
+    private Location returnGate;
     private final List<PillarSpec> pillarSpecs = new ArrayList<>();
     private final Set<UUID> entrants = new HashSet<>();
     private final Set<UUID> departed = new HashSet<>();
     private final Map<UUID, RunStats> stats = new HashMap<>();
     private final Set<String> claimableEggs = new HashSet<>();
     private final Set<Location> portalBlocks = new HashSet<>();
+    private final Set<Location> rewardStructureBlocks = new HashSet<>();
     private BukkitTask ticker;
     private BukkitTask summoningTask;
 
@@ -409,16 +417,23 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
             entity.customName(Component.text("Amethyst Dragon", AMETHYST, TextDecoration.BOLD));
             entity.setCustomNameVisible(false);
             entity.setRemoveWhenFarAway(false);
+            entity.setPhase(EnderDragon.Phase.CIRCLING);
         });
+        hideVanillaDragonBar();
         dragonBar = BossBar.bossBar(
-                Component.text("AMETHYST DRAGON", AMETHYST, TextDecoration.BOLD),
-                1f, BossBar.Color.PURPLE, BossBar.Overlay.NOTCHED_20
+                Component.text(render(render(variables.string("dragon-event.fight-bossbar-text"),
+                        "hp", String.valueOf(Math.round(dragonHealth))), "time",
+                        duration(phaseEndsAt - System.currentTimeMillis())), AMETHYST, TextDecoration.BOLD),
+                1f, variables.barColour("dragon-event.fight-bossbar-color", BossBar.Color.PURPLE),
+                BossBar.Overlay.NOTCHED_20
         );
         entrants.stream().map(Bukkit::getPlayer).filter(java.util.Objects::nonNull)
                 .forEach(player -> player.showBossBar(dragonBar));
         spawnMinionWave();
         lastAggressiveAttackAt = 0L;
         lastMinionWaveAt = System.currentTimeMillis();
+        lastChaosAt = 0L;
+        scheduledAt = nextEvent(Instant.now().plusSeconds(30));
         CrateKind.dragonAvailableSource(() -> crateAvailable());
         announce(variables.string("dragon-event.started-message"),
                 configuredSound("dragon-event.start-sound", Sound.ENTITY_ENDER_DRAGON_GROWL));
@@ -466,7 +481,8 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     private void closeRewards() {
         if (phase != Phase.REWARDS) return;
         if (arena != null && variables.bool("dragon-event.effects-enabled")) {
-            Location at = new Location(arena, 5.5, 75.5, 0.5);
+            Location at = rewardChest == null ? new Location(arena, 5.5, 76.5, 0.5)
+                    : rewardChest.clone().add(.5, .5, .5);
             arena.spawnParticle(Particle.REVERSE_PORTAL, at,
                     variables.integer("dragon-event.reward-close-particle-count"),
                     2.5, 2.0, 2.5, 0.08);
@@ -514,6 +530,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                     .generateStructures(false));
         }
         if (arena == null) throw new IllegalStateException("Could not create the Amethyst Dragon world.");
+        hideVanillaDragonBar();
         arena.setGameRule(GameRule.DO_MOB_SPAWNING, false);
         arena.setGameRule(GameRule.KEEP_INVENTORY, true);
         arena.setGameRule(GameRule.DO_DAYLIGHT_CYCLE, false);
@@ -591,8 +608,9 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
             int height = variables.integer("dragon-event.pillar-base-height")
                     + (index % 5) * variables.integer("dragon-event.pillar-height-step");
             int width = 3 + (index % 3);
-            int top = 73 + height;
-            pillarSpecs.add(new PillarSpec(index, x, z, top, width));
+            int base = arena.getHighestBlockYAt(x, z) + 1;
+            int top = base + height;
+            pillarSpecs.add(new PillarSpec(index, x, z, base, top, width));
         }
     }
 
@@ -604,7 +622,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
             return;
         }
         int[] pillarIndex = {0};
-        int[] nextLayer = {68};
+        int[] nextLayer = {pillarSpecs.getFirst().base()};
         long interval = variables.integer("dragon-event.pillar-animation-interval-ticks");
         summoningTask = plugin.getServer().getScheduler().runTaskTimer(plugin, () -> {
             try {
@@ -621,7 +639,8 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                 if (nextLayer[0] <= spec.top()) return;
                 finishPillar(spec);
                 pillarIndex[0]++;
-                nextLayer[0] = 68;
+                nextLayer[0] = pillarIndex[0] < pillarSpecs.size()
+                        ? pillarSpecs.get(pillarIndex[0]).base() : 0;
                 if (pillarIndex[0] < pillarSpecs.size()) return;
                 cancelSummoningTask();
                 spawnAllCrystals();
@@ -697,7 +716,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         if (phase != Phase.SUMMONING || arena == null) return;
         cancelSummoningTask();
         for (PillarSpec spec : pillarSpecs) {
-            for (int y = 68; y <= spec.top(); y++) buildPillarLayer(spec, y);
+            for (int y = spec.base(); y <= spec.top(); y++) buildPillarLayer(spec, y);
             finishPillarStructure(spec);
         }
         try {
@@ -817,12 +836,47 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
             int x = (int) Math.round(Math.cos(angle) * radius);
             int z = (int) Math.round(Math.sin(angle) * radius);
             int y = arena.getHighestBlockYAt(x, z) + 1;
-            LivingEntity minion = amethystMobs.deploy(new Location(arena, x + .5, y, z + .5),
-                    types[index % types.length]);
-            if (minion == null) continue;
-            minion.addScoreboardTag(MINION_TAG);
-            if (minion instanceof Mob mob) nearestParticipant(minion.getLocation()).ifPresent(mob::setTarget);
+            Location spawn = new Location(arena, x + .5, y, z + .5);
+            EntityType type = types[index % types.length];
+            animateMinionSpawn(spawn, type, index);
         }
+    }
+
+    private void animateMinionSpawn(Location spawn, EntityType type, int index) {
+        if (variables.bool("dragon-event.effects-enabled")) {
+            arena.spawnParticle(Particle.REVERSE_PORTAL, spawn.clone().add(0, 1, 0),
+                    variables.integer("dragon-event.minion-spawn-particle-count"), .7, 1.1, .7, .08);
+            arena.spawnParticle(Particle.DUST, spawn.clone().add(0, .8, 0),
+                    variables.integer("dragon-event.minion-spawn-particle-count"), .6, .9, .6, .03, DARK);
+        }
+        long delay = (long) index * variables.integer("dragon-event.minion-spawn-interval-ticks");
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+            if (phase != Phase.FIGHT || arena == null) return;
+            LivingEntity minion = amethystMobs.deploy(spawn, type);
+            if (minion == null) return;
+            minion.addScoreboardTag(MINION_TAG);
+            if (minion instanceof IronGolem golem) golem.setPlayerCreated(false);
+            var maximumHealth = minion.getAttribute(Attribute.MAX_HEALTH);
+            if (maximumHealth != null) {
+                maximumHealth.setBaseValue(variables.decimal("dragon-event.minion-health"));
+                minion.setHealth(maximumHealth.getBaseValue());
+            }
+            var attackDamage = minion.getAttribute(Attribute.ATTACK_DAMAGE);
+            if (attackDamage != null) attackDamage.setBaseValue(
+                    variables.decimal("dragon-event.minion-attack-damage"));
+            var movement = minion.getAttribute(Attribute.MOVEMENT_SPEED);
+            if (movement != null) movement.setBaseValue(Math.min(movement.getDefaultValue() *
+                    variables.decimal("dragon-event.minion-speed-multiplier"), 1d));
+            if (minion instanceof Mob mob) {
+                mob.setAware(true);
+                mob.setAggressive(true);
+                nearestParticipant(spawn).ifPresent(mob::setTarget);
+            }
+            arena.playSound(spawn,
+                    configuredSound("dragon-event.minion-spawn-sound", Sound.BLOCK_RESPAWN_ANCHOR_CHARGE),
+                    (float) variables.decimal("dragon-event.effect-sound-volume"),
+                    (float) variables.decimal("dragon-event.minion-spawn-pitch"));
+        }, delay);
     }
 
     private Optional<Player> nearestParticipant(Location from) {
@@ -853,15 +907,67 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                     ThreadLocalRandom.current().nextDouble(-.05, .05),
                     ThreadLocalRandom.current().nextDouble(-.08, .08))));
         }
+        dragon.setPhase(EnderDragon.Phase.CHARGE_PLAYER);
         dragon.setVelocity(direction.multiply(variables.decimal("dragon-event.aggression-speed")));
         arena.spawnParticle(Particle.DRAGON_BREATH, dragon.getEyeLocation(),
                 variables.integer("dragon-event.attack-particle-count"), 1.4, 1.0, 1.4, .08, 1.0f);
     }
 
+    private void driveMinions() {
+        if (arena == null) return;
+        for (Entity entity : arena.getEntities()) {
+            if (!(entity instanceof Mob mob) || !entity.getScoreboardTags().contains(MINION_TAG)) continue;
+            mob.setAware(true);
+            mob.setAggressive(true);
+            Player current = mob.getTarget() instanceof Player player ? player : null;
+            if (current == null || !current.isOnline() || departed.contains(current.getUniqueId())) {
+                nearestParticipant(entity.getLocation()).ifPresent(mob::setTarget);
+            }
+        }
+    }
+
+    private void chaosStrike(long now) {
+        long interval = variables.integer("dragon-event.chaos-interval-seconds") * 1_000L;
+        if (now - lastChaosAt < interval || arena == null || dragon == null) return;
+        List<Player> targets = arena.getPlayers().stream()
+                .filter(player -> entrants.contains(player.getUniqueId()) && !departed.contains(player.getUniqueId()))
+                .toList();
+        if (targets.isEmpty()) return;
+        lastChaosAt = now;
+        int strikes = variables.integer("dragon-event.chaos-strikes");
+        for (int index = 0; index < strikes; index++) {
+            Player target = targets.get(index % targets.size());
+            double spread = variables.decimal("dragon-event.chaos-strike-spread");
+            Location strike = target.getLocation().clone().add(
+                    ThreadLocalRandom.current().nextDouble(-spread, spread), 0,
+                    ThreadLocalRandom.current().nextDouble(-spread, spread));
+            arena.spawnParticle(Particle.DUST, strike.clone().add(0, 1, 0),
+                    variables.integer("dragon-event.chaos-particle-count"), .45, 1.4, .45, .02, BRIGHT);
+            int delay = variables.integer("dragon-event.chaos-warning-ticks");
+            plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+                if (phase != Phase.FIGHT || !target.isOnline() || !isArena(target.getWorld())) return;
+                arena.strikeLightningEffect(strike);
+                arena.spawnParticle(Particle.DRAGON_BREATH, strike.clone().add(0, 1, 0),
+                        variables.integer("dragon-event.chaos-particle-count"), 1.2, 1.5, 1.2, .08, 1.0f);
+                if (target.getLocation().distanceSquared(strike)
+                        <= variables.decimal("dragon-event.chaos-hit-radius")
+                        * variables.decimal("dragon-event.chaos-hit-radius")) {
+                    target.damage(variables.decimal("dragon-event.chaos-damage"), dragon);
+                }
+            }, delay);
+        }
+        arena.playSound(dragon.getLocation(),
+                configuredSound("dragon-event.chaos-sound", Sound.ENTITY_WARDEN_SONIC_BOOM),
+                (float) variables.decimal("dragon-event.effect-sound-volume"),
+                (float) variables.decimal("dragon-event.chaos-pitch"));
+    }
+
     private void spawnRewardArea() {
-        Location center = new Location(arena, 0, 75, 0);
+        int gateY = arena.getHighestBlockYAt(0, 0) + 1;
+        Location center = new Location(arena, .5, gateY + .1, .5);
+        returnGate = center.clone();
         for (int x = -4; x <= 4; x++) {
-            for (int y = 73; y <= 80; y++) {
+            for (int y = gateY - 2; y <= gateY + 6; y++) {
                 for (int z = -4; z <= 4; z++) {
                     Block block = arena.getBlockAt(x, y, z);
                     if (block.getType() == Material.DRAGON_EGG) {
@@ -870,33 +976,125 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                 }
             }
         }
-        for (int x = -2; x <= 2; x++) for (int z = -2; z <= 2; z++)
-            arena.getBlockAt(x, 74, z).setType(Math.abs(x) == 2 || Math.abs(z) == 2
-                    ? Material.CRYING_OBSIDIAN : Material.AMETHYST_BLOCK, false);
-        arena.getBlockAt(5, 74, 0).setType(Material.CHEST, false);
-        label(new Location(arena, 5.5, 77.4, 0.5), Component.text("✦ AMETHYST DRAGON CRATE ✦", AMETHYST,
-                TextDecoration.BOLD), 1.65f, CRATE_LABEL_TAG);
-        label(new Location(arena, 5.5, 76.65, 0.5), Component.text("1 KEY  •  RIGHT-CLICK TO OPEN",
-                NamedTextColor.GOLD, TextDecoration.BOLD), 1.15f, CRATE_LABEL_TAG);
-        label(new Location(arena, 5.5, 75.95, 0.5), Component.text(
-                "OPEN FOR " + duration(phaseEndsAt - System.currentTimeMillis()),
-                NamedTextColor.WHITE, TextDecoration.BOLD), 1.05f, CRATE_COUNTDOWN_TAG);
+        int chestX = variables.integer("dragon-event.reward-crate-x");
+        int chestZ = variables.integer("dragon-event.reward-crate-z");
+        int chestY = arena.getHighestBlockYAt(chestX, chestZ) + 1;
+        rewardChest = new Location(arena, chestX, chestY, chestZ);
+        int steps = variables.integer("dragon-event.reward-spawn-animation-steps");
+        long interval = variables.integer("dragon-event.reward-spawn-animation-interval-ticks");
+        Location animatedChest = rewardChest.clone().add(.5, .5, .5);
+        for (int step = 0; step < steps; step++) {
+            int frame = step;
+            plugin.getServer().getScheduler().runTaskLater(plugin, () -> rewardSpawnFrame(
+                    center, animatedChest, frame, steps), frame * interval);
+        }
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+            if (phase != Phase.REWARDS || rewardChest == null) return;
+            for (int x = -2; x <= 2; x++) for (int z = -2; z <= 2; z++)
+                arena.getBlockAt(x, gateY - 1, z).setType(Math.abs(x) == 2 || Math.abs(z) == 2
+                        ? Material.CRYING_OBSIDIAN : Material.AMETHYST_BLOCK, false);
+            rewardChest.getBlock().setType(Material.CHEST, false);
+            completeReturnGate(center);
+            spawnDragonCrateHologram();
+            spawnRewardEggs();
+            CrateDisplayService.spawnStyledLabel(center.clone().add(0, 2.03, 0),
+                    Component.text(variables.string("dragon-event.return-gate-title"), AMETHYST,
+                            TextDecoration.BOLD), DISPLAY_TAG);
+            CrateDisplayService.spawnStyledLabel(center.clone().add(0, 1.75, 0),
+                    Component.text(variables.string("dragon-event.return-gate-subtitle"),
+                            NamedTextColor.GRAY), DISPLAY_TAG);
+            arena.playSound(rewardChest,
+                    configuredSound("dragon-event.reward-spawn-sound", Sound.BLOCK_END_PORTAL_SPAWN),
+                    (float) variables.decimal("dragon-event.effect-sound-volume"),
+                    (float) variables.decimal("dragon-event.reward-spawn-pitch"));
+        }, (long) steps * interval);
+    }
+
+    private void rewardSpawnFrame(Location gate, Location chest, int frame, int frames) {
+        if (phase != Phase.REWARDS || !variables.bool("dragon-event.effects-enabled")) return;
+        double progress = (frame + 1d) / Math.max(1, frames);
+        double radius = 1d + progress * 7d;
+        int particles = Math.max(1, variables.integer("dragon-event.reward-area-particle-count")
+                / Math.max(1, frames));
+        arena.spawnParticle(Particle.END_ROD, gate.clone().add(0, 1, 0), particles,
+                radius, 1.5 + progress * 3, radius, .08);
+        arena.spawnParticle(Particle.DUST, chest, particles, 1.4, progress * 3, 1.4, .04, BRIGHT);
+        animateReturnGateFrame(gate, progress);
+        if (frame % Math.max(1, variables.integer("dragon-event.reward-lightning-every-frames")) == 0) {
+            arena.strikeLightningEffect(chest);
+        }
+    }
+
+    private void animateReturnGateFrame(Location gate, double progress) {
+        List<Block> frame = new ArrayList<>();
+        int baseY = gate.getBlockY();
+        for (int y = 0; y <= 5; y++) {
+            frame.add(arena.getBlockAt(-2, baseY + y, 0));
+            frame.add(arena.getBlockAt(2, baseY + y, 0));
+        }
+        for (int x = -1; x <= 1; x++) {
+            frame.add(arena.getBlockAt(x, baseY, 0));
+            frame.add(arena.getBlockAt(x, baseY + 5, 0));
+        }
+        int visible = Math.min(frame.size(), (int) Math.ceil(frame.size() * progress));
+        for (int index = 0; index < visible; index++) {
+            Block block = frame.get(index);
+            if (block.getType().isAir()) {
+                block.setType(index % 4 == 0 ? Material.CRYING_OBSIDIAN : Material.OBSIDIAN, false);
+                rewardStructureBlocks.add(block.getLocation());
+            }
+        }
+    }
+
+    private void completeReturnGate(Location gate) {
+        animateReturnGateFrame(gate, 1d);
+        Orientable data = (Orientable) Material.NETHER_PORTAL.createBlockData();
+        data.setAxis(Axis.X);
+        int baseY = gate.getBlockY();
+        for (int x = -1; x <= 1; x++) {
+            for (int y = 1; y <= 4; y++) {
+                Block block = arena.getBlockAt(x, baseY + y, 0);
+                block.setBlockData(data.clone(), false);
+                rewardStructureBlocks.add(block.getLocation());
+            }
+        }
+        returnGate = new Location(arena, .5, baseY + 1.1, .5);
+    }
+
+    private void spawnDragonCrateHologram() {
+        List<Component> lines = CrateDisplayService.hologramLines(
+                CrateKind.DRAGON, crates.keyCost(CrateKind.DRAGON), System.currentTimeMillis());
+        for (int index = 0; index < lines.size(); index++) {
+            double height = CrateDisplayService.BOTTOM_LINE
+                    + CrateDisplayService.LINE_HEIGHT * (lines.size() - 1 - index);
+            List<String> tags = new ArrayList<>(List.of(DISPLAY_TAG, CRATE_LABEL_TAG));
+            if (index == lines.size() - 1) tags.add(CRATE_COUNTDOWN_TAG);
+            CrateDisplayService.spawnStyledLabel(rewardChest.clone().add(.5, height, .5),
+                    lines.get(index), tags.toArray(String[]::new));
+        }
+    }
+
+    private void spawnRewardEggs() {
         int eggs = variables.integer("dragon-event.egg-count");
         for (int index = 0; index < eggs; index++) {
             int x = -3 + index * 2;
-            Block egg = arena.getBlockAt(x, 75, 4);
-            egg.setType(Material.DRAGON_EGG, false);
-            claimableEggs.add(blockKey(egg));
+            int z = variables.integer("dragon-event.reward-egg-z");
+            int y = arena.getHighestBlockYAt(x, z) + 1;
+            Block egg = arena.getBlockAt(x, y, z);
+            int delay = index * variables.integer("dragon-event.egg-spawn-interval-ticks");
+            plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+                if (phase != Phase.REWARDS) return;
+                egg.setType(Material.DRAGON_EGG, false);
+                claimableEggs.add(blockKey(egg));
+                Location at = egg.getLocation().add(.5, .8, .5);
+                arena.spawnParticle(Particle.REVERSE_PORTAL, at,
+                        variables.integer("dragon-event.egg-spawn-particle-count"), .7, .9, .7, .09);
+                arena.playSound(at, configuredSound("dragon-event.egg-spawn-sound",
+                                Sound.BLOCK_RESPAWN_ANCHOR_CHARGE),
+                        (float) variables.decimal("dragon-event.effect-sound-volume"),
+                        (float) variables.decimal("dragon-event.egg-spawn-pitch"));
+            }, delay);
         }
-        label(center.clone().add(0.5, 4.6, 0.5), Component.text("✦ RETURN TO SPAWN ✦", AMETHYST,
-                TextDecoration.BOLD), 1.65f, DISPLAY_TAG);
-        label(center.clone().add(0.5, 3.8, 0.5), Component.text("STEP INTO THE CRYSTAL GATE",
-                NamedTextColor.WHITE, TextDecoration.BOLD), 1.05f, DISPLAY_TAG);
-        label(center.clone().add(0.5, 3.15, 0.5), Component.text("Leaving ends your run",
-                NamedTextColor.GRAY), .85f, DISPLAY_TAG);
-        int particles = variables.integer("dragon-event.reward-area-particle-count");
-        arena.spawnParticle(Particle.END_ROD, center, particles, 8, 5, 8, 0.12);
-        arena.spawnParticle(Particle.DUST, center, particles, 8, 5, 8, 0.05, BRIGHT);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)
@@ -909,8 +1107,10 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
             enter(player);
             return;
         }
-        if (phase == Phase.REWARDS && isArena(event.getTo().getWorld())
-                && event.getTo().distanceSquared(new Location(arena, 0.5, 74.5, 0.5)) <= 5d) {
+        if (phase == Phase.REWARDS && returnGate != null && isArena(event.getTo().getWorld())
+                && event.getTo().distanceSquared(returnGate)
+                <= Math.pow(variables.decimal("dragon-event.return-gate-radius"), 2d)
+                && touchesDragonPortal(event.getTo())) {
             leave(player);
         }
     }
@@ -921,6 +1121,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
             row.enteredAt = System.currentTimeMillis();
         }
         player.teleport(arenaSpawn());
+        arrivalEffect(player);
         if (admissionBar != null) player.showBossBar(admissionBar);
         player.sendMessage(prefix().append(Component.text(
                 "Fight together. The entrance seals when the countdown ends.", NamedTextColor.WHITE)));
@@ -1088,7 +1289,8 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     public void onInteract(PlayerInteractEvent event) {
         if (phase == Phase.REWARDS && event.getClickedBlock() != null && isArena(event.getClickedBlock().getWorld())) {
             Block block = event.getClickedBlock();
-            if (block.getType() == Material.CHEST && block.getX() == 5 && block.getY() == 74 && block.getZ() == 0) {
+            if (block.getType() == Material.CHEST && rewardChest != null
+                    && block.getLocation().equals(rewardChest)) {
                 event.setCancelled(true);
                 crates.openFor(event.getPlayer(), CrateKind.DRAGON);
                 return;
@@ -1248,14 +1450,44 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         RunStats row = stats.get(player.getUniqueId());
         if (row == null) return;
         long seconds = Math.max(0L, (System.currentTimeMillis() - row.enteredAt) / 1000L);
+        int damageRank = rankOf(player.getUniqueId(), Comparator.comparingDouble(
+                (Map.Entry<UUID, RunStats> entry) -> entry.getValue().damage).reversed());
+        int crystalRank = rankOf(player.getUniqueId(), Comparator.comparingInt(
+                (Map.Entry<UUID, RunStats> entry) -> entry.getValue().crystals).reversed());
         player.showTitle(net.kyori.adventure.title.Title.title(
-                Component.text("DRAGON EVENT COMPLETE", AMETHYST, TextDecoration.BOLD),
-                Component.text(Math.round(row.damage) + " damage • " + row.crystals
-                        + " crystals • " + row.keys + " Keys", NamedTextColor.WHITE)));
-        player.sendMessage(prefix().append(Component.text(
-                "Your stats: " + Math.round(row.damage) + " damage, " + row.crystals
-                        + " crystals, " + row.keys + " Keys, " + seconds + " seconds.",
-                NamedTextColor.WHITE)));
+                Component.text(variables.string("dragon-event.stats-title"), AMETHYST,
+                        TextDecoration.BOLD),
+                Component.text(variables.string("dragon-event.stats-subtitle"), NamedTextColor.WHITE)));
+        player.sendMessage(Component.empty());
+        player.sendMessage(Component.text(variables.string("dragon-event.stats-header"), AMETHYST,
+                TextDecoration.BOLD));
+        player.sendMessage(Component.text(renderStats(variables.string("dragon-event.stats-damage-line"),
+                row, seconds, damageRank, crystalRank), NamedTextColor.WHITE));
+        player.sendMessage(Component.text(renderStats(variables.string("dragon-event.stats-crystals-line"),
+                row, seconds, damageRank, crystalRank), NamedTextColor.WHITE));
+        player.sendMessage(Component.text(renderStats(variables.string("dragon-event.stats-keys-line"),
+                row, seconds, damageRank, crystalRank), NamedTextColor.WHITE));
+        player.sendMessage(Component.text(renderStats(variables.string("dragon-event.stats-time-line"),
+                row, seconds, damageRank, crystalRank), NamedTextColor.GRAY));
+        player.sendMessage(Component.empty());
+    }
+
+    private int rankOf(UUID playerId, Comparator<Map.Entry<UUID, RunStats>> comparator) {
+        List<Map.Entry<UUID, RunStats>> ranked = stats.entrySet().stream().sorted(comparator).toList();
+        for (int index = 0; index < ranked.size(); index++) {
+            if (ranked.get(index).getKey().equals(playerId)) return index + 1;
+        }
+        return ranked.size();
+    }
+
+    private String renderStats(String template, RunStats row, long seconds, int damageRank, int crystalRank) {
+        return template
+                .replace("<damage>", String.format(Locale.US, "%,d", Math.round(row.damage)))
+                .replace("<damage_rank>", String.valueOf(damageRank))
+                .replace("<crystals>", String.format(Locale.US, "%,d", row.crystals))
+                .replace("<crystal_rank>", String.valueOf(crystalRank))
+                .replace("<keys>", String.format(Locale.US, "%,d", row.keys))
+                .replace("<time>", duration(seconds * 1_000L));
     }
 
     private void sendEveryoneHome() {
@@ -1275,12 +1507,30 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
 
     private Location arenaSpawn() {
         ensureArena();
-        return new Location(arena, 0.5, 82.0, 18.5, 180f, 0f);
+        int x = variables.integer("dragon-event.entry-x");
+        int z = variables.integer("dragon-event.entry-z");
+        int y = arena.getHighestBlockYAt(x, z) + 1;
+        return new Location(arena, x + .5, y + .1, z + .5, 180f, 0f);
+    }
+
+    private void arrivalEffect(Player player) {
+        Location at = player.getLocation().clone().add(0, 1, 0);
+        if (variables.bool("dragon-event.effects-enabled")) {
+            player.getWorld().spawnParticle(Particle.REVERSE_PORTAL, at,
+                    variables.integer("dragon-event.entry-particle-count"), 1.2, 1.4, 1.2, .12);
+            player.getWorld().spawnParticle(Particle.END_ROD, at,
+                    Math.max(1, variables.integer("dragon-event.entry-particle-count") / 3),
+                    .8, 1.1, .8, .05);
+        }
+        player.playSound(player.getLocation(),
+                configuredSound("dragon-event.entry-sound", Sound.ENTITY_ENDERMAN_TELEPORT),
+                (float) variables.decimal("dragon-event.effect-sound-volume"),
+                (float) variables.decimal("dragon-event.entry-pitch"));
     }
 
     private void pulseEffects() {
-        if (!variables.bool("dragon-event.effects-enabled")) return;
-        if (phase == Phase.PORTAL_OPEN && portal != null && portal.location() != null) {
+        boolean visuals = variables.bool("dragon-event.effects-enabled");
+        if (visuals && phase == Phase.PORTAL_OPEN && portal != null && portal.location() != null) {
             Location at = portal.location();
             int particles = variables.integer("dragon-event.portal-pulse-particles");
             double width = variables.decimal("dragon-event.portal-effect-width");
@@ -1297,11 +1547,12 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
             }
         }
         if (phase == Phase.FIGHT && arena != null && dragon != null && dragon.isValid()) {
+            hideVanillaDragonBar();
             updateDragonBar();
-            arena.spawnParticle(Particle.DUST, dragon.getLocation(),
+            if (visuals) arena.spawnParticle(Particle.DUST, dragon.getLocation(),
                     variables.integer("dragon-event.ambient-particle-count"),
                     2.5, 1.2, 2.5, 0.02, DARK);
-            if (ThreadLocalRandom.current().nextInt(
+            if (visuals && ThreadLocalRandom.current().nextInt(
                     variables.integer("dragon-event.lightning-one-in")) == 0) {
                 arena.strikeLightningEffect(dragon.getLocation());
             }
@@ -1311,19 +1562,35 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
             }
             long now = System.currentTimeMillis();
             aggressiveAttack(now);
+            chaosStrike(now);
+            driveMinions();
             if (now - lastMinionWaveAt >= variables.integer("dragon-event.minion-wave-seconds") * 1000L) {
                 spawnMinionWave();
                 lastMinionWaveAt = now;
             }
         }
+        if (visuals && phase == Phase.REWARDS && rewardChest != null
+                && rewardChest.getBlock().getType() == Material.CHEST) {
+            CrateDisplayService.drawAmethyst(rewardChest.clone().add(.5, .9, .5),
+                    effectFrame * .3d, effectFrame);
+        }
+        effectFrame++;
+    }
+
+    private void hideVanillaDragonBar() {
+        if (arena == null || arena.getEnderDragonBattle() == null) return;
+        org.bukkit.boss.BossBar vanilla = arena.getEnderDragonBattle().getBossBar();
+        vanilla.removeAll();
+        vanilla.setVisible(false);
     }
 
     private void updateDragonBar() {
         if (dragonBar == null || dragonMaximumHealth <= 0d) return;
-        dragonBar.name(Component.text("AMETHYST DRAGON  •  "
-                        + Math.max(0L, Math.round(dragonHealth)) + " HP  •  "
-                        + duration(phaseEndsAt - System.currentTimeMillis()),
-                AMETHYST, TextDecoration.BOLD));
+        dragonBar.name(Component.text(render(render(
+                        variables.string("dragon-event.fight-bossbar-text"), "hp",
+                        String.valueOf(Math.max(0L, Math.round(dragonHealth)))), "time",
+                        duration(phaseEndsAt - System.currentTimeMillis())), AMETHYST,
+                TextDecoration.BOLD));
         dragonBar.progress((float) Math.clamp(dragonHealth / dragonMaximumHealth, 0d, 1d));
         for (Player player : arena.getPlayers()) {
             if (entrants.contains(player.getUniqueId()) && !departed.contains(player.getUniqueId())) {
@@ -1385,7 +1652,13 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                     ThreadLocalRandom.current().nextDouble(-.08, .08),
                     ThreadLocalRandom.current().nextDouble(.04, .18),
                     ThreadLocalRandom.current().nextDouble(-.08, .08)));
-            plugin.getServer().getScheduler().runTaskLater(plugin, visual::remove, lifetime);
+            plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+                if (!visual.isValid()) return;
+                Location vanish = visual.getLocation();
+                vanish.getWorld().spawnParticle(Particle.REVERSE_PORTAL, vanish,
+                        variables.integer("dragon-event.key-vanish-particle-count"), .25, .25, .25, .05);
+                visual.remove();
+            }, lifetime);
         }
         origin.getWorld().spawnParticle(Particle.END_ROD, origin, Math.max(8, count * 2),
                 spread, 1.5, spread, .08);
@@ -1418,8 +1691,8 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     private void updateDisplays() {
         if (portal != null && portal.location() != null) {
             List<TextDisplay> displays = portal.location().getWorld().getEntitiesByClass(TextDisplay.class).stream()
-                    .filter(entity -> entity.getScoreboardTags().contains(DISPLAY_TAG)).toList();
-            if (displays.size() < 3) {
+                    .filter(entity -> entity.getScoreboardTags().contains(PORTAL_DISPLAY_TAG)).toList();
+            if (displays.size() < 2) {
                 refreshPortalDisplay();
                 return;
             }
@@ -1427,12 +1700,11 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                     .ifPresent(display -> display.text(Component.text(statusLine(), NamedTextColor.WHITE)));
         }
         if (phase == Phase.REWARDS && arena != null) {
-            arena.getEntitiesByClass(TextDisplay.class).stream()
+            arena.getEntitiesByClass(ArmorStand.class).stream()
                     .filter(entity -> entity.getScoreboardTags().contains(DISPLAY_TAG))
                     .filter(entity -> entity.getScoreboardTags().contains(CRATE_COUNTDOWN_TAG))
-                    .findFirst().ifPresent(display -> display.text(Component.text(
-                            "OPEN FOR " + duration(phaseEndsAt - System.currentTimeMillis()),
-                            NamedTextColor.WHITE, TextDecoration.BOLD)));
+                    .findFirst().ifPresent(display -> display.customName(
+                            CrateKind.DRAGON.countdownLines(System.currentTimeMillis()).get(1)));
         }
     }
 
@@ -1444,30 +1716,32 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
             case WAITING -> {
                 long until = scheduledAt == null ? 0L : scheduledAt.toEpochMilli() - System.currentTimeMillis();
                 long opens = until - variables.integer("dragon-event.portal-open-minutes") * 60_000L;
-                yield opens > 0 ? "Portal opens in " + duration(opens)
-                        : "Next Amethyst Dragon Event: " + duration(until);
+                yield opens > 0 ? render(variables.string("dragon-event.portal-waiting-status"),
+                        "time", duration(opens))
+                        : render(variables.string("dragon-event.portal-next-event-status"),
+                        "time", duration(until));
             }
-            case PORTAL_OPEN -> "PORTAL OPEN • " + duration(scheduledAt.toEpochMilli() - System.currentTimeMillis());
-            case SUMMONING -> "ENTRY CLOSED • THE DRAGON AWAKENS";
-            case FIGHT -> "EVENT IN PROGRESS";
-            case REWARDS -> "DRAGON DEFEATED • CRATE OPEN";
+            case PORTAL_OPEN -> render(variables.string("dragon-event.portal-open-status"), "time",
+                    duration(scheduledAt.toEpochMilli() - System.currentTimeMillis()));
+            case SUMMONING -> variables.string("dragon-event.portal-summoning-status");
+            case FIGHT, REWARDS -> render(variables.string("dragon-event.portal-next-event-status"),
+                    "time", duration(scheduledAt == null ? 0L
+                            : scheduledAt.toEpochMilli() - System.currentTimeMillis()));
         };
     }
 
     private void refreshPortalDisplay() {
-        clearDisplays();
+        clearPortalDisplays();
         if (portal == null || portal.location() == null) return;
         Location at = portal.location();
         double height = variables.decimal("dragon-event.portal-display-height");
         label(at.clone().add(0, height, 0), Component.text(
                 "✦ " + variables.string("dragon-event.portal-hologram-title") + " ✦",
                 AMETHYST, TextDecoration.BOLD),
-                (float) variables.decimal("dragon-event.portal-title-scale"), DISPLAY_TAG);
-        label(at.clone().add(0, height - 1.35, 0), Component.text(
-                variables.string("dragon-event.portal-hologram-subtitle"), NamedTextColor.GOLD,
-                TextDecoration.BOLD), (float) variables.decimal("dragon-event.portal-subtitle-scale"), DISPLAY_TAG);
-        label(at.clone().add(0, height - 2.5, 0), Component.text(statusLine(), NamedTextColor.WHITE,
-                TextDecoration.BOLD), (float) variables.decimal("dragon-event.portal-status-scale"), PORTAL_STATUS_TAG);
+                (float) variables.decimal("dragon-event.portal-title-scale"), PORTAL_DISPLAY_TAG);
+        label(at.clone().add(0, height - 1.55, 0), Component.text(statusLine(), NamedTextColor.WHITE,
+                TextDecoration.BOLD), (float) variables.decimal("dragon-event.portal-status-scale"),
+                PORTAL_DISPLAY_TAG, PORTAL_STATUS_TAG);
     }
 
     private void portalTransition(boolean opening) {
@@ -1488,9 +1762,13 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     }
 
     private TextDisplay label(Location at, Component text, float scale, String extraTag) {
+        return label(at, text, scale, new String[]{extraTag});
+    }
+
+    private TextDisplay label(Location at, Component text, float scale, String... extraTags) {
         return at.getWorld().spawn(at, TextDisplay.class, display -> {
             display.addScoreboardTag(DISPLAY_TAG);
-            display.addScoreboardTag(extraTag);
+            for (String tag : extraTags) display.addScoreboardTag(tag);
             display.text(text);
             display.setBillboard(org.bukkit.entity.Display.Billboard.CENTER);
             display.setSeeThrough(true);
@@ -1502,9 +1780,20 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         });
     }
 
+    private void clearPortalDisplays() {
+        for (World world : Bukkit.getWorlds()) {
+            world.getEntitiesByClass(TextDisplay.class).stream()
+                    .filter(entity -> entity.getScoreboardTags().contains(PORTAL_DISPLAY_TAG))
+                    .forEach(Entity::remove);
+        }
+    }
+
     private void clearDisplays() {
         for (World world : Bukkit.getWorlds()) {
             world.getEntitiesByClass(TextDisplay.class).stream()
+                    .filter(entity -> entity.getScoreboardTags().contains(DISPLAY_TAG))
+                    .forEach(Entity::remove);
+            world.getEntitiesByClass(ArmorStand.class).stream()
                     .filter(entity -> entity.getScoreboardTags().contains(DISPLAY_TAG))
                     .forEach(Entity::remove);
         }
@@ -1524,13 +1813,23 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
 
     private void clearRewardArea() {
         if (arena == null) return;
-        Block chest = arena.getBlockAt(5, 74, 0);
-        if (chest.getType() == Material.CHEST) chest.setType(Material.AIR, false);
+        if (rewardChest != null && rewardChest.getWorld() == arena
+                && rewardChest.getBlock().getType() == Material.CHEST) {
+            rewardChest.getBlock().setType(Material.AIR, false);
+        }
         for (int x = -32; x <= 32; x++) {
-            Block egg = arena.getBlockAt(x, 75, 4);
-            if (egg.getType() == Material.DRAGON_EGG) egg.setType(Material.AIR, false);
+            for (int y = 35; y <= 125; y++) {
+                Block egg = arena.getBlockAt(x, y, variables.integer("dragon-event.reward-egg-z"));
+                if (egg.getType() == Material.DRAGON_EGG) egg.setType(Material.AIR, false);
+            }
         }
         claimableEggs.clear();
+        for (Location block : rewardStructureBlocks) {
+            if (block.getWorld() == arena) block.getBlock().setType(Material.AIR, false);
+        }
+        rewardStructureBlocks.clear();
+        rewardChest = null;
+        returnGate = null;
     }
 
     /** Uses Minecraft's own ignition path so only the registered obsidian frame lights. */
@@ -1682,6 +1981,73 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         return block.getType() == Material.OBSIDIAN;
     }
 
+    private void damageDragonTest(CommandSender sender, double amount) {
+        if (phase != Phase.FIGHT || dragon == null || !dragon.isValid()) {
+            throw new IllegalArgumentException("There is no active Amethyst Dragon to damage.");
+        }
+        if (!Double.isFinite(amount) || amount <= 0d) {
+            throw new IllegalArgumentException("Damage must be a positive number.");
+        }
+        double applied = Math.min(amount, dragonHealth);
+        dragonHealth -= applied;
+        if (sender instanceof Player player && entrants.contains(player.getUniqueId())) {
+            RunStats row = active(player);
+            row.damage += applied;
+            lastDragonAttacker = player.getUniqueId();
+        }
+        rewardDamageWaves(applied);
+        if (dragonHealth <= 0d) {
+            EnderDragon defeated = dragon;
+            defeated.remove();
+            finishRun(true, sender instanceof Player player ? player : null);
+        } else {
+            dragon.setHealth(Math.max(1d, dragonHealth * dragonHealthScale));
+            updateDragonBar();
+        }
+        sender.sendMessage("Applied " + Math.round(applied) + " test damage to the Amethyst Dragon.");
+    }
+
+    private void endTestRun(CommandSender sender) {
+        if (phase == Phase.WAITING) {
+            throw new IllegalArgumentException("No Dragon event is active.");
+        }
+        cancelSummoningTask();
+        hideAdmissionBar();
+        hideDragonBar();
+        if (dragon != null) dragon.remove();
+        phase = Phase.WAITING;
+        sendEveryoneHome();
+        resetSchedule();
+        sender.sendMessage("Ended the Dragon event without rewards.");
+    }
+
+    private void summonNow(CommandSender sender) {
+        if (phase == Phase.PORTAL_OPEN) beginSummoning();
+        if (phase != Phase.SUMMONING) {
+            throw new IllegalArgumentException("Open admission first with /dragonportal start.");
+        }
+        finishSummoningImmediately();
+        sender.sendMessage("Completed the summoning sequence and started the fight.");
+    }
+
+    private void spawnTestMinion(CommandSender sender, String requested) {
+        if (phase != Phase.FIGHT || arena == null) {
+            throw new IllegalArgumentException("Start the Dragon fight before spawning a test mob.");
+        }
+        EntityType type = switch (requested.toLowerCase(Locale.ROOT)) {
+            case "zombie", "husk" -> EntityType.HUSK;
+            case "skeleton", "stray" -> EntityType.STRAY;
+            case "golem", "iron_golem" -> EntityType.IRON_GOLEM;
+            default -> throw new IllegalArgumentException("Use zombie, skeleton, or golem.");
+        };
+        Location at = sender instanceof Player player && isArena(player.getWorld())
+                ? player.getLocation().clone().add(player.getLocation().getDirection().multiply(5d))
+                : arenaSpawn();
+        at.setY(arena.getHighestBlockYAt(at.getBlockX(), at.getBlockZ()) + 1d);
+        animateMinionSpawn(at, type, 0);
+        sender.sendMessage("Summoning an Amethyst " + requested.toLowerCase(Locale.ROOT) + ".");
+    }
+
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (!plugin.mayAdminister(sender)) {
@@ -1690,6 +2056,36 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         }
         if (args.length == 1 && args[0].equalsIgnoreCase("status")) {
             sender.sendMessage("Dragon event: " + phase + "; " + statusLine());
+            return true;
+        }
+        try {
+            if (args.length >= 1 && args[0].equalsIgnoreCase("end")) {
+                endTestRun(sender);
+                return true;
+            }
+            if (args.length >= 1 && args[0].equalsIgnoreCase("damage")) {
+                double amount = args.length >= 2 ? Double.parseDouble(args[1]) : 500d;
+                damageDragonTest(sender, amount);
+                return true;
+            }
+            if (args.length == 1 && args[0].equalsIgnoreCase("finish")) {
+                damageDragonTest(sender, Math.max(1d, dragonHealth));
+                return true;
+            }
+            if (args.length == 1 && (args[0].equalsIgnoreCase("summon")
+                    || args[0].equalsIgnoreCase("skip"))) {
+                summonNow(sender);
+                return true;
+            }
+            if (args.length == 2 && args[0].equalsIgnoreCase("spawnmob")) {
+                spawnTestMinion(sender, args[1]);
+                return true;
+            }
+        } catch (NumberFormatException exception) {
+            sender.sendMessage("Damage must be a positive number.");
+            return true;
+        } catch (IllegalArgumentException exception) {
+            sender.sendMessage(exception.getMessage());
             return true;
         }
         if ((args.length == 1 && args[0].equalsIgnoreCase("startnow"))
@@ -1732,7 +2128,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                 clearDisplays();
                 player.sendMessage(prefix().append(Component.text("Dragon portal removed.", NamedTextColor.GREEN)));
             } else {
-                player.sendMessage("Use /dragonportal set|remove|status|start|start now.");
+                player.sendMessage("Use /dragonportal set|remove|status|start|start now|summon|damage|finish|spawnmob|end.");
             }
         } catch (IOException | IllegalArgumentException exception) {
             PlayerMenuService.error(player, exception.getMessage());
@@ -1745,9 +2141,14 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         if (args.length == 2 && args[0].equalsIgnoreCase("start")) {
             return "now".startsWith(args[1].toLowerCase(Locale.ROOT)) ? List.of("now") : List.of();
         }
+        if (args.length == 2 && args[0].equalsIgnoreCase("spawnmob")) {
+            return List.of("zombie", "skeleton", "golem").stream()
+                    .filter(value -> value.startsWith(args[1].toLowerCase(Locale.ROOT))).toList();
+        }
         if (args.length != 1) return List.of();
         String prefix = args[0].toLowerCase(Locale.ROOT);
-        return List.of("set", "remove", "status", "start", "startnow").stream()
+        return List.of("set", "remove", "status", "start", "startnow", "summon",
+                        "damage", "finish", "spawnmob", "end").stream()
                 .filter(value -> value.startsWith(prefix)).toList();
     }
 

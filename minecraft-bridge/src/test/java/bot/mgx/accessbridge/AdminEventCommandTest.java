@@ -17,7 +17,7 @@ final class AdminEventCommandTest {
         assertTrue(source.contains("/mgxadmin event multiplier <type> <on|off> [seconds]"));
         assertTrue(source.contains("/mgxadmin event airdrop <start [rarity]|status|end|expire>"));
         assertTrue(source.contains("/mgxadmin event airdrop distance <rarity> <minimum> <maximum>"));
-        assertTrue(source.contains("/mgxadmin event amethyst-block <start|status|damage [hp]|finish|end|expire>"));
+        assertTrue(source.contains("/mgxadmin event amethyst-block <start [huge|giant|humongous|random]|status|damage [hp]|finish|end|expire>"));
         assertTrue(source.contains("/mgxadmin event schedule <status|set <minimum> <maximum>|reset>"));
 
         String rootSuggestions = source.substring(

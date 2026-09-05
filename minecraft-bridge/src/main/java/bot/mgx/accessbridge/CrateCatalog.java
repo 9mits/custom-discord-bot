@@ -829,23 +829,31 @@ final class CrateCatalog {
     /** One-hour post-fight pool. Frequent openings keep its strongest items scarce. */
     private static List<Reward> buildDragonRewards() {
         LinkedHashMap<String, Integer> weights = new LinkedHashMap<>();
-        weights.put("amethyst_arrows", 30_000);
-        weights.put("amethyst_apple", 18_000);
-        weights.put("amethyst_hoe", 9_000);
-        weights.put("amethyst_fishing_rod", 8_000);
-        weights.put("amethyst_sword", 7_000);
-        weights.put("amethyst_bow", 6_000);
-        weights.put("amethyst_pickaxe", 5_000);
-        weights.put("amethyst_shovel", 4_000);
-        weights.put("amethyst_axe", 4_000);
-        weights.put("amethyst_shield", 2_000);
-        weights.put("amethyst_totem", 1_500);
-        weights.put("amethyst_helmet", 1_000);
-        weights.put("amethyst_chestplate", 1_000);
-        weights.put("amethyst_leggings", 1_000);
-        weights.put("amethyst_boots", 1_000);
-        weights.put("amethyst_elytra", 50);
-        weights.put("amethyst_excavation_i", 50);
+        // Players can spend hundreds of fight-earned Keys in this one-hour phase.
+        // Useful themed commons keep those opening volumes from turning temporary
+        // equipment into routine loot while every individual weight remains live-tunable.
+        weights.put("amethyst_shards", 18_000);
+        weights.put("amethyst_blocks", 12_000);
+        weights.put("amethyst_purpur", 10_000);
+        weights.put("amethyst_experience_bottles", 8_000);
+        weights.put("amethyst_golden_carrots", 8_300);
+        weights.put("amethyst_arrows", 12_000);
+        weights.put("amethyst_apple", 7_000);
+        weights.put("amethyst_hoe", 4_000);
+        weights.put("amethyst_fishing_rod", 3_500);
+        weights.put("amethyst_sword", 3_000);
+        weights.put("amethyst_bow", 2_500);
+        weights.put("amethyst_pickaxe", 2_500);
+        weights.put("amethyst_shovel", 2_000);
+        weights.put("amethyst_axe", 2_000);
+        weights.put("amethyst_shield", 1_000);
+        weights.put("amethyst_totem", 750);
+        weights.put("amethyst_helmet", 500);
+        weights.put("amethyst_chestplate", 500);
+        weights.put("amethyst_leggings", 500);
+        weights.put("amethyst_boots", 500);
+        weights.put("amethyst_elytra", 25);
+        weights.put("amethyst_excavation_i", 25);
         List<Reward> rewards = new ArrayList<>();
         weights.forEach((id, weight) -> {
             Reward source = originalAmethystReward(id);

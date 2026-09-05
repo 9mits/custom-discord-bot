@@ -188,6 +188,19 @@ final class AmethystBlockEventService implements Listener {
         structureSize = variables.integer(tier + "-amethyst.size");
     }
 
+    private void chooseTier(String requested) {
+        if (requested == null || requested.isBlank() || requested.equalsIgnoreCase("random")) {
+            chooseTier();
+            return;
+        }
+        String normalized = requested.toLowerCase(java.util.Locale.ROOT);
+        if (!List.of("huge", "giant", "humongous").contains(normalized)) {
+            throw new IllegalArgumentException("Use huge, giant, humongous, or random.");
+        }
+        tier = normalized;
+        structureSize = variables.integer(tier + "-amethyst.size");
+    }
+
     private BukkitTask frameTask;
     private BukkitTask visualTrailTask;
     private BukkitTask finaleTask;
@@ -271,8 +284,21 @@ final class AmethystBlockEventService implements Listener {
         return spawnNear(player);
     }
 
+    Snapshot spawnTest(Player player, String tier) {
+        if (!plugin.isLocalTestServer()) {
+            throw new IllegalArgumentException(
+                    "Amethyst Block tests are available only on the local test server."
+            );
+        }
+        return spawnNear(player, tier);
+    }
+
     /** Calls a configured Amethyst Block tier in near an administrator on any server. */
     Snapshot spawnNear(Player player) {
+        return spawnNear(player, null);
+    }
+
+    Snapshot spawnNear(Player player, String requestedTier) {
         if (stopped) {
             throw new IllegalArgumentException("Amethyst Block events are not running.");
         }
@@ -283,7 +309,7 @@ final class AmethystBlockEventService implements Listener {
                 || VerificationLobbyService.isLobbyWorld(player.getWorld())) {
             throw new IllegalArgumentException("Run this in the Overworld outside the verification lobby.");
         }
-        chooseTier();
+        chooseTier(requestedTier);
         Location anchor = findTestAnchor(player);
         if (anchor == null) {
             throw new IllegalArgumentException("No flat, empty site was found nearby.");

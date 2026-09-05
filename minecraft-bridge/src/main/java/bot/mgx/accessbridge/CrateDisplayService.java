@@ -49,9 +49,9 @@ final class CrateDisplayService implements CommandExecutor, TabCompleter, Listen
     private static final String COUNTDOWN_TAG = "mgx_crate_countdown";
     /** The banner directly above it, which changes wording when the event closes. */
     private static final String HEADLINE_TAG = "mgx_crate_countdown_headline";
-    private static final double LINE_HEIGHT = 0.28d;
+    static final double LINE_HEIGHT = 0.28d;
     /** Where the lowest label hangs; the stack grows upward from here. */
-    private static final double BOTTOM_LINE = 1.47d;
+    static final double BOTTOM_LINE = 1.47d;
     /** Particles tick every four; five of those is one second. */
     private static final int COUNTDOWN_FRAMES = 5;
     private static final Particle.DustOptions AMETHYST_BRIGHT = new Particle.DustOptions(
@@ -249,18 +249,15 @@ final class CrateDisplayService implements CommandExecutor, TabCompleter, Listen
                 continue;
             }
             CrateKind kind = placement.kind();
-            List<Component> lines = new ArrayList<>();
-            lines.add(Component.text(kind.displayName(), kind.colour(), TextDecoration.BOLD));
-            lines.add(Component.text(keyLine(kind), NamedTextColor.WHITE));
-            lines.addAll(kind.countdownLines(now));
+            List<Component> lines = hologramLines(kind, crates.keyCost(kind), now);
             // The stack hangs from a fixed bottom line and grows upward, so the two
             // extra lines a limited crate carries cannot push anything into the chest.
             for (int index = 0; index < lines.size(); index++) {
                 double height = BOTTOM_LINE + LINE_HEIGHT * (lines.size() - 1 - index);
-                ArmorStand stand = spawnLabel(
+                ArmorStand stand = spawnStyledLabel(
                         new Location(world, placement.x() + 0.5d,
                                 placement.y() + height, placement.z() + 0.5d),
-                        lines.get(index)
+                        lines.get(index), TAG
                 );
                 if (kind.limited() && index == lines.size() - 1) {
                     stand.addScoreboardTag(COUNTDOWN_TAG);
@@ -273,8 +270,15 @@ final class CrateDisplayService implements CommandExecutor, TabCompleter, Listen
     }
 
     /** The key line, which is not the same sentence for a crate that costs two. */
-    private String keyLine(CrateKind kind) {
-        int cost = crates.keyCost(kind);
+    static List<Component> hologramLines(CrateKind kind, int cost, long now) {
+        List<Component> lines = new ArrayList<>();
+        lines.add(Component.text(kind.displayName(), kind.colour(), TextDecoration.BOLD));
+        lines.add(Component.text(keyLine(kind, cost), NamedTextColor.WHITE));
+        lines.addAll(kind.countdownLines(now));
+        return List.copyOf(lines);
+    }
+
+    private static String keyLine(CrateKind kind, int cost) {
         return cost + " " + kind.currency().fullName(cost);
     }
 
@@ -345,7 +349,7 @@ final class CrateDisplayService implements CommandExecutor, TabCompleter, Listen
             if (!hasNearbyViewer(centre)) {
                 continue;
             }
-            if (placement.kind() == CrateKind.AMETHYST) {
+            if (placement.kind() == CrateKind.AMETHYST || placement.kind() == CrateKind.DRAGON) {
                 drawAmethyst(centre, phase, frame);
             } else {
                 drawDefault(centre, phase, frame);
@@ -353,7 +357,7 @@ final class CrateDisplayService implements CommandExecutor, TabCompleter, Listen
         }
     }
 
-    private static void drawAmethyst(Location centre, double phase, int frame) {
+    static void drawAmethyst(Location centre, double phase, int frame) {
         World world = centre.getWorld();
         for (int shard = 0; shard < 3; shard++) {
             double angle = phase + shard * Math.PI * 2d / 3d;
@@ -406,7 +410,7 @@ final class CrateDisplayService implements CommandExecutor, TabCompleter, Listen
         );
     }
 
-    private ArmorStand spawnLabel(Location at, Component name) {
+    static ArmorStand spawnStyledLabel(Location at, Component name, String... tags) {
         return at.getWorld().spawn(at, ArmorStand.class, stand -> {
             stand.setInvisible(true);
             stand.setMarker(true);
@@ -415,7 +419,7 @@ final class CrateDisplayService implements CommandExecutor, TabCompleter, Listen
             stand.setSilent(true);
             stand.setCustomNameVisible(true);
             stand.customName(name);
-            stand.addScoreboardTag(TAG);
+            for (String tag : tags) stand.addScoreboardTag(tag);
             stand.setPersistent(true);
         });
     }

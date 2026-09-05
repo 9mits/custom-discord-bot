@@ -325,6 +325,21 @@ class CrateCatalogTest {
         assertTrue(CrateCatalog.find("not_a_reward").isEmpty());
     }
 
+    @Test
+    void dragonCrateIsMostlyCommonLootAtHighOpeningVolume() {
+        Set<String> common = Set.of(
+                "dragon_amethyst_shards", "dragon_amethyst_blocks", "dragon_amethyst_purpur",
+                "dragon_amethyst_experience_bottles", "dragon_amethyst_golden_carrots"
+        );
+        int commonWeight = CrateKind.DRAGON.rewards().stream()
+                .filter(reward -> common.contains(reward.id()))
+                .mapToInt(CrateCatalog.Reward::weight).sum();
+        assertEquals(56_300, commonWeight);
+        assertTrue(commonWeight > CrateCatalog.TOTAL_WEIGHT / 2);
+        assertEquals(CrateCatalog.TOTAL_WEIGHT,
+                CrateKind.DRAGON.rewards().stream().mapToInt(CrateCatalog.Reward::weight).sum());
+    }
+
     private static int weight(String id) {
         return CrateCatalog.find(id).orElseThrow().weight();
     }
