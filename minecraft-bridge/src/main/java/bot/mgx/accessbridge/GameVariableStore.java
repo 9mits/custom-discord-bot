@@ -271,11 +271,17 @@ final class GameVariableStore {
                 "Boss bar during combat. Supports <hp> and <time>.",
                 "AMETHYST DRAGON  •  <hp> HP  •  <time>", 120);
         choice("dragon-event.fight-bossbar-color", "Dragon fight boss bar colour", "Dragon Presentation",
-                "Colour of the Dragon's native health bar.", "PURPLE",
+                "Colour of the single custom Dragon health bar.", "PURPLE",
                 List.of("PINK", "BLUE", "RED", "GREEN", "YELLOW", "PURPLE", "WHITE"));
         choice("dragon-event.sky-style", "Dragon arena sky", "Dragon Presentation",
-                "Sky used by the separate Dragon arena world. END gives the black End sky; OVERWORLD restores the old sky.",
-                "END", List.of("END", "OVERWORLD"));
+                "PHASED is bright before combat, dark during combat, and bright after victory. END stays black.",
+                "PHASED", List.of("PHASED", "END", "OVERWORLD"));
+        integer("dragon-event.bright-sky-time", "Dragon bright sky time", "Dragon Presentation",
+                "World time used during admission, summoning, victory, and rewards with the PHASED sky.",
+                6000, 0, 24000, "ticks", false);
+        integer("dragon-event.fight-sky-time", "Dragon fight sky time", "Dragon Presentation",
+                "World time used while the Dragon fight is active with the PHASED sky.",
+                18000, 0, 24000, "ticks", false);
         text("dragon-event.started-message", "Dragon start announcement", "Dragon Presentation",
                 "Broadcast after the pillars finish rising and the Dragon appears.",
                 "The Amethyst Dragon has awakened! The fight begins now!", 180);
@@ -379,6 +385,8 @@ final class GameVariableStore {
         integer("dragon-event.pillar-complete-particle-count", "Pillar completion particles", "Dragon Presentation",
                 "Particles emitted when a pillar and its crystal finish appearing.", 120, 0, 10000,
                 "particles", false);
+        bool("dragon-event.pillar-lightning-enabled", "Pillar completion lightning", "Dragon Presentation",
+                "Show a visual lightning strike when each animated pillar finishes rising.", true);
         choice("dragon-event.pillar-summon-sound", "Pillar summon sound", "Dragon Presentation",
                 "Sound played when each pillar and crystal finish appearing.", "BLOCK_AMETHYST_BLOCK_RESONATE",
                 List.of("BLOCK_AMETHYST_BLOCK_RESONATE", "BLOCK_RESPAWN_ANCHOR_CHARGE", "ENTITY_LIGHTNING_BOLT_THUNDER"));

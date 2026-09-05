@@ -29,4 +29,15 @@ final class AmethystDragonServiceTest {
         assertEquals(false, AmethystDragonService.isVanillaExitPortalBlock(Material.NETHER_PORTAL));
         assertEquals(false, AmethystDragonService.isVanillaExitPortalBlock(Material.OBSIDIAN));
     }
+
+    @Test
+    void phasedSkyIsBrightOutsideCombatAndDarkDuringTheFight() {
+        for (AmethystDragonService.Phase phase : AmethystDragonService.Phase.values()) {
+            long expected = phase == AmethystDragonService.Phase.FIGHT ? 18_000L : 6_000L;
+            assertEquals(expected,
+                    AmethystDragonService.arenaSkyTime("PHASED", phase, 6_000L, 18_000L));
+        }
+        assertEquals(18_000L, AmethystDragonService.arenaSkyTime(
+                "END", AmethystDragonService.Phase.PORTAL_OPEN, 6_000L, 18_000L));
+    }
 }

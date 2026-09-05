@@ -153,6 +153,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     private double dragonHealth;
     private double dragonHealthScale = 1d;
     private BossBar admissionBar;
+    private BossBar dragonBar;
     private long lastAggressiveAttackAt;
     private long lastMinionWaveAt;
     private long lastChaosAt;
@@ -235,6 +236,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         cancelSummoningTask();
         hideAdmissionBar();
         hideDragonBar();
+        hideVanillaDragonBar();
         CrateKind.dragonAvailableSource(() -> false);
         CrateKind.dragonEndSource(() -> 0L);
         setPortalLit(false);
@@ -353,6 +355,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         }
         prepareRun();
         phase = Phase.PORTAL_OPEN;
+        applyArenaSky();
         refreshPortalDisplay();
         setPortalLit(true);
         createAdmissionBar();
@@ -402,6 +405,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         portalTransition(false);
         setPortalLit(false);
         phase = Phase.SUMMONING;
+        applyArenaSky();
         phaseEndsAt = System.currentTimeMillis()
                 + variables.integer("dragon-event.summoning-timeout-seconds") * 1000L;
         announce(variables.string("dragon-event.portal-closed-message"),
@@ -414,6 +418,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         if (phase != Phase.SUMMONING || arena == null) return;
         cancelSummoningTask();
         phase = Phase.FIGHT;
+        applyArenaSky();
         phaseEndsAt = System.currentTimeMillis()
                 + variables.integer("dragon-event.fight-minutes") * 60_000L;
         dragonMaximumHealth = variables.integer("dragon-event.maximum-health");
@@ -430,9 +435,18 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
             entity.setRemoveWhenFarAway(false);
             entity.setPhase(EnderDragon.Phase.CIRCLING);
         });
-        updateDragonBar();
+        hideVanillaDragonBar();
         clearVanillaExitPortal();
         scheduleVanillaExitPortalCleanup();
+        dragonBar = BossBar.bossBar(
+                Component.text(render(render(variables.string("dragon-event.fight-bossbar-text"),
+                        "hp", String.valueOf(Math.round(dragonHealth))), "time",
+                        duration(phaseEndsAt - System.currentTimeMillis())), AMETHYST, TextDecoration.BOLD),
+                1f, variables.barColour("dragon-event.fight-bossbar-color", BossBar.Color.PURPLE),
+                BossBar.Overlay.NOTCHED_20
+        );
+        entrants.stream().map(Bukkit::getPlayer).filter(java.util.Objects::nonNull)
+                .forEach(player -> player.showBossBar(dragonBar));
         lastAggressiveAttackAt = 0L;
         lastMinionWaveAt = System.currentTimeMillis();
         lastChaosAt = 0L;
@@ -463,6 +477,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         if (phase != Phase.FIGHT) return;
         flushDamageStats();
         hideDragonBar();
+        hideVanillaDragonBar();
         if (!victory) {
             announce(variables.string("dragon-event.timeout-message"),
                     configuredSound("dragon-event.timeout-sound", Sound.BLOCK_BEACON_DEACTIVATE));
@@ -474,6 +489,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         Location deathAt = dragon == null ? new Location(arena, .5, 86, .5)
                 : dragon.getLocation().clone();
         phase = Phase.VICTORY;
+        applyArenaSky();
         phaseEndsAt = 0L;
         clearArenaMobs();
         clearVanillaExitPortal();
@@ -599,7 +615,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
 
     private void beginRewardPhase(Location deathAt) {
         if (phase != Phase.VICTORY || arena == null) return;
-        hideDragonBar();
+        hideVanillaDragonBar();
         clearVanillaExitPortal();
         phase = Phase.REWARDS;
         phaseEndsAt = System.currentTimeMillis()
@@ -633,6 +649,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         cancelSummoningTask();
         hideAdmissionBar();
         hideDragonBar();
+        hideVanillaDragonBar();
         phase = Phase.WAITING;
         phaseEndsAt = 0L;
         dragon = null;
@@ -668,6 +685,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         }
         if (arena == null) throw new IllegalStateException("Could not create the Amethyst Dragon world.");
         hideDragonBar();
+        hideVanillaDragonBar();
         arena.setGameRule(GameRule.DO_MOB_SPAWNING, false);
         arena.setGameRule(GameRule.KEEP_INVENTORY, true);
         arena.setGameRule(GameRule.DO_DAYLIGHT_CYCLE, false);
@@ -675,7 +693,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         arena.setGameRule(GameRule.DO_INSOMNIA, false);
         arena.setGameRule(GameRule.DO_PATROL_SPAWNING, false);
         arena.setGameRule(GameRule.DO_TRADER_SPAWNING, false);
-        arena.setTime(18_000L);
+        applyArenaSky();
         arena.getWorldBorder().setCenter(0.5, 0.5);
         arena.getWorldBorder().setSize(variables.integer("dragon-event.border-size"));
         arena.setSpawnLocation(0, 82, 0);
@@ -844,6 +862,9 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
             arena.spawnParticle(Particle.FLASH, spawn, 1, 0, 0, 0, 0, BRIGHT.getColor());
             arena.spawnParticle(Particle.END_ROD, spawn,
                     variables.integer("dragon-event.pillar-complete-particle-count"), 2.5, 3, 2.5, .12);
+            if (variables.bool("dragon-event.pillar-lightning-enabled")) {
+                arena.strikeLightningEffect(spawn);
+            }
         }
         arena.playSound(spawn,
                 configuredSound("dragon-event.pillar-summon-sound", Sound.BLOCK_AMETHYST_BLOCK_RESONATE),
@@ -1326,6 +1347,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
             row.enteredAt = System.currentTimeMillis();
         }
         player.teleport(arenaSpawn());
+        applyArenaSky(player);
         arrivalEffect(player);
         if (admissionBar != null) player.showBossBar(admissionBar);
         player.sendMessage(prefix().append(Component.text(
@@ -1361,6 +1383,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                     "The Dragon arena is sealed until the fight ends.", NamedTextColor.RED));
         } else if (phase == Phase.REWARDS) {
             departed.add(playerId);
+            resetArenaSky(event.getPlayer());
         }
     }
 
@@ -1414,11 +1437,10 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         }
     }
 
-    /** Keeps the Dragon's native bar authoritative after its own tracking pass. */
+    /** Runs after the Dragon's own tracking pass, which otherwise adds its bar back. */
     @EventHandler
     public void onServerTickEnd(ServerTickEndEvent event) {
-        if (phase == Phase.FIGHT) updateDragonBar();
-        else if (phase == Phase.VICTORY) hideDragonBar();
+        if (arena != null) hideVanillaDragonBar();
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -1586,6 +1608,8 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
             if (player.isOnline() && isArena(player.getWorld())
                     && (phase == Phase.WAITING || !entrants.contains(player.getUniqueId()))) {
                 teleportSpawn(player);
+            } else if (player.isOnline() && isArena(player.getWorld())) {
+                applyArenaSky(player);
             }
         });
     }
@@ -1711,10 +1735,41 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     }
 
     private void teleportSpawn(Player player) {
+        resetArenaSky(player);
         World world = Bukkit.getWorlds().stream()
                 .filter(candidate -> candidate.getEnvironment() == World.Environment.NORMAL && !isArena(candidate))
                 .findFirst().orElse(Bukkit.getWorlds().getFirst());
         player.teleport(world.getSpawnLocation().clone().add(0.5, 0.1, 0.5));
+    }
+
+    /** Holds the requested bright-dark-bright presentation without changing server tick speed. */
+    private void applyArenaSky() {
+        if (arena == null) return;
+        long time = arenaSkyTime();
+        arena.setTime(time);
+        for (Player player : arena.getPlayers()) applyArenaSky(player);
+    }
+
+    private void applyArenaSky(Player player) {
+        if (arena == null || !isArena(player.getWorld())) return;
+        player.setPlayerTime(arenaSkyTime(), false);
+        player.setPlayerWeather(org.bukkit.WeatherType.CLEAR);
+    }
+
+    private long arenaSkyTime() {
+        return arenaSkyTime(variables.string("dragon-event.sky-style"), phase,
+                variables.integer("dragon-event.bright-sky-time"),
+                variables.integer("dragon-event.fight-sky-time"));
+    }
+
+    static long arenaSkyTime(String style, Phase phase, long brightTime, long fightTime) {
+        if (!style.equals("PHASED")) return 18_000L;
+        return phase == Phase.FIGHT ? fightTime : brightTime;
+    }
+
+    private static void resetArenaSky(Player player) {
+        player.resetPlayerTime();
+        player.resetPlayerWeather();
     }
 
     private Location arenaSpawn() {
@@ -1741,6 +1796,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     }
 
     private void pulseEffects() {
+        applyArenaSky();
         boolean visuals = variables.bool("dragon-event.effects-enabled");
         if (visuals && phase == Phase.PORTAL_OPEN && portal != null && portal.location() != null) {
             Location at = portal.location();
@@ -1808,19 +1864,17 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         }
     }
 
-    private org.bukkit.boss.BossBar nativeDragonBar() {
-        if (dragon != null) return dragon.getBossBar();
+    private void hideVanillaDragonBar() {
+        if (dragon != null) hideVanillaBar(dragon.getBossBar());
         if (arena != null && arena.getEnderDragonBattle() != null) {
-            return arena.getEnderDragonBattle().getBossBar();
+            hideVanillaBar(arena.getEnderDragonBattle().getBossBar());
         }
-        return null;
     }
 
-    private void hideDragonBar() {
-        org.bukkit.boss.BossBar bar = nativeDragonBar();
-        if (bar == null) return;
-        bar.removeAll();
-        bar.setVisible(false);
+    private static void hideVanillaBar(org.bukkit.boss.BossBar vanilla) {
+        if (vanilla == null) return;
+        vanilla.removeAll();
+        vanilla.setVisible(false);
     }
 
     /** Removes the vanilla End exit fountain without touching the custom return gate. */
@@ -1857,32 +1911,18 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     }
 
     private void updateDragonBar() {
-        if (dragonMaximumHealth <= 0d) return;
-        org.bukkit.boss.BossBar bar = nativeDragonBar();
-        if (bar == null) return;
-        bar.setTitle("§d§l" + render(render(
-                variables.string("dragon-event.fight-bossbar-text"), "hp",
-                String.valueOf(Math.max(0L, Math.round(dragonHealth)))), "time",
-                duration(phaseEndsAt - System.currentTimeMillis())));
-        try {
-            bar.setColor(org.bukkit.boss.BarColor.valueOf(
-                    variables.string("dragon-event.fight-bossbar-color")));
-        } catch (IllegalArgumentException ignored) {
-            bar.setColor(org.bukkit.boss.BarColor.PURPLE);
+        if (dragonBar == null || dragonMaximumHealth <= 0d) return;
+        dragonBar.name(Component.text(render(render(
+                        variables.string("dragon-event.fight-bossbar-text"), "hp",
+                        String.valueOf(Math.max(0L, Math.round(dragonHealth)))), "time",
+                        duration(phaseEndsAt - System.currentTimeMillis())), AMETHYST,
+                TextDecoration.BOLD));
+        dragonBar.progress((float) Math.clamp(dragonHealth / dragonMaximumHealth, 0d, 1d));
+        for (Player player : arena.getPlayers()) {
+            if (entrants.contains(player.getUniqueId()) && !departed.contains(player.getUniqueId())) {
+                player.showBossBar(dragonBar);
+            }
         }
-        bar.setStyle(org.bukkit.boss.BarStyle.SEGMENTED_20);
-        bar.setProgress(Math.clamp(dragonHealth / dragonMaximumHealth, 0d, 1d));
-        List<Player> wanted = arena.getPlayers().stream()
-                .filter(player -> entrants.contains(player.getUniqueId())
-                        && !departed.contains(player.getUniqueId()))
-                .toList();
-        for (Player player : List.copyOf(bar.getPlayers())) {
-            if (!wanted.contains(player)) bar.removePlayer(player);
-        }
-        for (Player player : wanted) {
-            if (!bar.getPlayers().contains(player)) bar.addPlayer(player);
-        }
-        bar.setVisible(true);
     }
 
     private void createAdmissionBar() {
@@ -1913,6 +1953,12 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         if (admissionBar == null) return;
         for (Player player : Bukkit.getOnlinePlayers()) player.hideBossBar(admissionBar);
         admissionBar = null;
+    }
+
+    private void hideDragonBar() {
+        if (dragonBar == null) return;
+        for (Player player : Bukkit.getOnlinePlayers()) player.hideBossBar(dragonBar);
+        dragonBar = null;
     }
 
     private void keyWaterfall(Location origin, int count) {
