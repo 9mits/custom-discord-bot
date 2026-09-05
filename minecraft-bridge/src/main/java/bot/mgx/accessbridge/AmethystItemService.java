@@ -32,6 +32,7 @@ import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerItemDamageEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataType;
@@ -61,6 +62,7 @@ final class AmethystItemService implements Listener {
             "pickaxe", "shovel", "axe", "shield", "sword", "hoe", "bow",
             "fishing_rod", "helmet", "chestplate", "leggings", "boots", "elytra"
     );
+    private static final Set<String> ARMOR_KINDS = Set.of("helmet", "chestplate", "leggings", "boots");
     /** The three that break blocks, and so the three Efficiency means anything on. */
     private static final Set<String> DIGGING_KINDS = Set.of("pickaxe", "shovel", "axe", "hoe");
     private static final int EFFICIENCY_LEVEL = 5;
@@ -190,10 +192,21 @@ final class AmethystItemService implements Listener {
         meta.addEnchant(Enchantment.PROTECTION,
                 (int) tuned("amethyst-items.armor-protection-level", 5), true);
         org.bukkit.inventory.meta.components.EquippableComponent equippable = meta.getEquippable();
+        equippable.setSlot(armorSlot(kind));
         equippable.setModel(NamespacedKey.fromString("mgx:amethyst_armor"));
         meta.setEquippable(equippable);
         item.setItemMeta(meta);
         return item;
+    }
+
+    static EquipmentSlot armorSlot(String kind) {
+        return switch (kind) {
+            case "helmet" -> EquipmentSlot.HEAD;
+            case "chestplate" -> EquipmentSlot.CHEST;
+            case "leggings" -> EquipmentSlot.LEGS;
+            case "boots" -> EquipmentSlot.FEET;
+            default -> throw new IllegalArgumentException("Unknown Amethyst armor kind: " + kind);
+        };
     }
 
     private ItemStack elytra() {
@@ -204,6 +217,7 @@ final class AmethystItemService implements Listener {
         meta.addEnchant(Enchantment.UNBREAKING,
                 (int) tuned("amethyst-items.elytra-unbreaking-level", 5), true);
         org.bukkit.inventory.meta.components.EquippableComponent equippable = meta.getEquippable();
+        equippable.setSlot(EquipmentSlot.CHEST);
         equippable.setModel(NamespacedKey.fromString("mgx:amethyst_elytra"));
         meta.setEquippable(equippable);
         item.setItemMeta(meta);
@@ -917,6 +931,27 @@ final class AmethystItemService implements Listener {
         if (meta.getEnchantLevel(Enchantment.UNBREAKING) == 1) {
             meta.removeEnchant(Enchantment.UNBREAKING);
             changed = true;
+        }
+        String armorKind = kind(item).filter(ARMOR_KINDS::contains).orElse(null);
+        if (armorKind != null) {
+            EquipmentSlot expected = armorSlot(armorKind);
+            NamespacedKey expectedModel = NamespacedKey.fromString("mgx:amethyst_armor");
+            org.bukkit.inventory.meta.components.EquippableComponent equippable = meta.getEquippable();
+            if (equippable.getSlot() != expected || !expectedModel.equals(equippable.getModel())) {
+                equippable.setSlot(expected);
+                equippable.setModel(expectedModel);
+                meta.setEquippable(equippable);
+                changed = true;
+            }
+        } else if (kind(item).filter("elytra"::equals).isPresent()) {
+            NamespacedKey expectedModel = NamespacedKey.fromString("mgx:amethyst_elytra");
+            org.bukkit.inventory.meta.components.EquippableComponent equippable = meta.getEquippable();
+            if (equippable.getSlot() != EquipmentSlot.CHEST || !expectedModel.equals(equippable.getModel())) {
+                equippable.setSlot(EquipmentSlot.CHEST);
+                equippable.setModel(expectedModel);
+                meta.setEquippable(equippable);
+                changed = true;
+            }
         }
         // Tools minted before Efficiency shipped with them catch up here, on the join
         // and container sweeps, rather than staying slower than the ones bought today.
