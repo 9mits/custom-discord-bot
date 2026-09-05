@@ -43,8 +43,8 @@ final class HologramService {
     enum Board {
         PLAYERS_WEALTH("individual", "wealth", "TOP WEALTH"),
         PLAYERS_KILLS("individual", "kills", "TOP KILLS"),
-        AMETHYST_CRATES("individual", "amethyst_crates", "MOST AMETHYST CRATES OPENED"),
-        AMETHYST_AIRDROPS("individual", "amethyst_airdrops", "MOST AMETHYST AIRDROPS OPENED"),
+        DRAGON_DAMAGE("individual", "dragon_damage", "MOST AMETHYST DRAGON DAMAGE"),
+        DRAGON_CRYSTALS("individual", "dragon_crystals", "MOST END CRYSTALS BROKEN"),
         CLANS_WEALTH("clan", "wealth", "TOP CLAN WEALTH"),
         CLANS_KILLS("clan", "kills", "TOP CLAN KILLS"),
         CLAN_BATTLE("clan", "clan_battle", "CLAN BATTLE");
@@ -67,8 +67,8 @@ final class HologramService {
             return switch (token) {
                 case "wealth", "players-wealth", "richest" -> PLAYERS_WEALTH;
                 case "kills", "players-kills" -> PLAYERS_KILLS;
-                case "amethyst-crates", "event-crates", "crates-opened" -> AMETHYST_CRATES;
-                case "amethyst-airdrops", "event-airdrops", "airdrops-opened" -> AMETHYST_AIRDROPS;
+                case "dragon-damage", "amethyst-dragon-damage" -> DRAGON_DAMAGE;
+                case "dragon-crystals", "crystals-broken" -> DRAGON_CRYSTALS;
                 case "clans-wealth", "clan-wealth", "clans" -> CLANS_WEALTH;
                 case "clans-kills", "clan-kills" -> CLANS_KILLS;
                 case "clan-battle", "clanbattle", "battle" -> CLAN_BATTLE;
@@ -81,8 +81,8 @@ final class HologramService {
         }
 
         static String usage() {
-            return "Usage: /mgxadmin hologram <wealth|kills|amethyst-crates|"
-                    + "amethyst-airdrops|clans-wealth|clans-kills|clan-battle|remove>";
+            return "Usage: /mgxadmin hologram <wealth|kills|dragon-damage|"
+                    + "dragon-crystals|clans-wealth|clans-kills|clan-battle|remove>";
         }
     }
 
@@ -356,8 +356,13 @@ final class HologramService {
             }
             for (JsonElement element : root.getAsJsonArray("placements")) {
                 JsonObject row = element.getAsJsonObject();
+                String rawBoard = row.get("board").getAsString();
+                if (rawBoard.equalsIgnoreCase("amethyst-crates")
+                        || rawBoard.equalsIgnoreCase("amethyst-airdrops")) {
+                    continue;
+                }
                 placements.add(new Placement(
-                        Board.fromKey(row.get("board").getAsString()),
+                        Board.fromKey(rawBoard),
                         UUID.fromString(row.get("world").getAsString()),
                         row.get("x").getAsDouble(),
                         row.get("y").getAsDouble(),

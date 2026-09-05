@@ -133,7 +133,7 @@ class MinecraftDashboardAssetTests(unittest.TestCase):
         self.assertIn("Authorize with Discord", html)
         self.assertIn("discord_username", script)
         self.assertIn('defaultBoards = ["wealth", "kills"]', script)
-        self.assertIn('eventBoards = ["amethyst_airdrops", "amethyst_crates"]', script)
+        self.assertIn('eventBoards = ["dragon_damage", "dragon_crystals"]', script)
         self.assertIn("slice(0, 10)", script)
         self.assertIn("live-podium", script)
         self.assertIn("skin_url", script)

@@ -36,8 +36,8 @@ final class LeaderboardDialogService {
     private enum Board {
         WEALTH("Money", "individual", "wealth"),
         KILLS("Kills", "individual", "kills"),
-        AMETHYST_CRATES("Amethyst Crates", "individual", "amethyst_crates"),
-        AMETHYST_AIRDROPS("Amethyst Airdrops", "individual", "amethyst_airdrops"),
+        DRAGON_DAMAGE("Dragon Damage", "individual", "dragon_damage"),
+        DRAGON_CRYSTALS("Dragon Crystals", "individual", "dragon_crystals"),
         CLAN_WEALTH("Clan Treasury", "clan", "wealth"),
         CLAN_KILLS("Clan Kills", "clan", "kills"),
         CLAN_BATTLE("Clan Battle", "clan", "clan_battle");

@@ -67,7 +67,6 @@ record SettingMetadata(
         CRATES("Crates"),
         AIRDROPS("Airdrops"),
         ONLINE_REWARDS("Online Rewards"),
-        HUGE_AMETHYST("Huge Amethyst"),
         AMETHYST_BLOCKS("Amethyst Blocks"),
         DRAGON_EVENT("Dragon Event"),
         PERMISSIONS("Permissions"),

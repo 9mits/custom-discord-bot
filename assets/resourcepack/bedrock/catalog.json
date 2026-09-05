@@ -70,7 +70,7 @@
     {"java_item": "minecraft:elytra", "model": "mgx:amethyst_elytra", "bedrock_identifier": "mgx:amethyst_elytra", "display_name": "Amethyst Elytra"},
     {"java_item": "minecraft:tipped_arrow", "model": "mgx:amethyst_arrow", "bedrock_identifier": "mgx:amethyst_arrow", "display_name": "Amethyst Arrow"},
     {"java_item": "minecraft:enchanted_golden_apple", "model": "mgx:amethyst_apple", "bedrock_identifier": "mgx:amethyst_apple", "display_name": "Amethyst Apple"},
-    {"java_item": "minecraft:dragon_egg", "model": "mgx:amethyst_dragon_egg", "bedrock_identifier": "mgx:amethyst_dragon_egg", "display_name": "Amethyst Dragon Egg"},
+    {"java_item": "minecraft:dragon_egg", "model": "mgx:amethyst_dragon_egg", "bedrock_identifier": "mgx:amethyst_dragon_egg", "display_name": "Amethyst Dragon Egg", "icon_texture": "mgx:item/amethyst_dragon_egg"},
     {"java_item": "minecraft:end_crystal", "model": "mgx:cosmetic/dragonheart_rupture", "bedrock_identifier": "mgx:cosmetic_dragonheart_rupture", "display_name": "Dragonheart Rupture"},
     {"java_item": "minecraft:amethyst_cluster", "model": "mgx:cosmetic/crystal_wingfall", "bedrock_identifier": "mgx:cosmetic_crystal_wingfall", "display_name": "Crystal Wingfall"},
     {"java_item": "minecraft:dragon_breath", "model": "mgx:cosmetic/endscale_cataclysm", "bedrock_identifier": "mgx:cosmetic_endscale_cataclysm", "display_name": "Endscale Cataclysm"},

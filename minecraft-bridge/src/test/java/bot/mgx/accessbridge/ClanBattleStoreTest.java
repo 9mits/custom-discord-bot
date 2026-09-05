@@ -20,6 +20,23 @@ final class ClanBattleStoreTest {
     Path directory;
 
     @Test
+    void expansionReplacesLegacyCrateBattleWithCleanDragonEggRace() throws Exception {
+        ClanStore clans = new ClanStore(directory.resolve("clans.json"));
+        ClanBattleStore battles = new ClanBattleStore(directory.resolve("battles.json"));
+        UUID player = UUID.randomUUID();
+        clans.create(player, "Leader", "ALPHA");
+        battles.start(ClanBattleStore.Kind.CRATES, 1_000L, 50_000L, clans);
+        battles.recordCrate(player, 2_000L, clans);
+
+        assertTrue(battles.ensureDragonEggBattle(3_000L, 80_000L));
+        ClanBattleStore.ActiveView active = battles.active(clans).orElseThrow();
+        assertEquals(ClanBattleStore.Kind.DRAGON_EGGS, active.kind());
+        assertEquals(80_000L, active.endsAt());
+        assertTrue(active.standings().isEmpty());
+        assertEquals(1L, battles.recordDragonEgg(player, 4_000L, clans));
+    }
+
+    @Test
     void crateScoresFollowOnlyTheCurrentUnbrokenClanMembership() throws Exception {
         ClanStore clans = new ClanStore(directory.resolve("clans.json"));
         ClanBattleStore battles = new ClanBattleStore(directory.resolve("battles.json"));

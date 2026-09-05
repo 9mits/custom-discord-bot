@@ -191,7 +191,7 @@ final class GameVariableStore {
                 "Minutes before the scheduled fight when players may enter.", 5, 1, 60,
                 "minutes", false);
         integer("dragon-event.fight-minutes", "Maximum Dragon fight", "Dragon Event",
-                "Minutes before an unfinished fight closes safely.", 45, 5, 240,
+                "Minutes before an unfinished fight closes safely.", 30, 5, 240,
                 "minutes", false);
         integer("dragon-event.crate-minutes", "Dragon Crate phase", "Dragon Event",
                 "Minutes the Dragon Crate remains after the kill.", 60, 1, 240,
@@ -211,10 +211,16 @@ final class GameVariableStore {
                 "Distance of the crystal pillars from the arena centre.", 44, 8, 200,
                 "blocks", false);
         integer("dragon-event.pillar-base-height", "Pillar base height", "Dragon Event",
-                "Minimum height added to every crystal pillar.", 8, 1, 100,
+                "Minimum height added to every crystal pillar.", 22, 1, 100,
                 "blocks", false);
         integer("dragon-event.pillar-height-step", "Pillar height step", "Dragon Event",
                 "Height added for each pillar variation.", 3, 0, 30,
+                "blocks", false);
+        integer("dragon-event.caged-crystals", "Caged crystals", "Dragon Event",
+                "Number of crystal towers protected by an iron-bar cage.", 2, 0, 64,
+                "crystals", false);
+        integer("dragon-event.decoration-spacing", "Arena crystal spacing", "Dragon Presentation",
+                "Approximate distance between natural crystal formations.", 7, 4, 32,
                 "blocks", false);
         integer("dragon-event.crystal-minimum-keys", "Crystal minimum Keys", "Dragon Rewards",
                 "Fewest Keys paid to the player who destroys an End Crystal.", 20, 0, 100000,
@@ -293,16 +299,29 @@ final class GameVariableStore {
                 List.of("BLOCK_RESPAWN_ANCHOR_CHARGE", "ITEM_TOTEM_USE", "BLOCK_BEACON_ACTIVATE"));
         text("dragon-event.portal-hologram-title", "Portal hologram title", "Dragon Presentation",
                 "Large name above the registered portal.", "AMETHYST DRAGON PORTAL", 80);
+        text("dragon-event.portal-hologram-subtitle", "Portal hologram subtitle", "Dragon Presentation",
+                "Styled line below the portal name.", "COOPERATIVE BOSS EVENT", 80);
+        decimal("dragon-event.portal-display-height", "Portal hologram height", "Dragon Presentation",
+                "Height of the portal title above its registered centre.", 16, 2, 64, "blocks");
+        decimal("dragon-event.portal-title-scale", "Portal title scale", "Dragon Presentation",
+                "Visual scale of the portal title.", 4.2, 0.5, 12, "scale");
+        decimal("dragon-event.portal-subtitle-scale", "Portal subtitle scale", "Dragon Presentation",
+                "Visual scale of the portal subtitle.", 2.25, 0.5, 8, "scale");
+        decimal("dragon-event.portal-status-scale", "Portal status scale", "Dragon Presentation",
+                "Visual scale of the live portal countdown.", 2.6, 0.5, 8, "scale");
         text("dragon-event.ended-hologram", "Ended portal status", "Dragon Presentation",
                 "Portal hologram status after the Amethyst event deadline.", "AMETHYST EVENT ENDED", 80);
         integer("dragon-event.portal-entry-radius", "Portal entry radius", "Dragon Event",
-                "Distance from the registered portal centre that admits a player.", 4, 1, 20,
+                "Distance from the registered portal centre that admits a player.", 10, 1, 32,
+                "blocks", false);
+        integer("dragon-event.portal-selection-distance", "Portal selection distance", "Dragon Event",
+                "Maximum distance used by /dragonportal set.", 48, 4, 128,
                 "blocks", false);
         integer("dragon-event.portal-light-radius", "Portal light radius", "Dragon Presentation",
-                "Horizontal radius of safe invisible light blocks while the portal is open.", 2, 0, 8,
+                "Horizontal radius of safe invisible light blocks while the portal is open.", 10, 0, 32,
                 "blocks", false);
         integer("dragon-event.portal-light-height", "Portal light height", "Dragon Presentation",
-                "Height of the safe invisible light volume while the portal is open.", 4, 0, 16,
+                "Height of the safe invisible light volume while the portal is open.", 18, 0, 48,
                 "blocks", false);
         integer("dragon-event.portal-light-level", "Portal light level", "Dragon Presentation",
                 "Vanilla light level used while the portal is open.", 15, 0, 15,
@@ -316,6 +335,10 @@ final class GameVariableStore {
                 "Particle count used when the portal first opens.", 220, 0, 10000, "particles", false);
         integer("dragon-event.portal-pulse-particles", "Portal pulse particles", "Dragon Presentation",
                 "Particles emitted around the open portal each second.", 24, 0, 10000, "particles", false);
+        decimal("dragon-event.portal-effect-width", "Portal effect width", "Dragon Presentation",
+                "Width covered by the open portal particle field.", 18, 1, 64, "blocks");
+        decimal("dragon-event.portal-effect-height", "Portal effect height", "Dragon Presentation",
+                "Height covered by the open portal particle field.", 18, 1, 64, "blocks");
         integer("dragon-event.spawn-particle-count", "Dragon spawn particles", "Dragon Presentation",
                 "Dragon Breath particles emitted when the fight begins.", 300, 0, 10000, "particles", false);
         integer("dragon-event.ambient-particle-count", "Dragon ambient particles", "Dragon Presentation",
@@ -344,6 +367,45 @@ final class GameVariableStore {
         decimal("dragon-event.blast-lift", "Amethyst Blast lift", "Dragon Mechanics",
                 "Vertical knockback applied by the Amethyst Blast.", 0.45, 0.0, 5.0,
                 "velocity");
+        integer("dragon-event.aggressive-attack-seconds", "Aggressive attack interval", "Dragon Mechanics",
+                "Seconds between targeted Dragon fireball volleys.", 5, 1, 120,
+                "seconds", false);
+        integer("dragon-event.fireball-volley", "Dragon fireball volley", "Dragon Mechanics",
+                "Fireballs launched during each targeted attack.", 3, 1, 20,
+                "fireballs", false);
+        decimal("dragon-event.aggression-speed", "Dragon charge speed", "Dragon Mechanics",
+                "Velocity applied toward the selected player during an aggressive attack.", 1.25,
+                0.1, 5.0, "velocity");
+        integer("dragon-event.attack-particle-count", "Dragon attack particles", "Dragon Presentation",
+                "Dragon Breath particles emitted before each targeted attack.", 80, 0, 10000,
+                "particles", false);
+        integer("dragon-event.minions-per-wave", "Amethyst mobs per wave", "Dragon Mechanics",
+                "Amethyst Zombies, Skeletons, and Golems spawned in each arena wave.", 9, 0, 100,
+                "mobs", false);
+        integer("dragon-event.minion-maximum-alive", "Maximum arena mobs", "Dragon Mechanics",
+                "Maximum Dragon minions alive at once.", 24, 0, 200,
+                "mobs", false);
+        integer("dragon-event.minion-wave-seconds", "Amethyst mob wave interval", "Dragon Mechanics",
+                "Seconds between minion reinforcement checks.", 75, 5, 1800,
+                "seconds", false);
+        integer("dragon-event.crystal-key-effect-count", "Crystal Key waterfall", "Dragon Presentation",
+                "Visual Keys showered when a crystal breaks.", 18, 0, 200,
+                "visual keys", false);
+        integer("dragon-event.wave-key-effect-count", "Damage wave Key waterfall", "Dragon Presentation",
+                "Visual Keys showered at a Dragon damage reward milestone.", 28, 0, 300,
+                "visual keys", false);
+        integer("dragon-event.death-key-effect-count", "Dragon death Key waterfall", "Dragon Presentation",
+                "Visual Keys showered when the Dragon is defeated.", 96, 0, 500,
+                "visual keys", false);
+        integer("dragon-event.key-effect-lifetime-ticks", "Key waterfall lifetime", "Dragon Presentation",
+                "Ticks before visual waterfall Keys disappear.", 60, 10, 400,
+                "ticks", false);
+        decimal("dragon-event.key-effect-spread", "Key waterfall spread", "Dragon Presentation",
+                "Horizontal spread of visual waterfall Keys.", 4.5, 0.2, 30,
+                "blocks");
+        decimal("dragon-event.key-effect-height", "Key waterfall height", "Dragon Presentation",
+                "Maximum height of visual waterfall Keys.", 8, 1, 40,
+                "blocks");
         integer("dragon-event.reward-area-particle-count", "Reward area particles", "Dragon Presentation",
                 "Particles emitted when the return portal and Dragon Crate appear.", 300, 0, 10000,
                 "particles", false);
