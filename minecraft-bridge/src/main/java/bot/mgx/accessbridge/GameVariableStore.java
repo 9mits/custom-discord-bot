@@ -255,9 +255,12 @@ final class GameVariableStore {
         text("dragon-event.portal-open-message", "Portal open announcement", "Dragon Presentation",
                 "Broadcast when the spawn portal opens. Supports <minutes>.",
                 "The Amethyst Dragon Portal is open for <minutes> minutes!", 180);
+        text("dragon-event.portal-closed-message", "Portal closed announcement", "Dragon Presentation",
+                "Broadcast when admission ends and the pillars begin rising.",
+                "The Amethyst Dragon Portal has sealed. The arena is awakening!", 180);
         text("dragon-event.started-message", "Dragon start announcement", "Dragon Presentation",
-                "Broadcast when the entrance closes and the fight begins.",
-                "The Amethyst Dragon Event has begun! Entry is now closed.", 180);
+                "Broadcast after the pillars finish rising and the Dragon appears.",
+                "The Amethyst Dragon has awakened! The fight begins now!", 180);
         text("dragon-event.victory-message", "Dragon victory announcement", "Dragon Presentation",
                 "Broadcast when the Dragon is defeated. Supports <player>.",
                 "The Amethyst Dragon has fallen! <player> landed the final blow.", 180);
@@ -270,6 +273,10 @@ final class GameVariableStore {
         choice("dragon-event.portal-open-sound", "Portal open sound", "Dragon Presentation",
                 "Sound played server-wide when the portal opens.", "BLOCK_BEACON_ACTIVATE",
                 List.of("BLOCK_BEACON_ACTIVATE", "ENTITY_ENDER_DRAGON_GROWL", "UI_TOAST_CHALLENGE_COMPLETE"));
+        choice("dragon-event.portal-closed-sound", "Portal close sound", "Dragon Presentation",
+                "Sound played server-wide when the portal seals and pillar summoning begins.",
+                "BLOCK_END_PORTAL_SPAWN",
+                List.of("BLOCK_END_PORTAL_SPAWN", "BLOCK_BEACON_DEACTIVATE", "BLOCK_RESPAWN_ANCHOR_DEPLETE"));
         choice("dragon-event.start-sound", "Fight start sound", "Dragon Presentation",
                 "Sound played when the event begins.", "ENTITY_ENDER_DRAGON_GROWL",
                 List.of("ENTITY_ENDER_DRAGON_GROWL", "BLOCK_RESPAWN_ANCHOR_CHARGE", "ENTITY_WITHER_SPAWN"));
@@ -318,17 +325,54 @@ final class GameVariableStore {
                 "Maximum distance used by /dragonportal set.", 48, 4, 128,
                 "blocks", false);
         integer("dragon-event.portal-light-radius", "Portal light radius", "Dragon Presentation",
-                "Horizontal radius of safe invisible light blocks while the portal is open.", 10, 0, 32,
+                "Half-width of the real Nether-portal field created inside the registered frame.", 10, 0, 32,
                 "blocks", false);
         integer("dragon-event.portal-light-height", "Portal light height", "Dragon Presentation",
-                "Height of the safe invisible light volume while the portal is open.", 18, 0, 48,
+                "Height of the real Nether-portal field created inside the registered frame.", 18, 0, 48,
                 "blocks", false);
-        integer("dragon-event.portal-light-level", "Portal light level", "Dragon Presentation",
-                "Vanilla light level used while the portal is open.", 15, 0, 15,
-                "level", false);
-        integer("dragon-event.admin-start-delay-seconds", "Admin start delay", "Dragon Event",
-                "Seconds between /dragonportal start and the test fight.", 5, 1, 300,
-                "seconds", false);
+        integer("dragon-event.pillar-animation-interval-ticks", "Pillar animation interval", "Dragon Presentation",
+                "Ticks between each upward step while one pillar rises at a time.", 2, 1, 40,
+                "ticks", false);
+        integer("dragon-event.pillar-layers-per-step", "Pillar layers per step", "Dragon Presentation",
+                "Vertical block layers added during each pillar animation step.", 3, 1, 20,
+                "layers", false);
+        integer("dragon-event.pillar-summon-particle-count", "Pillar rising particles", "Dragon Presentation",
+                "Particles emitted at the moving top of a rising pillar.", 36, 0, 10000,
+                "particles", false);
+        integer("dragon-event.pillar-complete-particle-count", "Pillar completion particles", "Dragon Presentation",
+                "Particles emitted when a pillar and its crystal finish appearing.", 120, 0, 10000,
+                "particles", false);
+        choice("dragon-event.pillar-summon-sound", "Pillar summon sound", "Dragon Presentation",
+                "Sound played when each pillar and crystal finish appearing.", "BLOCK_AMETHYST_BLOCK_RESONATE",
+                List.of("BLOCK_AMETHYST_BLOCK_RESONATE", "BLOCK_RESPAWN_ANCHOR_CHARGE", "ENTITY_LIGHTNING_BOLT_THUNDER"));
+        decimal("dragon-event.pillar-summon-pitch", "Pillar summon pitch", "Dragon Presentation",
+                "Pitch of the pillar completion sound.", 0.72, 0.5, 2.0, "pitch");
+        integer("dragon-event.dragon-summon-pulses", "Dragon summon pulses", "Dragon Presentation",
+                "Number of escalating visual pulses before the Dragon appears.", 10, 1, 100,
+                "pulses", false);
+        integer("dragon-event.dragon-summon-pulse-interval-ticks", "Dragon summon pulse interval", "Dragon Presentation",
+                "Ticks between the escalating Dragon summoning pulses.", 10, 1, 100,
+                "ticks", false);
+        decimal("dragon-event.dragon-summon-radius", "Dragon summon radius", "Dragon Presentation",
+                "Maximum horizontal radius of the Dragon summoning storm.", 18, 1, 100,
+                "blocks");
+        integer("dragon-event.dragon-summon-particle-count", "Dragon summon particles", "Dragon Presentation",
+                "Particles emitted during each Dragon summoning pulse.", 160, 0, 20000,
+                "particles", false);
+        integer("dragon-event.dragon-summon-lightning-every-pulses", "Dragon summon lightning interval", "Dragon Presentation",
+                "Visual lightning cadence during the summoning sequence.", 2, 1, 100,
+                "pulses", false);
+        choice("dragon-event.dragon-summon-sound", "Dragon summon sound", "Dragon Presentation",
+                "Sound played during each Dragon summoning pulse.", "ENTITY_WITHER_SPAWN",
+                List.of("ENTITY_WITHER_SPAWN", "ENTITY_ENDER_DRAGON_GROWL", "BLOCK_END_PORTAL_SPAWN"));
+        decimal("dragon-event.dragon-summon-pitch", "Dragon summon pitch", "Dragon Presentation",
+                "Pitch of the Dragon summoning pulse sound.", 0.65, 0.5, 2.0, "pitch");
+        integer("dragon-event.spawn-lightning-count", "Dragon arrival lightning", "Dragon Presentation",
+                "Visual lightning bolts fired around the arena when the Dragon appears.", 8, 0, 100,
+                "bolts", false);
+        decimal("dragon-event.spawn-lightning-radius", "Dragon arrival lightning radius", "Dragon Presentation",
+                "Radius of the Dragon arrival lightning ring.", 16, 0, 100,
+                "blocks");
         bool("dragon-event.effects-enabled", "Dragon visual effects", "Dragon Presentation",
                 "Enables Dragon portal, fight, reward, and blast particles and lightning.", true);
         integer("dragon-event.portal-particle-count", "Portal opening particles", "Dragon Presentation",

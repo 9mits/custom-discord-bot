@@ -155,10 +155,7 @@ record SettingMetadata(
             "dragon-event.arena-radius",
             "dragon-event.pillar-radius",
             "dragon-event.pillar-base-height",
-            "dragon-event.pillar-height-step",
-            "dragon-event.portal-light-radius",
-            "dragon-event.portal-light-height",
-            "dragon-event.portal-light-level"
+            "dragon-event.pillar-height-step"
     );
 
     /** Derives the metadata for one definition, given every key the store knows. */

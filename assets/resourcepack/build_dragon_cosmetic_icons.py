@@ -11,11 +11,6 @@ METAL = {
     2: ((29, 38, 55), (88, 111, 143), (176, 202, 226), (245, 252, 255)),
     3: ((53, 25, 17), (130, 61, 35), (206, 112, 62), (255, 200, 142)),
 }
-GLYPHS = {
-    1: ("010", "110", "010", "010", "111"),
-    2: ("110", "001", "010", "100", "111"),
-    3: ("110", "001", "010", "001", "110"),
-}
 
 
 def source(name):
@@ -51,20 +46,6 @@ def wings(draw, colour=(185, 105, 234, 255)):
         inset = [(round((x + 16) * .5), round((y + 15) * .5)) for x, y in points]
         draw.line(points + [points[0]], fill=colour, width=1)
         draw.line(inset, fill=(230, 177, 255, 255), width=1)
-
-
-def digit(draw, rank, x=23, y=21, colour=(255, 255, 255, 255)):
-    glyph = GLYPHS[rank]
-    for row, bits in enumerate(glyph):
-        for col, bit in enumerate(bits):
-            if bit == "1":
-                draw.rectangle((x + col * 2 - 1, y + row * 2 - 1,
-                                x + col * 2 + 2, y + row * 2 + 2), fill=(24, 13, 31, 255))
-    for row, bits in enumerate(glyph):
-        for col, bit in enumerate(bits):
-            if bit == "1":
-                draw.rectangle((x + col * 2, y + row * 2,
-                                x + col * 2 + 1, y + row * 2 + 1), fill=colour)
 
 
 def build(base, decoration=None, palette=PURPLE):
@@ -114,27 +95,38 @@ def fire(draw):
 
 
 def podium(rank):
-    image = build("celestial_crown", palette=METAL[rank])
+    # These are ordinary wardrobe illustrations whose colour communicates the
+    # placement. The reward name carries the rank; the artwork never draws a
+    # number or turns the cosmetic into a podium badge.
+    base = {1: "celestial_crown", 2: "reapers_verdict", 3: "resonant_shatter"}[rank]
+    image = build(base, palette=METAL[rank])
     draw = ImageDraw.Draw(image)
-    # Amethyst inset ties every placement to this event without replacing the
-    # detailed crown players already recognise as a leaderboard reward.
-    draw.polygon([(12, 25), (16, 20), (20, 25), (16, 30)], fill=(56, 25, 80, 255))
-    draw.line([(13, 25), (16, 21), (19, 25), (16, 29), (13, 25)],
-              fill=(197, 121, 242, 255), width=1)
-    digit(draw, rank, 23, 21, METAL[rank][3] + (255,))
+    if rank == 1:
+        crown(draw)
+    elif rank == 2:
+        # A pale crystal fang cuts through the silver effect.
+        draw.polygon([(18, 7), (23, 10), (17, 27), (14, 18)], fill=(40, 24, 58, 255))
+        draw.line([(19, 8), (22, 10), (17, 25), (15, 18)],
+                  fill=(225, 181, 255, 255), width=1)
+    else:
+        scales(draw)
     return image
 
 
 def clan(rank):
-    image = build("galactic_conquest", palette=METAL[rank])
+    # Clan rewards use three different full cosmetic silhouettes. They remain
+    # recognisable beside the existing wardrobe icons instead of reading as
+    # medal shields with placement digits.
+    base = {1: "galactic_conquest", 2: "amethyst_ascension", 3: "geode_cathedral"}[rank]
+    image = build(base, palette=METAL[rank])
     draw = ImageDraw.Draw(image)
-    draw.polygon([(7, 7), (25, 7), (24, 20), (16, 29), (8, 20)], fill=(31, 16, 47, 210))
-    draw.line([(7, 7), (25, 7), (24, 20), (16, 29), (8, 20), (7, 7)],
-              fill=METAL[rank][2] + (255,), width=2)
-    draw.polygon([(11, 15), (16, 9), (21, 15), (16, 23)], fill=(108, 51, 154, 255))
-    draw.line([(12, 15), (16, 10), (20, 15), (16, 22), (12, 15)],
-              fill=(225, 172, 255, 255), width=1)
-    digit(draw, rank, 23, 21, METAL[rank][3] + (255,))
+    if rank == 1:
+        wings(draw, METAL[rank][2] + (255,))
+    elif rank == 2:
+        bright(draw, [(7, 24), (13, 15), (16, 6)], (223, 171, 255, 255))
+        bright(draw, [(25, 24), (19, 15), (16, 6)], (190, 219, 245, 255))
+    else:
+        wyrms(draw)
     return image
 
 
