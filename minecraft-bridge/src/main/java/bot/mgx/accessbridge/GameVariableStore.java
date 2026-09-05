@@ -483,7 +483,8 @@ final class GameVariableStore {
         decimal("dragon-event.minion-attack-damage", "Minion attack damage", "Dragon Mechanics",
                 "Base melee damage assigned to arena minions that support it.", 10, 0, 1000, "damage");
         decimal("dragon-event.minion-speed-multiplier", "Minion speed", "Dragon Mechanics",
-                "Multiplier applied to each arena minion's normal movement speed.", 1.35, 0.1, 5, "multiplier");
+                "Multiplier applied to each arena minion's own vanilla movement speed.", 1.0, 0.1, 5,
+                "multiplier");
         integer("dragon-event.chaos-interval-seconds", "Chaos strike interval", "Dragon Mechanics",
                 "Seconds between targeted lightning barrages during the fight.", 8, 1, 120, "seconds", false);
         integer("dragon-event.chaos-strikes", "Chaos strikes", "Dragon Mechanics",
@@ -503,6 +504,46 @@ final class GameVariableStore {
                 List.of("ENTITY_WARDEN_SONIC_BOOM", "ENTITY_ENDER_DRAGON_GROWL", "ENTITY_LIGHTNING_BOLT_THUNDER"));
         decimal("dragon-event.chaos-pitch", "Chaos barrage pitch", "Dragon Presentation",
                 "Pitch of the Dragon lightning barrage sound.", 0.7, 0.5, 2.0, "pitch");
+        integer("dragon-event.death-animation-frames", "Dragon death sequence length", "Dragon Presentation",
+                "Frames in the Amethyst Dragon's staged collapse and beam sequence.", 30, 1, 200,
+                "frames", false);
+        integer("dragon-event.death-animation-interval-ticks", "Dragon death frame interval", "Dragon Presentation",
+                "Ticks between frames in the Dragon death sequence.", 3, 1, 20, "ticks", false);
+        decimal("dragon-event.death-animation-radius", "Dragon death effect radius", "Dragon Presentation",
+                "Maximum radius of the collapsing rings and final shockwave.", 30, 2, 100, "blocks");
+        integer("dragon-event.death-ring-points", "Dragon death ring detail", "Dragon Presentation",
+                "Particle points drawn around each animated death ring.", 48, 8, 256,
+                "points", false);
+        integer("dragon-event.death-beam-points", "Dragon death beam detail", "Dragon Presentation",
+                "Particle points in the beam that cuts through the Dragon.", 40, 8, 256,
+                "points", false);
+        decimal("dragon-event.death-beam-height", "Dragon death beam height", "Dragon Presentation",
+                "Height of the vertical Amethyst beam above and below the death point.", 70, 8, 180,
+                "blocks");
+        integer("dragon-event.death-lightning-every-frames", "Dragon death lightning interval", "Dragon Presentation",
+                "Death-animation frames between visual lightning strikes.", 5, 1, 100,
+                "frames", false);
+        integer("dragon-event.death-sound-every-frames", "Dragon death pulse sound interval", "Dragon Presentation",
+                "Death-animation frames between rising pulse sounds.", 5, 1, 100,
+                "frames", false);
+        choice("dragon-event.death-pulse-sound", "Dragon death pulse sound", "Dragon Presentation",
+                "Sound used while the Dragon's Amethyst core collapses.", "BLOCK_RESPAWN_ANCHOR_CHARGE",
+                List.of("BLOCK_RESPAWN_ANCHOR_CHARGE", "BLOCK_AMETHYST_BLOCK_RESONATE",
+                        "ENTITY_WARDEN_HEARTBEAT", "ENTITY_ENDER_DRAGON_HURT"));
+        decimal("dragon-event.death-pulse-pitch", "Dragon death pulse pitch", "Dragon Presentation",
+                "Starting pitch of the Dragon death pulse.", 0.55, 0.5, 2.0, "pitch");
+        integer("dragon-event.death-climax-particle-count", "Dragon death climax particles", "Dragon Presentation",
+                "Particles emitted when the death beam shatters the Dragon's core.", 650, 0, 20000,
+                "particles", false);
+        choice("dragon-event.death-climax-sound", "Dragon death climax sound", "Dragon Presentation",
+                "Sound played when the Amethyst Dragon's core finally shatters.", "ENTITY_WARDEN_SONIC_BOOM",
+                List.of("ENTITY_WARDEN_SONIC_BOOM", "BLOCK_END_PORTAL_SPAWN",
+                        "ENTITY_GENERIC_EXPLODE", "UI_TOAST_CHALLENGE_COMPLETE"));
+        decimal("dragon-event.death-climax-pitch", "Dragon death climax pitch", "Dragon Presentation",
+                "Pitch of the Dragon death climax sound.", 0.65, 0.5, 2.0, "pitch");
+        integer("dragon-event.pillar-amethyst-band-every-layers", "Pillar Amethyst band spacing", "Dragon Presentation",
+                "Vertical layers between bright Amethyst bands on each summoned pillar.", 4, 1, 32,
+                "layers", false);
         integer("dragon-event.crystal-key-effect-count", "Crystal Key waterfall", "Dragon Presentation",
                 "Visual Keys showered when a crystal breaks.", 18, 0, 200,
                 "visual keys", false);

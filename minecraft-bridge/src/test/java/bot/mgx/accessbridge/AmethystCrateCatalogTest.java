@@ -301,6 +301,45 @@ final class AmethystCrateCatalogTest {
     }
 
     @Test
+    void everyDragonRewardCanBeRecoveredAfterAReservedSpin() {
+        CrateCatalog.dragon().forEach(reward -> assertEquals(
+                reward, CrateCatalog.find(reward.id()).orElseThrow(), reward.id()
+        ));
+        assertTrue(CrateCatalog.find("dragon_amethyst_golden_carrots").isPresent());
+    }
+
+    @Test
+    void dragonPoolSurvivesSustainedOpeningWithoutFloodingChaseItems() {
+        int commonWeight = CrateCatalog.dragon().stream()
+                .filter(reward -> !reward.cosmetic())
+                .filter(reward -> reward.sourceId().matches(
+                        "amethyst_(shards|blocks|purpur|purple_glass|purple_concrete|clusters|golden_carrots|experience_bottles|glowstone)"
+                ))
+                .mapToInt(CrateCatalog.Reward::weight).sum();
+        assertEquals(99_158, commonWeight);
+        assertEquals(CrateCatalog.TOTAL_WEIGHT,
+                CrateCatalog.dragon().stream().mapToInt(CrateCatalog.Reward::weight).sum());
+        assertTrue(CrateCatalog.dragon().stream()
+                .filter(CrateCatalog.Reward::cosmetic)
+                .allMatch(reward -> reward.weight() == 2));
+        assertTrue(CrateCatalog.dragon().stream()
+                .filter(reward -> commonWeightSource(reward.sourceId()))
+                .allMatch(reward -> reward.amount() <= 8));
+        for (CrateCatalog.Reward dragon : CrateCatalog.dragon()) {
+            if (dragon.cosmetic() || commonWeightSource(dragon.sourceId())) continue;
+            CrateCatalog.Reward ordinary = CrateCatalog.find(dragon.sourceId()).orElseThrow();
+            assertTrue(dragon.weight() > ordinary.weight(), dragon.id());
+            assertTrue(dragon.weight() <= ordinary.weight() * 2, dragon.id());
+        }
+    }
+
+    private static boolean commonWeightSource(String sourceId) {
+        return sourceId.matches(
+                "amethyst_(shards|blocks|purpur|purple_glass|purple_concrete|clusters|golden_carrots|experience_bottles|glowstone)"
+        );
+    }
+
+    @Test
     void timedEquipmentHasUniqueModelsAndTwentyFourHourDuration() {
         assertEquals(86_400_000L, AmethystItemService.ACTIVE_MILLIS);
         Set<String> models = new HashSet<>();
