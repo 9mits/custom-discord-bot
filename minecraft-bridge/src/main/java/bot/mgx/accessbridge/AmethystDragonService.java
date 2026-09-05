@@ -363,7 +363,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
 
     private void prepareRun() {
         runGeneration++;
-        ensureArena();
+        recreateArenaForRun();
         prepareArena();
         entrants.clear();
         departed.clear();
@@ -478,6 +478,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                 : dragon.getLocation().clone();
         phase = Phase.VICTORY;
         phaseEndsAt = 0L;
+        clearArenaMobs();
         for (UUID playerId : activeParticipants()) {
             giveKeys(playerId, variables.integer("dragon-event.kill-keys"));
         }
@@ -677,6 +678,29 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         arena.getWorldBorder().setCenter(0.5, 0.5);
         arena.getWorldBorder().setSize(variables.integer("dragon-event.border-size"));
         arena.setSpawnLocation(0, 82, 0);
+    }
+
+    /**
+     * Recreates the disposable event world before every admission period.
+     *
+     * <p>{@link World#getEntities()} only sees entities in loaded chunks. The terrain
+     * pass subsequently loaded other chunks and brought their saved mobs, drops and
+     * labels back, so an apparently clean island could still contain an earlier run's
+     * entities. Removing the world directory while it is unloaded clears the entity
+     * region files as well as the blocks and gives every run one authoritative reset.
+     */
+    private void recreateArenaForRun() {
+        cancelSummoningTask();
+        arena = Bukkit.getWorld(WORLD_NAME);
+        if (arena != null) {
+            for (Player player : List.copyOf(arena.getPlayers())) teleportSpawn(player);
+            if (!Bukkit.unloadWorld(arena, false)) {
+                throw new IllegalStateException("Could not unload the previous Dragon arena.");
+            }
+            arena = null;
+        }
+        deleteArenaWorld();
+        ensureArena();
     }
 
     private void deleteArenaWorld() {
@@ -1008,7 +1032,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
             if (attackDamage != null) attackDamage.setBaseValue(
                     variables.decimal("dragon-event.minion-attack-damage"));
             var movement = minion.getAttribute(Attribute.MOVEMENT_SPEED);
-            if (movement != null) movement.setBaseValue(movement.getBaseValue()
+            if (movement != null) movement.setBaseValue(normalMinionSpeed(type)
                     * variables.decimal("dragon-event.minion-speed-multiplier"));
             if (minion instanceof Mob mob) {
                 mob.setAware(true);
@@ -1066,6 +1090,40 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
             if (current == null || !current.isOnline() || departed.contains(current.getUniqueId())) {
                 nearestParticipant(entity.getLocation()).ifPresent(mob::setTarget);
             }
+        }
+    }
+
+    /** Vanilla base speeds, reapplied so saved or externally altered attributes cannot compound. */
+    static double normalMinionSpeed(EntityType type) {
+        return switch (type) {
+            case HUSK -> 0.23d;
+            case STRAY, IRON_GOLEM -> 0.25d;
+            default -> throw new IllegalArgumentException("Not a Dragon minion type: " + type);
+        };
+    }
+
+    /** Removes every hostile or neutral mob as soon as the Dragon fight is won. */
+    private void clearArenaMobs() {
+        if (arena == null) return;
+        int radius = variables.integer("dragon-event.arena-radius") + 16;
+        int chunks = (radius + 15) >> 4;
+        Set<UUID> removed = new HashSet<>();
+        for (org.bukkit.Chunk chunk : List.of(arena.getLoadedChunks())) {
+            removeMobs(chunk.getEntities(), removed);
+        }
+        for (int chunkX = -chunks; chunkX <= chunks; chunkX++) {
+            for (int chunkZ = -chunks; chunkZ <= chunks; chunkZ++) {
+                boolean loaded = arena.isChunkLoaded(chunkX, chunkZ);
+                org.bukkit.Chunk chunk = arena.getChunkAt(chunkX, chunkZ);
+                removeMobs(chunk.getEntities(), removed);
+                if (!loaded) arena.unloadChunkRequest(chunkX, chunkZ);
+            }
+        }
+    }
+
+    private static void removeMobs(Entity[] entities, Set<UUID> removed) {
+        for (Entity entity : entities) {
+            if (entity instanceof Mob && removed.add(entity.getUniqueId())) entity.remove();
         }
     }
 
@@ -1714,10 +1772,24 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         }
         if (visuals && phase == Phase.REWARDS && rewardChest != null
                 && rewardChest.getBlock().getType() == Material.CHEST) {
-            CrateDisplayService.drawAmethyst(rewardChest.clone().add(.5, .9, .5),
-                    effectFrame * .3d, effectFrame);
+            Location centre = rewardChest.clone().add(.5, .9, .5);
+            CrateDisplayService.drawAmethyst(centre, effectFrame * .3d, effectFrame);
+            drawRewardBeacon(centre);
         }
         effectFrame++;
+    }
+
+    /** The same purple End Rod beacon language used to make Amethyst Airdrops visible. */
+    private void drawRewardBeacon(Location centre) {
+        int height = Math.min(variables.integer("dragon-event.reward-beacon-height"),
+                arena.getMaxHeight() - centre.getBlockY() - 1);
+        int spacing = variables.integer("dragon-event.reward-beacon-spacing");
+        for (int y = 0; y <= height; y += spacing) {
+            Location point = centre.clone().add(0, y, 0);
+            arena.spawnParticle(Particle.END_ROD, point, 1, .05, .18, .05, 0);
+            arena.spawnParticle(Particle.DUST, point, 1, .08, .08, .08, 0,
+                    y % (spacing * 2) == 0 ? BRIGHT : DARK);
+        }
     }
 
     private void hideVanillaDragonBar() {

@@ -50,6 +50,8 @@ final class GameVariableStoreTest {
         assertEquals(18, variables.integer("dragon-event.minions-per-wave"));
         assertEquals(2, variables.integer("dragon-event.aggressive-attack-seconds"));
         assertEquals(8, variables.integer("dragon-event.chaos-interval-seconds"));
+        assertEquals(48, variables.integer("dragon-event.reward-beacon-height"));
+        assertEquals(2, variables.integer("dragon-event.reward-beacon-spacing"));
         assertEquals("AMETHYST DRAGON — EVENT REPORT",
                 variables.string("dragon-event.stats-header"));
     }

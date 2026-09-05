@@ -568,6 +568,12 @@ final class GameVariableStore {
         integer("dragon-event.reward-area-particle-count", "Reward area particles", "Dragon Presentation",
                 "Particles emitted when the return portal and Dragon Crate appear.", 300, 0, 10000,
                 "particles", false);
+        integer("dragon-event.reward-beacon-height", "Dragon Crate beacon height", "Dragon Presentation",
+                "Height of the purple particle beacon above the Dragon Crate.", 48, 4, 192,
+                "blocks", false);
+        integer("dragon-event.reward-beacon-spacing", "Dragon Crate beacon spacing", "Dragon Presentation",
+                "Vertical spacing between particle points in the Dragon Crate beacon.", 2, 1, 12,
+                "blocks", false);
         integer("dragon-event.reward-crate-x", "Reward Crate X", "Dragon Event",
                 "Arena X coordinate used for the Dragon Crate, placed on the surface.", 8, -200, 200,
                 "blocks", false);
