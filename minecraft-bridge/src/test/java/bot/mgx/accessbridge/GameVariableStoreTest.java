@@ -46,7 +46,10 @@ final class GameVariableStoreTest {
         assertEquals("AMETHYST DRAGON AWAKENS IN <time>",
                 variables.string("dragon-event.countdown-bossbar-text"));
         assertEquals("PURPLE", variables.string("dragon-event.countdown-bossbar-color"));
-        assertEquals("END", variables.string("dragon-event.sky-style"));
+        assertEquals("PHASED", variables.string("dragon-event.sky-style"));
+        assertEquals(6000, variables.integer("dragon-event.bright-sky-time"));
+        assertEquals(18000, variables.integer("dragon-event.fight-sky-time"));
+        assertEquals(true, variables.bool("dragon-event.pillar-lightning-enabled"));
         assertEquals(18, variables.integer("dragon-event.minions-per-wave"));
         assertEquals(2, variables.integer("dragon-event.aggressive-attack-seconds"));
         assertEquals(8, variables.integer("dragon-event.chaos-interval-seconds"));
