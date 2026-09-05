@@ -21,7 +21,8 @@ final class AmethystDragonServiceTest {
     void vanillaExitFountainMaterialsAreRemovedFromTheArenaCentre() {
         for (Material material : new Material[]{
                 Material.END_PORTAL, Material.END_GATEWAY, Material.END_PORTAL_FRAME,
-                Material.BEDROCK, Material.TORCH, Material.WALL_TORCH
+                Material.BEDROCK, Material.END_STONE, Material.END_STONE_BRICKS,
+                Material.TORCH, Material.WALL_TORCH
         }) {
             assertEquals(true, AmethystDragonService.isVanillaExitPortalBlock(material));
         }
