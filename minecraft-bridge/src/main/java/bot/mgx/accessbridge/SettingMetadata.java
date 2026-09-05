@@ -153,6 +153,7 @@ record SettingMetadata(
             "dragon-event.border-size",
             "dragon-event.crystals",
             "dragon-event.arena-radius",
+            "dragon-event.sky-style",
             "dragon-event.pillar-radius",
             "dragon-event.pillar-base-height",
             "dragon-event.pillar-height-step"

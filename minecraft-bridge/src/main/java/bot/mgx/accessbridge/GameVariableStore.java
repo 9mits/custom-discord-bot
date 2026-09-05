@@ -190,6 +190,9 @@ final class GameVariableStore {
         integer("dragon-event.portal-open-minutes", "Portal open time", "Dragon Event",
                 "Minutes before the scheduled fight when players may enter.", 5, 1, 60,
                 "minutes", false);
+        integer("dragon-event.summoning-timeout-seconds", "Dragon summoning timeout", "Dragon Event",
+                "Maximum time allowed for pillars and the Dragon entrance animation before the fight is forced to begin.",
+                30, 10, 300, "seconds", false);
         integer("dragon-event.fight-minutes", "Maximum Dragon fight", "Dragon Event",
                 "Minutes before an unfinished fight closes safely.", 30, 5, 240,
                 "minutes", false);
@@ -258,6 +261,15 @@ final class GameVariableStore {
         text("dragon-event.portal-closed-message", "Portal closed announcement", "Dragon Presentation",
                 "Broadcast when admission ends and the pillars begin rising.",
                 "The Amethyst Dragon Portal has sealed. The arena is awakening!", 180);
+        text("dragon-event.countdown-bossbar-text", "Admission countdown bar", "Dragon Presentation",
+                "Boss bar shown to players waiting in the arena. Supports <time>.",
+                "AMETHYST DRAGON AWAKENS IN <time>", 100);
+        choice("dragon-event.countdown-bossbar-color", "Admission countdown colour", "Dragon Presentation",
+                "Colour of the boss bar shown during the five-minute gathering period.", "PURPLE",
+                List.of("PINK", "BLUE", "RED", "GREEN", "YELLOW", "PURPLE", "WHITE"));
+        choice("dragon-event.sky-style", "Dragon arena sky", "Dragon Presentation",
+                "Sky used by the separate Dragon arena world. END gives the black End sky; OVERWORLD restores the old sky.",
+                "END", List.of("END", "OVERWORLD"));
         text("dragon-event.started-message", "Dragon start announcement", "Dragon Presentation",
                 "Broadcast after the pillars finish rising and the Dragon appears.",
                 "The Amethyst Dragon has awakened! The fight begins now!", 180);

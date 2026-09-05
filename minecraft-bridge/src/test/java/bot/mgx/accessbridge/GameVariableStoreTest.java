@@ -1,6 +1,7 @@
 package bot.mgx.accessbridge;
 
 import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.inventory.EquipmentSlot;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -36,6 +37,24 @@ final class GameVariableStoreTest {
         assertEquals(7, reopened.keyCost(CrateKind.AMETHYST));
         reopened.reset("crate.amethyst.key-cost");
         assertEquals(2, reopened.keyCost(CrateKind.AMETHYST));
+    }
+
+    @Test
+    void dragonCountdownAndSummoningSafetyAreConfigurable() throws Exception {
+        GameVariableStore variables = store();
+        assertEquals(30, variables.integer("dragon-event.summoning-timeout-seconds"));
+        assertEquals("AMETHYST DRAGON AWAKENS IN <time>",
+                variables.string("dragon-event.countdown-bossbar-text"));
+        assertEquals("PURPLE", variables.string("dragon-event.countdown-bossbar-color"));
+        assertEquals("END", variables.string("dragon-event.sky-style"));
+    }
+
+    @Test
+    void everyAmethystArmorPieceUsesItsRealEquipmentSlot() {
+        assertEquals(EquipmentSlot.HEAD, AmethystItemService.armorSlot("helmet"));
+        assertEquals(EquipmentSlot.CHEST, AmethystItemService.armorSlot("chestplate"));
+        assertEquals(EquipmentSlot.LEGS, AmethystItemService.armorSlot("leggings"));
+        assertEquals(EquipmentSlot.FEET, AmethystItemService.armorSlot("boots"));
     }
 
     /**
