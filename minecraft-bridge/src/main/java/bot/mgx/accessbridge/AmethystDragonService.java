@@ -35,6 +35,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
+import org.bukkit.event.entity.EntityRegainHealthEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
@@ -122,6 +123,9 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     private EnderDragon dragon;
     private UUID lastDragonAttacker;
     private double rewardedDamage;
+    private double dragonMaximumHealth;
+    private double dragonHealth;
+    private double dragonHealthScale = 1d;
     private final Set<UUID> entrants = new HashSet<>();
     private final Set<UUID> departed = new HashSet<>();
     private final Map<UUID, RunStats> stats = new HashMap<>();
@@ -282,6 +286,9 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         stats.clear();
         claimableEggs.clear();
         rewardedDamage = 0d;
+        dragonMaximumHealth = 0d;
+        dragonHealth = 0d;
+        dragonHealthScale = 1d;
         lastDragonAttacker = null;
         announce(render(variables.string("dragon-event.portal-open-message"),
                 "minutes", String.valueOf(variables.integer("dragon-event.portal-open-minutes"))),
@@ -299,12 +306,16 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         phase = Phase.FIGHT;
         phaseEndsAt = System.currentTimeMillis()
                 + variables.integer("dragon-event.fight-minutes") * 60_000L;
+        dragonMaximumHealth = variables.integer("dragon-event.maximum-health");
+        dragonHealth = dragonMaximumHealth;
         buildArena();
         dragon = arena.spawn(new Location(arena, 0.5, 92, 0.5), EnderDragon.class, entity -> {
             entity.addScoreboardTag(DRAGON_TAG);
             var max = entity.getAttribute(Attribute.MAX_HEALTH);
-            if (max != null) max.setBaseValue(variables.integer("dragon-event.maximum-health"));
-            entity.setHealth(variables.integer("dragon-event.maximum-health"));
+            double physicalHealth = Math.min(dragonMaximumHealth, 2_048d);
+            dragonHealthScale = physicalHealth / dragonMaximumHealth;
+            if (max != null) max.setBaseValue(physicalHealth);
+            entity.setHealth(physicalHealth);
             entity.customName(Component.text("Amethyst Dragon", AMETHYST, TextDecoration.BOLD));
             entity.setCustomNameVisible(true);
             entity.setRemoveWhenFarAway(false);
@@ -360,6 +371,9 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         phase = Phase.WAITING;
         phaseEndsAt = 0L;
         dragon = null;
+        dragonMaximumHealth = 0d;
+        dragonHealth = 0d;
+        dragonHealthScale = 1d;
         setPortalLit(false);
         CrateKind.dragonAvailableSource(() -> false);
         scheduledAt = nextEvent(Instant.now().plusSeconds(30));
@@ -544,8 +558,14 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         }
         if (!(event.getEntity() instanceof EnderDragon target)
                 || !target.getScoreboardTags().contains(DRAGON_TAG)) return;
-        double damage = Math.max(0d, Math.min(event.getFinalDamage(), target.getHealth()));
+        double damage = Math.max(0d, Math.min(event.getFinalDamage(), dragonHealth));
         if (damage <= 0d) return;
+        dragonHealth -= damage;
+        if (dragonHealth <= 0d) {
+            event.setDamage(Math.max(event.getDamage(), target.getHealth() + 1d));
+        } else if (dragonHealthScale < 1d) {
+            event.setDamage(Math.max(0.01d, event.getDamage() * dragonHealthScale));
+        }
         lastDragonAttacker = attacker.getUniqueId();
         RunStats row = active(attacker);
         row.damage += damage;
@@ -556,6 +576,14 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         rewardDamageWaves(damage);
         if (ThreadLocalRandom.current().nextInt(variables.integer("dragon-event.shard-one-in")) == 0) {
             giveShards(attacker, variables.integer("dragon-event.shard-amount"));
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onDragonHeal(EntityRegainHealthEvent event) {
+        if (phase == Phase.FIGHT && event.getEntity() instanceof EnderDragon target
+                && target.getScoreboardTags().contains(DRAGON_TAG)) {
+            event.setCancelled(true);
         }
     }
 
