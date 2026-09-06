@@ -936,22 +936,21 @@ final class CosmeticEffectService implements Listener {
         beginFloatingPlayer(player);
         int oneIn = plugin.gameVariables().integer("dragon-crate.secret-one-in");
         player.showTitle(Title.title(
-                Component.text("✦ SECRET ✦", TextColor.color(0xDCA8FF), TextDecoration.BOLD),
+                Component.text("✦ SECRET ✦", TextColor.color(0x53E5FF), TextDecoration.BOLD),
                 Component.text("AMETHYST DRAGON ASCENDANT • 1 IN " + String.format("%,d", oneIn),
-                        NamedTextColor.LIGHT_PURPLE, TextDecoration.BOLD),
+                        NamedTextColor.GOLD, TextDecoration.BOLD),
                 Title.Times.times(Duration.ofMillis(100), Duration.ofSeconds(8),
                         Duration.ofSeconds(2))
         ));
         BossBar bar = BossBar.bossBar(
-                Component.text(player.getName() + " awakened " + reward.displayName(),
-                        TextColor.color(0xDCA8FF), TextDecoration.BOLD),
+                genuineBossbarNameForOdds(player.getName(), oneIn),
                 1f, BossBar.Color.PURPLE, BossBar.Overlay.NOTCHED_20
         );
         activeRevealBars.add(bar);
         for (Player viewer : plugin.getServer().getOnlinePlayers()) {
             viewer.showBossBar(bar);
             viewer.showTitle(Title.title(
-                    Component.text("✦ SECRET ✦", NamedTextColor.LIGHT_PURPLE,
+                    Component.text("✦ SECRET ✦", TextColor.color(0x53E5FF),
                             TextDecoration.BOLD),
                     Component.text(player.getName() + " found " + reward.displayName(),
                             NamedTextColor.GOLD),
@@ -967,6 +966,9 @@ final class CosmeticEffectService implements Listener {
                 REVEAL_FRAME_TICKS, step -> {
             floatGenuineWinner(player, step);
             bar.progress(Math.max(0f, 1f - step / (float) (DragonMusicTimeline.SAMPLE_COUNT - 1)));
+            if (step % 10 == 0) {
+                bar.name(genuineBossbarNameForOdds(player.getName(), oneIn));
+            }
             if (player.isOnline()) {
                 Location centre = player.getLocation().add(0d, 0.9d, 0d);
                 drawDragonMusicFormation(player, centre, DragonMusicTimeline.at(step * 100L), step, null);
@@ -1026,7 +1028,7 @@ final class CosmeticEffectService implements Listener {
         );
         viewer.sendActionBar(Component.text(
                 opening ? "✦ A SECRET HAS ENTERED THE SERVER ✦"
-                        : "✦ THE IMPERIUM RESONATES ✦",
+                        : "✦ THE SECRET RESONATES ✦",
                 opening ? TextColor.color(0xE95CFF) : TextColor.color(0x53E5FF),
                 TextDecoration.BOLD
         ));
@@ -1041,10 +1043,13 @@ final class CosmeticEffectService implements Listener {
      * as its progress falls.
      */
     static Component genuineBossbarName(String playerName, int step) {
-        return Component.text(
-                "✦ " + playerName + " FOUND A SECRET • 1 IN 500,000 ✦",
-                SECRET_REVEAL_COLOUR, TextDecoration.BOLD
-        );
+        return genuineBossbarNameForOdds(playerName, 500_000);
+    }
+
+    static Component genuineBossbarNameForOdds(String playerName, int oneIn) {
+        return Component.text("✦ " + playerName + " FOUND A SECRET • 1 IN "
+                        + String.format("%,d", Math.max(1, oneIn)) + " ✦",
+                SECRET_REVEAL_COLOUR, TextDecoration.BOLD);
     }
 
     private void beginFloatingPlayer(Player player) {
@@ -1191,7 +1196,11 @@ final class CosmeticEffectService implements Listener {
         int step = CosmeticAnimation.step(animatedFrame, 80);
         double phase = animatedFrame * 0.24d;
         if (definition.leaderboardOnly()) {
-            drawLeaderboardAura(owner, definition, centre, phase, step);
+            if (definition.id().startsWith("dragon_podium_")) {
+                drawDragonPodiumAura(owner, definition, centre, phase, step);
+            } else {
+                drawLeaderboardAura(owner, definition, centre, phase, step);
+            }
             return;
         }
         if (definition.id().equals(MUSIC_AURA_ID)) {
@@ -1218,6 +1227,12 @@ final class CosmeticEffectService implements Listener {
             case "geode_cathedral" -> drawGeodeCathedral(owner, centre, phase, step);
             case "airdrop_apotheosis" -> drawAirdropApotheosis(owner, centre, phase, step);
             case "galactic_conquest" -> drawGalacticConquest(owner, centre, phase, step, moving);
+            case "amethyst_dragon_crown" -> drawAmethystDragonCrown(owner, centre, phase, step);
+            case "violet_wyrm_orbit" -> drawVioletWyrmOrbit(owner, centre, phase, step);
+            case "geode_sovereignty" -> drawGeodeSovereignty(owner, centre, phase, step);
+            case "dragon_clan_1" -> drawSovereignBrood(owner, centre, phase, step);
+            case "dragon_clan_2" -> drawCrystalVanguard(owner, centre, phase, step);
+            case "dragon_clan_3" -> drawVioletKin(owner, centre, phase, step);
             default -> { }
         }
     }
@@ -1483,7 +1498,7 @@ final class CosmeticEffectService implements Listener {
         drawDragonMusicFormation(owner, centre, sample, step, visibility, false);
     }
 
-    /** Dragon wings, crown and breath all pulse from the supplied song's 100 ms envelope. */
+    /** Six song sections evolve from egg to dragon to throne, with every strike envelope-driven. */
     private void drawDragonMusicFormation(
             Player owner,
             Location centre,
@@ -1495,50 +1510,370 @@ final class CosmeticEffectService implements Listener {
         double bass = sample.bass();
         double mid = sample.mid();
         double high = sample.high();
-        double hit = Math.max(0d, Math.min(1d, (sample.onset() - 0.08d) * 2.1d));
+        double hit = Math.max(0d, Math.min(1d, (sample.onset() - 0.06d) * 2.45d));
+        double energy = sample.energy();
         double time = step / 10d;
-        double spread = moving ? 0.62d : 1d;
-        Color deep = Color.fromRGB(72, 16, 122);
-        Color amethyst = Color.fromRGB(184, 82, 255);
-        Color shine = Color.fromRGB(239, 199, 255);
+        double progress = step / (double) Math.max(1, DragonMusicTimeline.SAMPLE_COUNT - 1);
+        int movement = Math.min(5, (int) (progress * 6d));
+        double spread = moving ? 0.58d : 1d;
+        Color[] movementColours = {
+                Color.fromRGB(113, 35, 171), Color.fromRGB(170, 61, 224),
+                Color.fromRGB(102, 73, 225), Color.fromRGB(210, 72, 235),
+                Color.fromRGB(83, 157, 235), Color.fromRGB(232, 177, 255)
+        };
+        Color amethyst = movementColours[movement];
+        Color deep = Color.fromRGB(48 + movement * 7, 10 + movement * 5, 82 + movement * 10);
+        Color shine = movement >= 4
+                ? Color.fromRGB(177, 228, 255) : Color.fromRGB(242, 202, 255);
         Vector side = horizontalSide(owner);
         Vector forward = new Vector(-side.getZ(), 0d, side.getX());
+        Location heart = centre.clone().add(0d, 0.08d + bass * 0.5d, 0d);
+        Location floor = centre.clone().add(0d, -0.9d, 0d);
 
-        Location heart = centre.clone().add(0d, 0.15d + bass * 0.55d, 0d);
-        drawVerticalGem(owner, heart, side, 0.42d + bass * 0.25d,
-                time * 0.8d, deep, shine);
-        for (int wing = -1; wing <= 1; wing += 2) {
-            Location root = heart.clone().add(side.clone().multiply(wing * 0.32d));
-            for (int bone = 0; bone < 5; bone++) {
-                double reach = (0.7d + bone * 0.28d + mid * 0.75d + hit * 0.55d) * spread;
-                Location tip = root.clone()
-                        .add(side.clone().multiply(wing * reach))
-                        .add(forward.clone().multiply(Math.sin(time * 2.2d + bone) * 0.2d))
-                        .add(0d, 0.72d - bone * 0.21d + high * 0.55d, 0d);
-                drawLine(owner, root, tip, 4, bone % 2 == 0 ? amethyst : shine,
-                        0.88f + (float) hit * 0.35f, visibility);
+        double sigilRadius = (0.82d + bass * 0.82d + hit * 0.55d) * spread;
+        drawRing(owner, floor, sigilRadius, 18 + movement * 2, time * (movement % 2 == 0 ? 1.1d : -1.35d),
+                movement % 2 == 0 ? deep : amethyst, 0.82f + (float) hit * 0.3f, visibility);
+
+        switch (movement) {
+            case 0 -> {
+                // The supplied song begins restrained: an egg beats, cracks, and leaks light.
+                drawVerticalGem(owner, heart, side, (0.38d + bass * 0.25d) * spread,
+                        time * 0.38d, deep, shine);
+                for (int crack = 0; crack < 6; crack++) {
+                    double angle = crack * Math.PI / 3d + time * 0.25d;
+                    Location root = floor.clone().add(Math.cos(angle) * 0.22d, 0d,
+                            Math.sin(angle) * 0.22d);
+                    Location tip = floor.clone().add(Math.cos(angle) * sigilRadius,
+                            high * 0.12d, Math.sin(angle) * sigilRadius);
+                    drawLine(owner, root, tip, 4, crack % 2 == 0 ? amethyst : shine,
+                            0.68f, visibility);
+                }
+            }
+            case 1 -> {
+                // The hatchling becomes a coiling body with a clear head and pulsing eye.
+                for (int segment = 0; segment < 24; segment++) {
+                    double tail = segment / 23d;
+                    double angle = time * (0.95d + mid) - tail * Math.PI * 2.4d;
+                    double radius = (1.0d - tail * 0.48d + mid * 0.35d) * spread;
+                    Location at = heart.clone()
+                            .add(side.clone().multiply(Math.cos(angle) * radius))
+                            .add(forward.clone().multiply(Math.sin(angle) * radius))
+                            .add(0d, (0.45d - tail) * 1.5d + Math.sin(angle * 2d) * 0.22d, 0d);
+                    dust(owner, at, segment == 0 ? shine : segment % 4 == 0 ? deep : amethyst,
+                            segment == 0 ? 1.55f : 0.72f + (float) (1d - tail) * 0.35f,
+                            visibility);
+                }
+            }
+            case 2 -> {
+                // Midrange energy unfolds a full wingspan, with bass driving the downstroke.
+                drawVerticalGem(owner, heart, side, (0.33d + bass * 0.18d) * spread,
+                        time * 0.5d, deep, shine);
+                double flap = Math.sin(time * (2.2d + mid)) * (0.22d + bass * 0.28d);
+                for (int wing : new int[]{-1, 1}) {
+                    for (int bone = 0; bone < 7; bone++) {
+                        double reach = (0.6d + bone * 0.28d + mid * 0.55d) * spread;
+                        Location joint = heart.clone()
+                                .add(side.clone().multiply(wing * reach * 0.52d))
+                                .add(forward.clone().multiply(0.12d + bone * 0.055d))
+                                .add(0d, 0.52d + flap, 0d);
+                        Location tip = heart.clone()
+                                .add(side.clone().multiply(wing * reach))
+                                .add(forward.clone().multiply(0.3d + bone * 0.09d))
+                                .add(0d, 0.55d - bone * 0.18d + flap, 0d);
+                        drawLine(owner, heart, joint, 3, shine, 0.78f, visibility);
+                        drawLine(owner, joint, tip, 3, bone % 2 == 0 ? amethyst : deep,
+                                0.92f + (float) hit * 0.22f, visibility);
+                    }
+                }
+            }
+            case 3 -> {
+                // The loud centre of the track turns the dragon toward the viewer and breathes.
+                Location jaw = heart.clone().add(forward.clone().multiply(0.55d));
+                drawVerticalGem(owner, jaw, side, (0.48d + mid * 0.22d) * spread,
+                        -time * 0.72d, deep, shine);
+                for (int horn : new int[]{-1, 1}) {
+                    drawLine(owner, jaw,
+                            jaw.clone().add(side.clone().multiply(horn * 0.7d * spread))
+                                    .add(forward.clone().multiply(-0.22d)).add(0d, 0.62d, 0d),
+                            5, amethyst, 1.0f, visibility);
+                }
+                int breath = moving ? 3 : 5 + (int) Math.round(energy * 5d);
+                for (int flame = 0; flame < breath; flame++) {
+                    double distance = 0.25d + flame * 0.22d + hit * 0.55d;
+                    Location at = jaw.clone().add(forward.clone().multiply(distance))
+                            .add(side.clone().multiply(Math.sin(time * 3d + flame) * 0.2d))
+                            .add(0d, Math.cos(time * 2d + flame) * 0.12d, 0d);
+                    spawnMoving(owner, at, flame % 3 == 0 ? Particle.DRAGON_BREATH : Particle.DUST,
+                            forward.clone().multiply(0.055d),
+                            flame % 3 == 0 ? null : new Particle.DustOptions(amethyst, 0.9f),
+                            visibility);
+                }
+            }
+            case 4 -> {
+                // A fast aerial passage sends a dragon-comet around the owner on a rising path.
+                for (int scale = 0; scale < 22; scale++) {
+                    double tail = scale / 21d;
+                    double angle = time * (1.5d + high) - tail * 2.5d;
+                    double radius = (1.2d + high * 0.8d - tail * 0.45d) * spread;
+                    Location at = centre.clone()
+                            .add(side.clone().multiply(Math.cos(angle) * radius))
+                            .add(forward.clone().multiply(Math.sin(angle) * radius))
+                            .add(0d, -0.55d + ((progress * 8d + tail) % 1d) * 2.45d, 0d);
+                    spawnMoving(owner, at, scale == 0 ? Particle.END_ROD : Particle.DUST,
+                            new Vector(0d, 0.025d, 0d),
+                            scale == 0 ? null : new Particle.DustOptions(
+                                    scale % 4 == 0 ? shine : amethyst, 0.72f), visibility);
+                }
+            }
+            default -> {
+                // Finale: the dragon collapses into a throne, crown, and prismatic wing halo.
+                drawVerticalGem(owner, heart, side, (0.52d + bass * 0.28d) * spread,
+                        time * 0.62d, amethyst, shine);
+                Location crown = centre.clone().add(0d, 1.3d + hit * 0.55d, 0d);
+                drawRing(owner, crown, (0.5d + high * 0.42d) * spread, 14,
+                        -time * 1.6d, shine, 1.0f, visibility);
+                for (int throne = 0; throne < 9; throne++) {
+                    double x = (throne - 4d) * 0.22d * spread;
+                    Location root = centre.clone().add(side.clone().multiply(x)).add(0d, -0.75d, 0d);
+                    Location tip = root.clone().add(forward.clone().multiply(0.34d))
+                            .add(0d, 1.2d + (1d - Math.abs(throne - 4d) / 4d) * 0.85d, 0d);
+                    drawLine(owner, root, tip, 4, throne % 2 == 0 ? shine : amethyst,
+                            0.88f, visibility);
+                }
             }
         }
-        double orbit = (0.95d + mid * 0.9d + hit * 0.75d) * spread;
-        for (int scale = 0; scale < 18; scale++) {
-            double angle = time * 1.3d + scale * Math.PI * 2d / 18d;
-            Location at = heart.clone()
-                    .add(side.clone().multiply(Math.cos(angle) * orbit))
-                    .add(forward.clone().multiply(Math.sin(angle) * orbit * 0.75d))
-                    .add(0d, Math.sin(angle * 3d) * (0.3d + high * 0.4d), 0d);
-            dust(owner, at, scale % 3 == 0 ? shine : amethyst,
-                    scale % 3 == 0 ? 1.15f : 0.8f, visibility);
+
+        if (!moving && hit > 0.28d) {
+            Particle accent = switch (movement) {
+                case 0 -> Particle.REVERSE_PORTAL;
+                case 1 -> Particle.DRAGON_BREATH;
+                case 2 -> Particle.END_ROD;
+                case 3 -> Particle.ELECTRIC_SPARK;
+                case 4 -> Particle.TOTEM_OF_UNDYING;
+                default -> hit > 0.78d ? Particle.FLASH : Particle.FIREWORK;
+            };
+            spawn(owner, movement == 0 ? floor : heart, accent,
+                    accent == Particle.FLASH ? 1 : 2 + (int) Math.round(hit * 7d),
+                    0.28d + hit * 0.45d, 0.35d + hit * 0.55d,
+                    0.28d + hit * 0.45d, 0.02d + hit * 0.035d, null, visibility);
+            drawRing(owner, heart, 0.25d + hit * 2.65d, 22,
+                    -time * 2.4d, shine, 0.85f + (float) hit * 0.4f, visibility);
         }
-        Location crown = centre.clone().add(0d, 1.35d + bass * 0.42d + hit * 0.6d, 0d);
-        drawRing(owner, crown, (0.48d + high * 0.42d) * spread, 14,
-                -time * 1.5d, shine, 0.95f, visibility);
-        drawRing(owner, centre.clone().add(0d, -0.88d, 0d), orbit * 1.2d, 28,
-                time * 1.8d, deep, 1.05f, visibility);
-        if (!moving && hit > 0.32d) {
-            spawn(owner, heart, Particle.DRAGON_BREATH, 4 + (int) Math.round(hit * 8d),
-                    0.35d, 0.45d, 0.35d, 0.02d, null, visibility);
-            spawn(owner, crown, hit > 0.72d ? Particle.FLASH : Particle.END_ROD,
-                    1, 0d, 0d, 0d, 0d, null, visibility);
+    }
+
+    /** A horned crown assembles above the wearer while a living pair of wings beats behind it. */
+    private void drawAmethystDragonCrown(
+            Player owner, Location centre, double phase, int step
+    ) {
+        Color royal = Color.fromRGB(145, 48, 224);
+        Color crystal = Color.fromRGB(221, 164, 255);
+        Color eye = Color.fromRGB(98, 226, 255);
+        Vector side = horizontalSide(owner);
+        Vector backwards = new Vector(side.getZ(), 0d, -side.getX());
+        double assemble = CosmeticAnimation.easeOutBack(
+                CosmeticAnimation.phaseProgress(step, 0, 20)
+        );
+        Location crown = centre.clone().add(0d, 1.23d, 0d);
+        for (int horn = -2; horn <= 2; horn++) {
+            double x = horn * 0.24d * assemble;
+            double height = (horn == 0 ? 0.58d : Math.abs(horn) == 2 ? 0.43d : 0.25d)
+                    * assemble;
+            Location root = crown.clone().add(side.clone().multiply(x));
+            Location tip = root.clone().add(side.clone().multiply(horn * 0.035d))
+                    .add(0d, height, 0d);
+            drawLine(owner, root, tip, 4, horn % 2 == 0 ? crystal : royal,
+                    0.9f, PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        }
+        drawLine(owner,
+                crown.clone().add(side.clone().multiply(-0.62d * assemble)),
+                crown.clone().add(side.clone().multiply(0.62d * assemble)),
+                8, royal, 1.1f, PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+
+        double flap = Math.sin(phase * 1.35d) * 0.24d;
+        Location wingRoot = centre.clone().add(backwards.clone().multiply(0.34d))
+                .add(0d, 0.18d, 0d);
+        for (int direction : new int[]{-1, 1}) {
+            for (int bone = 0; bone < 6; bone++) {
+                double reach = (0.48d + bone * 0.23d) * assemble;
+                Location elbow = wingRoot.clone()
+                        .add(side.clone().multiply(direction * reach * 0.58d))
+                        .add(backwards.clone().multiply(0.18d + bone * 0.07d))
+                        .add(0d, 0.62d + flap * (1d - bone / 6d), 0d);
+                Location tip = wingRoot.clone()
+                        .add(side.clone().multiply(direction * reach))
+                        .add(backwards.clone().multiply(0.3d + bone * 0.1d))
+                        .add(0d, 0.52d - bone * 0.16d + flap, 0d);
+                drawLine(owner, wingRoot, elbow, 3, crystal, 0.82f,
+                        PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+                drawLine(owner, elbow, tip, 3, bone % 2 == 0 ? royal : crystal, 0.9f,
+                        PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            }
+        }
+        if (step % 16 == 0) {
+            dust(owner, crown.clone().add(0d, 0.3d, 0d), eye, 1.15f,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            sound(owner, centre, Sound.ENTITY_ENDER_DRAGON_FLAP, 0.32f, 1.65f,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        }
+    }
+
+    /** Two recognisable wyrms chase one another through a tilted double helix. */
+    private void drawVioletWyrmOrbit(
+            Player owner, Location centre, double phase, int step
+    ) {
+        Color violet = Color.fromRGB(170, 66, 246);
+        Color dark = Color.fromRGB(61, 17, 104);
+        Color eye = Color.fromRGB(116, 237, 255);
+        Vector side = horizontalSide(owner);
+        Vector forward = new Vector(-side.getZ(), 0d, side.getX());
+        for (int wyrm = 0; wyrm < 2; wyrm++) {
+            double headAngle = phase * (wyrm == 0 ? 0.72d : -0.72d) + wyrm * Math.PI;
+            for (int segment = 0; segment < 11; segment++) {
+                double angle = headAngle - (wyrm == 0 ? 1d : -1d) * segment * 0.19d;
+                double radius = 1.18d - segment * 0.045d;
+                Location at = centre.clone()
+                        .add(side.clone().multiply(Math.cos(angle) * radius))
+                        .add(forward.clone().multiply(Math.sin(angle) * radius))
+                        .add(0d, Math.sin(angle * 2d + wyrm * Math.PI) * 0.48d, 0d);
+                dust(owner, at, segment % 3 == 0 ? dark : violet,
+                        segment == 0 ? 1.45f : Math.max(0.65f, 1.05f - segment * 0.035f),
+                        PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+                if (segment == 0) {
+                    Location gaze = at.clone().add(forward.clone().multiply(0.12d)).add(0d, 0.09d, 0d);
+                    dust(owner, gaze, eye, 0.72f, PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+                    if (step % 20 == wyrm * 10) {
+                        spawnMoving(owner, gaze, Particle.DRAGON_BREATH,
+                                forward.clone().multiply(0.055d).setY(0.018d), null,
+                                PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+                    }
+                }
+            }
+        }
+        drawRing(owner, centre.clone().add(0d, -0.88d, 0d), 1.32d, 22,
+                -phase * 0.45d, dark, 0.72f, PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+    }
+
+    /** A throne grows from a dark geode shell, opens, and seals itself with a royal halo. */
+    private void drawGeodeSovereignty(
+            Player owner, Location centre, double phase, int step
+    ) {
+        Color shell = Color.fromRGB(48, 22, 67);
+        Color amethyst = Color.fromRGB(153, 67, 226);
+        Color facet = Color.fromRGB(231, 185, 255);
+        Vector side = horizontalSide(owner);
+        Vector backwards = new Vector(side.getZ(), 0d, -side.getX());
+        double open = 0.72d + Math.sin(phase * 0.42d) * 0.18d;
+        Location seat = centre.clone().add(backwards.clone().multiply(0.48d)).add(0d, -0.58d, 0d);
+        for (int spine = -4; spine <= 4; spine++) {
+            double spread = spine / 4d;
+            Location root = seat.clone().add(side.clone().multiply(spread * 0.92d));
+            Location tip = root.clone()
+                    .add(side.clone().multiply(spread * open * 0.28d))
+                    .add(backwards.clone().multiply(0.18d + Math.abs(spread) * 0.25d))
+                    .add(0d, 1.15d + (1d - Math.abs(spread)) * 0.95d, 0d);
+            drawLine(owner, root, tip, 5, spine % 2 == 0 ? facet : amethyst,
+                    0.95f, PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            dust(owner, root, shell, 1.25f, PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        }
+        for (int arm : new int[]{-1, 1}) {
+            Location armRoot = seat.clone().add(side.clone().multiply(arm * 0.42d)).add(0d, 0.45d, 0d);
+            Location armTip = armRoot.clone().add(side.clone().multiply(arm * 0.72d)).add(0d, 0.22d, 0d);
+            drawLine(owner, armRoot, armTip, 5, shell, 1.15f,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            drawLine(owner, armTip, armTip.clone().add(0d, 0.5d, 0d), 3, facet, 0.82f,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        }
+        drawRing(owner, centre.clone().add(0d, 1.25d, 0d), 0.62d + open * 0.24d,
+                16, phase * 0.3d, facet, 0.8f, PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        if (step % 20 == 0) {
+            sound(owner, centre, Sound.BLOCK_AMETHYST_CLUSTER_HIT, 0.45f,
+                    0.8f + step / 80f, PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        }
+    }
+
+    /** A crowned egg is guarded by three hatchling silhouettes, exclusive to the winning brood. */
+    private void drawSovereignBrood(
+            Player owner, Location centre, double phase, int step
+    ) {
+        Color gold = Color.fromRGB(245, 183, 44);
+        Color violet = Color.fromRGB(151, 58, 225);
+        Vector side = horizontalSide(owner);
+        Location egg = centre.clone().add(0d, -0.05d, 0d);
+        drawVerticalGem(owner, egg, side, 0.48d, -phase * 0.25d, violet, gold);
+        for (int brood = 0; brood < 3; brood++) {
+            double angle = phase * 0.52d + brood * Math.PI * 2d / 3d;
+            Location head = centre.clone().add(Math.cos(angle) * 1.18d,
+                    0.18d + Math.sin(angle * 2d) * 0.3d,
+                    Math.sin(angle) * 1.18d);
+            Location tail = centre.clone().add(Math.cos(angle - 0.62d) * 0.78d,
+                    -0.1d, Math.sin(angle - 0.62d) * 0.78d);
+            drawLine(owner, tail, head, 5, brood == step / 27 ? gold : violet, 0.92f,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            dust(owner, head.clone().add(0d, 0.08d, 0d), gold, 0.7f,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        }
+        Location crown = centre.clone().add(0d, 1.32d, 0d);
+        drawRing(owner, crown, 0.48d, 10, phase, gold, 1.05f,
+                PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+    }
+
+    /** A faceted shield locks in front of its owner while crystal lances patrol its edge. */
+    private void drawCrystalVanguard(
+            Player owner, Location centre, double phase, int step
+    ) {
+        Color silver = Color.fromRGB(184, 215, 238);
+        Color violet = Color.fromRGB(153, 72, 224);
+        Vector side = horizontalSide(owner);
+        Vector forward = new Vector(-side.getZ(), 0d, side.getX());
+        Location shield = centre.clone().add(forward.clone().multiply(0.82d));
+        Location top = shield.clone().add(0d, 0.9d, 0d);
+        Location bottom = shield.clone().add(0d, -0.72d, 0d);
+        for (int edge : new int[]{-1, 1}) {
+            Location shoulder = shield.clone().add(side.clone().multiply(edge * 0.72d)).add(0d, 0.45d, 0d);
+            drawLine(owner, top, shoulder, 5, silver, 1.05f,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            drawLine(owner, shoulder, bottom, 6, violet, 1.05f,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        }
+        for (int lance = 0; lance < 4; lance++) {
+            double angle = phase * 0.48d + lance * Math.PI / 2d;
+            Vector radial = side.clone().multiply(Math.cos(angle))
+                    .add(forward.clone().multiply(Math.sin(angle)));
+            Location root = centre.clone().add(radial.clone().multiply(1.18d)).add(0d, -0.62d, 0d);
+            Location tip = root.clone().add(radial.clone().multiply(0.34d)).add(0d, 1.45d, 0d);
+            drawLine(owner, root, tip, 6, lance % 2 == 0 ? silver : violet, 0.9f,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        }
+        if (step % 24 == 0) {
+            spawn(owner, shield, Particle.ENCHANTED_HIT, 5, 0.35d, 0.55d, 0.15d,
+                    0.02d, null, PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        }
+    }
+
+    /** Three linked scale-crests exchange a pulse to represent the clan moving as one. */
+    private void drawVioletKin(
+            Player owner, Location centre, double phase, int step
+    ) {
+        Color bronze = Color.fromRGB(207, 111, 62);
+        Color violet = Color.fromRGB(174, 76, 235);
+        for (int crest = 0; crest < 3; crest++) {
+            double angle = phase * 0.38d + crest * Math.PI * 2d / 3d;
+            double pulse = 0.9d + (crest == (step / 9) % 3 ? 0.32d : 0d);
+            Location at = centre.clone().add(Math.cos(angle) * pulse,
+                    -0.2d + crest * 0.45d, Math.sin(angle) * pulse);
+            Location upper = at.clone().add(0d, 0.38d, 0d);
+            drawRing(owner, upper, 0.28d, 6, -angle, crest % 2 == 0 ? bronze : violet,
+                    0.82f, PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            Location next = centre.clone().add(
+                    Math.cos(angle + Math.PI * 2d / 3d) * pulse,
+                    -0.2d + ((crest + 1) % 3) * 0.45d,
+                    Math.sin(angle + Math.PI * 2d / 3d) * pulse);
+            drawLine(owner, at, next, 5, violet, 0.68f,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        }
+        if (step % 18 == 0) {
+            sound(owner, centre, Sound.BLOCK_AMETHYST_BLOCK_RESONATE, 0.4f, 1.35f,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
         }
     }
 
@@ -2046,7 +2381,97 @@ final class CosmeticEffectService implements Listener {
             case "shardstorm_wake" -> drawShardstormWake(owner, history);
             case "geode_bloom" -> drawGeodeBloom(owner, history);
             case "crystalfall_wake" -> drawCrystalfallWake(owner, history);
+            case "dragonflight_wake" -> drawDragonflightWake(owner, history);
+            case "shardwing_procession" -> drawShardwingProcession(owner, history);
+            case "crystalfire_trail" -> drawCrystalfireTrail(owner, history);
             default -> { }
+        }
+    }
+
+    /** A single dragon silhouette banks through the stored path and leaves three wingbeat cuts. */
+    private void drawDragonflightWake(Player owner, List<Location> history) {
+        Vector side = trailSide(history);
+        Color body = Color.fromRGB(92, 31, 151);
+        Color membrane = Color.fromRGB(196, 112, 255);
+        for (int flight = 0; flight < 3; flight++) {
+            int index = CosmeticAnimation.trailIndex(frame / 2L, history.size(), flight * 5);
+            Location chest = trailPoint(history, index, 0.62d + flight * 0.13d);
+            double bank = Math.sin(frame * 0.24d + flight * 1.8d);
+            drawLine(owner, chest.clone().add(0d, 0.28d, 0d),
+                    chest.clone().add(0d, -0.34d, 0d), 4, body, 1.0f,
+                    PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+            for (int direction : new int[]{-1, 1}) {
+                Location joint = chest.clone().add(side.clone().multiply(
+                        direction * (0.42d + bank * direction * 0.08d)
+                )).add(0d, 0.24d, 0d);
+                Location tip = chest.clone().add(side.clone().multiply(direction * 1.05d))
+                        .add(0d, -0.12d + bank * direction * 0.18d, 0d);
+                drawLine(owner, chest, joint, 3, membrane, 0.9f,
+                        PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+                drawLine(owner, joint, tip, 4, body, 0.82f,
+                        PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+            }
+            if (flight == 0) {
+                spawnMoving(owner, chest, Particle.DRAGON_BREATH,
+                        new Vector(0d, 0.025d, 0d), null,
+                        PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+            }
+        }
+    }
+
+    /** Paired crystal wings open in sequence, then shed their pointed tips into the path. */
+    private void drawShardwingProcession(Player owner, List<Location> history) {
+        Vector side = trailSide(history);
+        Color crystal = Color.fromRGB(218, 162, 255);
+        Color edge = Color.fromRGB(118, 44, 192);
+        for (int pair = 0; pair < 3; pair++) {
+            int index = CosmeticAnimation.trailIndex(frame / 3L, history.size(), pair * 6);
+            Location root = trailPoint(history, index, 0.46d + pair * 0.2d);
+            double open = 0.5d + CosmeticAnimation.pingPong(frame * 0.11d + pair * 0.31d) * 0.65d;
+            for (int direction : new int[]{-1, 1}) {
+                for (int shard = 0; shard < 4; shard++) {
+                    Location start = root.clone().add(side.clone().multiply(direction * 0.1d));
+                    Location end = root.clone()
+                            .add(side.clone().multiply(direction * open * (0.4d + shard * 0.21d)))
+                            .add(0d, 0.48d - shard * 0.24d, 0d);
+                    drawLine(owner, start, end, 3, shard % 2 == 0 ? crystal : edge,
+                            0.78f, PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+                    if (shard == 3 && (frame + pair) % 4 == 0) {
+                        spawnMoving(owner, end, Particle.END_ROD,
+                                side.clone().multiply(direction * 0.035d).setY(-0.018d), null,
+                                PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+                    }
+                }
+            }
+        }
+    }
+
+    /** Dragonfire climbs from each footprint, changes colour, and crystallises at its peak. */
+    private void drawCrystalfireTrail(Player owner, List<Location> history) {
+        Color flame = Color.fromRGB(185, 65, 241);
+        Color hot = Color.fromRGB(245, 178, 255);
+        for (int fire = 0; fire < 4; fire++) {
+            int index = CosmeticAnimation.trailIndex(frame / 2L, history.size(), fire * 4);
+            Location base = trailPoint(history, index, 0.08d);
+            double sway = Math.sin(frame * 0.31d + fire * 1.4d);
+            Location last = base;
+            for (int lick = 1; lick <= 5; lick++) {
+                double progress = lick / 5d;
+                Location at = base.clone().add(
+                        sway * progress * 0.22d,
+                        progress * (0.75d + fire * 0.08d),
+                        Math.cos(frame * 0.27d + lick) * progress * 0.14d
+                );
+                drawLine(owner, last, at, 2, lick >= 4 ? hot : flame,
+                        0.7f + (float) progress * 0.25f,
+                        PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+                last = at;
+            }
+            if ((frame + fire) % 5 == 0) {
+                spawnMoving(owner, last, Particle.TRIAL_SPAWNER_DETECTION_OMINOUS,
+                        new Vector(0d, 0.035d, 0d), null,
+                        PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+            }
         }
     }
 
@@ -2344,8 +2769,165 @@ final class CosmeticEffectService implements Listener {
             case "crystal_guillotine" -> animateCrystalGuillotine(owner, centre);
             case "violet_detonation" -> animateVioletDetonation(owner, centre);
             case "resonant_shatter" -> animateResonantShatter(owner, centre);
+            case "dragonheart_rupture" -> animateDragonheartRupture(owner, centre);
+            case "crystal_wingfall" -> animateCrystalWingfall(owner, centre);
+            case "endscale_cataclysm" -> animateEndscaleCataclysm(owner, centre);
             default -> { }
         }
+    }
+
+    /** A suspended Dragon heart cracks, ruptures, and throws arterial crystal streams upward. */
+    private void animateDragonheartRupture(Player owner, Location centre) {
+        Color heart = Color.fromRGB(184, 38, 176);
+        Color core = Color.fromRGB(255, 164, 243);
+        Vector side = horizontalSide(owner);
+        animate(owner, centre, 38, 2L, step -> {
+            Location middle = centre.clone().add(0d, 0.72d, 0d);
+            if (step < 17) {
+                double form = CosmeticAnimation.easeOutBack(step / 16d);
+                for (int lobe : new int[]{-1, 1}) {
+                    Location top = middle.clone().add(side.clone().multiply(lobe * 0.38d * form))
+                            .add(0d, 0.32d * form, 0d);
+                    Location point = middle.clone().add(0d, -0.7d * form, 0d);
+                    drawLine(owner, top, point, 6, lobe < 0 ? heart : core, 1.1f,
+                            PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                }
+                drawVerticalGem(owner, middle, side, 0.38d * form, step * 0.12d, heart, core);
+                if (step >= 10) {
+                    double crack = (step - 10d) / 6d;
+                    drawLine(owner, middle.clone().add(0d, 0.35d, 0d),
+                            middle.clone().add(side.clone().multiply(0.22d * crack))
+                                    .add(0d, -0.45d * crack, 0d),
+                            4, Color.WHITE, 0.75f,
+                            PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                }
+                return;
+            }
+            double burst = CosmeticAnimation.smooth((step - 17d) / 20d);
+            for (int jet = 0; jet < 12; jet++) {
+                double angle = jet * Math.PI * 2d / 12d + step * 0.08d;
+                double radius = burst * (1.1d + jet % 3 * 0.58d);
+                double lift = burst * (1.2d + (jet * 7 % 5) * 0.38d);
+                Location at = middle.clone().add(
+                        Math.cos(angle) * radius, lift - burst * burst * 1.35d,
+                        Math.sin(angle) * radius
+                );
+                spawnMoving(owner, at, jet % 4 == 0 ? Particle.DRAGON_BREATH : Particle.DUST,
+                        new Vector(Math.cos(angle) * 0.065d, 0.085d,
+                                Math.sin(angle) * 0.065d),
+                        jet % 4 == 0 ? null : new Particle.DustOptions(
+                                jet % 2 == 0 ? heart : core, 1.05f),
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+            }
+            drawRing(owner, middle, 0.2d + burst * 3.0d, 26,
+                    -step * 0.27d, core, 1.15f,
+                    PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+            if (step == 17) {
+                spawn(owner, middle, Particle.SONIC_BOOM, 1, 0d, 0d, 0d, 0d, null,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                sound(owner, centre, Sound.ENTITY_ENDER_DRAGON_HURT, 1.25f, 0.58f,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+            }
+        });
+    }
+
+    /** Two enormous crystal wings descend separately, snap shut, and dissolve into feathers. */
+    private void animateCrystalWingfall(Player owner, Location centre) {
+        Color membrane = Color.fromRGB(196, 116, 255);
+        Color edge = Color.fromRGB(238, 211, 255);
+        Vector side = horizontalSide(owner);
+        Vector forward = new Vector(-side.getZ(), 0d, side.getX());
+        animate(owner, centre, 40, 2L, step -> {
+            double fall = CosmeticAnimation.smooth(CosmeticAnimation.phaseProgress(step, 0, 20));
+            Location root = centre.clone().add(0d, 3.1d - fall * 2.45d, 0d);
+            double close = CosmeticAnimation.smooth(CosmeticAnimation.phaseProgress(step, 10, 22));
+            for (int direction : new int[]{-1, 1}) {
+                for (int feather = 0; feather < 7; feather++) {
+                    double reach = 0.6d + feather * 0.3d;
+                    double folded = reach * (1d - close * 0.72d);
+                    Location elbow = root.clone()
+                            .add(side.clone().multiply(direction * folded * 0.55d))
+                            .add(forward.clone().multiply(0.18d + feather * 0.06d))
+                            .add(0d, 0.45d - feather * 0.08d, 0d);
+                    Location tip = root.clone()
+                            .add(side.clone().multiply(direction * folded))
+                            .add(forward.clone().multiply(0.28d + feather * 0.1d))
+                            .add(0d, 0.35d - feather * 0.23d, 0d);
+                    drawLine(owner, root, elbow, 3, edge, 0.88f,
+                            PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                    drawLine(owner, elbow, tip, 4, feather % 2 == 0 ? membrane : edge,
+                            0.95f, PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                    if (step >= 23) {
+                        double scatter = CosmeticAnimation.phaseProgress(step, 23, 39);
+                        Location shard = tip.clone().add(
+                                side.clone().multiply(direction * scatter * (0.4d + feather * 0.12d))
+                        ).add(0d, scatter * (0.5d - feather * 0.13d), 0d);
+                        dust(owner, shard, feather % 2 == 0 ? edge : membrane, 0.85f,
+                                PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                    }
+                }
+            }
+            if (step == 22) {
+                spawn(owner, centre.clone().add(0d, 0.35d, 0d), Particle.FLASH,
+                        1, 0d, 0d, 0d, 0d, null,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                sound(owner, centre, Sound.ENTITY_ENDER_DRAGON_FLAP, 1.2f, 0.72f,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+            }
+        });
+    }
+
+    /** A column of dragon scales coils tighter until each scale becomes its own blast front. */
+    private void animateEndscaleCataclysm(Player owner, Location centre) {
+        Color scale = Color.fromRGB(126, 48, 196);
+        Color edge = Color.fromRGB(220, 166, 255);
+        animate(owner, centre, 42, 2L, step -> {
+            if (step < 23) {
+                double coil = CosmeticAnimation.smooth(step / 22d);
+                for (int plate = 0; plate < 16; plate++) {
+                    double progress = plate / 15d;
+                    double angle = step * 0.35d + progress * Math.PI * 5d;
+                    double radius = 1.45d - coil * 0.95d;
+                    Location at = centre.clone().add(
+                            Math.cos(angle) * radius,
+                            -0.55d + progress * 2.55d,
+                            Math.sin(angle) * radius
+                    );
+                    dust(owner, at, plate % 3 == 0 ? edge : scale,
+                            plate % 3 == 0 ? 1.25f : 0.9f,
+                            PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                    if (plate % 4 == 0) {
+                        Location point = at.clone().add(
+                                Math.cos(angle) * 0.32d, 0.18d, Math.sin(angle) * 0.32d);
+                        drawLine(owner, at, point, 3, edge, 0.72f,
+                                PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                    }
+                }
+                return;
+            }
+            double blast = CosmeticAnimation.easeOutBack((step - 23d) / 18d);
+            for (int plate = 0; plate < 18; plate++) {
+                double angle = plate * Math.PI * 2d / 18d + step * 0.12d;
+                Location at = centre.clone().add(
+                        Math.cos(angle) * blast * 3.25d,
+                        -0.45d + (plate % 6) * 0.46d + blast * 0.25d,
+                        Math.sin(angle) * blast * 3.25d
+                );
+                spawnMoving(owner, at, plate % 3 == 0 ? Particle.DRAGON_BREATH : Particle.DUST,
+                        new Vector(Math.cos(angle) * 0.08d, 0.03d,
+                                Math.sin(angle) * 0.08d),
+                        plate % 3 == 0 ? null : new Particle.DustOptions(
+                                plate % 2 == 0 ? scale : edge, 1.05f),
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+            }
+            if (step == 23) {
+                spawn(owner, centre, Particle.EXPLOSION_EMITTER, 1,
+                        0d, 0d, 0d, 0d, null,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                sound(owner, centre, Sound.ENTITY_ENDER_DRAGON_GROWL, 1.3f, 0.65f,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+            }
+        });
     }
 
     /**
@@ -2453,6 +3035,9 @@ final class CosmeticEffectService implements Listener {
             case "crystal_guillotine" -> new KillAccent(Color.fromRGB(205, 135, 255), 18, 34);
             case "violet_detonation" -> new KillAccent(Color.fromRGB(160, 45, 255), 16, 36);
             case "resonant_shatter" -> new KillAccent(Color.fromRGB(196, 112, 255), 17, 38);
+            case "dragonheart_rupture" -> new KillAccent(Color.fromRGB(226, 55, 196), 17, 38);
+            case "crystal_wingfall" -> new KillAccent(Color.fromRGB(218, 174, 255), 22, 40);
+            case "endscale_cataclysm" -> new KillAccent(Color.fromRGB(147, 58, 220), 23, 42);
             case "reapers_verdict" -> new KillAccent(Color.fromRGB(185, 235, 245), 18, 35);
             case "divine_rupture" -> new KillAccent(Color.fromRGB(255, 215, 70), 20, 38);
             case "crystalline_extinction" ->
@@ -2937,6 +3522,106 @@ final class CosmeticEffectService implements Listener {
             drawRing(owner, centre.clone().add(0d, 0.15d, 0d),
                     0.2d + wave * (2.1d - rank * 0.16d), rank == 1 ? 28 : 20,
                     -phase, colour, 1.05f,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        }
+    }
+
+    /** Dragon podium rewards use rank-specific regalia instead of the older leaderboard crown. */
+    private void drawDragonPodiumAura(
+            Player owner, CosmeticCatalog.Definition definition, Location centre,
+            double phase, int step
+    ) {
+        int rank = definition.leaderboardRank();
+        Color metal = podiumColour(rank);
+        Color amethyst = Color.fromRGB(188, 91, 238);
+        Color shine = rank == 1 ? Color.fromRGB(255, 242, 171)
+                : rank == 2 ? Color.fromRGB(224, 242, 255)
+                : Color.fromRGB(255, 184, 126);
+        Vector side = horizontalSide(owner);
+        Vector backwards = new Vector(side.getZ(), 0d, -side.getX());
+        double awaken = CosmeticAnimation.easeOutBack(
+                CosmeticAnimation.phaseProgress(step, 0, 22)
+        );
+        Location heart = centre.clone().add(backwards.clone().multiply(0.3d));
+
+        if (rank == 1) {
+            // A gold dragon opens from the shoulders and holds a violet crown in its chest.
+            drawVerticalGem(owner, heart, side, 0.38d * awaken,
+                    phase * 0.32d, amethyst, shine);
+            double flap = Math.sin(phase * 0.92d) * 0.18d;
+            for (int direction : new int[]{-1, 1}) {
+                for (int bone = 0; bone < 7; bone++) {
+                    double reach = (0.55d + bone * 0.22d) * awaken;
+                    Location joint = heart.clone()
+                            .add(side.clone().multiply(direction * reach * 0.52d))
+                            .add(backwards.clone().multiply(0.12d + bone * 0.05d))
+                            .add(0d, 0.48d + flap, 0d);
+                    Location tip = heart.clone()
+                            .add(side.clone().multiply(direction * reach))
+                            .add(backwards.clone().multiply(0.22d + bone * 0.09d))
+                            .add(0d, 0.5d - bone * 0.16d + flap, 0d);
+                    drawLine(owner, heart, joint, 3, shine, 0.82f,
+                            PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+                    drawLine(owner, joint, tip, 3, bone % 2 == 0 ? metal : amethyst,
+                            0.98f, PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+                }
+            }
+            Location crown = centre.clone().add(0d, 1.42d, 0d);
+            for (int horn = -2; horn <= 2; horn++) {
+                Location root = crown.clone().add(side.clone().multiply(horn * 0.21d));
+                Location tip = root.clone().add(0d, horn == 0 ? 0.52d : 0.28d, 0d);
+                drawLine(owner, root, tip, 3, horn % 2 == 0 ? shine : metal, 0.92f,
+                        PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            }
+        } else if (rank == 2) {
+            // Silver fangs circle a faceted Dragon eye and cross only on the pulse.
+            Location eye = centre.clone().add(0d, 0.25d, 0d);
+            drawVerticalGem(owner, eye, side, 0.46d * awaken,
+                    -phase * 0.55d, metal, amethyst);
+            for (int fang = 0; fang < 4; fang++) {
+                double angle = phase * 0.54d + fang * Math.PI / 2d;
+                Vector radial = side.clone().multiply(Math.cos(angle))
+                        .add(backwards.clone().multiply(Math.sin(angle)));
+                Location root = eye.clone().add(radial.clone().multiply(1.18d));
+                Location tip = root.clone().add(radial.clone().multiply(-0.24d))
+                        .add(0d, fang % 2 == 0 ? -0.8d : 0.8d, 0d);
+                drawLine(owner, root, tip, 6, fang % 2 == 0 ? metal : shine, 1.0f,
+                        PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            }
+            dust(owner, eye.clone().add(backwards.clone().multiply(-0.12d)),
+                    Color.fromRGB(114, 235, 255), 0.82f,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        } else {
+            // Bronze scales form a climbing helix, then flare into a Dragon claw at the top.
+            for (int scale = 0; scale < 18; scale++) {
+                double progress = scale / 17d;
+                double angle = phase * 0.5d + progress * Math.PI * 4d;
+                double radius = (0.74d + Math.sin(progress * Math.PI) * 0.4d) * awaken;
+                Location at = centre.clone()
+                        .add(side.clone().multiply(Math.cos(angle) * radius))
+                        .add(backwards.clone().multiply(Math.sin(angle) * radius))
+                        .add(0d, -0.78d + progress * 2.45d, 0d);
+                dust(owner, at, scale % 3 == 0 ? shine : scale % 2 == 0 ? metal : amethyst,
+                        scale % 3 == 0 ? 1.15f : 0.82f,
+                        PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            }
+            Location palm = centre.clone().add(0d, 1.08d, 0d);
+            for (int claw = -1; claw <= 1; claw++) {
+                Location tip = palm.clone().add(side.clone().multiply(claw * 0.55d))
+                        .add(backwards.clone().multiply(-0.22d)).add(0d, 0.68d, 0d);
+                drawLine(owner, palm, tip, 4, claw == 0 ? shine : metal, 0.9f,
+                        PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            }
+        }
+
+        drawRing(owner, centre.clone().add(0d, -0.9d, 0d),
+                (1.08d + Math.sin(phase * 0.5d) * 0.18d) * awaken,
+                18 + (3 - rank) * 3, -phase * 0.7d, metal, 0.9f,
+                PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        if (step % 20 == 0) {
+            sound(owner, centre, rank == 1 ? Sound.ENTITY_ENDER_DRAGON_FLAP
+                            : Sound.BLOCK_AMETHYST_BLOCK_RESONATE,
+                    0.42f, 1.05f + (3 - rank) * 0.2f,
                     PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
         }
     }
@@ -4010,7 +4695,7 @@ final class CosmeticEffectService implements Listener {
         if (!aura.nameplateWorthy()) {
             return null;
         }
-        if (aura.hiddenAmethystJackpot()) {
+        if (aura.genuineSecret()) {
             return "block.conduit.ambient.short";
         }
         return aura.secret()

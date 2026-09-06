@@ -110,7 +110,7 @@ final class CosmeticItems {
                     AMETHYST_AIRDROP_SOURCE, AMETHYST
             ).decoration(TextDecoration.ITALIC, false));
         }
-        if (!masked && definition.hiddenAmethystJackpot()) {
+        if (!masked && definition.genuineSecret()) {
             lore.add(Component.text("♫ MUSIC-SYNCED COSMETIC ♫", NamedTextColor.AQUA,
                             TextDecoration.BOLD)
                     .decoration(TextDecoration.ITALIC, false));
@@ -207,7 +207,7 @@ final class CosmeticItems {
             return obfuscated("????????????", NamedTextColor.DARK_PURPLE)
                     .decoration(TextDecoration.BOLD, true);
         }
-        if (!definition.hiddenAmethystJackpot()) {
+        if (!definition.genuineSecret()) {
             return Component.text(definition.displayName(), colour(definition), TextDecoration.BOLD)
                     .decoration(TextDecoration.ITALIC, false);
         }
