@@ -219,13 +219,30 @@ final class Screens {
     }
 
     static ActionButton button(String sprite, String label, String tooltip, Consumer<Player> run) {
+        return button(sprite, label, tooltip, (response, audience) -> run.accept(audience));
+    }
+
+    /**
+     * The same button on a screen that also has fields.
+     *
+     * <p>A multi-action screen hands every button the whole response, so a button that
+     * navigates elsewhere can still read what the player typed on the way out. Without
+     * this, a field is only ever readable by a confirmation prompt, and an amount typed
+     * next to an "Add items" button is silently thrown away when that button is pressed.
+     */
+    static ActionButton button(
+            String sprite,
+            String label,
+            String tooltip,
+            BiConsumer<DialogResponseView, Player> run
+    ) {
         ActionButton.Builder builder = ActionButton.builder(sprite == null
                         ? MenuText.buttonLabel(label, NamedTextColor.WHITE)
                         : Component.empty()
                                 .append(MenuText.sprite(sprite))
                                 .append(MenuText.buttonLabel(" " + label, NamedTextColor.WHITE)))
                 .width(150)
-                .action(callback((response, audience) -> run.accept(audience)));
+                .action(callback(run));
         return tooltip == null || tooltip.isBlank()
                 ? builder.build()
                 : builder.tooltip(MenuText.actionHint(tooltip)).build();

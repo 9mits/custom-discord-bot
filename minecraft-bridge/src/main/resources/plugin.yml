@@ -134,7 +134,7 @@ commands:
     permission: mgx.rtp
   pvp:
     description: Arrange a keep-inventory fight with another player.
-    usage: /pvp [challenge|accept|decline|spectate|leave|forfeit] [player]
+    usage: /pvp [challenge|accept|decline|spectate|leave|giveup] [player]
     aliases: [duel]
     permission: mgx.pvp
   mgx:

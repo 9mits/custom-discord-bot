@@ -1,7 +1,9 @@
 package bot.mgx.accessbridge;
 
+import io.papermc.paper.dialog.DialogResponseView;
 import io.papermc.paper.event.player.AsyncChatEvent;
 import io.papermc.paper.registry.data.dialog.ActionButton;
+import io.papermc.paper.registry.data.dialog.input.DialogInput;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextColor;
@@ -108,6 +110,22 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     private static final int HUB_START = 11;
     private static final int HUB_INCOMING = 13;
     private static final int HUB_LIVE = 15;
+    // Kept off the middle of the bottom row, which every board gives to Back. A
+    // Send Challenge tile written to slot 22 of a 27-slot board was drawn over by
+    // Back and could never be pressed, so a challenge could not be sent at all.
+    static final int SETUP_MONEY_SLOT = 11;
+    static final int SETUP_ITEMS_SLOT = 13;
+    static final int SETUP_COSMETICS_SLOT = 15;
+    static final int SETUP_CLEAR_SLOT = 21;
+    static final int SETUP_SEND_SLOT = 23;
+    static final int ACCEPT_OFFER_SLOT = 10;
+    static final int ACCEPT_MONEY_SLOT = 12;
+    static final int ACCEPT_ITEMS_SLOT = 14;
+    static final int ACCEPT_COSMETICS_SLOT = 16;
+    static final int ACCEPT_DECLINE_SLOT = 21;
+    static final int ACCEPT_CONFIRM_SLOT = 23;
+    static final int SETUP_BOARD_SIZE = 27;
+    private static final String MONEY_INPUT = "money";
     private static final long NOTICE_COOLDOWN_MILLIS = 2_000L;
     private static final Set<Material> DANGEROUS = Set.of(
             Material.WATER, Material.LAVA, Material.CACTUS, Material.MAGMA_BLOCK,
@@ -331,7 +349,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             return true;
         }
         if (isFighter(player.getUniqueId())) {
-            if (args.length > 0 && args[0].equalsIgnoreCase("forfeit")) {
+            if (args.length > 0 && givingUp(args[0])) {
                 forfeit(player);
             } else {
                 openFightStatus(player, fighting.get(player.getUniqueId()));
@@ -369,7 +387,8 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 }
             }
             case "leave" -> error(player, "You are not watching a fight.");
-            case "forfeit" -> error(player, "You are not in a fight.");
+            case "forfeit", "surrender", "giveup", "ff" ->
+                    error(player, "You are not in a fight, so there is nothing to give up.");
             default -> {
                 Player target = Bukkit.getPlayerExact(args[0]);
                 if (target == null) {
@@ -388,7 +407,8 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     ) {
         if (args.length == 1) {
             String prefix = args[0].toLowerCase(Locale.ROOT);
-            return List.of("challenge", "accept", "decline", "spectate", "leave", "forfeit")
+            return List.of("challenge", "accept", "decline", "spectate", "leave",
+                            "forfeit", "giveup")
                     .stream().filter(option -> option.startsWith(prefix)).toList();
         }
         if (args.length == 2 && List.of("challenge", "accept", "decline", "spectate")
@@ -472,38 +492,177 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             draft = new DuelDraft(target.getUniqueId());
             setupDrafts.put(challenger.getUniqueId(), draft);
         }
-        openChestSetup(challenger, target, draft);
+        openSetupScreen(challenger, target, draft);
     }
 
-    private void sendChallenge(Player challenger, UUID targetId, DuelDraft draft) {
-        Player target = Bukkit.getPlayer(targetId);
-        if (target == null || !canChallenge(challenger, target, true)
-                || !acceptingChallenges(challenger, target, true)) {
+    /**
+     * The challenge screen: cash is a field on it, and only items and cosmetics
+     * open a chest.
+     *
+     * <p>Money is a number, not a stack, so making the player leave the menu and type
+     * it into chat was asking a container to do a text box's job. A dialog has the box,
+     * and reads it back on whichever button the player presses — including the two that
+     * navigate away — so an amount typed before "Items" is still staked afterwards.
+     * Bedrock cannot draw a dialog and gets the same field as its own form; only a
+     * client with neither falls back to the chest and the chat prompt.
+     */
+    private void openSetupScreen(Player player, Player target, DuelDraft draft) {
+        openSetupScreen(player, target, draft, null);
+    }
+
+    private void openSetupScreen(
+            Player player, Player target, DuelDraft draft, String problem
+    ) {
+        UUID targetId = target.getUniqueId();
+        String body = setupBody(player, draft, problem);
+        if (!clientSupport.supportsDialogs(player)) {
+            List<BedrockForms.Button> buttons = List.of(
+                    new BedrockForms.Button("Money: " + EconomyFormat.dollars(draft.money),
+                            () -> openMoneyPrompt(player, draft)),
+                    new BedrockForms.Button("Items: " + itemCount(draft.items),
+                            () -> openItemWager(player, draft, false)),
+                    new BedrockForms.Button("Cosmetics: " + draft.cosmetics.size(),
+                            () -> openCosmeticWager(player, draft, false)),
+                    new BedrockForms.Button("Clear Wager", () -> {
+                        clearWager(draft);
+                        reopenSetup(player, targetId, null);
+                    }),
+                    new BedrockForms.Button("Send Challenge", () -> reopenSetup(
+                            player, targetId, sendChallenge(player, targetId, draft)))
+            );
+            if (!forms.menu(player, "Fight " + target.getName(), body, buttons,
+                    this::openTargets)) {
+                openChestSetup(player, target, draft);
+            }
             return;
+        }
+        List<ActionButton> buttons = List.of(
+                Screens.button("item/shulker_shell", "Items: " + itemCount(draft.items),
+                        "Stake real items. Opens a chest to put them in.",
+                        (response, viewer) -> withTypedMoney(viewer, draft, response,
+                                () -> openItemWager(viewer, draft, false))),
+                Screens.button("item/nether_star", "Cosmetics: " + draft.cosmetics.size(),
+                        "Stake cosmetics from your wardrobe.",
+                        (response, viewer) -> withTypedMoney(viewer, draft, response,
+                                () -> openCosmeticWager(viewer, draft, false))),
+                Screens.button("item/barrier", "Clear Wager", "Remove every stake.",
+                        (response, viewer) -> {
+                            clearWager(draft);
+                            reopenSetup(viewer, targetId, null);
+                        }),
+                Screens.button("item/diamond_sword", "Send Challenge",
+                        "They see your stake and answer with their own.",
+                        (response, viewer) -> withTypedMoney(viewer, draft, response,
+                                () -> reopenSetup(viewer, targetId,
+                                        sendChallenge(viewer, targetId, draft))))
+        );
+        Screens.show(player, "Fight " + target.getName(), Screens.body(body),
+                List.of(DialogInput.text(MONEY_INPUT, Component.text(
+                                "Money each  (0, 500, 2.5k, 1.4m)", MenuText.LABEL))
+                        .initial(draft.money <= 0L ? "" : String.valueOf(draft.money))
+                        .maxLength(20)
+                        .build()),
+                buttons, 2, this::openTargets);
+    }
+
+    private String setupBody(Player player, DuelDraft draft, String problem) {
+        return (problem == null ? "" : problem + "\n")
+                + "KEEP INVENTORY is always on. The winner takes both stakes.\n"
+                + "Your wallet: " + EconomyFormat.dollars(economy.balance(player.getUniqueId()))
+                + "\nStaked now: " + stakeSummary(
+                        draft.money, draft.items.size(), draft.cosmetics.size());
+    }
+
+    private static void clearWager(DuelDraft draft) {
+        draft.money = 0L;
+        draft.items = new ArrayList<>();
+        draft.cosmetics.clear();
+    }
+
+    /** Saves the amount the field is holding before a button leaves the screen. */
+    private void withTypedMoney(
+            Player player, DuelDraft draft, DialogResponseView response, Runnable next
+    ) {
+        String problem = applyMoney(draft, response.getText(MONEY_INPUT));
+        if (problem == null) {
+            next.run();
+        } else {
+            reopenSetup(player, draft.subject, problem);
+        }
+    }
+
+    /**
+     * Reads a typed wager, returning null or the reason it was refused.
+     *
+     * <p>Blank and zero are a real answer — "no cash, items only" — which
+     * {@link EconomyFormat#parseAmount} rejects, because every other amount in the
+     * economy has to be worth at least a dollar.
+     */
+    private static String applyMoney(DuelDraft draft, String typed) {
+        String text = typed == null ? "" : typed.strip();
+        if (text.isEmpty() || text.equals("0") || text.equals("$0")) {
+            draft.money = 0L;
+            return null;
+        }
+        try {
+            draft.money = EconomyFormat.parseAmount(text);
+            return null;
+        } catch (IllegalArgumentException failure) {
+            return failure.getMessage();
+        }
+    }
+
+    /** The amount on its own screen, for the clients that cannot show it beside the buttons. */
+    private void openMoneyPrompt(Player player, DuelDraft draft) {
+        if (forms.prompt(player, "Money Wager", "Amount each (0 for none)",
+                draft.money <= 0L ? "" : String.valueOf(draft.money),
+                typed -> reopenSetup(player, draft.subject, applyMoney(draft, typed)),
+                () -> reopenSetup(player, draft.subject, null))) {
+            return;
+        }
+        prompts.put(player.getUniqueId(), Prompt.MONEY);
+        player.closeInventory();
+        info(player, "Type the money wager in chat, 0 for none, or cancel.");
+    }
+
+    /**
+     * Sends the challenge, or says why it could not go.
+     *
+     * <p>The reason is returned rather than sent to chat because the screen this is
+     * pressed from covers it: a dialog is drawn over the chat box, so a Send Challenge
+     * that failed on the cooldown or a wager the player can no longer cover looked
+     * like a button that simply did nothing. The caller puts the answer back on the
+     * screen the player is still looking at.
+     */
+    private String sendChallenge(Player challenger, UUID targetId, DuelDraft draft) {
+        Player target = Bukkit.getPlayer(targetId);
+        if (target == null) {
+            return "They went offline.";
+        }
+        String problem = challengeProblem(challenger, target);
+        if (problem == null) {
+            problem = acceptingProblem(target);
+        }
+        if (problem != null) {
+            return problem;
         }
         long now = System.currentTimeMillis();
         long cooldown = challengeCooldownSeconds() * 1_000L;
         long remaining = cooldown - (now - lastChallenges.getOrDefault(
                 challenger.getUniqueId(), 0L));
         if (remaining > 0L) {
-            error(challenger, "Wait " + ((remaining + 999L) / 1_000L)
-                    + " seconds before sending another challenge.");
-            return;
+            return "Wait " + ((remaining + 999L) / 1_000L)
+                    + " seconds before sending another challenge.";
         }
         long money = draft.money;
         if (economy.balance(challenger.getUniqueId()) < money) {
-            error(challenger, "You do not currently have " + EconomyFormat.dollars(money) + ".");
-            return;
+            return "You do not currently have " + EconomyFormat.dollars(money) + ".";
         }
         if (!hasItems(challenger, draft.items)) {
-            error(challenger, "Your wager items changed.");
-            openSetup(challenger, target);
-            return;
+            return "Your wager items changed. Set them again.";
         }
         if (!ownsCosmetics(challenger, draft.cosmetics)) {
-            error(challenger, "Your wager cosmetics changed.");
-            openSetup(challenger, target);
-            return;
+            return "Your wager cosmetics changed. Choose them again.";
         }
         invitations.values().removeIf(invitation -> invitation.challenger().equals(
                 challenger.getUniqueId()));
@@ -516,6 +675,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         lastChallenges.put(challenger.getUniqueId(), now);
         setupDrafts.remove(challenger.getUniqueId());
         challenger.closeInventory();
+        challenger.closeDialog();
         info(challenger, "Challenge sent to " + target.getName() + ".");
         target.sendMessage(prefix()
                 .append(Component.text(challenger.getName(), NamedTextColor.GOLD))
@@ -525,6 +685,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                                 "/pvp accept " + challenger.getName())))
                 .append(Component.text(" or use /pvp.", NamedTextColor.GRAY))
         );
+        return null;
     }
 
     private void openIncoming(Player player) {
@@ -571,7 +732,75 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             draft = new DuelDraft(invitation.id());
             acceptDrafts.put(target.getUniqueId(), draft);
         }
-        openChestAccept(target, invitation, draft);
+        openAcceptScreen(target, invitation, draft);
+    }
+
+    /**
+     * The answer to a challenge, drawn like the screen that sent it.
+     *
+     * <p>The cash is the challenger's number and both players stake it, so there is
+     * nothing to type here; only the recipient's own items and cosmetics need a chest.
+     */
+    private void openAcceptScreen(Player player, Invitation invitation, DuelDraft draft) {
+        UUID invitationId = invitation.id();
+        if (!clientSupport.supportsDialogs(player)) {
+            List<BedrockForms.Button> buttons = List.of(
+                    new BedrockForms.Button("Your Items: " + itemCount(draft.items),
+                            () -> openItemWager(player, draft, true)),
+                    new BedrockForms.Button("Your Cosmetics: " + draft.cosmetics.size(),
+                            () -> openCosmeticWager(player, draft, true)),
+                    new BedrockForms.Button("Accept & Fight",
+                            () -> acceptWith(player, invitationId, draft)),
+                    new BedrockForms.Button("Decline", () -> {
+                        declineByName(player, name(invitation.challenger()));
+                        openIncoming(player);
+                    })
+            );
+            if (!forms.menu(player, "Fight " + name(invitation.challenger()) + "?",
+                    acceptBody(invitation, draft), buttons, this::openIncoming)) {
+                openChestAccept(player, invitation, draft);
+            }
+            return;
+        }
+        List<ActionButton> buttons = List.of(
+                Screens.button("item/shulker_shell", "Your Items: " + itemCount(draft.items),
+                        "Stake real items. Opens a chest to put them in.",
+                        viewer -> openItemWager(viewer, draft, true)),
+                Screens.button("item/nether_star", "Your Cosmetics: " + draft.cosmetics.size(),
+                        "Stake cosmetics from your wardrobe.",
+                        viewer -> openCosmeticWager(viewer, draft, true)),
+                Screens.button("item/diamond_sword", "Accept & Fight",
+                        "Both of you are moved to an empty part of the world.",
+                        viewer -> acceptWith(viewer, invitationId, draft)),
+                Screens.button("item/barrier", "Decline", "Turn this challenge down.",
+                        viewer -> {
+                            declineByName(viewer, name(invitation.challenger()));
+                            openIncoming(viewer);
+                        })
+        );
+        Screens.show(player, "Fight " + name(invitation.challenger()) + "?",
+                Screens.body(acceptBody(invitation, draft)), buttons, 2, this::openIncoming);
+    }
+
+    private String acceptBody(Invitation invitation, DuelDraft draft) {
+        return "They stake " + stakeSummary(
+                        invitation.moneyEach(), invitation.challengerItems().size(),
+                        invitation.challengerCosmetics().size())
+                + "\nYou stake " + stakeSummary(
+                        invitation.moneyEach(), draft.items.size(), draft.cosmetics.size())
+                + "\nThe cash is matched. The winner takes both stakes.";
+    }
+
+    /** Accepts the invitation as it stands right now, not as it looked when drawn. */
+    private void acceptWith(Player player, UUID invitationId, DuelDraft draft) {
+        Invitation invitation = invitations.get(invitationId);
+        if (invitation == null) {
+            error(player, "That challenge expired.");
+            return;
+        }
+        accept(player, invitation, new AcceptedTerms(
+                invitation.challengerItems(), draft.items,
+                invitation.challengerCosmetics(), List.copyOf(draft.cosmetics)));
     }
 
     private void accept(Player target, Invitation invitation, AcceptedTerms terms) {
@@ -821,7 +1050,8 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         player.setWorldBorder(personalBorder(fight.arena));
         boolean moved = teleport(player, start);
         player.sendMessage(prefix().append(Component.text(
-                "KEEP INVENTORY is active. Fight only your opponent; /pvp forfeit ends it.",
+                "KEEP INVENTORY is active. Fight only your opponent. "
+                        + "Type /pvp to give up — the stakes go to them.",
                 NamedTextColor.GREEN
         )));
         return moved;
@@ -881,13 +1111,25 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         if (fight == null) {
             return;
         }
-        String body = fight.label() + "\nKEEP INVENTORY • leaving forfeits";
+        String body = fight.label()
+                + "\nKEEP INVENTORY is on, so nothing you carry drops."
+                + "\nGiving up ends the fight and hands your opponent"
+                + "\nthe money, items and cosmetics you both staked."
+                + "\nLeaving the server does the same thing.";
         if (!clientSupport.supportsDialogs(player)) {
-            forms.confirm(player, "Fight in Progress", body, "Forfeit", () -> forfeit(player));
+            forms.confirm(player, "Fight in Progress", body, "Give Up", () -> forfeit(player));
             return;
         }
-        Screens.confirm(player, "Fight in Progress", Screens.body(body), "Forfeit",
+        Screens.confirm(player, "Fight in Progress", Screens.body(body), "Give Up",
                 NamedTextColor.RED, this::forfeit, Player::closeDialog);
+    }
+
+    /** Every spelling a player reaches for when they want out of a fight. */
+    private static boolean givingUp(String word) {
+        return switch (word.toLowerCase(Locale.ROOT)) {
+            case "forfeit", "surrender", "giveup", "ff" -> true;
+            default -> false;
+        };
     }
 
     private void forfeit(Player player) {
@@ -896,7 +1138,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             error(player, "You are not in a fight.");
             return;
         }
-        endFight(fight, fight.opponent(player.getUniqueId()), player.getName() + " forfeited");
+        endFight(fight, fight.opponent(player.getUniqueId()), player.getName() + " gave up");
     }
 
     private void endFight(Fight fight, UUID winnerId, String result) {
@@ -1183,36 +1425,41 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private void openChestSetup(Player player, Player target, DuelDraft draft) {
-        DuelBoard holder = board(Board.SETUP, target.getUniqueId(), 27,
+        DuelBoard holder = board(Board.SETUP, target.getUniqueId(), SETUP_BOARD_SIZE,
                 "Fight " + target.getName());
-        holder.inventory.setItem(10, MenuItems.button(Material.GOLD_INGOT,
+        holder.inventory.setItem(SETUP_MONEY_SLOT, MenuItems.button(Material.GOLD_INGOT,
                 "Money: " + EconomyFormat.dollars(draft.money), "Staked by each player."));
-        holder.inventory.setItem(12, MenuItems.button(Material.CHEST,
+        holder.inventory.setItem(SETUP_ITEMS_SLOT, MenuItems.button(Material.CHEST,
                 "Items: " + itemCount(draft.items), "Add any items."));
-        holder.inventory.setItem(14, MenuItems.button(Material.NETHER_STAR,
+        holder.inventory.setItem(SETUP_COSMETICS_SLOT, MenuItems.button(Material.NETHER_STAR,
                 "Cosmetics: " + draft.cosmetics.size(), "Choose from your wardrobe."));
-        holder.inventory.setItem(16, MenuItems.button(Material.BARRIER,
+        holder.inventory.setItem(SETUP_CLEAR_SLOT, MenuItems.button(Material.BARRIER,
                 "Clear Wager", "Remove all stakes."));
-        holder.inventory.setItem(22, MenuItems.button(Material.DIAMOND_SWORD,
+        holder.inventory.setItem(SETUP_SEND_SLOT, MenuItems.button(Material.DIAMOND_SWORD,
                 "Send Challenge", "KEEP INVENTORY"));
         MenuItems.back(holder.inventory);
         MenuItems.show(plugin, player, holder.inventory);
     }
 
     private void openItemWager(Player player, DuelDraft draft, boolean accepting) {
+        // Reached from a dialog on Java, and a container cannot open behind one.
+        player.closeDialog();
         Board kind = accepting ? Board.ACCEPT_ITEMS : Board.SETUP_ITEMS;
         DuelBoard holder = board(kind, draft.subject, BOARD_SIZE, "Add Wager Items");
         holder.inventory.setItem(45, MenuItems.button(Material.CHEST,
-                "Saved: " + itemCount(draft.items), "Place items above."));
+                "Staked now: " + itemCount(draft.items),
+                "Drag or shift-click items into the space above.",
+                "Nothing leaves your inventory until the fight starts."));
         holder.inventory.setItem(48, MenuItems.button(Material.LIME_CONCRETE,
-                "Save Items"));
+                "Save & Go Back", "Stakes exactly what is above."));
         holder.inventory.setItem(50, MenuItems.button(Material.RED_DYE,
-                "Clear Saved Items"));
+                "Stake No Items", "Clears the wager and empties this screen."));
         MenuItems.back(holder.inventory);
         MenuItems.show(plugin, player, holder.inventory);
     }
 
     private void openCosmeticWager(Player player, DuelDraft draft, boolean accepting) {
+        player.closeDialog();
         Board kind = accepting ? Board.ACCEPT_COSMETICS : Board.SETUP_COSMETICS;
         DuelBoard holder = board(kind, draft.subject, BOARD_SIZE, "Choose Cosmetics");
         int slot = 0;
@@ -1252,20 +1499,21 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private void openChestAccept(Player player, Invitation invitation, DuelDraft draft) {
-        DuelBoard holder = board(Board.ACCEPT, invitation.id(), 27,
+        DuelBoard holder = board(Board.ACCEPT, invitation.id(), SETUP_BOARD_SIZE,
                 "Fight " + name(invitation.challenger()) + "?");
-        holder.inventory.setItem(10, MenuItems.button(Material.PLAYER_HEAD,
+        holder.inventory.setItem(ACCEPT_OFFER_SLOT, MenuItems.button(Material.PLAYER_HEAD,
                 name(invitation.challenger()) + " Offers",
                 stakeLines(invitation.moneyEach(), invitation.challengerItems(),
                         invitation.challengerCosmetics())));
-        holder.inventory.setItem(12, MenuItems.button(Material.GOLD_INGOT,
+        holder.inventory.setItem(ACCEPT_MONEY_SLOT, MenuItems.button(Material.GOLD_INGOT,
                 "Money: " + EconomyFormat.dollars(invitation.moneyEach()), "Staked by each player."));
-        holder.inventory.setItem(14, MenuItems.button(Material.CHEST,
+        holder.inventory.setItem(ACCEPT_ITEMS_SLOT, MenuItems.button(Material.CHEST,
                 "Your Items: " + itemCount(draft.items), "Add any items."));
-        holder.inventory.setItem(16, MenuItems.button(Material.NETHER_STAR,
+        holder.inventory.setItem(ACCEPT_COSMETICS_SLOT, MenuItems.button(Material.NETHER_STAR,
                 "Your Cosmetics: " + draft.cosmetics.size(), "Choose from your wardrobe."));
-        holder.inventory.setItem(21, MenuItems.button(Material.RED_CONCRETE, "Decline"));
-        holder.inventory.setItem(23, MenuItems.button(Material.LIME_CONCRETE,
+        holder.inventory.setItem(ACCEPT_DECLINE_SLOT, MenuItems.button(
+                Material.RED_CONCRETE, "Decline"));
+        holder.inventory.setItem(ACCEPT_CONFIRM_SLOT, MenuItems.button(Material.LIME_CONCRETE,
                 "Accept & Fight", "KEEP INVENTORY"));
         MenuItems.back(holder.inventory);
         MenuItems.show(plugin, player, holder.inventory);
@@ -1303,7 +1551,20 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 return;
             }
             if (raw >= event.getInventory().getSize()) {
-                event.setCancelled(event.isShiftClick());
+                if (!event.isShiftClick()) {
+                    event.setCancelled(false);
+                    return;
+                }
+                // Vanilla shift-click fills the whole container, which would drop a
+                // stack onto the button row. Moving it by hand keeps the navigation
+                // intact and still gives players the way they actually load a chest.
+                event.setCancelled(true);
+                if (event.getWhoClicked() instanceof Player clicker
+                        && !empty(event.getCurrentItem())) {
+                    event.setCurrentItem(depositIntoWager(
+                            event.getInventory(), event.getCurrentItem()));
+                    clicker.updateInventory();
+                }
                 return;
             }
         }
@@ -1390,15 +1651,13 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                     draft = new DuelDraft(invite.id());
                     acceptDrafts.put(viewer.getUniqueId(), draft);
                 }
-                if (slot == 14) {
+                if (slot == ACCEPT_ITEMS_SLOT) {
                     openItemWager(viewer, draft, true);
-                } else if (slot == 16) {
+                } else if (slot == ACCEPT_COSMETICS_SLOT) {
                     openCosmeticWager(viewer, draft, true);
-                } else if (slot == 23) {
-                    accept(viewer, invite, new AcceptedTerms(
-                            invite.challengerItems(), draft.items,
-                            invite.challengerCosmetics(), List.copyOf(draft.cosmetics)));
-                } else if (slot == 21) {
+                } else if (slot == ACCEPT_CONFIRM_SLOT) {
+                    acceptWith(viewer, invite.id(), draft);
+                } else if (slot == ACCEPT_DECLINE_SLOT) {
                     declineByName(viewer, name(invite.challenger()));
                 }
             });
@@ -1437,21 +1696,17 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         }
         DuelDraft draft = setupDrafts.computeIfAbsent(
                 player.getUniqueId(), ignored -> new DuelDraft(targetId));
-        if (slot == 10) {
-            prompts.put(player.getUniqueId(), Prompt.MONEY);
-            player.closeInventory();
-            info(player, "Type the money wager, 0, or cancel.");
-        } else if (slot == 12) {
+        if (slot == SETUP_MONEY_SLOT) {
+            openMoneyPrompt(player, draft);
+        } else if (slot == SETUP_ITEMS_SLOT) {
             openItemWager(player, draft, false);
-        } else if (slot == 14) {
+        } else if (slot == SETUP_COSMETICS_SLOT) {
             openCosmeticWager(player, draft, false);
-        } else if (slot == 16) {
-            draft.money = 0L;
-            draft.items = new ArrayList<>();
-            draft.cosmetics.clear();
+        } else if (slot == SETUP_CLEAR_SLOT) {
+            clearWager(draft);
             openChestSetup(player, target, draft);
-        } else if (slot == 22) {
-            sendChallenge(player, targetId, draft);
+        } else if (slot == SETUP_SEND_SLOT) {
+            reopenSetup(player, targetId, sendChallenge(player, targetId, draft));
         }
     }
 
@@ -1481,10 +1736,10 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             if (draft != null) reopenSetup(player, draft.subject);
             return;
         }
-        try {
-            draft.money = typed.equals("0") ? 0L : EconomyFormat.parseAmount(typed);
-        } catch (IllegalArgumentException exception) {
-            error(player, exception.getMessage());
+        String problem = applyMoney(draft, typed);
+        if (problem != null) {
+            // Chat is the screen here, so the prompt stays open for another attempt.
+            error(player, problem);
             return;
         }
         prompts.remove(player.getUniqueId());
@@ -1614,12 +1869,18 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         if (!isParticipant(event.getPlayer().getUniqueId())) {
             return;
         }
-        String typed = event.getMessage().strip().toLowerCase(Locale.ROOT);
-        boolean allowed = typed.equals("/pvp forfeit") || typed.equals("/pvp leave")
-                || typed.equals("/duel forfeit") || typed.equals("/duel leave");
+        String[] typed = event.getMessage().strip().toLowerCase(Locale.ROOT).split("\\s+");
+        // Bare /pvp is allowed through so the fight screen — and the Give Up button on
+        // it — can be reopened. Blocking it left the exact spelling of a subcommand as
+        // the only way out of a fight, which is not something a player can guess.
+        boolean pvp = typed[0].equals("/pvp") || typed[0].equals("/duel");
+        boolean allowed = pvp && (typed.length == 1
+                || givingUp(typed[1]) || typed[1].equals("leave"));
         if (!allowed) {
             event.setCancelled(true);
-            error(event.getPlayer(), "Only /pvp forfeit or /pvp leave is available here.");
+            error(event.getPlayer(), spectators.containsKey(event.getPlayer().getUniqueId())
+                    ? "Only /pvp leave is available while you are watching."
+                    : "Only /pvp is available during a fight. It is where you give up.");
         } else {
             // CombatLog may have refused it earlier in the same event. These two are
             // the controlled exit routes, so they must reach this service.
@@ -1743,7 +2004,8 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         Player player = event.getPlayer();
         Fight fight = fighting.get(player.getUniqueId());
         if (fight != null && fight.phase != Phase.ENDING) {
-            endFight(fight, fight.opponent(player.getUniqueId()), player.getName() + " left and forfeited");
+            endFight(fight, fight.opponent(player.getUniqueId()),
+                    player.getName() + " left and gave up");
         }
         if (spectators.containsKey(player.getUniqueId())) {
             leaveSpectator(player, false);
@@ -1943,6 +2205,13 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private boolean canChallenge(Player challenger, Player target, boolean explain) {
+        String problem = challengeProblem(challenger, target);
+        if (problem != null && explain) error(challenger, problem);
+        return problem == null;
+    }
+
+    /** Why these two cannot fight, or null. Worded to be shown on the screen itself. */
+    private String challengeProblem(Player challenger, Player target) {
         String problem = null;
         if (!enabled()) problem = "/pvp is currently disabled.";
         else if (challenger.equals(target)) problem = "You cannot challenge yourself.";
@@ -1962,18 +2231,21 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 || (plugin.afkService() != null && plugin.afkService().inCombat(target))) {
             problem = "Finish the current combat tag first.";
         }
-        if (problem != null && explain) error(challenger, problem);
-        return problem == null;
+        return problem;
     }
 
     private boolean acceptingChallenges(Player challenger, Player target, boolean explain) {
-        boolean accepting = settings.isEnabled(
-                target.getUniqueId(), PlayerSettingsStore.Setting.DUEL_REQUESTS
-        );
-        if (!accepting && explain) {
-            error(challenger, target.getName() + " is not accepting PvP challenges.");
+        String problem = acceptingProblem(target);
+        if (problem != null && explain) {
+            error(challenger, problem);
         }
-        return accepting;
+        return problem == null;
+    }
+
+    private String acceptingProblem(Player target) {
+        return settings.isEnabled(target.getUniqueId(), PlayerSettingsStore.Setting.DUEL_REQUESTS)
+                ? null
+                : target.getName() + " is not accepting PvP challenges.";
     }
 
     private boolean readyToStart(Player first, Player second) {
@@ -2264,6 +2536,36 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         player.getInventory().setStorageContents(contents);
     }
 
+    /**
+     * Puts a stack into the wager area only, and hands back whatever did not fit.
+     *
+     * <p>Slots 45 and up are the screen's own buttons, so a stack is merged and then
+     * placed across the first {@value #PAGE_SIZE} slots rather than by Bukkit's own
+     * fill, which would happily bury Back under a shift-clicked stack of cobblestone.
+     */
+    private static ItemStack depositIntoWager(Inventory inventory, ItemStack stack) {
+        ItemStack remaining = stack.clone();
+        for (int slot = 0; slot < PAGE_SIZE && remaining.getAmount() > 0; slot++) {
+            ItemStack existing = inventory.getItem(slot);
+            if (empty(existing) || !existing.isSimilar(remaining)) continue;
+            int room = existing.getMaxStackSize() - existing.getAmount();
+            if (room <= 0) continue;
+            int moved = Math.min(room, remaining.getAmount());
+            existing.setAmount(existing.getAmount() + moved);
+            inventory.setItem(slot, existing);
+            remaining.setAmount(remaining.getAmount() - moved);
+        }
+        for (int slot = 0; slot < PAGE_SIZE && remaining.getAmount() > 0; slot++) {
+            if (!empty(inventory.getItem(slot))) continue;
+            int moved = Math.min(remaining.getMaxStackSize(), remaining.getAmount());
+            ItemStack placed = remaining.clone();
+            placed.setAmount(moved);
+            inventory.setItem(slot, placed);
+            remaining.setAmount(remaining.getAmount() - moved);
+        }
+        return remaining.getAmount() <= 0 ? null : remaining;
+    }
+
     private static List<ItemStack> depositedItems(Inventory inventory) {
         List<ItemStack> result = new ArrayList<>();
         for (int slot = 0; slot < PAGE_SIZE; slot++) {
@@ -2286,14 +2588,33 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private void reopenSetup(Player player, UUID targetId) {
+        reopenSetup(player, targetId, null);
+    }
+
+    /**
+     * Redraws the challenge screen, carrying a problem back onto it.
+     *
+     * <p>A null problem is the ordinary case — a sent challenge, or simply returning
+     * from the item chest. It is also sent to chat, which is where the fallback chest
+     * board's player will read it, and is harmless behind a dialog that already shows
+     * the same line.
+     */
+    private void reopenSetup(Player player, UUID targetId, String problem) {
         Player target = Bukkit.getPlayer(targetId);
         DuelDraft draft = setupDrafts.get(player.getUniqueId());
-        if (target == null || draft == null || !draft.subject.equals(targetId)) {
+        if (draft == null) {
+            // Sent: sendChallenge clears the draft, so there is nothing to go back to.
+            return;
+        }
+        if (problem != null) {
+            error(player, problem);
+        }
+        if (target == null || !draft.subject.equals(targetId)) {
             error(player, "That player is no longer available.");
             openTargets(player);
             return;
         }
-        openChestSetup(player, target, draft);
+        openSetupScreen(player, target, draft, problem);
     }
 
     private void reopenAccept(Player player, UUID invitationId) {
