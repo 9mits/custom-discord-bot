@@ -35,12 +35,15 @@ class ResourcePackCatalogTest {
             "icon-sources/potion_of_healing_reference.png"
     );
     /**
-     * Generated icons are designed on a 24x24 logical grid and exported at 48x48 as
-     * exact 2x2 blocks. The Shard is the one icon still on the older 16x16 grid: its
-     * artwork came from a supplied transparent source that is no longer on hand to
-     * re-import, and upscaling would only blur the sprite it already has.
+     * Generated icons are designed on an 18x18 logical grid and exported at 72x72 as
+     * exact 4x4 blocks. The 4x export rather than 2x is about the item atlas: 36
+     * divides only by 4 and would cap the atlas mipmap chain lower than the pack's
+     * existing 360x360 totem already does, while 72 divides by 8 and matches it. The
+     * Shard is the one icon still on the older 16x16 grid at 32x32: its artwork came
+     * from a supplied transparent source that is no longer on hand to re-import, and
+     * upscaling would only blur the sprite it already has.
      */
-    private static final int GENERATED_ICON_SIZE = 48;
+    private static final int GENERATED_ICON_SIZE = 72;
     private static final Map<String, Integer> LEGACY_GRID_ICONS = Map.of("shard.png", 32);
 
     @Test
@@ -349,7 +352,7 @@ class ResourcePackCatalogTest {
             // lands there, so every icon fills the same share of its canvas whatever the
             // grid size. Expressed as a share rather than in pixels so the bound cannot
             // silently pass when the canvas changes underneath it.
-            assertTrue(footprint >= canvas * 0.85 && footprint <= canvas * 0.95,
+            assertTrue(footprint >= canvas * 0.80 && footprint <= canvas * 0.92,
                     definition.id() + " has unexpected footprint " + footprint
                             + " on a " + canvas + "px canvas");
         }

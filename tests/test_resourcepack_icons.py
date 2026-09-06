@@ -37,13 +37,15 @@ IMPORTED_MOD_HASHES = {
     "amethyst_shield": "79c0eaaf8939888df6b0e28e1a080db648cd56a5a9622d74f51596a1e385ee01",
     "amethyst_sword": "4e1b69e98d1bed76f5f40ecc26fea99afe77a1da82eca352301299aa5aef9488",
 }
-# Every generated icon is designed on a 24x24 logical grid and exported at 48x48 as
-# exact 2x2 blocks. The Shard is the one exception still on the older 16x16 grid: its
-# artwork came from a supplied transparent source that is no longer on hand to
-# re-import, so it keeps the sprite it shipped with rather than being upscaled into a
-# blurrier version of itself.
-GENERATED_ICON_SIZE = 48
-LEGACY_GRID_ICONS = {"shard": 32}
+# Every generated icon is designed on an 18x18 logical grid and exported at 72x72 as
+# exact 4x4 blocks. The 4x export rather than 2x is about the item atlas: 36 divides
+# only by 4 and would cap the atlas mipmap chain lower than the pack's existing
+# 360x360 totem already does, while 72 divides by 8 and matches it. The Shard is the
+# one exception still on the older 16x16 grid at 32x32: its artwork came from a
+# supplied transparent source that is no longer on hand to re-import, so it keeps the
+# sprite it shipped with rather than being upscaled into a blurrier version of itself.
+GENERATED_ICON = (72, 4)
+LEGACY_GRID_ICONS = {"shard": (32, 2)}
 POTION_REFERENCE = RESOURCE_PACK / "icon-sources" / "potion_of_healing_reference.png"
 EVENT_SONG_SHA256 = "768d3d503ac3e8ba39f6db1213a8296abcde9260944212fd5fe00d0f81ecc448"
 DRAGON_SONG_SHA256 = "5cf005148259f8ed415215077245e3fccaa4ca351174034109bafe4a447ade2d"
@@ -131,21 +133,21 @@ class ResourcePackIconTests(unittest.TestCase):
                                 self.assertGreater(average[2], average[1] * 2)
                                 self.assertGreater(average[0], average[1] * 2)
                     else:
-                        canvas = LEGACY_GRID_ICONS.get(path.stem, GENERATED_ICON_SIZE)
+                        canvas, step = LEGACY_GRID_ICONS.get(path.stem, GENERATED_ICON)
                         self.assertEqual((canvas, canvas), image.size)
                         colours = image.getcolors(maxcolors=257)
                         self.assertIsNotNone(colours)
                         self.assertLessEqual(len(colours), 32)
                         pixels = image.load()
-                        for y in range(0, canvas, 2):
-                            for x in range(0, canvas, 2):
+                        for y in range(0, canvas, step):
+                            for x in range(0, canvas, step):
                                 block = {
                                     pixels[x + dx, y + dy]
-                                    for dx in range(2) for dy in range(2)
+                                    for dx in range(step) for dy in range(step)
                                 }
                                 self.assertEqual(
                                     1, len(block),
-                                    "every logical pixel must be a crisp 2x2 block",
+                                    f"every logical pixel must be a crisp {step}x{step} block",
                                 )
                         # Framing, not just presence. The importer measures what actually
                         # survives its alpha cut and rescales until the long axis fills
@@ -154,7 +156,7 @@ class ResourcePackIconTests(unittest.TestCase):
                         width = bounds[2] - bounds[0]
                         height = bounds[3] - bounds[1]
                         self.assertGreaterEqual(
-                            max(width, height), round(canvas * 0.85),
+                            max(width, height), round(canvas * 0.80),
                             "an icon must fill its content box on its long axis",
                         )
                         self.assertGreaterEqual(

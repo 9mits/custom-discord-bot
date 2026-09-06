@@ -3,15 +3,21 @@
 
 This importer never draws or invents icon geometry. It only removes the flat
 generation backdrop, trims model artifacts, and scales the selected generated
-artwork onto a 24x24 logical pixel grid, then enlarges that grid exactly 2x for
-clean 48x48 inventory rendering. Potion reskins are the deliberate exception:
+artwork onto an 18x18 logical pixel grid, then enlarges that grid exactly 4x for
+clean 72x72 inventory rendering. Potion reskins are the deliberate exception:
 the supplied official bottle is copied exactly and only its existing liquid
 pixels receive a colour ramp sampled from the corresponding generated edit.
 
-The logical grid was 16x16, which threw away most of what the generated artwork
-actually contained: a crown became four blocks and a wing became a wedge. 24x24
-is still a coarse, deliberately chunky Minecraft grid — every logical pixel is a
-crisp 2x2 block in the exported file — with enough room for a readable silhouette.
+The logical grid is the whole design decision. 16x16 threw away most of what the
+generated artwork contained — a crown became four blocks and a wing became a
+wedge — while 24x24 made the pixels small enough that the icons stopped reading
+as pixel art. 18x18 is the chosen middle: distinctly blocky, close to vanilla
+item chunkiness, still enough grid for the podium numerals and the crown points.
+
+The 4x export rather than 2x is about the item atlas, not the picture: 36 divides
+only by 4, which would cap the atlas mipmap chain lower than the pack's existing
+360x360 totem already does. 72 divides by 8 and matches that constraint exactly,
+for a file that is still trivially small.
 
 Framing is measured rather than assumed. Fitting the source's bounding box to the
 content box and hoping is what left some icons floating small inside their canvas:
@@ -35,9 +41,9 @@ from PIL import Image, ImageDraw, ImageFont
 PACK_ROOT = Path(__file__).resolve().parent
 ITEM_ROOT = PACK_ROOT / "src/assets/mgx/textures/item"
 POTION_REFERENCE = PACK_ROOT / "icon-sources/potion_of_healing_reference.png"
-CANVAS_SIZE = 48
-LOGICAL_SIZE = 24
-CONTENT_SIZE = 22
+CANVAS_SIZE = 72
+LOGICAL_SIZE = 18
+CONTENT_SIZE = 16
 PALETTE_SIZE = 32
 ALPHA_CUT = 58
 # How close to CONTENT_SIZE the realised long axis has to land before the framing
