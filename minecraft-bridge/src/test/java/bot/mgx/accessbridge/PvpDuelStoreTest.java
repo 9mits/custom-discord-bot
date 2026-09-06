@@ -25,7 +25,7 @@ final class PvpDuelStoreTest {
                 duel, PvpDuelStore.Role.FIGHTER, world, "world",
                 12.5d, 70d, -40.5d, 90f, 4f, "SURVIVAL",
                 false, false, false, 13d, 17, 2.5f, 0.4f,
-                20, 1.5f, 280, 4, 7_500L, "held-stack", ""
+                20, 1.5f, 280, 4, 7_500L, "wager-items", ""
         );
         PvpDuelStore first = new PvpDuelStore(file);
         first.putAll(Map.of(player, recovery));

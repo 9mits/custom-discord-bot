@@ -1051,8 +1051,8 @@ final class GameVariableStore {
                 "Safe-ground candidates checked before giving up on a random teleport.",
                 config.getLong("rtp.attempts", 24), 1, 100, "attempts", false);
 
-        bool("pvp-duels.enabled", "Consent PvP enabled", "PvP Duels",
-                "Whether players may arrange direct, keep-inventory PvP through /pvp.",
+        bool("pvp-duels.enabled", "Arranged PvP enabled", "PvP Duels",
+                "Whether players may arrange keep-inventory fights through /pvp.",
                 config.getBoolean("pvp-duels.enabled", true));
         integer("pvp-duels.invite-seconds", "Challenge expiry", "PvP Duels",
                 "Seconds a player has to review and accept a duel challenge.",
@@ -1086,10 +1086,6 @@ final class GameVariableStore {
                 "Untouched terrain candidates checked before a duel safely gives up.",
                 config.getLong("pvp-duels.location-attempts", 40),
                 1, 100, "attempts", false);
-        integer("pvp-duels.maximum-money-wager", "Maximum cash wager", "PvP Duels",
-                "Most money each fighter may put into one duel.",
-                config.getLong("pvp-duels.maximum-money-wager", 1_000_000),
-                0, 1_000_000_000, "money", false);
         integer("pvp-duels.maximum-spectators", "Viewing stand capacity", "PvP Duels",
                 "Most anchored spectators who may watch one duel at once.",
                 config.getLong("pvp-duels.maximum-spectators", 8),

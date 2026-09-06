@@ -22,7 +22,7 @@ import java.util.UUID;
  * <p>A recovery is written before a player is moved, charged, or stripped for the
  * viewing stand. A hard stop can therefore be treated as a draw on the next join:
  * the origin and player state come back, wager balances are raised to at least their
- * pre-duel value, and any missing held-stack wager is returned.
+ * pre-fight value, and any missing item or cosmetic wager is returned.
  */
 final class PvpDuelStore {
     enum Role { FIGHTER, SPECTATOR }

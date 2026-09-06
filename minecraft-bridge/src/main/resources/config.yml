@@ -116,9 +116,8 @@ rtp:
   maximum-radius: 25000
   attempts: 24
 
-# Consent-only fights use untouched real Overworld terrain. The personal border and
-# server movement guard keep the fight in place; every participant returns afterwards.
-# Cash is per player, held-stack wagers are symmetrical, and inventory is always kept.
+# /pvp fights use untouched real Overworld terrain and return everyone afterwards.
+# Cash is per player; either fighter may also wager items and wardrobe cosmetics.
 pvp-duels:
   enabled: true
   invite-seconds: 120
@@ -129,7 +128,6 @@ pvp-duels:
   minimum-radius: 2000
   maximum-radius: 90000
   location-attempts: 40
-  maximum-money-wager: 1000000
   maximum-spectators: 8
 
 # The protected spawn region: 100x100 centred on the locked spawn at 0,0.

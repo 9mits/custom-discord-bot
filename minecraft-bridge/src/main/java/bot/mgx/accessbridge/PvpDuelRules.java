@@ -1,24 +1,8 @@
 package bot.mgx.accessbridge;
 
-/** Pure rules shared by the duel UI, location search, and tests. */
+/** Pure rules shared by PvP location search, wager settlement, and tests. */
 final class PvpDuelRules {
-    static final int MIN_REASON_LENGTH = 3;
-    static final int MAX_REASON_LENGTH = 80;
-
     private PvpDuelRules() {
-    }
-
-    static String cleanReason(String raw) {
-        return raw == null ? "" : raw.strip().replaceAll("\\s+", " ");
-    }
-
-    static boolean validReason(String raw) {
-        int length = cleanReason(raw).length();
-        return length >= MIN_REASON_LENGTH && length <= MAX_REASON_LENGTH;
-    }
-
-    static boolean validMoney(long amount, long maximum) {
-        return amount >= 0L && amount <= maximum;
     }
 
     /** After winning both deposits, a wallet ends one wager above where it began. */

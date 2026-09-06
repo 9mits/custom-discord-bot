@@ -2,7 +2,6 @@ package bot.mgx.accessbridge;
 
 import io.papermc.paper.event.player.AsyncChatEvent;
 import io.papermc.paper.registry.data.dialog.ActionButton;
-import io.papermc.paper.registry.data.dialog.input.DialogInput;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextColor;
@@ -48,6 +47,7 @@ import org.bukkit.event.hanging.HangingPlaceEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
+import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryOpenEvent;
 import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.event.player.PlayerBucketEmptyEvent;
@@ -88,12 +88,12 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Consumer;
 
 /**
- * Consent-only PvP in a temporary, untouched part of the real overworld.
+ * Player-arranged PvP in a temporary, untouched part of the real overworld.
  *
  * <p>Nothing here creates a kit or a world arena. Both players bring their actual
  * inventory, accept the same terms, and return to the exact place and condition they
- * left. Death keeps inventory and levels. Only the agreed cash and optional held-stack
- * wager move to the winner; ordinary bounty and equipped-cosmetic death transfers are
+ * left. Death keeps inventory and levels. Only the agreed cash, items and cosmetics
+ * move to the winner; ordinary bounty and equipped-cosmetic death transfers are
  * deliberately bypassed by the services that own those systems.
  *
  * <p>Spectators use an anchored Adventure-mode viewing point. Their inventory is
@@ -103,9 +103,6 @@ import java.util.function.Consumer;
  */
 final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     private static final TextColor ORANGE = TextColor.color(0xFF9900);
-    private static final String REASON_INPUT = "duel_reason";
-    private static final String MONEY_INPUT = "duel_money";
-    private static final String ITEM_INPUT = "duel_item";
     private static final int BOARD_SIZE = 54;
     private static final int PAGE_SIZE = 45;
     private static final int HUB_START = 11;
@@ -119,21 +116,39 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     );
 
     private enum Phase { COUNTDOWN, FIGHTING, ENDING }
-    private enum Board { HUB, TARGETS, SETUP, INCOMING, ACCEPT, LIVE }
-    private enum Prompt { REASON, MONEY, ITEM }
+    private enum Board {
+        HUB, TARGETS, SETUP, SETUP_ITEMS, SETUP_COSMETICS,
+        INCOMING, ACCEPT, ACCEPT_ITEMS, ACCEPT_COSMETICS, LIVE
+    }
+    private enum Prompt { MONEY }
 
     private record Invitation(
             UUID id,
             UUID challenger,
             UUID target,
-            String reason,
             long moneyEach,
-            boolean heldItemEach,
+            List<ItemStack> challengerItems,
+            List<UUID> challengerCosmetics,
             long expiresAt
     ) {
+        Invitation {
+            challengerItems = cloneItems(challengerItems);
+            challengerCosmetics = List.copyOf(challengerCosmetics);
+        }
     }
 
-    private record AcceptedTerms(ItemStack challengerStake, ItemStack targetStake) {
+    private record AcceptedTerms(
+            List<ItemStack> challengerItems,
+            List<ItemStack> targetItems,
+            List<UUID> challengerCosmetics,
+            List<UUID> targetCosmetics
+    ) {
+        AcceptedTerms {
+            challengerItems = cloneItems(challengerItems);
+            targetItems = cloneItems(targetItems);
+            challengerCosmetics = List.copyOf(challengerCosmetics);
+            targetCosmetics = List.copyOf(targetCosmetics);
+        }
     }
 
     private record Arena(Location center, Location first, Location second, double diameter) {
@@ -148,7 +163,6 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         final UUID second;
         final String firstName;
         final String secondName;
-        final String reason;
         final long moneyEach;
         final Arena arena;
         final Map<UUID, PlayerState> states;
@@ -161,7 +175,6 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 UUID id,
                 Player first,
                 Player second,
-                String reason,
                 long moneyEach,
                 Arena arena,
                 Map<UUID, PlayerState> states
@@ -171,7 +184,6 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             this.second = second.getUniqueId();
             this.firstName = first.getName();
             this.secondName = second.getName();
-            this.reason = reason;
             this.moneyEach = moneyEach;
             this.arena = arena;
             this.states = states;
@@ -189,13 +201,14 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     private record SpectatorState(Fight fight, PlayerState player, Location anchor) {
     }
 
-    private static final class LegacyDraft {
-        final UUID target;
-        String reason = "";
+    private static final class DuelDraft {
+        final UUID subject;
         long money;
+        List<ItemStack> items = new ArrayList<>();
+        final Set<UUID> cosmetics = new HashSet<>();
 
-        LegacyDraft(UUID target) {
-            this.target = target;
+        DuelDraft(UUID subject) {
+            this.subject = subject;
         }
     }
 
@@ -203,8 +216,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         final Board board;
         final UUID subject;
         final Map<Integer, UUID> choices = new HashMap<>();
-        ItemStack challengerStake;
-        ItemStack targetStake;
+        boolean depositsReturned;
         Inventory inventory;
 
         DuelBoard(Board board, UUID subject) {
@@ -223,6 +235,9 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     private final PlayerSettingsStore settings;
     private final SettingsClientSupport clientSupport;
     private final BedrockForms forms;
+    private final CosmeticStore cosmetics;
+    private final CosmeticItems cosmeticItems;
+    private WardrobeService wardrobe;
     private final PvpDuelStore store;
     private final Map<UUID, Invitation> invitations = new LinkedHashMap<>();
     private final Map<UUID, Fight> fights = new LinkedHashMap<>();
@@ -231,7 +246,8 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     private final Map<UUID, PlayerState> pendingDeathRestore = new HashMap<>();
     private final Set<UUID> starting = new HashSet<>();
     private final Set<UUID> internalTeleports = new HashSet<>();
-    private final Map<UUID, LegacyDraft> legacyDrafts = new HashMap<>();
+    private final Map<UUID, DuelDraft> setupDrafts = new HashMap<>();
+    private final Map<UUID, DuelDraft> acceptDrafts = new HashMap<>();
     private final Map<UUID, Prompt> prompts = new HashMap<>();
     private final Map<UUID, Long> notices = new HashMap<>();
     private final Map<UUID, Long> lastChallenges = new HashMap<>();
@@ -243,6 +259,8 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             PlayerSettingsStore settings,
             SettingsClientSupport clientSupport,
             BedrockForms forms,
+            CosmeticStore cosmetics,
+            CosmeticItems cosmeticItems,
             java.nio.file.Path recoveryFile
     ) throws IOException {
         this.plugin = plugin;
@@ -250,6 +268,8 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         this.settings = settings;
         this.clientSupport = clientSupport;
         this.forms = forms;
+        this.cosmetics = cosmetics;
+        this.cosmeticItems = cosmeticItems;
         this.store = new PvpDuelStore(recoveryFile);
         this.victimKey = new org.bukkit.NamespacedKey(plugin, "trophy_victim");
         // Money can be repaired while its owner is offline. Items and locations wait
@@ -283,10 +303,6 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         return plugin.gameVariables().integer("pvp-duels.arena-diameter");
     }
 
-    private int maximumWager() {
-        return plugin.gameVariables().integer("pvp-duels.maximum-money-wager");
-    }
-
     private int challengeCooldownSeconds() {
         return plugin.gameVariables().integer("pvp-duels.challenge-cooldown-seconds");
     }
@@ -299,11 +315,15 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         return isFighter(playerId) || spectators.containsKey(playerId);
     }
 
+    void useWardrobe(WardrobeService wardrobe) {
+        this.wardrobe = wardrobe;
+    }
+
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         args = CommandArgs.withoutEchoedSender(sender.getName(), args);
         if (!(sender instanceof Player player)) {
-            sender.sendMessage("PvP duels are available to players only.");
+            sender.sendMessage("/pvp is available to players only.");
             return true;
         }
         if (store.find(player.getUniqueId()).isPresent() && !isParticipant(player.getUniqueId())) {
@@ -348,8 +368,8 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                     openSetup(player, target);
                 }
             }
-            case "leave" -> error(player, "You are not watching a duel.");
-            case "forfeit" -> error(player, "You are not in a duel.");
+            case "leave" -> error(player, "You are not watching a fight.");
+            case "forfeit" -> error(player, "You are not in a fight.");
             default -> {
                 Player target = Bukkit.getPlayerExact(args[0]);
                 if (target == null) {
@@ -386,30 +406,28 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         int incoming = incoming(player.getUniqueId()).size();
         if (!clientSupport.supportsDialogs(player)) {
             List<BedrockForms.Button> buttons = List.of(
-                    new BedrockForms.Button("Start a Duel", () -> openTargets(player)),
+                    new BedrockForms.Button("Start a Fight", () -> openTargets(player)),
                     new BedrockForms.Button("Incoming (" + incoming + ")", () -> openIncoming(player)),
-                    new BedrockForms.Button("Watch Live Duels (" + fights.size() + ")", () -> openLive(player))
+                    new BedrockForms.Button("Watch Live Fights (" + fights.size() + ")", () -> openLive(player))
             );
-            if (!forms.menu(player, "Safe PvP", hubBody(), buttons)) {
+            if (!forms.menu(player, "PvP", hubBody(), buttons)) {
                 openChestHub(player);
             }
             return;
         }
         List<ActionButton> buttons = List.of(
-                Screens.button("item/diamond_sword", "Start a Duel",
-                        "Choose an online player and set the terms.", this::openTargets),
+                Screens.button("item/diamond_sword", "Start a Fight",
+                        "Choose a player.", this::openTargets),
                 Screens.button("item/writable_book", "Incoming (" + incoming + ")",
-                        "Review, accept, or decline your challenges.", this::openIncoming),
-                Screens.button("item/spyglass", "Watch Live Duels (" + fights.size() + ")",
-                        "Watch from a fixed, inventory-safe viewing point.", this::openLive)
+                        "View your challenges.", this::openIncoming),
+                Screens.button("item/spyglass", "Watch Live Fights (" + fights.size() + ")",
+                        "Watch a fight.", this::openLive)
         );
-        Screens.show(player, "Safe PvP", Screens.body(hubBody()), buttons, 1, null);
+        Screens.show(player, "PvP", Screens.body(hubBody()), buttons, 1, null);
     }
 
     private String hubBody() {
-        return "PvP happens here by consent, away from bases and peaceful players.\n"
-                + "KEEP INVENTORY is always on. Bring only your own gear—there are no kits.\n"
-                + "Both players return to their original locations when the fight ends.";
+        return "Fight anywhere. KEEP INVENTORY is always on.";
     }
 
     private void openTargets(Player player) {
@@ -419,16 +437,16 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                     .map(target -> new BedrockForms.Button(target.getName(),
                             () -> openSetup(player, target)))
                     .toList();
-            if (!forms.menu(player, "Choose an Opponent", "Every duel requires acceptance.",
+            if (!forms.menu(player, "Choose a Player", "Who do you want to fight?",
                     buttons, this::openHub)) {
-                openChestList(player, Board.TARGETS, targets, "Choose an Opponent");
+                openChestList(player, Board.TARGETS, targets, "Choose a Player");
             }
             return;
         }
         List<ActionButton> buttons = new ArrayList<>();
         for (Player target : targets) {
             buttons.add(Screens.button(null, target.getName(),
-                    "Set fair terms for this player.", viewer -> {
+                    "Challenge this player.", viewer -> {
                         Player current = Bukkit.getPlayer(target.getUniqueId());
                         if (current == null) {
                             error(viewer, "They went offline.");
@@ -437,10 +455,10 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                         }
                     }));
         }
-        Screens.show(player, "Choose an Opponent",
+        Screens.show(player, "Choose a Player",
                 Screens.body(targets.isEmpty()
                         ? "Nobody available is online right now."
-                        : "Choose who you personally want to fight."),
+                        : "Who do you want to fight?"),
                 buttons, 2, this::openHub);
     }
 
@@ -449,59 +467,15 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 || !acceptingChallenges(challenger, target, true)) {
             return;
         }
-        if (!clientSupport.supportsDialogs(challenger)) {
-            if (forms.twoTextsAndToggle(
-                    challenger, "Duel " + target.getName(),
-                    "Reason or lore", "Friendly fight",
-                    "Money staked by EACH player", "0",
-                    "Each player also stakes their held stack", false,
-                    result -> sendChallenge(
-                            challenger, target.getUniqueId(), result.first(), result.second(),
-                            result.toggled()
-                    ), () -> openTargets(challenger))) {
-                return;
-            }
-            openChestSetup(challenger, target);
-            return;
+        DuelDraft draft = setupDrafts.get(challenger.getUniqueId());
+        if (draft == null || !draft.subject.equals(target.getUniqueId())) {
+            draft = new DuelDraft(target.getUniqueId());
+            setupDrafts.put(challenger.getUniqueId(), draft);
         }
-        List<DialogInput> inputs = List.of(
-                DialogInput.text(REASON_INPUT, Component.text("Reason or lore", MenuText.LABEL))
-                        .initial("Friendly fight")
-                        .maxLength(PvpDuelRules.MAX_REASON_LENGTH)
-                        .build(),
-                DialogInput.text(MONEY_INPUT,
-                                Component.text("Money staked by EACH player", MenuText.LABEL))
-                        .initial("0")
-                        .maxLength(16)
-                        .build(),
-                DialogInput.bool(ITEM_INPUT,
-                                Component.text("Each stakes their held stack", MenuText.LABEL))
-                        .initial(false)
-                        .onTrue("Yes")
-                        .onFalse("No")
-                        .build()
-        );
-        ActionButton send = ActionButton.builder(MenuText.buttonLabel("Send Challenge", ORANGE))
-                .tooltip(MenuText.actionHint("They must review and accept these exact terms."))
-                .width(150)
-                .action(Screens.callback((response, player) -> sendChallenge(
-                        player,
-                        target.getUniqueId(),
-                        response.getText(REASON_INPUT),
-                        response.getText(MONEY_INPUT),
-                        Boolean.TRUE.equals(response.getBoolean(ITEM_INPUT))
-                )))
-                .build();
-        Screens.show(challenger, "Duel " + target.getName(), Screens.body(
-                "KEEP INVENTORY • no kits • your real gear • no world damage\n"
-                        + "A held-stack wager can be any item, including a physical cosmetic token.\n"
-                        + "The winner gets both stakes and the loser's trophy head."
-        ), inputs, List.of(send), 1, this::openTargets);
+        openChestSetup(challenger, target, draft);
     }
 
-    private void sendChallenge(
-            Player challenger, UUID targetId, String rawReason, String rawMoney, boolean heldItem
-    ) {
+    private void sendChallenge(Player challenger, UUID targetId, DuelDraft draft) {
         Player target = Bukkit.getPlayer(targetId);
         if (target == null || !canChallenge(challenger, target, true)
                 || !acceptingChallenges(challenger, target, true)) {
@@ -516,49 +490,37 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                     + " seconds before sending another challenge.");
             return;
         }
-        String reason = PvpDuelRules.cleanReason(rawReason);
-        if (!PvpDuelRules.validReason(reason)) {
-            error(challenger, "Give a 3–80 character reason or lore for this duel.");
-            openSetup(challenger, target);
-            return;
-        }
-        long money;
-        try {
-            String value = rawMoney == null ? "" : rawMoney.strip();
-            money = value.isEmpty() || value.equals("0") ? 0L : EconomyFormat.parseAmount(value);
-        } catch (IllegalArgumentException exception) {
-            error(challenger, exception.getMessage());
-            openSetup(challenger, target);
-            return;
-        }
-        if (!PvpDuelRules.validMoney(money, maximumWager())) {
-            error(challenger, "A duel wager cannot exceed "
-                    + EconomyFormat.dollars(maximumWager()) + " per player.");
-            openSetup(challenger, target);
-            return;
-        }
+        long money = draft.money;
         if (economy.balance(challenger.getUniqueId()) < money) {
             error(challenger, "You do not currently have " + EconomyFormat.dollars(money) + ".");
             return;
         }
-        if (heldItem && empty(challenger.getInventory().getItemInMainHand())) {
-            error(challenger, "Hold the stack you intend to wager, then send the challenge.");
+        if (!hasItems(challenger, draft.items)) {
+            error(challenger, "Your wager items changed.");
+            openSetup(challenger, target);
+            return;
+        }
+        if (!ownsCosmetics(challenger, draft.cosmetics)) {
+            error(challenger, "Your wager cosmetics changed.");
+            openSetup(challenger, target);
             return;
         }
         invitations.values().removeIf(invitation -> invitation.challenger().equals(
                 challenger.getUniqueId()));
         Invitation invitation = new Invitation(
-                UUID.randomUUID(), challenger.getUniqueId(), targetId, reason, money,
-                heldItem, System.currentTimeMillis() + inviteSeconds() * 1000L
+                UUID.randomUUID(), challenger.getUniqueId(), targetId, money,
+                draft.items, List.copyOf(draft.cosmetics),
+                System.currentTimeMillis() + inviteSeconds() * 1000L
         );
         invitations.put(invitation.id(), invitation);
         lastChallenges.put(challenger.getUniqueId(), now);
-        challenger.closeDialog();
-        info(challenger, "Challenge sent to " + target.getName() + ". Nothing is charged until acceptance.");
+        setupDrafts.remove(challenger.getUniqueId());
+        challenger.closeInventory();
+        info(challenger, "Challenge sent to " + target.getName() + ".");
         target.sendMessage(prefix()
                 .append(Component.text(challenger.getName(), NamedTextColor.GOLD))
-                .append(Component.text(" challenged you to safe PvP. ", NamedTextColor.WHITE))
-                .append(Component.text("Review", ORANGE, TextDecoration.BOLD)
+                .append(Component.text(" challenged you to PvP. ", NamedTextColor.WHITE))
+                .append(Component.text("Open", ORANGE, TextDecoration.BOLD)
                         .clickEvent(net.kyori.adventure.text.event.ClickEvent.runCommand(
                                 "/pvp accept " + challenger.getName())))
                 .append(Component.text(" or use /pvp.", NamedTextColor.GRAY))
@@ -574,8 +536,8 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 buttons.add(new BedrockForms.Button(name(invitation.challenger()),
                         () -> openInvitation(player, invitation)));
             }
-            if (!forms.menu(player, "Incoming Duels",
-                    incoming.isEmpty() ? "No challenges are waiting." : "Review exact terms before accepting.",
+            if (!forms.menu(player, "Challenges",
+                    incoming.isEmpty() ? "No challenges are waiting." : "Choose a challenge.",
                     buttons, this::openHub)) {
                 openChestInvitations(player, incoming);
             }
@@ -584,11 +546,13 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         List<ActionButton> buttons = new ArrayList<>();
         for (Invitation invitation : incoming) {
             buttons.add(Screens.button(null, name(invitation.challenger()),
-                    invitation.reason(), viewer -> openInvitation(viewer, invitation)));
+                    stakeSummary(invitation.moneyEach(), invitation.challengerItems().size(),
+                            invitation.challengerCosmetics().size()),
+                    viewer -> openInvitation(viewer, invitation)));
         }
-        Screens.show(player, "Incoming Duels", Screens.body(incoming.isEmpty()
+        Screens.show(player, "Challenges", Screens.body(incoming.isEmpty()
                         ? "No challenges are waiting."
-                        : "Review the reason, money, and item terms before accepting."),
+                        : "Choose a challenge."),
                 buttons, 2, this::openHub);
     }
 
@@ -602,48 +566,12 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             error(target, "The challenger went offline.");
             return;
         }
-        ItemStack challengerStake = invitation.heldItemEach()
-                ? cloneOrNull(challenger.getInventory().getItemInMainHand()) : null;
-        ItemStack targetStake = invitation.heldItemEach()
-                ? cloneOrNull(target.getInventory().getItemInMainHand()) : null;
-        String body = terms(invitation, challenger, challengerStake, target, targetStake);
-        if (!clientSupport.supportsDialogs(target)) {
-            if (!forms.confirm(target, "Accept Safe Duel?", body, "Accept & Fight",
-                    () -> accept(target, invitation, new AcceptedTerms(challengerStake, targetStake)),
-                    () -> openIncoming(target))) {
-                openChestAccept(target, invitation, challengerStake, targetStake);
-            }
-            return;
+        DuelDraft draft = acceptDrafts.get(target.getUniqueId());
+        if (draft == null || !draft.subject.equals(invitation.id())) {
+            draft = new DuelDraft(invitation.id());
+            acceptDrafts.put(target.getUniqueId(), draft);
         }
-        Screens.confirm(target, "Accept Safe Duel?", Screens.body(body), "Accept & Fight",
-                NamedTextColor.GREEN,
-                viewer -> accept(viewer, invitation, new AcceptedTerms(challengerStake, targetStake)),
-                this::openIncoming);
-    }
-
-    private String terms(
-            Invitation invitation,
-            Player challenger,
-            ItemStack challengerStake,
-            Player target,
-            ItemStack targetStake
-    ) {
-        StringBuilder body = new StringBuilder();
-        body.append(challenger.getName()).append(" vs ").append(target.getName()).append('\n');
-        body.append("Reason: ").append(invitation.reason()).append('\n');
-        body.append("Cash: ").append(EconomyFormat.dollars(invitation.moneyEach()))
-                .append(" EACH").append('\n');
-        if (invitation.heldItemEach()) {
-            body.append(challenger.getName()).append(" holds: ")
-                    .append(itemName(challengerStake)).append('\n');
-            body.append(target.getName()).append(" holds: ")
-                    .append(itemName(targetStake)).append('\n');
-        } else {
-            body.append("Held-item stake: none\n");
-        }
-        body.append("KEEP INVENTORY is guaranteed. No kits. No block damage.\n");
-        body.append("You return to your exact starting location when it ends.");
-        return body.toString();
+        openChestAccept(target, invitation, draft);
     }
 
     private void accept(Player target, Invitation invitation, AcceptedTerms terms) {
@@ -655,24 +583,22 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             invitations.remove(invitation.id());
             return;
         }
-        if (invitation.heldItemEach()
-                && (empty(terms.challengerStake()) || empty(terms.targetStake()))) {
-            error(target, "Both players must hold the stack they are staking.");
-            return;
-        }
-        if (!sameCurrentStack(challenger, terms.challengerStake())
-                || !sameCurrentStack(target, terms.targetStake())) {
-            error(target, "A held stake changed. Review the updated terms before accepting.");
+        if (!hasItems(challenger, terms.challengerItems())
+                || !hasItems(target, terms.targetItems())
+                || !ownsCosmetics(challenger, terms.challengerCosmetics())
+                || !ownsCosmetics(target, terms.targetCosmetics())) {
+            error(target, "A wager changed. Review it again.");
             openInvitation(target, invitation);
             return;
         }
         invitations.remove(invitation.id());
+        acceptDrafts.remove(target.getUniqueId());
         starting.add(challenger.getUniqueId());
         starting.add(target.getUniqueId());
         challenger.closeDialog();
         target.closeDialog();
-        info(challenger, target.getName() + " accepted. Finding untouched ground...");
-        info(target, "Finding untouched ground for your duel...");
+        info(challenger, target.getName() + " accepted. Finding a fight location...");
+        info(target, "Finding a fight location...");
         World world = overworld();
         if (world == null) {
             failStart(challenger, target, "The overworld is unavailable.");
@@ -690,7 +616,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         int attempts = plugin.gameVariables().integer("pvp-duels.location-attempts");
         if (attempted >= attempts) {
             failStart(firstPlayer, secondPlayer,
-                    "No untouched safe arena was found. Try again shortly.");
+                    "No fight location was found. Try again shortly.");
             return;
         }
         Candidate candidate = candidate(world, diameter);
@@ -805,9 +731,11 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     ) {
         if (!starting.contains(first.getUniqueId()) || !starting.contains(second.getUniqueId())
                 || !readyToStart(first, second)
-                || !sameCurrentStack(first, terms.challengerStake())
-                || !sameCurrentStack(second, terms.targetStake())) {
-            failStart(first, second, "The duel state or a held wager changed before teleport.");
+                || !hasItems(first, terms.challengerItems())
+                || !hasItems(second, terms.targetItems())
+                || !ownsCosmetics(first, terms.challengerCosmetics())
+                || !ownsCosmetics(second, terms.targetCosmetics())) {
+            failStart(first, second, "The fight or a wager changed before teleport.");
             return;
         }
         long wager = invitation.moneyEach();
@@ -818,26 +746,30 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         }
         if (!PvpDuelRules.canReceivePool(economy.balance(first.getUniqueId()), wager)
                 || !PvpDuelRules.canReceivePool(economy.balance(second.getUniqueId()), wager)) {
-            failStart(first, second, "A wallet is too close to its limit for this prize pool.");
+            failStart(first, second, "This wager is too large for the winner's wallet.");
             return;
         }
         UUID fightId = UUID.randomUUID();
+        List<ItemStack> firstStakes = stakeItems(terms.challengerItems(), terms.challengerCosmetics());
+        List<ItemStack> secondStakes = stakeItems(terms.targetItems(), terms.targetCosmetics());
         PvpDuelStore.Recovery firstRecovery = recovery(
-                fightId, PvpDuelStore.Role.FIGHTER, first, terms.challengerStake(), false
+                fightId, PvpDuelStore.Role.FIGHTER, first, firstStakes, false
         );
         PvpDuelStore.Recovery secondRecovery = recovery(
-                fightId, PvpDuelStore.Role.FIGHTER, second, terms.targetStake(), false
+                fightId, PvpDuelStore.Role.FIGHTER, second, secondStakes, false
         );
         try {
             store.putAll(Map.of(
                     first.getUniqueId(), firstRecovery,
                     second.getUniqueId(), secondRecovery
             ));
-            takeHeldStake(first, terms.challengerStake());
-            takeHeldStake(second, terms.targetStake());
+            takeItems(first, terms.challengerItems());
+            takeItems(second, terms.targetItems());
+            withdrawCosmetics(first, terms.challengerCosmetics());
+            withdrawCosmetics(second, terms.targetCosmetics());
             if (wager > 0L && (!economy.tryWithdraw(first.getUniqueId(), wager)
                     || !economy.tryWithdraw(second.getUniqueId(), wager))) {
-                throw new IllegalStateException("A wager balance changed while the duel was starting.");
+                throw new IllegalStateException("A wager balance changed while the fight was starting.");
             }
         } catch (RuntimeException failure) {
             restoreStartFailure(first, firstRecovery);
@@ -845,14 +777,14 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             safeRemoveRecovery(first.getUniqueId());
             safeRemoveRecovery(second.getUniqueId());
             failStart(first, second, failure.getMessage() == null
-                    ? "The duel could not safely lock its stakes." : failure.getMessage());
+                    ? "The fight could not lock its wagers." : failure.getMessage());
             return;
         }
         Map<UUID, PlayerState> states = new LinkedHashMap<>();
         states.put(first.getUniqueId(), new PlayerState(firstRecovery, first.getWorldBorder()));
         states.put(second.getUniqueId(), new PlayerState(secondRecovery, second.getWorldBorder()));
         Fight fight = new Fight(
-                fightId, first, second, invitation.reason(), wager, arena, Map.copyOf(states)
+                fightId, first, second, wager, arena, Map.copyOf(states)
         );
         fights.put(fight.id, fight);
         fighting.put(fight.first, fight);
@@ -865,9 +797,8 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             endFight(fight, null, "A protected teleport was refused — stakes returned");
             return;
         }
-        record("duel_started", first, fight.label() + " began a safe PvP duel")
+        record("duel_started", first, fight.label() + " began a PvP fight")
                 .detail("opponent", second.getName())
-                .detail("reason", fight.reason)
                 .detail("money_each", String.valueOf(fight.moneyEach))
                 .record();
         tickCountdown(fight, countdownSeconds());
@@ -935,7 +866,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             if (player != null) {
                 player.showTitle(Title.title(
                         Component.text(String.valueOf(remaining), ORANGE, TextDecoration.BOLD),
-                        Component.text("KEEP INVENTORY • no world damage", NamedTextColor.GREEN),
+                        Component.text("KEEP INVENTORY", NamedTextColor.GREEN),
                         Title.Times.times(Duration.ZERO, Duration.ofMillis(800), Duration.ofMillis(100))
                 ));
                 player.playSound(player, Sound.BLOCK_NOTE_BLOCK_HAT, 0.8f, 1.1f);
@@ -950,20 +881,19 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         if (fight == null) {
             return;
         }
-        String body = fight.label() + "\nReason: " + fight.reason + "\n"
-                + "KEEP INVENTORY is active. Leaving counts as a forfeit.";
+        String body = fight.label() + "\nKEEP INVENTORY • leaving forfeits";
         if (!clientSupport.supportsDialogs(player)) {
-            forms.confirm(player, "Duel in Progress", body, "Forfeit", () -> forfeit(player));
+            forms.confirm(player, "Fight in Progress", body, "Forfeit", () -> forfeit(player));
             return;
         }
-        Screens.confirm(player, "Duel in Progress", Screens.body(body), "Forfeit",
+        Screens.confirm(player, "Fight in Progress", Screens.body(body), "Forfeit",
                 NamedTextColor.RED, this::forfeit, Player::closeDialog);
     }
 
     private void forfeit(Player player) {
         Fight fight = fighting.get(player.getUniqueId());
         if (fight == null) {
-            error(player, "You are not in a duel.");
+            error(player, "You are not in a fight.");
             return;
         }
         endFight(fight, fight.opponent(player.getUniqueId()), player.getName() + " forfeited");
@@ -1060,10 +990,9 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         }
         announceFightEnd(fight, winner, result);
         if (winner != null) {
-            record("duel_finished", winner, winner.getName() + " won a safe PvP duel")
+            record("duel_finished", winner, winner.getName() + " won a PvP fight")
                     .detail("opponent", winnerId.equals(fight.first)
                             ? fight.secondName : fight.firstName)
-                    .detail("reason", fight.reason)
                     .detail("result", result)
                     .record();
         }
@@ -1124,8 +1053,8 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                     .map(fight -> new BedrockForms.Button(fight.label(),
                             () -> joinSpectator(player, fight)))
                     .toList();
-            if (!forms.menu(player, "Live Duels",
-                    live.isEmpty() ? "No duel is live." : "Viewing is fixed in place and inventory-safe.",
+            if (!forms.menu(player, "Live Fights",
+                    live.isEmpty() ? "No fight is live." : "Watch from the viewing stand.",
                     buttons, this::openHub)) {
                 openChestFights(player, live);
             }
@@ -1133,30 +1062,30 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         }
         List<ActionButton> buttons = new ArrayList<>();
         for (Fight fight : live) {
-            buttons.add(Screens.button(null, fight.label(), fight.reason,
+            buttons.add(Screens.button(null, fight.label(), "Watch",
                     viewer -> joinSpectator(viewer, fight)));
         }
-        Screens.show(player, "Live Duels", Screens.body(live.isEmpty()
-                        ? "No duel is live right now."
+        Screens.show(player, "Live Fights", Screens.body(live.isEmpty()
+                        ? "No fight is live right now."
                         : "Watch from an anchored stand. No items, interaction, free roam, or chat."),
                 buttons, 2, this::openHub);
     }
 
     private void joinSpectator(Player player, Fight fight) {
         if (fight == null || fight.phase == Phase.ENDING || !fights.containsKey(fight.id)) {
-            error(player, "That duel has ended.");
+            error(player, "That fight has ended.");
             return;
         }
         if (VerificationLobbyService.isLobbyWorld(player.getWorld())) {
-            error(player, "Finish verification before watching a duel.");
+            error(player, "Finish verification before watching a fight.");
             return;
         }
         if (plugin.inScreenshotMode(player)) {
-            error(player, "Close screenshot mode before watching a duel.");
+            error(player, "Close screenshot mode before watching a fight.");
             return;
         }
         if (isParticipant(player.getUniqueId()) || starting.contains(player.getUniqueId())) {
-            error(player, "You are already busy with a duel.");
+            error(player, "You are already busy with a fight.");
             return;
         }
         if (fight.spectators.size() >= plugin.gameVariables().integer("pvp-duels.maximum-spectators")) {
@@ -1210,7 +1139,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         SpectatorState spectator = spectators.remove(player.getUniqueId());
         if (spectator == null) {
             if (announce) {
-                error(player, "You are not watching a duel.");
+                error(player, "You are not watching a fight.");
             }
             return;
         }
@@ -1230,13 +1159,13 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private void openChestHub(Player player) {
-        DuelBoard holder = board(Board.HUB, null, 27, "Safe PvP");
+        DuelBoard holder = board(Board.HUB, null, 27, "PvP");
         holder.inventory.setItem(HUB_START, MenuItems.button(
-                Material.DIAMOND_SWORD, "Start a Duel", "Choose an opponent."));
+                Material.DIAMOND_SWORD, "Start a Fight", "Choose a player."));
         holder.inventory.setItem(HUB_INCOMING, MenuItems.button(
                 Material.WRITABLE_BOOK, "Incoming", "Review your challenges."));
         holder.inventory.setItem(HUB_LIVE, MenuItems.button(
-                Material.SPYGLASS, "Watch Live Duels", "Fixed viewing stand; no items."));
+                Material.SPYGLASS, "Watch Live Fights", "Watch from the viewing stand."));
         MenuItems.back(holder.inventory);
         MenuItems.show(plugin, player, holder.inventory);
     }
@@ -1246,65 +1175,108 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         for (int slot = 0; slot < choices.size() && slot < PAGE_SIZE; slot++) {
             Player target = choices.get(slot);
             holder.inventory.setItem(slot, MenuItems.head(
-                    target.getUniqueId(), target.getName(), List.of("Set duel terms")));
+                    target.getUniqueId(), target.getName(), List.of("Challenge")));
             holder.choices.put(slot, target.getUniqueId());
         }
         MenuItems.back(holder.inventory);
         MenuItems.show(plugin, player, holder.inventory);
     }
 
-    private void openChestSetup(Player player, Player target) {
+    private void openChestSetup(Player player, Player target, DuelDraft draft) {
         DuelBoard holder = board(Board.SETUP, target.getUniqueId(), 27,
-                "Duel " + target.getName());
-        holder.inventory.setItem(11, MenuItems.button(Material.SHIELD,
-                "Friendly Duel", "No stakes. KEEP INVENTORY."));
-        holder.inventory.setItem(13, MenuItems.button(Material.CHEST,
-                "Stake Held Stacks", "Each player stakes the stack in hand."));
-        holder.inventory.setItem(15, MenuItems.button(Material.WRITABLE_BOOK,
-                "Custom Terms", "Set the reason, cash and item wager in chat."));
+                "Fight " + target.getName());
+        holder.inventory.setItem(10, MenuItems.button(Material.GOLD_INGOT,
+                "Money: " + EconomyFormat.dollars(draft.money), "Staked by each player."));
+        holder.inventory.setItem(12, MenuItems.button(Material.CHEST,
+                "Items: " + itemCount(draft.items), "Add any items."));
+        holder.inventory.setItem(14, MenuItems.button(Material.NETHER_STAR,
+                "Cosmetics: " + draft.cosmetics.size(), "Choose from your wardrobe."));
+        holder.inventory.setItem(16, MenuItems.button(Material.BARRIER,
+                "Clear Wager", "Remove all stakes."));
+        holder.inventory.setItem(22, MenuItems.button(Material.DIAMOND_SWORD,
+                "Send Challenge", "KEEP INVENTORY"));
+        MenuItems.back(holder.inventory);
+        MenuItems.show(plugin, player, holder.inventory);
+    }
+
+    private void openItemWager(Player player, DuelDraft draft, boolean accepting) {
+        Board kind = accepting ? Board.ACCEPT_ITEMS : Board.SETUP_ITEMS;
+        DuelBoard holder = board(kind, draft.subject, BOARD_SIZE, "Add Wager Items");
+        holder.inventory.setItem(45, MenuItems.button(Material.CHEST,
+                "Saved: " + itemCount(draft.items), "Place items above."));
+        holder.inventory.setItem(48, MenuItems.button(Material.LIME_CONCRETE,
+                "Save Items"));
+        holder.inventory.setItem(50, MenuItems.button(Material.RED_DYE,
+                "Clear Saved Items"));
+        MenuItems.back(holder.inventory);
+        MenuItems.show(plugin, player, holder.inventory);
+    }
+
+    private void openCosmeticWager(Player player, DuelDraft draft, boolean accepting) {
+        Board kind = accepting ? Board.ACCEPT_COSMETICS : Board.SETUP_COSMETICS;
+        DuelBoard holder = board(kind, draft.subject, BOARD_SIZE, "Choose Cosmetics");
+        int slot = 0;
+        for (CosmeticStore.Token token : cosmetics.stored(player.getUniqueId())) {
+            if (token.serialNumber() <= 0 || slot >= PAGE_SIZE) continue;
+            CosmeticCatalog.Definition definition = CosmeticCatalog.find(token.cosmeticId()).orElse(null);
+            if (definition == null || definition.leaderboardOnly()) continue;
+            ItemStack icon = cosmeticItems.preview(definition, false);
+            org.bukkit.inventory.meta.ItemMeta meta = icon.getItemMeta();
+            if (meta != null) {
+                List<Component> lore = new ArrayList<>(meta.lore() == null ? List.of() : meta.lore());
+                lore.add(line(draft.cosmetics.contains(token.serial()) ? "Selected" : "Click to select"));
+                meta.lore(lore);
+                MenuItems.asButton(meta);
+                icon.setItemMeta(meta);
+            }
+            holder.inventory.setItem(slot, icon);
+            holder.choices.put(slot, token.serial());
+            slot++;
+        }
         MenuItems.back(holder.inventory);
         MenuItems.show(plugin, player, holder.inventory);
     }
 
     private void openChestInvitations(Player player, List<Invitation> incoming) {
-        DuelBoard holder = board(Board.INCOMING, null, BOARD_SIZE, "Incoming Duels");
+        DuelBoard holder = board(Board.INCOMING, null, BOARD_SIZE, "Challenges");
         for (int slot = 0; slot < incoming.size() && slot < PAGE_SIZE; slot++) {
             Invitation invite = incoming.get(slot);
             holder.inventory.setItem(slot, MenuItems.head(
-                    invite.challenger(), name(invite.challenger()), List.of(invite.reason())));
+                    invite.challenger(), name(invite.challenger()), List.of(
+                            stakeSummary(invite.moneyEach(), invite.challengerItems().size(),
+                                    invite.challengerCosmetics().size()))));
             holder.choices.put(slot, invite.id());
         }
         MenuItems.back(holder.inventory);
         MenuItems.show(plugin, player, holder.inventory);
     }
 
-    private void openChestAccept(
-            Player player,
-            Invitation invitation,
-            ItemStack challengerStake,
-            ItemStack targetStake
-    ) {
-        DuelBoard holder = board(Board.ACCEPT, invitation.id(), 27, "Accept Safe Duel?");
-        holder.challengerStake = cloneOrNull(challengerStake);
-        holder.targetStake = cloneOrNull(targetStake);
-        holder.inventory.setItem(11, MenuItems.button(Material.LIME_CONCRETE,
-                "Accept & Fight", "KEEP INVENTORY", "Accept the exact terms shown in chat."));
-        holder.inventory.setItem(15, MenuItems.button(Material.RED_CONCRETE,
-                "Decline", "No wager will be charged."));
-        Player challenger = Bukkit.getPlayer(invitation.challenger());
-        if (challenger != null) {
-            info(player, terms(invitation, challenger, challengerStake, player, targetStake));
-        }
+    private void openChestAccept(Player player, Invitation invitation, DuelDraft draft) {
+        DuelBoard holder = board(Board.ACCEPT, invitation.id(), 27,
+                "Fight " + name(invitation.challenger()) + "?");
+        holder.inventory.setItem(10, MenuItems.button(Material.PLAYER_HEAD,
+                name(invitation.challenger()) + " Offers",
+                stakeLines(invitation.moneyEach(), invitation.challengerItems(),
+                        invitation.challengerCosmetics())));
+        holder.inventory.setItem(12, MenuItems.button(Material.GOLD_INGOT,
+                "Money: " + EconomyFormat.dollars(invitation.moneyEach()), "Staked by each player."));
+        holder.inventory.setItem(14, MenuItems.button(Material.CHEST,
+                "Your Items: " + itemCount(draft.items), "Add any items."));
+        holder.inventory.setItem(16, MenuItems.button(Material.NETHER_STAR,
+                "Your Cosmetics: " + draft.cosmetics.size(), "Choose from your wardrobe."));
+        holder.inventory.setItem(21, MenuItems.button(Material.RED_CONCRETE, "Decline"));
+        holder.inventory.setItem(23, MenuItems.button(Material.LIME_CONCRETE,
+                "Accept & Fight", "KEEP INVENTORY"));
         MenuItems.back(holder.inventory);
         MenuItems.show(plugin, player, holder.inventory);
     }
 
     private void openChestFights(Player player, List<Fight> live) {
-        DuelBoard holder = board(Board.LIVE, null, BOARD_SIZE, "Live Duels");
+        DuelBoard holder = board(Board.LIVE, null, BOARD_SIZE, "Live Fights");
         for (int slot = 0; slot < live.size() && slot < PAGE_SIZE; slot++) {
             Fight fight = live.get(slot);
             holder.inventory.setItem(slot, MenuItems.button(
-                    Material.SPYGLASS, fight.label(), fight.reason));
+                    Material.SPYGLASS, fight.label(), "Watch"));
             holder.choices.put(slot, fight.id);
         }
         MenuItems.back(holder.inventory);
@@ -1322,6 +1294,19 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         if (!(event.getInventory().getHolder() instanceof DuelBoard holder)) {
             return;
         }
+        boolean itemWager = holder.board == Board.SETUP_ITEMS
+                || holder.board == Board.ACCEPT_ITEMS;
+        if (itemWager) {
+            int raw = event.getRawSlot();
+            if (raw >= 0 && raw < PAGE_SIZE) {
+                event.setCancelled(false);
+                return;
+            }
+            if (raw >= event.getInventory().getSize()) {
+                event.setCancelled(event.isShiftClick());
+                return;
+            }
+        }
         event.setCancelled(true);
         if (!(event.getWhoClicked() instanceof Player player)
                 || event.getClickedInventory() != event.getInventory()) {
@@ -1329,10 +1314,13 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         }
         int slot = event.getSlot();
         if (slot == MenuItems.backSlot(event.getInventory().getSize())) {
+            returnDeposits(player, holder);
             Consumer<Player> destination = switch (holder.board) {
                 case HUB -> Screens::home;
                 case SETUP -> this::openTargets;
                 case ACCEPT -> this::openIncoming;
+                case SETUP_ITEMS, SETUP_COSMETICS -> viewer -> reopenSetup(viewer, holder.subject);
+                case ACCEPT_ITEMS, ACCEPT_COSMETICS -> viewer -> reopenAccept(viewer, holder.subject);
                 default -> this::openHub;
             };
             runLater(player, destination);
@@ -1353,6 +1341,36 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 });
             }
             case SETUP -> runLater(player, viewer -> chestSetupClick(viewer, holder.subject, slot));
+            case SETUP_ITEMS, ACCEPT_ITEMS -> {
+                DuelDraft draft = holder.board == Board.SETUP_ITEMS
+                        ? setupDrafts.get(player.getUniqueId())
+                        : acceptDrafts.get(player.getUniqueId());
+                if (draft == null) return;
+                boolean accepting = holder.board == Board.ACCEPT_ITEMS;
+                if (slot == 48) {
+                    draft.items = depositedItems(holder.inventory);
+                    returnDeposits(player, holder);
+                    runLater(player, viewer -> {
+                        if (accepting) reopenAccept(viewer, draft.subject);
+                        else reopenSetup(viewer, draft.subject);
+                    });
+                } else if (slot == 50) {
+                    draft.items = new ArrayList<>();
+                    returnDeposits(player, holder);
+                    runLater(player, viewer -> openItemWager(viewer, draft, accepting));
+                }
+            }
+            case SETUP_COSMETICS, ACCEPT_COSMETICS -> {
+                DuelDraft draft = holder.board == Board.SETUP_COSMETICS
+                        ? setupDrafts.get(player.getUniqueId())
+                        : acceptDrafts.get(player.getUniqueId());
+                UUID serial = holder.choices.get(slot);
+                if (draft != null && serial != null) {
+                    if (!draft.cosmetics.add(serial)) draft.cosmetics.remove(serial);
+                    runLater(player, viewer -> openCosmeticWager(
+                            viewer, draft, holder.board == Board.ACCEPT_COSMETICS));
+                }
+            }
             case INCOMING -> {
                 UUID id = holder.choices.get(slot);
                 if (id != null) runLater(player, viewer -> {
@@ -1367,10 +1385,20 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                     error(viewer, "That challenge expired.");
                     return;
                 }
-                if (slot == 11) {
+                DuelDraft draft = acceptDrafts.get(viewer.getUniqueId());
+                if (draft == null || !draft.subject.equals(invite.id())) {
+                    draft = new DuelDraft(invite.id());
+                    acceptDrafts.put(viewer.getUniqueId(), draft);
+                }
+                if (slot == 14) {
+                    openItemWager(viewer, draft, true);
+                } else if (slot == 16) {
+                    openCosmeticWager(viewer, draft, true);
+                } else if (slot == 23) {
                     accept(viewer, invite, new AcceptedTerms(
-                            holder.challengerStake, holder.targetStake));
-                } else if (slot == 15) {
+                            invite.challengerItems(), draft.items,
+                            invite.challengerCosmetics(), List.copyOf(draft.cosmetics)));
+                } else if (slot == 21) {
                     declineByName(viewer, name(invite.challenger()));
                 }
             });
@@ -1378,7 +1406,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 UUID id = holder.choices.get(slot);
                 if (id != null) runLater(player, viewer -> {
                     Fight fight = fights.get(id);
-                    if (fight == null) error(viewer, "That duel ended.");
+                    if (fight == null) error(viewer, "That fight ended.");
                     else joinSpectator(viewer, fight);
                 });
             }
@@ -1387,8 +1415,17 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = false)
     public void onBoardDrag(InventoryDragEvent event) {
-        if (event.getInventory().getHolder() instanceof DuelBoard) {
-            event.setCancelled(true);
+        if (!(event.getInventory().getHolder() instanceof DuelBoard holder)) return;
+        boolean itemWager = holder.board == Board.SETUP_ITEMS
+                || holder.board == Board.ACCEPT_ITEMS;
+        event.setCancelled(!itemWager || event.getRawSlots().stream().anyMatch(slot -> slot >= PAGE_SIZE));
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onBoardClose(InventoryCloseEvent event) {
+        if (event.getInventory().getHolder() instanceof DuelBoard holder
+                && event.getPlayer() instanceof Player player) {
+            returnDeposits(player, holder);
         }
     }
 
@@ -1398,15 +1435,23 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             error(player, "They went offline.");
             return;
         }
-        if (slot == 11) {
-            sendChallenge(player, targetId, "Friendly fight", "0", false);
-        } else if (slot == 13) {
-            sendChallenge(player, targetId, "Friendly item wager", "0", true);
-        } else if (slot == 15) {
-            legacyDrafts.put(player.getUniqueId(), new LegacyDraft(targetId));
-            prompts.put(player.getUniqueId(), Prompt.REASON);
+        DuelDraft draft = setupDrafts.computeIfAbsent(
+                player.getUniqueId(), ignored -> new DuelDraft(targetId));
+        if (slot == 10) {
+            prompts.put(player.getUniqueId(), Prompt.MONEY);
             player.closeInventory();
-            info(player, "Type the duel reason or lore in chat, or type cancel.");
+            info(player, "Type the money wager, 0, or cancel.");
+        } else if (slot == 12) {
+            openItemWager(player, draft, false);
+        } else if (slot == 14) {
+            openCosmeticWager(player, draft, false);
+        } else if (slot == 16) {
+            draft.money = 0L;
+            draft.items = new ArrayList<>();
+            draft.cosmetics.clear();
+            openChestSetup(player, target, draft);
+        } else if (slot == 22) {
+            sendChallenge(player, targetId, draft);
         }
     }
 
@@ -1426,56 +1471,27 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         event.setCancelled(true);
         String typed = PlainTextComponentSerializer.plainText().serialize(event.message()).strip();
         plugin.getServer().getScheduler().runTask(plugin,
-                () -> continueLegacyPrompt(event.getPlayer(), prompt, typed));
+                () -> continueMoneyPrompt(event.getPlayer(), typed));
     }
 
-    private void continueLegacyPrompt(Player player, Prompt prompt, String typed) {
-        LegacyDraft draft = legacyDrafts.get(player.getUniqueId());
+    private void continueMoneyPrompt(Player player, String typed) {
+        DuelDraft draft = setupDrafts.get(player.getUniqueId());
         if (draft == null || typed.equalsIgnoreCase("cancel")) {
             prompts.remove(player.getUniqueId());
-            legacyDrafts.remove(player.getUniqueId());
-            info(player, "Custom challenge cancelled.");
+            if (draft != null) reopenSetup(player, draft.subject);
             return;
         }
-        if (prompt == Prompt.REASON) {
-            if (!PvpDuelRules.validReason(typed)) {
-                error(player, "Give a 3–80 character reason or lore, or type cancel.");
-                return;
-            }
-            draft.reason = PvpDuelRules.cleanReason(typed);
-            prompts.put(player.getUniqueId(), Prompt.MONEY);
-            info(player, "Type the money each player stakes, 0 for none, or cancel.");
-            return;
-        }
-        if (prompt == Prompt.MONEY) {
-            try {
-                draft.money = typed.equals("0") ? 0L : EconomyFormat.parseAmount(typed);
-                if (!PvpDuelRules.validMoney(draft.money, maximumWager())) {
-                    throw new IllegalArgumentException("Maximum: "
-                            + EconomyFormat.dollars(maximumWager()) + ".");
-                }
-            } catch (IllegalArgumentException exception) {
-                error(player, exception.getMessage() + " Type another amount, or cancel.");
-                return;
-            }
-            prompts.put(player.getUniqueId(), Prompt.ITEM);
-            info(player, "Also stake each player's held stack? Type yes or no.");
-            return;
-        }
-        if (!typed.equalsIgnoreCase("yes") && !typed.equalsIgnoreCase("no")) {
-            error(player, "Type yes, no, or cancel.");
+        try {
+            draft.money = typed.equals("0") ? 0L : EconomyFormat.parseAmount(typed);
+        } catch (IllegalArgumentException exception) {
+            error(player, exception.getMessage());
             return;
         }
         prompts.remove(player.getUniqueId());
-        legacyDrafts.remove(player.getUniqueId());
-        sendChallenge(player, draft.target, draft.reason, String.valueOf(draft.money),
-                typed.equalsIgnoreCase("yes"));
+        reopenSetup(player, draft.subject);
     }
 
-    /**
-     * One PvP gate for the entire server. Unrelated players can never damage each
-     * other; an accepted pair is uncancelled only while its countdown has finished.
-     */
+    /** Keeps arranged fights isolated while ordinary PvP follows the server toggle. */
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onDamage(EntityDamageEvent event) {
         if (!(event.getEntity() instanceof Player victim)) {
@@ -1512,8 +1528,9 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         if (attacker == null) {
             return;
         }
-        // This includes a fighter aiming outside their match and all ordinary world
-        // PvP. A player can be fought only through the explicit /pvp contract.
+        if (!isFighter(attacker.getUniqueId()) && plugin.openWorldPvpEnabled()) {
+            return;
+        }
         event.setCancelled(true);
         maybeExplainBlocked(attacker);
         clearCombatLog(attacker, victim);
@@ -1535,7 +1552,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         event.deathMessage(Component.text(
                 (winnerPlayer == null ? name(winner) : winnerPlayer.getName())
                         + " defeated " + victim.getName()
-                        + " in a safe duel — inventory kept.",
+                        + " in /pvp — inventory kept.",
                 NamedTextColor.GOLD
         ));
         plugin.getServer().getScheduler().runTask(plugin,
@@ -1588,7 +1605,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         if (isParticipant(event.getPlayer().getUniqueId())
                 && !internalTeleports.contains(event.getPlayer().getUniqueId())) {
             event.setCancelled(true);
-            error(event.getPlayer(), "Leave or finish the duel before teleporting.");
+            error(event.getPlayer(), "Leave or finish the fight before teleporting.");
         }
     }
 
@@ -1734,7 +1751,8 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         invitations.values().removeIf(invitation -> invitation.challenger().equals(player.getUniqueId())
                 || invitation.target().equals(player.getUniqueId()));
         prompts.remove(player.getUniqueId());
-        legacyDrafts.remove(player.getUniqueId());
+        setupDrafts.remove(player.getUniqueId());
+        acceptDrafts.remove(player.getUniqueId());
         starting.remove(player.getUniqueId());
     }
 
@@ -1756,7 +1774,8 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         }
         invitations.clear();
         prompts.clear();
-        legacyDrafts.clear();
+        setupDrafts.clear();
+        acceptDrafts.clear();
         lastChallenges.clear();
         starting.clear();
     }
@@ -1780,15 +1799,14 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 && !recovery.encodedInventory().isEmpty()) {
             restoreSpectatorInventory(player, recovery);
         } else if (!recovery.encodedStake().isEmpty()) {
-            ItemStack stake = decodeItem(recovery.encodedStake());
-            restoreMissing(player, stake, recovery.heldSlot());
+            restoreEscrow(player, decodeStakeItems(recovery.encodedStake()));
         }
         restorePlayer(player, new PlayerState(recovery, null));
         safeRemoveRecovery(player.getUniqueId());
         if (announce) {
-            info(player, "An interrupted duel was resolved as a draw. Your state and stakes are back.");
+            info(player, "An interrupted fight was a draw. Your state and wagers are back.");
         } else {
-            info(player, "An interrupted safe duel was recovered. Your location, state, and stakes are back.");
+            info(player, "Your interrupted fight was recovered. Your state and stakes are back.");
         }
     }
 
@@ -1809,7 +1827,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             UUID duelId,
             PvpDuelStore.Role role,
             Player player,
-            ItemStack stake,
+            List<ItemStack> stakes,
             boolean inventory
     ) {
         Location origin = player.getLocation();
@@ -1820,7 +1838,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 player.isFlying(), player.getHealth(), player.getFoodLevel(), player.getSaturation(),
                 player.getExhaustion(), player.getFireTicks(), player.getFallDistance(),
                 player.getRemainingAir(), player.getInventory().getHeldItemSlot(),
-                economy.balance(player.getUniqueId()), encodeItem(stake),
+                economy.balance(player.getUniqueId()), encodeStakeItems(stakes),
                 inventory ? encodeItems(player.getInventory().getContents()) : ""
         );
     }
@@ -1868,24 +1886,18 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             economy.set(player.getUniqueId(), recovery.balanceBefore());
         }
         if (!recovery.encodedStake().isEmpty()) {
-            restoreMissing(player, decodeItem(recovery.encodedStake()), recovery.heldSlot());
+            restoreEscrow(player, decodeStakeItems(recovery.encodedStake()));
         }
-    }
-
-    private static void takeHeldStake(Player player, ItemStack expected) {
-        if (expected == null) return;
-        ItemStack current = player.getInventory().getItemInMainHand();
-        if (empty(current) || !current.isSimilar(expected) || current.getAmount() != expected.getAmount()) {
-            throw new IllegalStateException("A held wager changed while the duel was starting.");
-        }
-        player.getInventory().setItemInMainHand(null);
     }
 
     private void returnStake(Player player, PlayerState state) {
         if (player == null || state == null || state.recovery().encodedStake().isEmpty()) {
             return;
         }
-        giveSafely(player, decodeItem(state.recovery().encodedStake()));
+        for (ItemStack item : decodeStakeItems(state.recovery().encodedStake())) {
+            giveSafely(player, item);
+        }
+        vaultLater(player);
     }
 
     private void giveSafely(Player player, ItemStack item) {
@@ -1909,12 +1921,12 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             return head;
         }
         meta.setOwningPlayer(Bukkit.getOfflinePlayer(victimId));
-        meta.displayName(Component.text(victimName + "'s Duel Trophy",
+        meta.displayName(Component.text(victimName + "'s PvP Trophy",
                 ORANGE, TextDecoration.BOLD).decoration(TextDecoration.ITALIC, false));
         meta.lore(List.of(
-                line("Won in consensual /pvp."),
-                line("The defeated player kept their inventory."),
-                line("Tradable and protected from /sell.")
+                line("Won through /pvp."),
+                line("KEEP INVENTORY fight."),
+                line("Protected from /sell.")
         ));
         meta.getPersistentDataContainer().set(
                 victimKey, PersistentDataType.STRING, victimId.toString()
@@ -1932,24 +1944,23 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
 
     private boolean canChallenge(Player challenger, Player target, boolean explain) {
         String problem = null;
-        if (!enabled()) problem = "Safe PvP is currently disabled.";
-        else if (!plugin.duelDamageEnabled()) problem = "All PvP is currently paused by the server.";
+        if (!enabled()) problem = "/pvp is currently disabled.";
         else if (challenger.equals(target)) problem = "You cannot challenge yourself.";
         else if (!challenger.isOnline() || !target.isOnline()) problem = "Both players must be online.";
         else if (VerificationLobbyService.isLobbyWorld(challenger.getWorld())
                 || VerificationLobbyService.isLobbyWorld(target.getWorld())) {
-            problem = "Verification-lobby players cannot duel.";
+            problem = "Verification-lobby players cannot fight.";
         } else if (plugin.inScreenshotMode(challenger) || plugin.inScreenshotMode(target)) {
-            problem = "Screenshot mode must be closed before dueling.";
+            problem = "Close screenshot mode before fighting.";
         } else if (isParticipant(challenger.getUniqueId()) || isParticipant(target.getUniqueId())
                 || starting.contains(challenger.getUniqueId()) || starting.contains(target.getUniqueId())) {
-            problem = "One of you is already busy with a duel.";
+            problem = "One of you is already busy with a fight.";
         } else if (store.find(challenger.getUniqueId()).isPresent()
                 || store.find(target.getUniqueId()).isPresent()) {
-            problem = "One player's interrupted-duel recovery is still finishing.";
+            problem = "One player's fight recovery is still finishing.";
         } else if ((plugin.afkService() != null && plugin.afkService().inCombat(challenger))
                 || (plugin.afkService() != null && plugin.afkService().inCombat(target))) {
-            problem = "Finish the current combat tag before arranging a duel.";
+            problem = "Finish the current combat tag first.";
         }
         if (problem != null && explain) error(challenger, problem);
         return problem == null;
@@ -1967,7 +1978,6 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
 
     private boolean readyToStart(Player first, Player second) {
         return enabled()
-                && plugin.duelDamageEnabled()
                 && first.isOnline()
                 && second.isOnline()
                 && !isParticipant(first.getUniqueId())
@@ -1986,7 +1996,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 && invitations.containsKey(invitation.id())
                 && invitation.target().equals(target.getUniqueId())
                 && invitation.expiresAt() > System.currentTimeMillis();
-        if (!valid && explain) error(target, "That duel challenge expired or is no longer available.");
+        if (!valid && explain) error(target, "That challenge expired or is no longer available.");
         return valid;
     }
 
@@ -2013,7 +2023,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         }
         invitations.remove(invite.id());
         Player challenger = Bukkit.getPlayer(invite.challenger());
-        if (challenger != null) info(challenger, target.getName() + " declined your duel.");
+        if (challenger != null) info(challenger, target.getName() + " declined your challenge.");
         info(target, "Challenge declined.");
     }
 
@@ -2022,7 +2032,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 .filter(row -> row.firstName.equalsIgnoreCase(name)
                         || row.secondName.equalsIgnoreCase(name))
                 .findFirst().orElse(null);
-        if (fight == null) error(player, "That player is not in a live duel.");
+        if (fight == null) error(player, "That player is not in a live fight.");
         else joinSpectator(player, fight);
     }
 
@@ -2068,7 +2078,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             return;
         }
         notices.put(attacker.getUniqueId(), now);
-        error(attacker, "Uninvited PvP is blocked. Use /pvp for a safe, consensual fight.");
+        error(attacker, "PvP is disabled. Use /pvp to fight.");
     }
 
     private boolean teleport(Player player, Location location) {
@@ -2150,18 +2160,150 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 && first.getZ() == second.getZ();
     }
 
-    private static boolean sameCurrentStack(Player player, ItemStack expected) {
-        if (expected == null) return true;
-        ItemStack current = player.getInventory().getItemInMainHand();
-        return !empty(current) && current.isSimilar(expected) && current.getAmount() == expected.getAmount();
-    }
-
-    private static ItemStack cloneOrNull(ItemStack item) {
-        return empty(item) ? null : item.clone();
-    }
-
     private static boolean empty(ItemStack item) {
         return item == null || item.getType().isAir() || item.getAmount() <= 0;
+    }
+
+    private static List<ItemStack> cloneItems(List<ItemStack> items) {
+        if (items == null || items.isEmpty()) return List.of();
+        return items.stream().filter(item -> !empty(item)).map(ItemStack::clone).toList();
+    }
+
+    private static int itemCount(List<ItemStack> items) {
+        return items == null ? 0 : items.stream().filter(item -> !empty(item))
+                .mapToInt(ItemStack::getAmount).sum();
+    }
+
+    private static String stakeSummary(long money, int itemStacks, int cosmeticCount) {
+        return EconomyFormat.dollars(money) + " • " + itemStacks + " item stack(s) • "
+                + cosmeticCount + " cosmetic(s)";
+    }
+
+    private static List<String> stakeLines(
+            long money, List<ItemStack> items, List<UUID> cosmeticSerials
+    ) {
+        return List.of(
+                "Money: " + EconomyFormat.dollars(money),
+                "Items: " + itemCount(items),
+                "Cosmetics: " + cosmeticSerials.size()
+        );
+    }
+
+    private boolean ownsCosmetics(Player player, Iterable<UUID> serials) {
+        for (UUID serial : serials) {
+            if (!cosmetics.isStoredBy(player.getUniqueId(), serial)) return false;
+        }
+        return true;
+    }
+
+    private List<ItemStack> stakeItems(List<ItemStack> items, List<UUID> cosmeticSerials) {
+        List<ItemStack> stakes = new ArrayList<>(cloneItems(items));
+        for (UUID serial : cosmeticSerials) {
+            CosmeticStore.Token token = cosmetics.token(serial).orElseThrow(
+                    () -> new IllegalStateException("A wager cosmetic changed."));
+            CosmeticCatalog.Definition definition = CosmeticCatalog.find(token.cosmeticId()).orElseThrow(
+                    () -> new IllegalStateException("A wager cosmetic is unavailable."));
+            stakes.add(cosmeticItems.token(definition, token));
+        }
+        return stakes;
+    }
+
+    private void withdrawCosmetics(Player player, Iterable<UUID> serials) {
+        for (UUID serial : serials) {
+            if (cosmetics.withdraw(player.getUniqueId(), serial).isEmpty()) {
+                throw new IllegalStateException("A wager cosmetic changed while the fight was starting.");
+            }
+        }
+    }
+
+    private static boolean hasItems(Player player, List<ItemStack> expected) {
+        return missingItems(player, expected).isEmpty();
+    }
+
+    private static List<ItemStack> missingItems(Player player, List<ItemStack> expected) {
+        List<ItemStack> available = new ArrayList<>();
+        for (ItemStack item : player.getInventory().getStorageContents()) {
+            if (!empty(item)) available.add(item.clone());
+        }
+        List<ItemStack> missing = new ArrayList<>();
+        for (ItemStack wanted : cloneItems(expected)) {
+            int remaining = wanted.getAmount();
+            for (ItemStack held : available) {
+                if (remaining <= 0) break;
+                if (!empty(held) && held.isSimilar(wanted)) {
+                    int used = Math.min(remaining, held.getAmount());
+                    remaining -= used;
+                    held.setAmount(held.getAmount() - used);
+                }
+            }
+            if (remaining > 0) {
+                ItemStack shortage = wanted.clone();
+                shortage.setAmount(remaining);
+                missing.add(shortage);
+            }
+        }
+        return missing;
+    }
+
+    private static void takeItems(Player player, List<ItemStack> expected) {
+        if (!hasItems(player, expected)) {
+            throw new IllegalStateException("A wager item changed while the fight was starting.");
+        }
+        ItemStack[] contents = player.getInventory().getStorageContents();
+        for (ItemStack wanted : cloneItems(expected)) {
+            int remaining = wanted.getAmount();
+            for (int slot = 0; slot < contents.length && remaining > 0; slot++) {
+                ItemStack held = contents[slot];
+                if (empty(held) || !held.isSimilar(wanted)) continue;
+                int used = Math.min(remaining, held.getAmount());
+                remaining -= used;
+                if (used == held.getAmount()) contents[slot] = null;
+                else held.setAmount(held.getAmount() - used);
+            }
+        }
+        player.getInventory().setStorageContents(contents);
+    }
+
+    private static List<ItemStack> depositedItems(Inventory inventory) {
+        List<ItemStack> result = new ArrayList<>();
+        for (int slot = 0; slot < PAGE_SIZE; slot++) {
+            ItemStack item = inventory.getItem(slot);
+            if (!empty(item)) result.add(item.clone());
+        }
+        return result;
+    }
+
+    private void returnDeposits(Player player, DuelBoard holder) {
+        if (holder.depositsReturned || (holder.board != Board.SETUP_ITEMS
+                && holder.board != Board.ACCEPT_ITEMS)) return;
+        holder.depositsReturned = true;
+        for (int slot = 0; slot < PAGE_SIZE; slot++) {
+            ItemStack item = holder.inventory.getItem(slot);
+            if (empty(item)) continue;
+            holder.inventory.setItem(slot, null);
+            giveSafely(player, item);
+        }
+    }
+
+    private void reopenSetup(Player player, UUID targetId) {
+        Player target = Bukkit.getPlayer(targetId);
+        DuelDraft draft = setupDrafts.get(player.getUniqueId());
+        if (target == null || draft == null || !draft.subject.equals(targetId)) {
+            error(player, "That player is no longer available.");
+            openTargets(player);
+            return;
+        }
+        openChestSetup(player, target, draft);
+    }
+
+    private void reopenAccept(Player player, UUID invitationId) {
+        Invitation invitation = invitations.get(invitationId);
+        if (invitation == null) {
+            error(player, "That challenge expired.");
+            openIncoming(player);
+            return;
+        }
+        openInvitation(player, invitation);
     }
 
     private static String itemName(ItemStack item) {
@@ -2181,6 +2323,20 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         return ItemStack.deserializeBytes(Base64.getDecoder().decode(encoded));
     }
 
+    private static String encodeStakeItems(List<ItemStack> items) {
+        if (items == null || items.isEmpty()) return "";
+        return encodeItems(items.toArray(ItemStack[]::new));
+    }
+
+    private static List<ItemStack> decodeStakeItems(String encoded) {
+        if (encoded == null || encoded.isEmpty()) return List.of();
+        try {
+            return cloneItems(List.of(decodeItems(encoded)));
+        } catch (RuntimeException legacy) {
+            return List.of(decodeItem(encoded));
+        }
+    }
+
     private static String encodeItems(ItemStack[] items) {
         return Base64.getEncoder().encodeToString(ItemStack.serializeItemsAsBytes(items));
     }
@@ -2196,20 +2352,31 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         return result;
     }
 
-    private void restoreMissing(Player player, ItemStack stake, int heldSlot) {
-        if (empty(stake)) return;
-        ItemStack originalSlot = player.getInventory().getItem(
-                Math.max(0, Math.min(8, heldSlot))
-        );
-        // The durable record is written immediately before escrow is removed. If
-        // that original slot still contains the exact stack, the stop happened in
-        // the tiny pre-removal window. Otherwise the escrowed stack must come back
-        // in full; counting similar items elsewhere could consume an unrelated stack.
-        if (!empty(originalSlot) && originalSlot.isSimilar(stake)
-                && originalSlot.getAmount() == stake.getAmount()) {
-            return;
+    private void restoreEscrow(Player player, List<ItemStack> stakes) {
+        List<ItemStack> missing = new ArrayList<>();
+        for (ItemStack item : stakes) {
+            CosmeticItems.TokenInfo token = cosmeticItems.read(item).orElse(null);
+            if (token == null || !cosmetics.isStoredBy(player.getUniqueId(), token.serial())) {
+                missing.add(item);
+            }
         }
-        giveSafely(player, stake.clone());
+        restoreMissing(player, missing);
+    }
+
+    private void restoreMissing(Player player, List<ItemStack> stakes) {
+        for (ItemStack missing : missingItems(player, stakes)) {
+            CosmeticItems.TokenInfo info = cosmeticItems.read(missing).orElse(null);
+            if (info != null && cosmetics.isStoredBy(player.getUniqueId(), info.serial())) continue;
+            giveSafely(player, missing);
+        }
+        vaultLater(player);
+    }
+
+    private void vaultLater(Player player) {
+        if (wardrobe == null || player == null) return;
+        plugin.getServer().getScheduler().runTask(plugin, () -> {
+            if (player.isOnline()) wardrobe.vaultCarried(player);
+        });
     }
 
     private static void clearCombatLog(Player... players) {
