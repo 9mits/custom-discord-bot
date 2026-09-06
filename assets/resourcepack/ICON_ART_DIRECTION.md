@@ -73,6 +73,16 @@ python assets/resourcepack/import_generated_icons.py \
 The manifest is intentionally local: it contains machine-specific paths to image-model
 outputs. The selected PNGs committed under `src/` are the canonical assets.
 
+**Several local manifests name the same icon ID with different source images**, because
+an icon that was regenerated later left the older entry in place. Merging them and
+letting the last file win silently rebuilt sixteen Dragon icons from superseded
+artwork — Dragon's First Crown shipped as the numeral "1" instead of a crown. Do not
+merge the manifests. The authoritative one is
+`runtime/generated-icon-manifest-verified.json`, in which every entry was proved by
+re-running the importer over the candidate sources and keeping only the source that
+reproduces the committed sprite exactly. If an entry is ever in doubt, re-derive it
+that way rather than trusting a manifest.
+
 ## Shared generation prompt
 
 ```text
