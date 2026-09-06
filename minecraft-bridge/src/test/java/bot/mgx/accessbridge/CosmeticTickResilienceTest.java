@@ -55,22 +55,42 @@ final class CosmeticTickResilienceTest {
     }
 
     /**
-     * A costume entity is decoration, and decoration is never allowed to be the reason
-     * an aura stops drawing.
+     * A cosmetic must never put a living entity in the world, least of all a boss.
+     *
+     * <p>The escort was a real {@code EnderDragon} shrunk with the generic scale
+     * attribute. That attribute has no effect on it — the Ender Dragon has its own boss
+     * renderer rather than the one every scalable mob uses — so what a player actually
+     * got was a full-size Ender Dragon parked over their base. A display entity has no
+     * AI, no health, no hitbox and no boss bar, so the worst a bug here can leave is a
+     * floating model.
      */
     @Test
-    void theEscortNeverDereferencesABossBarItWasNotGiven() throws Exception {
+    void theEscortIsAModelAndNeverALivingEntity() throws Exception {
         String escort = source("MiniDragonEscort.java");
-        assertTrue(escort.contains("BossBar bar = dragon.getBossBar();"),
-                "the boss bar must be held before it is used");
-        assertTrue(escort.contains("if (bar != null) {"),
-                "getBossBar() is null outside the End and must be checked");
-        assertTrue(!escort.contains("dragon.getBossBar().set")
-                        && !escort.contains("dragon.getBossBar().remove"),
-                "the boss bar must never be dereferenced inline");
-        assertTrue(method(escort, "private EnderDragon spawn(Player owner)")
+        assertTrue(escort.contains("ItemDisplay.class"),
+                "the escort must be a display entity");
+        assertTrue(!escort.contains("EnderDragon.class"),
+                "a cosmetic must never spawn an Ender Dragon");
+        assertTrue(!escort.contains("Attribute.SCALE"),
+                "the scale attribute does not shrink an Ender Dragon; do not rely on it");
+        assertTrue(!escort.contains("getBossBar"),
+                "a display entity has no boss bar and must not reach for one");
+        assertTrue(method(escort, "private ItemDisplay spawn(Player owner)")
                         .contains("catch (RuntimeException"),
                 "a failed escort spawn must degrade rather than propagate");
+    }
+
+    /**
+     * The full-size dragons an earlier build left in the world have to be cleared, and
+     * their chunks are not necessarily loaded when the plugin starts.
+     */
+    @Test
+    void orphanedEscortsAreSweptAsTheirChunksArrive() throws Exception {
+        String escort = source("MiniDragonEscort.java");
+        assertTrue(escort.contains("EntitiesLoadEvent"),
+                "an orphan in an unloaded chunk must be swept when it loads");
+        assertTrue(method(escort, "void start()").contains("sweep("),
+                "start must sweep what is already loaded");
     }
 
     /**

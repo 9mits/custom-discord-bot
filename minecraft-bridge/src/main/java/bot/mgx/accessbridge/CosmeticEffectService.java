@@ -1670,10 +1670,62 @@ final class CosmeticEffectService implements Listener {
         }
         long elapsed = Math.max(0L, System.currentTimeMillis() - state.startedAtMillis);
         long phaseMillis = elapsed % DragonMusicTimeline.DURATION_MILLIS;
-        miniDragons.follow(owner, phaseMillis / 1_000.0d,
-                DragonMusicTimeline.at(phaseMillis).energy(), moving,
+        MusicAuraTimeline.Sample sample = DragonMusicTimeline.at(phaseMillis);
+        List<Location> heads = miniDragons.follow(owner, phaseMillis / 1_000.0d,
+                sample.energy(), moving,
                 viewers(owner, owner.getLocation(),
                         PlayerSettingsStore.Setting.OWN_AURA_VISIBLE));
+        double beat = phaseMillis / 1_000.0d;
+        for (int index = 0; index < heads.size(); index++) {
+            drawEscortBody(owner, heads.get(index), beat + index * Math.PI, sample);
+        }
+    }
+
+    /**
+     * The wings, neck and tail that turn a Dragon Head into a dragon.
+     *
+     * <p>The head is a display entity because a model is the one thing particles cannot
+     * do; everything attached to it is particles because a wingbeat is the one thing a
+     * display entity cannot do. Drawn from the head's own facing, so the pair banks with
+     * the orbit rather than flapping sideways through it.
+     */
+    private void drawEscortBody(
+            Player owner, Location head, double beat, MusicAuraTimeline.Sample sample
+    ) {
+        Color membrane = Color.fromRGB(126, 48, 196);
+        Color edge = Color.fromRGB(224, 176, 255);
+        Vector forward = head.getDirection().setY(0d);
+        if (forward.lengthSquared() < 0.001d) {
+            forward = new Vector(0d, 0d, 1d);
+        }
+        forward.normalize();
+        Vector side = new Vector(-forward.getZ(), 0d, forward.getX());
+        double flap = Math.sin(beat * 6.5d) * (0.26d + sample.bass() * 0.22d);
+
+        for (int wing : new int[]{-1, 1}) {
+            for (int bone = 1; bone <= 4; bone++) {
+                double reach = bone * 0.17d;
+                Location at = head.clone()
+                        .subtract(forward.clone().multiply(0.18d + bone * 0.05d))
+                        .add(side.clone().multiply(wing * reach))
+                        .add(0d, 0.12d + flap * (bone / 4d), 0d);
+                dust(owner, at, bone % 2 == 0 ? edge : membrane,
+                        0.55f, PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            }
+        }
+        for (int segment = 1; segment <= 5; segment++) {
+            Location at = head.clone()
+                    .subtract(forward.clone().multiply(0.22d + segment * 0.16d))
+                    .add(0d, Math.sin(beat * 4d - segment * 0.6d) * 0.09d, 0d);
+            dust(owner, at, segment % 2 == 0 ? membrane : edge,
+                    Math.max(0.32f, 0.6f - segment * 0.05f),
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        }
+        if (sample.onset() > 0.4d) {
+            spawnMoving(owner, head.clone().add(forward.clone().multiply(0.28d)),
+                    Particle.DRAGON_BREATH, forward.clone().multiply(0.045d), null,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        }
     }
 
     private void drawDragonMusicFormation(
