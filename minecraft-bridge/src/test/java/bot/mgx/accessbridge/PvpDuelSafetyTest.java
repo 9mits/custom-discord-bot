@@ -274,6 +274,57 @@ final class PvpDuelSafetyTest {
         assertTrue(source.contains("fight.sweepTask = plugin.getServer().getScheduler()"));
     }
 
+    /**
+     * A non-pausing dialog draws no backdrop, so its text sits straight on the sky.
+     * Grey was picked for tooltips, which the game gives a dark panel; on a bright
+     * midday sky the same grey is close to unreadable.
+     */
+    @Test
+    void screenBodyTextIsReadableAgainstTheWorldBehindIt() throws Exception {
+        String menuText = Files.readString(SOURCE.getParent().resolve("MenuText.java"),
+                StandardCharsets.UTF_8);
+        String body = menuText.substring(
+                menuText.indexOf("static Component body(String text)"),
+                menuText.indexOf("static Component muted(String text)"));
+        assertTrue(body.contains("BODY"));
+        assertFalse(body.contains("LABEL"));
+        assertTrue(menuText.contains("static final TextColor BODY = NamedTextColor.WHITE;"));
+        // A stat's label sits in the same body text and had the same problem.
+        String stat = menuText.substring(
+                menuText.indexOf("static Component stat(String label, String value)"),
+                menuText.indexOf("static Component rule("));
+        assertFalse(stat.contains("LABEL"));
+    }
+
+    /** A draw is a result worth playing towards, and unplayable without a clock. */
+    @Test
+    void aRunningFightShowsHowLongIsLeftAndStopsWhenItIsDecided() throws Exception {
+        String source = source();
+        assertTrue(source.contains("startClock(fight)"));
+        String settle = source.substring(
+                source.indexOf("private void endFight(Fight fight, UUID winnerId, String result, boolean immediate)"),
+                source.indexOf("private void beginAftermath"));
+        assertTrue(settle.contains("stopClock(fight)"));
+        String stop = source.substring(
+                source.indexOf("private void stopClock(Fight fight)"),
+                source.indexOf("private void openFightStatus"));
+        assertTrue(stop.contains("hideBossBar"));
+        // A spectator who leaves early keeps the bar otherwise.
+        assertTrue(source.contains("player.hideBossBar(spectator.fight().clock)"));
+    }
+
+    @Test
+    void theResultScreenOffersARematchThatCannotRefuseItself() throws Exception {
+        String source = source();
+        String rematch = source.substring(
+                source.indexOf("private void rematch(Player player, UUID opponentId, long money)"),
+                source.indexOf("/** The same numbers as chat lines"));
+        assertTrue(rematch.contains("canChallenge(player, opponent, true)"));
+        // Carrying a stake they can no longer cover would open a screen that refuses.
+        assertTrue(rematch.contains(
+                "economy.balance(player.getUniqueId()) >= money ? money : 0L"));
+    }
+
     @Test
     void challengesRespectPrivacyAndDoNotForceOpenARecipientsMenu() throws Exception {
         String source = source();

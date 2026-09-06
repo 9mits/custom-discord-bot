@@ -25,6 +25,16 @@ final class MenuText {
     /** Values are green; the labels in front of them stay quiet. */
     static final TextColor VALUE = TextColor.color(0x55FF55);
     static final TextColor LABEL = NamedTextColor.GRAY;
+    /**
+     * Body text on a screen, and it has to be readable against the sky.
+     *
+     * <p>A non-pausing dialog draws no backdrop, so its text sits straight on the
+     * world. Grey was chosen for a tooltip, where the game supplies a dark panel;
+     * over a bright midday sky the same grey all but disappears. White carries the
+     * body, and {@link #MUTED} is as dark as a supporting line is allowed to get.
+     */
+    static final TextColor BODY = NamedTextColor.WHITE;
+    static final TextColor MUTED = TextColor.color(0xC6CFDA);
     static final TextColor GOLD = TextColor.color(0xFFD35A);
     static final TextColor SILVER = TextColor.color(0xC9D6E4);
     static final TextColor BRONZE = TextColor.color(0xCD7F32);
@@ -60,15 +70,29 @@ final class MenuText {
 
     /** {@code Label: value} with the value carrying the colour. */
     static Component stat(String label, String value) {
-        return upright(Component.text(label + ": ", LABEL)
+        return upright(Component.text(label + ": ", MUTED)
                 .append(Component.text(value, VALUE, TextDecoration.BOLD)));
     }
 
     /** {@code Label: value} with an icon in front of the value. */
     static Component stat(String label, String sprite, String value) {
-        return upright(Component.text(label + ": ", LABEL)
+        return upright(Component.text(label + ": ", MUTED)
                 .append(sprite(sprite))
                 .append(Component.text(" " + value, VALUE, TextDecoration.BOLD)));
+    }
+
+    /**
+     * One scannable line: icon, a heading that carries the point, then the detail.
+     *
+     * <p>A screenful of wrapped sentences centred on top of each other is a wall
+     * nobody reads. Keeping the heading short enough that the line never wraps is
+     * what makes a list of rules skimmable rather than a paragraph.
+     */
+    static Component rule(String sprite, String heading, String detail) {
+        return upright(Component.empty()
+                .append(sprite(sprite))
+                .append(Component.text("  " + heading + "  ", BODY, TextDecoration.BOLD))
+                .append(Component.text(detail, MUTED)));
     }
 
     /** Gold, silver and bronze for the podium; everyone else is plain. */
@@ -96,7 +120,12 @@ final class MenuText {
     }
 
     static Component body(String text) {
-        return upright(Component.text(text, LABEL));
+        return upright(Component.text(text, BODY));
+    }
+
+    /** A supporting line under body text: quieter, but still readable on the sky. */
+    static Component muted(String text) {
+        return upright(Component.text(text, MUTED));
     }
 
     static Component buttonLabel(String text, TextColor colour) {
