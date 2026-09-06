@@ -145,6 +145,19 @@ class ResourcePackIconTests(unittest.TestCase):
 
         self.assertEqual(len(icons), len(digests), "custom icons must not be duplicate recolour assets")
 
+    def test_dragon_icons_are_drawn_independently_from_older_cosmetics(self):
+        builder = (RESOURCE_PACK / "build_dragon_cosmetic_icons.py").read_text(encoding="utf-8")
+        self.assertNotIn("Image.open(", builder)
+        self.assertNotIn("def tint(", builder)
+        for icon in (
+            "dragonheart_rupture", "crystal_wingfall", "endscale_cataclysm",
+            "amethyst_dragon_crown", "violet_wyrm_orbit", "geode_sovereignty",
+            "dragonflight_wake", "shardwing_procession", "crystalfire_trail",
+            "amethyst_dragon_ascendant", "dragon_podium_1", "dragon_podium_2",
+            "dragon_podium_3", "dragon_clan_1", "dragon_clan_2", "dragon_clan_3",
+        ):
+            self.assertIn(f'def {icon}()', builder)
+
     def test_bedrock_pack_contains_the_canonical_java_icon_bytes(self):
         catalog = json.loads((RESOURCE_PACK / "bedrock" / "catalog.json").read_text(encoding="utf-8"))
         pack = RESOURCE_PACK / "bedrock" / "MysteriousSMPX-Bedrock.mcpack"

@@ -52,6 +52,10 @@ final class CrateCatalog {
                 HIDDEN_AMETHYST_ONE_IN));
     }
 
+    static int dragonSecretOneIn() {
+        return (int) Math.max(1L, (long) tuned("dragon-crate.secret-one-in", 100_000));
+    }
+
     enum RevealTier {
         NONE,
         LEGENDARY,
@@ -147,21 +151,23 @@ final class CrateCatalog {
         }
 
         String displayedChance() {
-            if (isHiddenAmethyst(this)) {
-                return String.format(Locale.ROOT, "1 in %,d", hiddenAmethystOneIn());
+            if (isGenuineSecret(this)) {
+                return String.format(Locale.ROOT, "1 in %,d",
+                        isHiddenAmethyst(this) ? hiddenAmethystOneIn() : dragonSecretOneIn());
             }
             return secret() ? "???" : percentage(weight);
         }
 
         String actualChance() {
-            if (isHiddenAmethyst(this)) {
-                return String.format(Locale.ROOT, "1 in %,d", hiddenAmethystOneIn());
+            if (isGenuineSecret(this)) {
+                return String.format(Locale.ROOT, "1 in %,d",
+                        isHiddenAmethyst(this) ? hiddenAmethystOneIn() : dragonSecretOneIn());
             }
             return percentage(weight);
         }
 
         String rarityDisplay() {
-            if (isHiddenAmethyst(this)) {
+            if (isGenuineSecret(this)) {
                 return "Secret";
             }
             if (secret()) {
@@ -188,7 +194,7 @@ final class CrateCatalog {
         }
 
         RevealTier revealTier() {
-            if (isHiddenAmethyst(this)) {
+            if (isGenuineSecret(this)) {
                 return RevealTier.GENUINE_SECRET;
             }
             if (secret()) {
@@ -345,6 +351,11 @@ final class CrateCatalog {
 
     static boolean isHiddenAmethyst(Reward reward) {
         return reward != null && HIDDEN_AMETHYST_REWARDS.contains(reward);
+    }
+
+    static boolean isGenuineSecret(Reward reward) {
+        return isHiddenAmethyst(reward) || (reward != null && reward.cosmetic()
+                && CosmeticCatalog.DRAGON_SECRET_COSMETIC_ID.equals(reward.cosmeticId()));
     }
 
     static boolean isAmethyst(Reward reward) {

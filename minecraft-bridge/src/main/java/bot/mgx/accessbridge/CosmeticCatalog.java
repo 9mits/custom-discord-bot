@@ -141,7 +141,7 @@ final class CosmeticCatalog {
             if (leaderboardOnly()) {
                 return "Leaderboard #" + leaderboardRank;
             }
-            if (hiddenAmethystJackpot()) {
+            if (genuineSecret()) {
                 return "Secret";
             }
             if (secret) {
@@ -171,10 +171,17 @@ final class CosmeticCatalog {
             return id.equals(HIDDEN_AMETHYST_COSMETIC_ID);
         }
 
+        boolean genuineSecret() {
+            return hiddenAmethystJackpot() || id.equals(DRAGON_SECRET_COSMETIC_ID);
+        }
+
         int oneIn() {
             if (hiddenAmethystJackpot()) {
                 // The live setting, not the shipped default: this number is shown.
                 return CrateCatalog.hiddenAmethystOneIn();
+            }
+            if (id.equals(DRAGON_SECRET_COSMETIC_ID)) {
+                return CrateCatalog.dragonSecretOneIn();
             }
             return Math.max(1, (int) Math.round(CrateCatalog.TOTAL_WEIGHT / (double) weight));
         }
@@ -192,7 +199,7 @@ final class CosmeticCatalog {
             return category == Category.AURA
                     && !CosmeticCatalog.isAmethystAirdrop(id)
                     && !clanBattleOnly()
-                    && (hiddenAmethystJackpot() || secret || rarityDisplay().equals("Mythic"));
+                    && (genuineSecret() || secret || rarityDisplay().equals("Mythic"));
         }
 
         OddsFamily oddsFamily() {
@@ -460,7 +467,7 @@ final class CosmeticCatalog {
             new Definition(
                     DRAGON_SECRET_COSMETIC_ID, "Amethyst Dragon Ascendant", Category.AURA,
                     1, true, "DRAGON_EGG", "mgx:cosmetic/" + DRAGON_SECRET_COSMETIC_ID,
-                    "A music-synced Amethyst Dragon circles a living crystal throne.", 0
+                    "A music-synced royal Amethyst Dragon conducts a living crystal throne to every beat.", 0
             )
     );
 
@@ -590,21 +597,6 @@ final class CosmeticCatalog {
      */
     private static volatile java.util.function.Supplier<Map<Definition, String>> additions =
             Map::of;
-    private static final Map<String, String> EFFECT_ALIASES = Map.ofEntries(
-            Map.entry("dragonheart_rupture", "violet_detonation"),
-            Map.entry("crystal_wingfall", "crystal_guillotine"),
-            Map.entry("endscale_cataclysm", "resonant_shatter"),
-            Map.entry("amethyst_dragon_crown", "amethyst_ascension"),
-            Map.entry("violet_wyrm_orbit", "airdrop_apotheosis"),
-            Map.entry("geode_sovereignty", "geode_cathedral"),
-            Map.entry("dragonflight_wake", "crystalfall_wake"),
-            Map.entry("shardwing_procession", "shardstorm_wake"),
-            Map.entry("crystalfire_trail", "geode_bloom"),
-            Map.entry("dragon_clan_1", "galactic_conquest"),
-            Map.entry("dragon_clan_2", "amethyst_ascension"),
-            Map.entry("dragon_clan_3", "geode_cathedral")
-    );
-
     static void additionSource(java.util.function.Supplier<Map<Definition, String>> source) {
         if (source != null) {
             additions = source;
@@ -620,7 +612,7 @@ final class CosmeticCatalog {
         if (worn != null && !worn.isBlank()) {
             return worn;
         }
-        return EFFECT_ALIASES.getOrDefault(definition.id(), definition.id());
+        return definition.id();
     }
 
     static Optional<Definition> find(String id) {

@@ -31,5 +31,8 @@ final class DragonMusicTimelineTest {
                 .findFirst().orElseThrow();
         assertEquals(DragonMusicTimeline.SAMPLE_COUNT * 2L,
                 CosmeticEffectService.revealDurationTicks(reward));
+        assertEquals(CrateCatalog.RevealTier.GENUINE_SECRET, reward.revealTier());
+        assertEquals("Secret", reward.rarityDisplay());
+        assertEquals("1 in 100,000", reward.actualChance());
     }
 }

@@ -200,6 +200,8 @@ class CosmeticCatalogTest {
         assertEquals("Exotic", CosmeticCatalog.find("event_horizon").orElseThrow().rarityDisplay());
         assertEquals("Secret", CosmeticCatalog.find("iridescent_imperium")
                 .orElseThrow().rarityDisplay());
+        assertEquals("Secret", CosmeticCatalog.find(CosmeticCatalog.DRAGON_SECRET_COSMETIC_ID)
+                .orElseThrow().rarityDisplay());
     }
 
     @Test
@@ -253,6 +255,41 @@ class CosmeticCatalogTest {
                 PlainTextComponentSerializer.plainText().serialize(revealed));
         assertTrue(revealed.children().stream().map(Component::color).distinct().count() >= 5);
         assertEquals(TextDecoration.State.TRUE, masked.decoration(TextDecoration.OBFUSCATED));
+    }
+
+    @Test
+    void bothMusicSyncedSecretsShareTheGenuineSecretPresentation() {
+        CosmeticCatalog.Definition imperium = CosmeticCatalog
+                .find(CosmeticCatalog.HIDDEN_AMETHYST_COSMETIC_ID).orElseThrow();
+        CosmeticCatalog.Definition dragon = CosmeticCatalog
+                .find(CosmeticCatalog.DRAGON_SECRET_COSMETIC_ID).orElseThrow();
+
+        assertTrue(imperium.genuineSecret());
+        assertTrue(dragon.genuineSecret());
+        assertEquals(imperium.rarityDisplay(), dragon.rarityDisplay());
+        assertEquals("1 in 100,000", dragon.oneInDisplay(false));
+        Component dragonName = CosmeticItems.itemName(dragon, false);
+        assertTrue(dragonName.children().stream().map(Component::color).distinct().count() >= 5);
+        assertEquals(TextDecoration.State.TRUE,
+                CosmeticItems.itemName(dragon, true).decoration(TextDecoration.OBFUSCATED));
+    }
+
+    @Test
+    void everyBuiltInDragonCosmeticKeepsItsOwnEffectIdentity() {
+        List<CosmeticCatalog.Definition> dragonCosmetics = CosmeticCatalog
+                .latestAmethystExpansionRewards().stream()
+                .filter(definition -> definition.id().startsWith("dragon")
+                        || definition.id().contains("dragon")
+                        || Set.of("crystal_wingfall", "endscale_cataclysm",
+                                "violet_wyrm_orbit", "geode_sovereignty",
+                                "shardwing_procession", "crystalfire_trail")
+                                .contains(definition.id()))
+                .toList();
+
+        assertTrue(dragonCosmetics.size() >= 16);
+        for (CosmeticCatalog.Definition definition : dragonCosmetics) {
+            assertEquals(definition.id(), CosmeticCatalog.effectId(definition), definition.id());
+        }
     }
 
     /**

@@ -585,11 +585,19 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         lore.add(stock.soldOut()
                 ? Component.text("Sold out. Back tomorrow.", NamedTextColor.DARK_GRAY)
                 : Component.text(stock.stock() + " left today", NamedTextColor.WHITE));
-        inventory.setItem(DAILY_STOCK_SLOT, MenuItems.detailed(
-                stock.soldOut() ? Material.BARRIER : materialOf(reward.materialName()),
-                reward.displayName(),
-                lore
-        ));
+        ItemStack icon = stock.soldOut()
+                ? new ItemStack(Material.BARRIER)
+                : amethystItems.create(reward).orElseGet(
+                        () -> new ItemStack(materialOf(reward.materialName()))
+                );
+        ItemMeta meta = icon.getItemMeta();
+        if (meta != null) {
+            meta.displayName(Component.text(reward.displayName(), ORANGE, TextDecoration.BOLD)
+                    .decoration(TextDecoration.ITALIC, false));
+            meta.lore(lore);
+            icon.setItemMeta(meta);
+        }
+        inventory.setItem(DAILY_STOCK_SLOT, icon);
     }
 
     /**
