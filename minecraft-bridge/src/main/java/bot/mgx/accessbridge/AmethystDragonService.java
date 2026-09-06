@@ -45,6 +45,11 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
+import org.bukkit.event.block.BlockBurnEvent;
+import org.bukkit.event.block.BlockExplodeEvent;
+import org.bukkit.event.block.BlockFromToEvent;
+import org.bukkit.event.block.BlockPhysicsEvent;
+import org.bukkit.event.entity.EntityChangeBlockEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
@@ -330,7 +335,10 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
             closeRewards();
         }
         if (phase == Phase.PORTAL_OPEN) updateAdmissionBar();
-        if (phase == Phase.REWARDS) updateRewardBar();
+        if (phase == Phase.REWARDS) {
+            updateRewardBar();
+            repairReturnGate();
+        }
         updateDisplays();
         pulseEffects();
     }
@@ -2597,6 +2605,103 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         arena.getEntities().stream()
                 .filter(entity -> !(entity instanceof Player))
                 .forEach(Entity::remove);
+    }
+
+    /**
+     * The way home is not allowed to fail, so it is defended rather than trusted.
+     *
+     * <p>A nether portal is the one block in the game that deletes itself: any neighbour
+     * update makes it re-check its own frame, and a single missing obsidian — a block the
+     * animation could not place because something already occupied the space, a flow, a
+     * burn — takes the whole gate with it. Cancelling the physics update for the gate's
+     * own blocks is what makes that impossible, and the sweep below repairs anything that
+     * got through before this existed.
+     */
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onGatePhysics(BlockPhysicsEvent event) {
+        if (isReturnGateBlock(event.getBlock())
+                || isReturnGateBlock(event.getSourceBlock())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onGateFlow(BlockFromToEvent event) {
+        if (isReturnGateBlock(event.getToBlock())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onGateBurn(BlockBurnEvent event) {
+        if (isReturnGateBlock(event.getBlock())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onGateChangedByEntity(EntityChangeBlockEvent event) {
+        if (isReturnGateBlock(event.getBlock())) {
+            event.setCancelled(true);
+        }
+    }
+
+    /** Explosions keep their effect on the arena, but never take the gate with them. */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onGateEntityExplosion(EntityExplodeEvent event) {
+        event.blockList().removeIf(this::isReturnGateBlock);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onGateBlockExplosion(BlockExplodeEvent event) {
+        event.blockList().removeIf(this::isReturnGateBlock);
+    }
+
+    private boolean isReturnGateBlock(Block block) {
+        return block != null
+                && !rewardStructureBlocks.isEmpty()
+                && arena != null
+                && block.getWorld() == arena
+                && rewardStructureBlocks.contains(block.getLocation());
+    }
+
+    /**
+     * Puts back any part of the gate that is missing, once a second while it should exist.
+     *
+     * <p>The guards above stop it being taken apart; this is what recovers a gate that was
+     * already broken when the server restarted mid-reward-phase, and it is cheap because
+     * the set is empty outside the reward phase.
+     */
+    private void repairReturnGate() {
+        if (arena == null || returnGate == null || rewardStructureBlocks.isEmpty()) return;
+        Orientable portalData = (Orientable) Material.NETHER_PORTAL.createBlockData();
+        portalData.setAxis(Axis.X);
+        int baseY = returnGate.getBlockY() - 1;
+        for (int y = 0; y <= 5; y++) {
+            restoreFrame(arena.getBlockAt(-2, baseY + y, 0));
+            restoreFrame(arena.getBlockAt(2, baseY + y, 0));
+        }
+        for (int x = -1; x <= 1; x++) {
+            restoreFrame(arena.getBlockAt(x, baseY, 0));
+            restoreFrame(arena.getBlockAt(x, baseY + 5, 0));
+        }
+        for (int x = -1; x <= 1; x++) {
+            for (int y = 1; y <= 4; y++) {
+                Block block = arena.getBlockAt(x, baseY + y, 0);
+                if (block.getType() != Material.NETHER_PORTAL) {
+                    block.setBlockData(portalData.clone(), false);
+                    rewardStructureBlocks.add(block.getLocation());
+                }
+            }
+        }
+    }
+
+    private void restoreFrame(Block block) {
+        if (block.getType() == Material.OBSIDIAN || block.getType() == Material.CRYING_OBSIDIAN) {
+            return;
+        }
+        block.setType(Material.OBSIDIAN, false);
+        rewardStructureBlocks.add(block.getLocation());
     }
 
     private void clearRewardArea() {

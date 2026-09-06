@@ -200,6 +200,10 @@ final class SidebarService {
                     .append(identities.visibleUsername(player.getUniqueId()).orElse(""))
                     .append(':')
                     .append(settings.isEnabled(player.getUniqueId(), PlayerSettingsStore.Setting.CLAN_TAGS))
+                    .append(':')
+                    // The team also carries the collision rule now, so going AFK has to
+                    // count as a team change or nobody's client is told to stop pushing.
+                    .append(afkService != null && afkService.isAfk(player.getUniqueId()))
                     .append(';');
         }
         return key.toString();
@@ -594,6 +598,7 @@ final class SidebarService {
     private void syncClanTeams(Scoreboard scoreboard, Player viewer) {
         Map<String, Component> expected = new LinkedHashMap<>();
         Map<String, Set<String>> entries = new LinkedHashMap<>();
+        Set<String> afkTeams = new LinkedHashSet<>();
         for (Player online : plugin.getServer().getOnlinePlayers()) {
             Optional<ClanStore.ClanView> clan = clans.clanOf(online.getUniqueId());
             Optional<String> discordUsername = identities.visibleUsername(online.getUniqueId());
@@ -611,6 +616,9 @@ final class SidebarService {
                             ? clan.map(this::clanTag).orElse(Component.empty())
                             : Component.empty());
             expected.put(teamName, prefix);
+            if (afkService != null && afkService.isAfk(online.getUniqueId())) {
+                afkTeams.add(teamName);
+            }
             entries.computeIfAbsent(teamName, ignored -> new LinkedHashSet<>()).add(online.getName());
         }
         for (Team team : new ArrayList<>(scoreboard.getTeams())) {
@@ -627,6 +635,16 @@ final class SidebarService {
             }
             team.prefix(prefix);
             team.color(NamedTextColor.WHITE);
+            // Player-versus-player shoving is resolved on the pushing player's own client,
+            // so setCollidable alone never stopped a sneaking player or a Bedrock client
+            // from walking an AFK player off a block. The team collision rule is the only
+            // switch both editions' clients actually obey, and every player already has a
+            // team of their own here, so it costs nothing to set per player.
+            team.setOption(
+                    Team.Option.COLLISION_RULE,
+                    afkTeams.contains(teamName)
+                            ? Team.OptionStatus.NEVER : Team.OptionStatus.ALWAYS
+            );
             Set<String> expectedEntries = entries.getOrDefault(teamName, Set.of());
             for (String oldEntry : new LinkedHashSet<>(team.getEntries())) {
                 if (!expectedEntries.contains(oldEntry)) {
