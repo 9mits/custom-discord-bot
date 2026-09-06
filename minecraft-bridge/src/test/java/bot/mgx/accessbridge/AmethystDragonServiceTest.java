@@ -40,4 +40,12 @@ final class AmethystDragonServiceTest {
         assertEquals(18_000L, AmethystDragonService.arenaSkyTime(
                 "END", AmethystDragonService.Phase.PORTAL_OPEN, 6_000L, 18_000L));
     }
+
+    @Test
+    void everyActiveDragonPhaseReturnsVoidFallsToTheIsland() {
+        for (AmethystDragonService.Phase phase : AmethystDragonService.Phase.values()) {
+            assertEquals(phase != AmethystDragonService.Phase.WAITING,
+                    AmethystDragonService.returnsToIsland(phase));
+        }
+    }
 }

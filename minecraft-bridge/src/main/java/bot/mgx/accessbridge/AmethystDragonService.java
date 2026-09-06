@@ -46,6 +46,7 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.event.entity.EntityRegainHealthEvent;
 import org.bukkit.event.entity.EntitySpawnEvent;
@@ -258,12 +259,15 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
 
     boolean handleRespawn(PlayerRespawnEvent event) {
         if (!isArena(event.getPlayer().getWorld())
-                || (phase != Phase.SUMMONING && phase != Phase.FIGHT
-                && phase != Phase.VICTORY && phase != Phase.REWARDS)) {
+                || !returnsToIsland(phase)) {
             return false;
         }
         event.setRespawnLocation(arenaSpawn());
         return true;
+    }
+
+    static boolean returnsToIsland(Phase phase) {
+        return phase != Phase.WAITING;
     }
 
     boolean handlePortal(org.bukkit.event.player.PlayerPortalEvent event) {
@@ -1424,6 +1428,20 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         if (ThreadLocalRandom.current().nextInt(variables.integer("dragon-event.shard-one-in")) == 0) {
             giveShards(attacker, variables.integer("dragon-event.shard-amount"));
         }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onVoidDamage(EntityDamageEvent event) {
+        if (!(event.getEntity() instanceof Player player)
+                || event.getCause() != EntityDamageEvent.DamageCause.VOID
+                || !isArena(player.getWorld()) || !returnsToIsland(phase)
+                || !entrants.contains(player.getUniqueId()) || departed.contains(player.getUniqueId())) {
+            return;
+        }
+        event.setCancelled(true);
+        player.setFallDistance(0f);
+        player.teleport(arenaSpawn());
+        arrivalEffect(player);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
