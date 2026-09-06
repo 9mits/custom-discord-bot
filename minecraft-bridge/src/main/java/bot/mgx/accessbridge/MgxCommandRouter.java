@@ -188,7 +188,8 @@ final class MgxCommandRouter implements CommandExecutor, TabCompleter {
 
             // ---- dev ---------------------------------------------------------
             new Route("dev crate reveal", "run a crate reveal without granting",
-                    Tier.OWNER, "testcrate", List.of("legendary", "mythic", "exotic", "secret")),
+                    Tier.OWNER, "testcrate",
+                    List.of("legendary", "mythic", "exotic", "secret", "dragonsecret")),
             new Route("dev content give", "give yourself the current Amethyst expansion kit",
                     Tier.OWNER, "testlatest", List.of()),
             new Route("dev airdrop", "the local Airdrop harness",

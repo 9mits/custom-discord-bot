@@ -163,6 +163,8 @@ final class CosmeticEffectService implements Listener {
     private final Set<String> missingEffectWarnings = new HashSet<>();
     private final Map<UUID, MusicAuraState> musicAuraStates = new HashMap<>();
     private final MiniDragonEscort miniDragons;
+    /** Players whose cosmetic tick has already thrown, so the log is not repeated. */
+    private final java.util.Set<UUID> tickFailures = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private final Map<UUID, ArmorStand> rarityNameplates = new HashMap<>();
     private final Map<UUID, AtmosphereState> revealAtmospheres = new HashMap<>();
     private final Map<UUID, FloatingPlayerState> floatingPlayers = new HashMap<>();
@@ -245,6 +247,7 @@ final class CosmeticEffectService implements Listener {
         }
         previousLocations.clear();
         trailHistories.clear();
+        tickFailures.clear();
         failedSelectionClears.clear();
         missingEffectWarnings.clear();
         for (UUID ownerId : List.copyOf(musicAuraStates.keySet())) {
@@ -293,62 +296,79 @@ final class CosmeticEffectService implements Listener {
             sweepOrphanedNameplates();
         }
         for (Player player : plugin.getServer().getOnlinePlayers()) {
-            if (VerificationLobbyService.isLobbyWorld(player.getWorld())) {
-                previousLocations.remove(player.getUniqueId());
-                trailHistories.remove(player.getUniqueId());
-                stopMusicAura(player.getUniqueId());
-                miniDragons.release(player.getUniqueId());
-                removeRarityNameplate(player.getUniqueId());
-                continue;
-            }
-            Location now = player.getLocation();
-            Location previous = previousLocations.put(player.getUniqueId(), now.clone());
-            boolean movedInWorld = previous != null && previous.getWorld() == now.getWorld();
-            double movementSquared = movedInWorld ? previous.distanceSquared(now) : 0d;
-            boolean moving = movedInWorld && movementSquared > 0.0025d;
-            long auraFrame = frame + CosmeticAnimation.playerOffset(player.getUniqueId(), 3);
-            Optional<CosmeticCatalog.Definition> aura = active(
-                    player, CosmeticCatalog.Category.AURA
-            );
-            Optional<CosmeticCatalog.Definition> trailDefinition = active(
-                    player, CosmeticCatalog.Category.TRAIL
-            );
-            syncRarityNameplate(player, aura);
-            if (aura.filter(CosmeticEffectService::isMusicAura).isPresent()) {
-                syncMusicAura(player, aura.orElseThrow());
-            } else {
-                stopMusicAura(player.getUniqueId());
-            }
-            if (aura.filter(definition -> DRAGON_MUSIC_AURA_ID.equals(definition.id()))
-                    .isPresent()) {
-                syncDragonEscort(player, moving);
-            } else {
-                miniDragons.release(player.getUniqueId());
-            }
-            aura.ifPresent(definition -> playAuraAmbience(player, definition));
-            // The music aura used to render every tick while every other aura thinned
-            // out. At sprint speed that is one formation per block travelled, so the
-            // ring smeared into a trail instead of orbiting the player.
-            if (CosmeticAnimation.renderAuraFrame(moving, auraFrame)) {
-                aura.ifPresent(definition -> drawAura(player, definition, moving));
-            }
-            Deque<Location> history = trailHistories.computeIfAbsent(
-                    player.getUniqueId(), ignored -> new ArrayDeque<>()
-            );
-            if (previous == null
-                    || previous.getWorld() != now.getWorld()
-                    || previous.distanceSquared(now) > trailResetDistanceSquared()) {
-                history.clear();
-            }
-            history.addFirst(now.clone());
-            while (history.size() > trailHistory()) {
-                history.removeLast();
-            }
-            if (moving) {
-                List<Location> trailPoints = List.copyOf(history);
-                trailDefinition.ifPresent(
-                        definition -> drawTrail(player, definition, trailPoints)
+            // One player's cosmetic must never be able to stop everybody else's.
+            // A null boss bar on a costume entity threw out of this loop and took every
+            // effect after it on the server down with it, leaving the wearer with the
+            // music still playing and nothing drawn — the failure looked like a missing
+            // cosmetic rather than a crash, which is what made it hard to see.
+            try {
+                if (VerificationLobbyService.isLobbyWorld(player.getWorld())) {
+                    previousLocations.remove(player.getUniqueId());
+                    trailHistories.remove(player.getUniqueId());
+                    stopMusicAura(player.getUniqueId());
+                    miniDragons.release(player.getUniqueId());
+                    removeRarityNameplate(player.getUniqueId());
+                    continue;
+                }
+                Location now = player.getLocation();
+                Location previous = previousLocations.put(player.getUniqueId(), now.clone());
+                boolean movedInWorld = previous != null && previous.getWorld() == now.getWorld();
+                double movementSquared = movedInWorld ? previous.distanceSquared(now) : 0d;
+                boolean moving = movedInWorld && movementSquared > 0.0025d;
+                long auraFrame = frame + CosmeticAnimation.playerOffset(player.getUniqueId(), 3);
+                Optional<CosmeticCatalog.Definition> aura = active(
+                        player, CosmeticCatalog.Category.AURA
                 );
+                Optional<CosmeticCatalog.Definition> trailDefinition = active(
+                        player, CosmeticCatalog.Category.TRAIL
+                );
+                syncRarityNameplate(player, aura);
+                if (aura.filter(CosmeticEffectService::isMusicAura).isPresent()) {
+                    syncMusicAura(player, aura.orElseThrow());
+                } else {
+                    stopMusicAura(player.getUniqueId());
+                }
+                if (aura.filter(definition -> DRAGON_MUSIC_AURA_ID.equals(definition.id()))
+                        .isPresent()) {
+                    syncDragonEscort(player, moving);
+                } else {
+                    miniDragons.release(player.getUniqueId());
+                }
+                aura.ifPresent(definition -> playAuraAmbience(player, definition));
+                // The music aura used to render every tick while every other aura thinned
+                // out. At sprint speed that is one formation per block travelled, so the
+                // ring smeared into a trail instead of orbiting the player.
+                if (CosmeticAnimation.renderAuraFrame(moving, auraFrame)) {
+                    aura.ifPresent(definition -> drawAura(player, definition, moving));
+                }
+                Deque<Location> history = trailHistories.computeIfAbsent(
+                        player.getUniqueId(), ignored -> new ArrayDeque<>()
+                );
+                if (previous == null
+                        || previous.getWorld() != now.getWorld()
+                        || previous.distanceSquared(now) > trailResetDistanceSquared()) {
+                    history.clear();
+                }
+                history.addFirst(now.clone());
+                while (history.size() > trailHistory()) {
+                    history.removeLast();
+                }
+                if (moving) {
+                    List<Location> trailPoints = List.copyOf(history);
+                    trailDefinition.ifPresent(
+                            definition -> drawTrail(player, definition, trailPoints)
+                    );
+                }
+        
+            } catch (RuntimeException exception) {
+                if (tickFailures.add(player.getUniqueId())) {
+                    plugin.getLogger().log(
+                            java.util.logging.Level.WARNING,
+                            "Cosmetic rendering failed for " + player.getName()
+                                    + "; their effects are skipped this tick.",
+                            exception
+                    );
+                }
             }
         }
     }

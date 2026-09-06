@@ -55,9 +55,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             "reset", "testverify", "testcrate", "testlatest", "testairdrop", "testamethystblock", "devblog", "update", "serials",
             "cosmetics", "clanbattle", "event", "variables", "help"
     );
-    private static final List<String> CRATE_REVEAL_TIERS = List.of(
-            "legendary", "mythic", "exotic", "secret"
-    );
+    private static final List<String> CRATE_REVEAL_TIERS = List.of("legendary", "mythic", "exotic", "secret", "dragonsecret");
     private static final List<String> AIRDROP_RARITIES = List.of(
             "common", "rare", "legendary", "mythic"
     );
@@ -1140,19 +1138,29 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         }
         if (args.length < 2) {
             throw new IllegalArgumentException(
-                    "Usage: /mgxadmin testcrate <legendary|mythic|exotic|secret> [player]"
+                    "Usage: /mgxadmin testcrate <legendary|mythic|exotic|secret|dragonsecret> [player]"
             );
         }
-        CrateCatalog.RevealTier tier = switch (args[1].toLowerCase(Locale.ROOT)) {
-            case "legendary" -> CrateCatalog.RevealTier.LEGENDARY;
-            case "mythic" -> CrateCatalog.RevealTier.MYTHIC;
-            case "exotic" -> CrateCatalog.RevealTier.SECRET;
-            case "secret", "genuine", "genuine-secret", "genuine_secret", "genuinesecret" ->
-                    CrateCatalog.RevealTier.GENUINE_SECRET;
-            default -> throw new IllegalArgumentException(
-                    "Use legendary, mythic, exotic, or secret."
-            );
+        String choice = args[1].toLowerCase(Locale.ROOT);
+        // The Dragon's Secret shares its tier with the Imperium and loses the race to it,
+        // so it is named rather than selected by rarity. Without this it could not be
+        // tested at all, which is why its reveal went unwatched for so long.
+        boolean dragonSecret = switch (choice) {
+            case "dragonsecret", "dragon-secret", "dragon_secret", "dragon", "ascendant" -> true;
+            default -> false;
         };
+        CrateCatalog.RevealTier tier = dragonSecret
+                ? CrateCatalog.RevealTier.GENUINE_SECRET
+                : switch (choice) {
+                    case "legendary" -> CrateCatalog.RevealTier.LEGENDARY;
+                    case "mythic" -> CrateCatalog.RevealTier.MYTHIC;
+                    case "exotic" -> CrateCatalog.RevealTier.SECRET;
+                    case "secret", "genuine", "genuine-secret", "genuine_secret", "genuinesecret" ->
+                            CrateCatalog.RevealTier.GENUINE_SECRET;
+                    default -> throw new IllegalArgumentException(
+                            "Use legendary, mythic, exotic, secret, or dragonsecret."
+                    );
+                };
         Player target;
         if (args.length >= 3) {
             target = Bukkit.getPlayerExact(args[2]);
@@ -1166,10 +1174,15 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                     "Console must name an online player: /mgxadmin testcrate <rarity> <player>"
             );
         }
-        crates.testReveal(target, tier);
-        success(sender, "Ran the complete " + tier.name().toLowerCase(Locale.ROOT)
-                .replace('_', ' ') + " crate reveal for " + target.getName()
-                + ". No reward was granted.");
+        CrateCatalog.Reward reward = dragonSecret
+                ? CrateCatalog.dragonSecretExample().orElseThrow(() -> new IllegalArgumentException(
+                        "The Amethyst Dragon Ascendant is not in this build's catalog."))
+                : CrateCatalog.revealExample(tier).orElseThrow(() -> new IllegalArgumentException(
+                        "That crate reveal tier is not available."));
+        crates.testReveal(target, reward);
+        success(sender, "Ran the complete " + reward.displayName() + " ("
+                + tier.name().toLowerCase(Locale.ROOT).replace('_', ' ')
+                + ") crate reveal for " + target.getName() + ". No reward was granted.");
         report(sender, "crate_reveal_test", "Tested a crate reward reveal")
                 .detail("player", target.getName())
                 .detail("tier", tier.name().toLowerCase(Locale.ROOT))
@@ -1610,7 +1623,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             sender.sendMessage(Component.text("  /mgxadmin testverify reset", ORANGE)
                     .append(Component.text("  unverify yourself for another test", NamedTextColor.GRAY)));
             sender.sendMessage(Component.text(
-                            "  /mgxadmin testcrate <rarity> [player]", ORANGE
+                            "  /mgxadmin testcrate <legendary|mythic|exotic|secret|dragonsecret> [player]", ORANGE
                     ).append(Component.text(
                             "  run the complete crate reveal without granting loot",
                             NamedTextColor.GRAY

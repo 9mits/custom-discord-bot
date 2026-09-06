@@ -343,6 +343,20 @@ final class CrateCatalog {
         return everyReward().stream().filter(reward -> reward.revealTier() == tier).findFirst();
     }
 
+    /**
+     * The Amethyst Dragon Ascendant, named rather than found by tier.
+     *
+     * <p>It shares {@code GENUINE_SECRET} with the Iridescent Imperium, and the Imperium
+     * comes first, so asking for the tier could only ever return the Imperium — the
+     * server's other Secret, and its own separate reveal, had no way to be tested at all.
+     */
+    static Optional<Reward> dragonSecretExample() {
+        return everyReward().stream()
+                .filter(reward -> reward.cosmetic()
+                        && CosmeticCatalog.DRAGON_SECRET_COSMETIC_ID.equals(reward.cosmeticId()))
+                .findFirst();
+    }
+
     static boolean isExclusiveAmethyst(Reward reward) {
         return reward != null
                 && (AMETHYST_REWARDS.contains(reward) || HIDDEN_AMETHYST_REWARDS.contains(reward))
