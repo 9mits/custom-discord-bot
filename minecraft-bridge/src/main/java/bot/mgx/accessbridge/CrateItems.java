@@ -82,20 +82,30 @@ final class CrateItems {
         return item;
     }
 
+    /**
+     * One real stack of keys.
+     *
+     * <p>Keys used to be a single item carrying its balance in persistent data and
+     * printing it into the name — a stack of one that claimed to be nine hundred. The
+     * count is now the item count, so a key behaves like every other item in the game:
+     * it merges, it splits, it shows the number the client draws in the corner of the
+     * slot, and half of it can be dropped or put in a chest.
+     *
+     * <p>Nothing beyond the count varies between two key items, which is precisely what
+     * lets the client merge them. Any per-stack text here would silently stop that.
+     */
     ItemStack key(long amount) {
         if (amount <= 0) throw new IllegalArgumentException("Key amount must be positive.");
         if (amount > keyStackSize()) {
             throw new IllegalArgumentException("One key stack cannot exceed " + keyStackSize() + ".");
         }
-        ItemStack item = new ItemStack(Material.TRIAL_KEY);
+        ItemStack item = new ItemStack(Material.TRIAL_KEY, (int) amount);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            meta.setMaxStackSize(1);
-            meta.getPersistentDataContainer().set(keyCountMarker, PersistentDataType.LONG, amount);
-            meta.displayName(Component.text("Mysterious Crate Keys × " + amount, ORANGE, TextDecoration.BOLD)
+            meta.setMaxStackSize(MAX_REAL_STACK);
+            meta.displayName(Component.text("Mysterious Crate Key", ORANGE, TextDecoration.BOLD)
                     .decoration(TextDecoration.ITALIC, false));
             meta.lore(List.of(
-                    line("Keys: " + amount),
                     line("Opens the Default Crate: 1 key"),
                     line("Opens the Limited Amethyst Crate: 2 keys"),
                     line("Use /crate to open or inspect rewards.")
@@ -111,7 +121,7 @@ final class CrateItems {
         return item;
     }
 
-    /** Builds visible key bundles whose displayed balance never exceeds the configured cap. */
+    /** Splits a balance into real stacks, none larger than one slot can hold. */
     List<ItemStack> keyStacks(long amount) {
         List<ItemStack> stacks = new ArrayList<>();
         for (long portion : keyPortions(amount, keyStackSize())) {
@@ -133,8 +143,19 @@ final class CrateItems {
         return List.copyOf(portions);
     }
 
+    /**
+     * Minecraft's own ceiling on a stack.
+     *
+     * <p>The {@code max_stack_size} data component is validated server-side as
+     * {@code must be <= 99}, so a real 999-key stack cannot exist however the variable
+     * is set. The configured value is clamped rather than trusted: it used to describe
+     * a virtual bundle, where 999 was meaningful, and an untouched config would
+     * otherwise throw on the first key handed out.
+     */
+    static final int MAX_REAL_STACK = 99;
+
     private int keyStackSize() {
-        return variables.integer("crate.key-stack-size");
+        return Math.max(1, Math.min(MAX_REAL_STACK, variables.integer("crate.key-stack-size")));
     }
 
     boolean isKey(ItemStack item) {
@@ -152,11 +173,33 @@ final class CrateItems {
                 .has(shardMarker, PersistentDataType.BYTE);
     }
 
+    /**
+     * How many keys an item is worth.
+     *
+     * <p>A key is now worth its stack count. The per-item multiplier is still read so a
+     * player holding a bundle minted before this change does not lose it: those are
+     * converted to real stacks by {@link #upgradeLegacyKeys(Player)} the next time they
+     * are touched.
+     */
     long keyCount(ItemStack item) {
         if (!isKey(item)) return 0L;
         long each = item.getItemMeta().getPersistentDataContainer()
                 .getOrDefault(keyCountMarker, PersistentDataType.LONG, 1L);
         return Math.multiplyExact(Math.max(1L, each), item.getAmount());
+    }
+
+    /** A bundle minted before keys became real stacks, still carrying a virtual count. */
+    boolean isLegacyBundle(ItemStack item) {
+        return isKey(item) && item.getItemMeta().getPersistentDataContainer()
+                .has(keyCountMarker, PersistentDataType.LONG);
+    }
+
+    /** Whether anything in this player's inventory still needs converting. */
+    boolean hasLegacyKeys(Player player) {
+        for (ItemStack item : player.getInventory().getStorageContents()) {
+            if (isLegacyBundle(item)) return true;
+        }
+        return isLegacyBundle(player.getInventory().getItemInOffHand());
     }
 
     long count(Player player) {
@@ -167,8 +210,16 @@ final class CrateItems {
         return Math.addExact(total, keyCount(player.getInventory().getItemInOffHand()));
     }
 
-    /** Consolidates legacy physical stacks, then splits them into capped 999-style bundles. */
+    /**
+     * Converts pre-existing virtual key bundles into real stacks.
+     *
+     * <p>This only runs when there is actually a bundle to convert. It used to run on
+     * every key click and every grant, which was harmless while a key was a stack of
+     * one but would now repack a player's inventory underneath them each time they
+     * moved a key or earned one.
+     */
     void upgradeLegacyKeys(Player player) {
+        if (!hasLegacyKeys(player)) return;
         ItemStack[] storage = player.getInventory().getStorageContents();
         long total = 0L;
         List<Integer> available = new ArrayList<>();

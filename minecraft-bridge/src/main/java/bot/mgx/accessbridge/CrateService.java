@@ -1326,7 +1326,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
 
     @EventHandler(priority = EventPriority.NORMAL)
     public void onClick(InventoryClickEvent event) {
-        if (event.getWhoClicked() instanceof Player player && items.isKey(event.getCurrentItem())) {
+        if (event.getWhoClicked() instanceof Player player
+                && items.isLegacyBundle(event.getCurrentItem())) {
             plugin.getServer().getScheduler().runTask(plugin, () -> {
                 if (player.isOnline()) {
                     items.upgradeLegacyKeys(player);
@@ -1434,9 +1435,18 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         }
     }
 
+    /**
+     * Only a legacy bundle needs intercepting on pickup.
+     *
+     * <p>A real key stack is picked up by Minecraft itself, which merges it into the
+     * stacks the player already has and takes only what fits. Routing that through
+     * {@code giveKeys} would refuse the whole pickup whenever the balance did not fit
+     * entirely, leaving keys on the floor that vanilla would have partly collected.
+     */
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPickup(EntityPickupItemEvent event) {
-        if (!(event.getEntity() instanceof Player player) || !items.isKey(event.getItem().getItemStack())) {
+        if (!(event.getEntity() instanceof Player player)
+                || !items.isLegacyBundle(event.getItem().getItemStack())) {
             return;
         }
         if (items.giveKeys(player, items.keyCount(event.getItem().getItemStack()))) {

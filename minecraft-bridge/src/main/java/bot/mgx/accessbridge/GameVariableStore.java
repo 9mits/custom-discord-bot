@@ -942,8 +942,9 @@ final class GameVariableStore {
         integer("crate.keys-per-hour", "Keys per online hour", "Crates",
                 "Ordinary keys earned for each completed online hour.", CrateService.KEYS_PER_HOUR, 1, 256, "keys", false);
         integer("crate.key-stack-size", "Keys per stack", "Crates",
-                "Largest virtual key stack kept in one inventory slot.",
-                999, 1, 100_000, "keys", false);
+                "Keys held in one inventory slot. Minecraft validates max_stack_size as "
+                        + "99 or less, so this is a real ceiling and not a display choice.",
+                CrateItems.MAX_REAL_STACK, 1, CrateItems.MAX_REAL_STACK, "keys", false);
         integer("crate.booster-keys-per-hour", "Booster keys per online hour", "Crates",
                 "Keys earned per online hour while the linked member is boosting.", CrateService.BOOSTER_KEYS_PER_HOUR, 1, 256, "keys", false);
         // Named after the thing you actually win. "Hidden Amethyst jackpot" told an
