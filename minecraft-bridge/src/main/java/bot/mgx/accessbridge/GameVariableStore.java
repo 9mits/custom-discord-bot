@@ -273,6 +273,17 @@ final class GameVariableStore {
         choice("dragon-event.fight-bossbar-color", "Dragon fight boss bar colour", "Dragon Presentation",
                 "Colour of the single custom Dragon health bar.", "PURPLE",
                 List.of("PINK", "BLUE", "RED", "GREEN", "YELLOW", "PURPLE", "WHITE"));
+        bool("dragon-event.reward-bossbar-enabled", "Reward countdown bar", "Dragon Presentation",
+                "Whether players in the defeated Dragon dimension see its closing countdown.", true);
+        text("dragon-event.reward-bossbar-text", "Reward countdown text", "Dragon Presentation",
+                "Boss bar shown while the Dragon Crate is available. Supports <time>.",
+                "DRAGON DIMENSION CLOSES IN <time>", 120);
+        choice("dragon-event.reward-bossbar-color", "Reward countdown colour", "Dragon Presentation",
+                "Colour of the Dragon dimension closing countdown.", "PURPLE",
+                List.of("PINK", "BLUE", "RED", "GREEN", "YELLOW", "PURPLE", "WHITE"));
+        choice("dragon-event.reward-bossbar-overlay", "Reward countdown segments", "Dragon Presentation",
+                "Segment style of the Dragon dimension closing countdown.", "PROGRESS",
+                List.of("PROGRESS", "NOTCHED_6", "NOTCHED_10", "NOTCHED_12", "NOTCHED_20"));
         choice("dragon-event.sky-style", "Dragon arena sky", "Dragon Presentation",
                 "PHASED is bright before combat, dark during combat, and bright after victory. END stays black.",
                 "END", List.of("END", "PHASED", "OVERWORLD"));
@@ -404,9 +415,19 @@ final class GameVariableStore {
         text("dragon-event.exit-confirm-title", "Exit confirmation title", "Dragon Presentation",
                 "Title shown before a player permanently leaves a finished Dragon event.",
                 "Leave the Dragon Event?", 80);
+        text("dragon-event.exit-confirm-heading", "Exit confirmation heading", "Dragon Presentation",
+                "Prominent warning heading shown above the Dragon-event exit explanation.",
+                "THIS EXIT IS PERMANENT", 100);
         text("dragon-event.exit-confirm-message", "Exit confirmation warning", "Dragon Presentation",
                 "Warning shown before leaving. The player cannot return after confirming.",
                 "Are you sure you want to leave? You cannot return to this Dragon event after leaving.", 240);
+        text("dragon-event.exit-confirm-details", "Exit confirmation details", "Dragon Presentation",
+                "Details explaining what remains available if the player stays.",
+                "Stay to keep opening the Amethyst Dragon Crate and claim any remaining rewards before the dimension closes.",
+                300);
+        text("dragon-event.exit-confirm-time", "Exit confirmation countdown", "Dragon Presentation",
+                "Closing countdown shown in the exit confirmation. Supports <time>.",
+                "DIMENSION CLOSES IN <time>", 100);
         text("dragon-event.exit-confirm-button", "Exit confirmation button", "Dragon Presentation",
                 "Label of the permanent Dragon-event exit button.", "Leave Event", 40);
         text("dragon-event.exit-cancel-message", "Exit cancellation message", "Dragon Presentation",
