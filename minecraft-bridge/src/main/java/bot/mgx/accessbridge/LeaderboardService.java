@@ -8,10 +8,6 @@ import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.Statistic;
 import org.bukkit.entity.Player;
-import org.bukkit.event.EventHandler;
-import org.bukkit.event.EventPriority;
-import org.bukkit.event.Listener;
-import org.bukkit.event.player.PlayerStatisticIncrementEvent;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -30,7 +26,11 @@ import java.util.function.Predicate;
  * permanent message from cache, so a dropped snapshot costs nothing — the next one
  * replaces it. That also caps how often the statistics files are read.
  */
-final class LeaderboardService implements Listener {
+/*
+ * No longer a listener: the only thing it ever listened for was a vanilla kill,
+ * and the Kills board is fed by duel results now, which announce themselves.
+ */
+final class LeaderboardService {
     /** Top ten on every board — hologram, menu, and Discord. */
     private static final int ROWS = 10;
     /** Publish shortly after boot so a freshly placed board is not blank for minutes. */
@@ -143,12 +143,6 @@ final class LeaderboardService implements Listener {
         }
     }
 
-    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
-    public void onStatisticIncrement(PlayerStatisticIncrementEvent event) {
-        if (event.getStatistic() == Statistic.PLAYER_KILLS) {
-            refreshSoon();
-        }
-    }
 
     private void publish() {
         if (!publishing.compareAndSet(false, true)) {
@@ -361,7 +355,7 @@ final class LeaderboardService implements Listener {
     private static String boardName(LeaderboardType type) {
         return switch (type) {
             case WEALTH -> "Money $";
-            case KILLS -> "Kills " + type.icon();
+            case KILLS -> "PvP Kills " + type.icon();
             case PLAYTIME -> "Playtime";
             case BLOCKS_MINED -> "Blocks Mined";
             case BLOCKS_WALKED -> "Blocks Walked";

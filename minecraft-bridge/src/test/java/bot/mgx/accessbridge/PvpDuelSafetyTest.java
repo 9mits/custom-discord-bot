@@ -165,7 +165,7 @@ final class PvpDuelSafetyTest {
     void theReturnHoldKeepsItsRecoveryRowUntilThePlayerIsBack() throws Exception {
         String source = source();
         String settle = source.substring(
-                source.indexOf("private void endFight(Fight fight, UUID winnerId, String result, boolean immediate)"),
+                source.indexOf("Fight fight, UUID winnerId, String result, boolean immediate, Ending ending"),
                 source.indexOf("private void beginAftermath"));
         assertTrue(settle.contains("fight.settled.add(playerId)"));
         assertFalse(settle.contains("safeRemoveRecovery"));
@@ -302,7 +302,7 @@ final class PvpDuelSafetyTest {
         String source = source();
         assertTrue(source.contains("startClock(fight)"));
         String settle = source.substring(
-                source.indexOf("private void endFight(Fight fight, UUID winnerId, String result, boolean immediate)"),
+                source.indexOf("Fight fight, UUID winnerId, String result, boolean immediate, Ending ending"),
                 source.indexOf("private void beginAftermath"));
         assertTrue(settle.contains("stopClock(fight)"));
         String stop = source.substring(
@@ -323,6 +323,34 @@ final class PvpDuelSafetyTest {
         // Carrying a stake they can no longer cover would open a screen that refuses.
         assertTrue(rematch.contains(
                 "economy.balance(player.getUniqueId()) >= money ? money : 0L"));
+    }
+
+    /**
+     * Vanilla's PLAYER_KILLS counts anybody killed anywhere. A duel is consensual,
+     * staked and fought in an identical arena, which is what makes it rankable.
+     */
+    @Test
+    void theKillsBoardsCountDuelsRatherThanVanillaKills() throws Exception {
+        String stats = Files.readString(SOURCE.getParent().resolve("PlayerStats.java"),
+                StandardCharsets.UTF_8);
+        assertTrue(stats.contains("case KILLS -> duelKills;"));
+
+        String service = Files.readString(SOURCE.getParent().resolve("PlayerStatsService.java"),
+                StandardCharsets.UTF_8);
+        assertTrue(service.contains("withDuelKills(duels.of(uuid).kills())"));
+
+        // The board used to refresh off a vanilla statistic that no longer feeds it.
+        String board = Files.readString(SOURCE.getParent().resolve("LeaderboardService.java"),
+                StandardCharsets.UTF_8);
+        assertFalse(board.contains("PlayerStatisticIncrementEvent"));
+        assertTrue(board.contains("PvP Kills"));
+
+        String source = source();
+        assertTrue(source.contains("duelRecords.settle(winnerId, fight.opponent(winnerId),"));
+        assertTrue(source.contains("duelRecords.drew(fight.first, fight.second)"));
+        // A surrender is a win, not a kill.
+        assertTrue(source.contains("ending == Ending.KILL"));
+        assertTrue(source.contains("player.getName() + \" gave up\", Ending.SURRENDER"));
     }
 
     @Test

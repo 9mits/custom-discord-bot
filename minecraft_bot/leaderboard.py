@@ -39,7 +39,7 @@ DEFAULT_TYPE = "wealth"
 
 TYPE_LABELS: dict[str, str] = {
     "wealth": "Richest",
-    "kills": "Most Kills",
+    "kills": "Most PvP Kills",
     "dragon_damage": "Most Amethyst Dragon Damage",
     "dragon_crystals": "Most End Crystals Broken",
     "clan_battle": "Current Clan Battle",

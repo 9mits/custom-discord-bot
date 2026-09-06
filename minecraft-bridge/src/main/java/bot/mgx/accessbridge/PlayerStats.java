@@ -21,7 +21,8 @@ record PlayerStats(
         long amethystAirdropsOpened,
         long dragonDamage,
         long dragonCrystals,
-        long dragonCratesOpened
+        long dragonCratesOpened,
+        long duelKills
 ) {
     PlayerStats(
             UUID minecraftUuid,
@@ -35,7 +36,7 @@ record PlayerStats(
     ) {
         this(
                 minecraftUuid, username, kills, deaths, playTimeTicks,
-                blocksMined, walkedCm, wealth, 0L, 0L, 0L, 0L, 0L
+                blocksMined, walkedCm, wealth, 0L, 0L, 0L, 0L, 0L, 0L
         );
     }
 
@@ -46,11 +47,11 @@ record PlayerStats(
     ) {
         this(minecraftUuid, username, kills, deaths, playTimeTicks, blocksMined,
                 walkedCm, wealth, amethystCratesOpened, amethystAirdropsOpened,
-                0L, 0L, 0L);
+                0L, 0L, 0L, 0L);
     }
 
     static PlayerStats empty(UUID minecraftUuid, String username) {
-        return new PlayerStats(minecraftUuid, username, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        return new PlayerStats(minecraftUuid, username, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
     }
 
     PlayerStats withWealth(long updatedWealth) {
@@ -67,7 +68,8 @@ record PlayerStats(
                 amethystAirdropsOpened,
                 dragonDamage,
                 dragonCrystals,
-                dragonCratesOpened
+                dragonCratesOpened,
+                duelKills
         );
     }
 
@@ -85,7 +87,18 @@ record PlayerStats(
                 amethystAirdropsOpened,
                 dragonDamage,
                 dragonCrystals,
-                dragonCratesOpened
+                dragonCratesOpened,
+                duelKills
+        );
+    }
+
+    /** Duelling is recorded by the plugin, not by any vanilla statistic. */
+    PlayerStats withDuelKills(long updatedDuelKills) {
+        return new PlayerStats(
+                minecraftUuid, username, kills, deaths, playTimeTicks, blocksMined,
+                walkedCm, wealth, amethystCratesOpened, amethystAirdropsOpened,
+                dragonDamage, dragonCrystals, dragonCratesOpened,
+                Math.max(0, updatedDuelKills)
         );
     }
 
@@ -103,13 +116,15 @@ record PlayerStats(
                 progress.airdropsOpened(),
                 progress.dragonDamage(),
                 progress.dragonCrystals(),
-                progress.dragonCratesOpened()
+                progress.dragonCratesOpened(),
+                duelKills
         );
     }
 
     long value(LeaderboardType type) {
         return switch (type) {
-            case KILLS -> kills;
+            // Ranked on duels, not on whoever was caught out in the open.
+            case KILLS -> duelKills;
             case WEALTH -> wealth;
             case PLAYTIME -> playTimeTicks;
             case BLOCKS_MINED -> blocksMined;

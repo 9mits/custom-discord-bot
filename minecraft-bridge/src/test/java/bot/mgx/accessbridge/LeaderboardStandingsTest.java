@@ -84,6 +84,6 @@ class LeaderboardStandingsTest {
     }
 
     private static PlayerStats stats(UUID id, String name, long kills, long wealth) {
-        return new PlayerStats(id, name, kills, 0, 0, 0, 0, wealth);
+        return new PlayerStats(id, name, kills, 0, 0, 0, 0, wealth).withDuelKills(kills);
     }
 }
