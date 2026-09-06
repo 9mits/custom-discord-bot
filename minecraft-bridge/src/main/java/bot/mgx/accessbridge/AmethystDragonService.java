@@ -158,6 +158,9 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     private long lastAggressiveAttackAt;
     private long lastMinionWaveAt;
     private long lastChaosAt;
+    private long nextPerchAt;
+    private long perchUntil;
+    private double nextRagePercent;
     private int effectFrame;
     private Location rewardChest;
     private Location returnGate;
@@ -169,6 +172,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     private final Set<String> claimableEggs = new HashSet<>();
     private final Set<Location> portalBlocks = new HashSet<>();
     private final Set<Location> rewardStructureBlocks = new HashSet<>();
+    private final Set<Item> visualKeys = new HashSet<>();
     private BukkitTask ticker;
     private BukkitTask summoningTask;
 
@@ -383,6 +387,9 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         dragonHealth = 0d;
         dragonHealthScale = 1d;
         lastDragonAttacker = null;
+        nextPerchAt = 0L;
+        perchUntil = 0L;
+        nextRagePercent = 0d;
     }
 
     private void startImmediately(CommandSender sender) {
@@ -454,6 +461,10 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         lastAggressiveAttackAt = 0L;
         lastMinionWaveAt = System.currentTimeMillis();
         lastChaosAt = 0L;
+        nextPerchAt = System.currentTimeMillis()
+                + variables.integer("dragon-event.perch-interval-seconds") * 1_000L;
+        perchUntil = 0L;
+        nextRagePercent = 100d - variables.decimal("dragon-event.rage-health-step-percent");
         spawnMinionWave();
         scheduledAt = nextEvent(Instant.now().plusSeconds(30));
         CrateKind.dragonAvailableSource(() -> crateAvailable());
@@ -660,6 +671,9 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         dragonMaximumHealth = 0d;
         dragonHealth = 0d;
         dragonHealthScale = 1d;
+        nextPerchAt = 0L;
+        perchUntil = 0L;
+        nextRagePercent = 0d;
         runGeneration++;
         setPortalLit(false);
         CrateKind.dragonAvailableSource(() -> false);
@@ -1083,6 +1097,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
 
     private void aggressiveAttack(long now) {
         if (dragon == null || !dragon.isValid()) return;
+        if (now < perchUntil) return;
         long interval = variables.integer("dragon-event.aggressive-attack-seconds") * 1000L;
         if (now - lastAggressiveAttackAt < interval) return;
         List<Player> targets = arena.getPlayers().stream()
@@ -1107,6 +1122,39 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         dragon.setVelocity(direction.multiply(variables.decimal("dragon-event.aggression-speed")));
         arena.spawnParticle(Particle.DRAGON_BREATH, dragon.getEyeLocation(),
                 variables.integer("dragon-event.attack-particle-count"), 1.4, 1.0, 1.4, .08, 1.0f);
+    }
+
+    /** Gives melee players a recurring, protected opening at the centre of the island. */
+    private void driveDragonPerch(long now) {
+        if (dragon == null || !dragon.isValid()) return;
+        if (perchUntil > 0L && now >= perchUntil) {
+            perchUntil = 0L;
+            nextPerchAt = now + variables.integer("dragon-event.perch-interval-seconds") * 1_000L;
+            dragon.setPhase(EnderDragon.Phase.LEAVE_PORTAL);
+            return;
+        }
+        if (perchUntil == 0L && now < nextPerchAt) return;
+        if (perchUntil == 0L) {
+            perchUntil = now + variables.integer("dragon-event.perch-duration-seconds") * 1_000L;
+            Location centre = arenaSurface(0, 0).add(0, 3.5, 0);
+            dragon.setVelocity(centre.toVector().subtract(dragon.getLocation().toVector())
+                    .normalize().multiply(variables.decimal("dragon-event.perch-approach-speed")));
+            if (variables.bool("dragon-event.effects-enabled")) {
+                arena.spawnParticle(Particle.DRAGON_BREATH, centre,
+                        variables.integer("dragon-event.perch-particle-count"), 5, 3, 5, .09, 1.0f);
+                arena.spawnParticle(Particle.END_ROD, centre,
+                        Math.max(1, variables.integer("dragon-event.perch-particle-count") / 2),
+                        6, 2, 6, .12);
+                arena.strikeLightningEffect(centre);
+            }
+            arena.playSound(centre,
+                    configuredSound("dragon-event.perch-sound", Sound.ENTITY_ENDER_DRAGON_GROWL),
+                    (float) variables.decimal("dragon-event.effect-sound-volume"),
+                    (float) variables.decimal("dragon-event.perch-pitch"));
+        }
+        // Reassert this while the opening is active so the attack loop and vanilla phase
+        // changes cannot immediately pull the Dragon away from the centre.
+        dragon.setPhase(EnderDragon.Phase.LAND_ON_PORTAL);
     }
 
     private void driveMinions() {
@@ -1179,6 +1227,9 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                 arena.spawnParticle(Particle.EXPLOSION_EMITTER, strike.clone().add(0, 1, 0), 1);
                 arena.spawnParticle(Particle.DRAGON_BREATH, strike.clone().add(0, 1, 0),
                         variables.integer("dragon-event.chaos-particle-count"), 1.2, 1.5, 1.2, .08, 1.0f);
+                if (variables.bool("dragon-event.effects-enabled")) {
+                    arena.strikeLightningEffect(strike);
+                }
                 if (target.getLocation().distanceSquared(strike)
                         <= variables.decimal("dragon-event.chaos-hit-radius")
                         * variables.decimal("dragon-event.chaos-hit-radius")) {
@@ -1246,31 +1297,51 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                     4.5, 2.8, 4.5, .2);
             arena.spawnParticle(Particle.DUST, chest, particles - 2 * (particles / 3),
                     3.8, 3.2, 3.8, .06, BRIGHT);
-            if (variables.bool("dragon-event.reward-crate-arrival-lightning")) {
-                arena.strikeLightningEffect(chest);
+            int beamHeight = variables.integer("dragon-event.reward-beacon-height");
+            int beamSpacing = variables.integer("dragon-event.reward-beacon-spacing");
+            for (int y = 0; y <= beamHeight; y += beamSpacing) {
+                Location point = chest.clone().add(0, y, 0);
+                arena.spawnParticle(Particle.END_ROD, point, 4, .22, .22, .22, .015);
+                arena.spawnParticle(Particle.DUST, point, 3, .28, .28, .28, 0, BRIGHT);
             }
+            int lightning = variables.bool("dragon-event.reward-crate-arrival-lightning")
+                    ? variables.integer("dragon-event.reward-crate-arrival-lightning-count") : 0;
+            double lightningRadius = variables.decimal("dragon-event.reward-crate-arrival-lightning-radius");
+            for (int index = 0; index < lightning; index++) {
+                double angle = Math.PI * 2d * index / Math.max(1, lightning);
+                Location strike = chest.clone().add(
+                        Math.cos(angle) * lightningRadius, 0, Math.sin(angle) * lightningRadius);
+                strike.setY(arena.getHighestBlockYAt(strike.getBlockX(), strike.getBlockZ()) + 1d);
+                arena.strikeLightningEffect(strike);
+            }
+            drawArrivalShockwaves(chest);
         }
         Sound sound = configuredSound("dragon-event.reward-spawn-sound", Sound.BLOCK_END_PORTAL_SPAWN);
         float volume = (float) variables.decimal("dragon-event.effect-sound-volume");
         float pitch = (float) variables.decimal("dragon-event.reward-spawn-pitch");
-        int cost = crates.keyCost(CrateKind.DRAGON);
-        Component title = Component.text(variables.string("dragon-event.reward-crate-title"),
-                AMETHYST, TextDecoration.BOLD);
-        Component subtitle = Component.text(rewardCrateSubtitle(
-                variables.string("dragon-event.reward-crate-subtitle"), cost), NamedTextColor.WHITE);
-        net.kyori.adventure.title.Title.Times times = net.kyori.adventure.title.Title.Times.times(
-                Duration.ofMillis(variables.integer("dragon-event.reward-crate-title-fade-in-ticks") * 50L),
-                Duration.ofMillis(variables.integer("dragon-event.reward-crate-title-stay-ticks") * 50L),
-                Duration.ofMillis(variables.integer("dragon-event.reward-crate-title-fade-out-ticks") * 50L));
         for (Player player : arena.getPlayers()) {
             if (!entrants.contains(player.getUniqueId()) || departed.contains(player.getUniqueId())) continue;
-            player.showTitle(net.kyori.adventure.title.Title.title(title, subtitle, times));
-            player.playSound(player.getLocation(), sound, volume, pitch);
+            player.playSound(chest, sound, volume, pitch);
         }
     }
 
-    static String rewardCrateSubtitle(String template, int cost) {
-        return template.replace("<cost>", Integer.toString(cost));
+    private void drawArrivalShockwaves(Location centre) {
+        int rings = variables.integer("dragon-event.reward-crate-arrival-ring-count");
+        int points = variables.integer("dragon-event.reward-crate-arrival-ring-points");
+        double spacing = variables.decimal("dragon-event.reward-crate-arrival-ring-spacing");
+        for (int ring = 1; ring <= rings; ring++) {
+            double radius = ring * spacing;
+            for (int point = 0; point < points; point++) {
+                double angle = Math.PI * 2d * point / points;
+                Location at = centre.clone().add(Math.cos(angle) * radius,
+                        .15 + ring * .18, Math.sin(angle) * radius);
+                if ((point & 3) == 0) {
+                    arena.spawnParticle(Particle.END_ROD, at, 1, 0, 0, 0, 0);
+                } else {
+                    arena.spawnParticle(Particle.DUST, at, 1, 0, 0, 0, 0, BRIGHT);
+                }
+            }
+        }
     }
 
     private void rewardSpawnFrame(Location gate, Location chest, int frame, int frames) {
@@ -1491,6 +1562,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         if (arena == null) return;
         hideVanillaDragonBar();
         rescueFallenPlayers();
+        trailVisualKeys();
     }
 
     private void rescueFallenPlayers() {
@@ -1538,7 +1610,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                 arena.spawnParticle(Particle.DUST, dragon.getLocation(),
                         variables.integer("dragon-event.reward-particle-count"),
                         5, 3, 5, 0.05, BRIGHT);
-                keyWaterfall(dragon.getLocation().add(0, 3, 0),
+                keyWaterfall(dragon.getLocation(),
                         variables.integer("dragon-event.wave-key-effect-count"));
             }
             arena.playSound(dragon.getLocation(),
@@ -1546,6 +1618,45 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                     (float) variables.decimal("dragon-event.effect-sound-volume"),
                     (float) variables.decimal("dragon-event.damage-wave-pitch"));
         }
+        triggerRageSurges(before, rewardedDamage);
+    }
+
+    private void triggerRageSurges(double beforeDamage, double afterDamage) {
+        if (dragonMaximumHealth <= 0d || nextRagePercent <= 0d) return;
+        double beforeHealthPercent = Math.max(0d, 100d - beforeDamage / dragonMaximumHealth * 100d);
+        double afterHealthPercent = Math.max(0d, 100d - afterDamage / dragonMaximumHealth * 100d);
+        double step = variables.decimal("dragon-event.rage-health-step-percent");
+        while (nextRagePercent > 0d
+                && beforeHealthPercent > nextRagePercent && afterHealthPercent <= nextRagePercent) {
+            dragonRageSurge();
+            nextRagePercent -= step;
+        }
+    }
+
+    private void dragonRageSurge() {
+        if (arena == null || dragon == null) return;
+        Location centre = arenaSurface(0, 0).add(0, 1, 0);
+        if (variables.bool("dragon-event.effects-enabled")) {
+            int particles = variables.integer("dragon-event.rage-particle-count");
+            arena.spawnParticle(Particle.DRAGON_BREATH, centre, particles, 14, 5, 14, .16, 1.0f);
+            arena.spawnParticle(Particle.REVERSE_PORTAL, centre, Math.max(1, particles / 2),
+                    18, 6, 18, .22);
+            int lightning = variables.integer("dragon-event.rage-lightning-count");
+            double radius = variables.decimal("dragon-event.rage-lightning-radius");
+            for (int index = 0; index < lightning; index++) {
+                double angle = Math.PI * 2d * index / Math.max(1, lightning);
+                Location strike = arenaSurface((int) Math.round(Math.cos(angle) * radius),
+                        (int) Math.round(Math.sin(angle) * radius));
+                arena.strikeLightningEffect(strike);
+            }
+        }
+        arena.playSound(centre,
+                configuredSound("dragon-event.rage-sound", Sound.ENTITY_ENDER_DRAGON_GROWL),
+                (float) variables.decimal("dragon-event.effect-sound-volume"),
+                (float) variables.decimal("dragon-event.rage-pitch"));
+        spawnMinionWave();
+        lastAggressiveAttackAt = 0L;
+        lastChaosAt = 0L;
     }
 
     private void rewardCrystal(Player player, Location at) {
@@ -1899,6 +2010,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                 amethystBlast();
             }
             long now = System.currentTimeMillis();
+            driveDragonPerch(now);
             aggressiveAttack(now);
             chaosStrike(now);
             driveMinions();
@@ -2050,32 +2162,98 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     }
 
     private void keyWaterfall(Location origin, int count) {
-        if (!variables.bool("dragon-event.effects-enabled") || origin == null || origin.getWorld() == null) return;
+        if (!variables.bool("dragon-event.effects-enabled") || origin == null
+                || origin.getWorld() == null || count <= 0) return;
+        Location source = groundedKeySource(origin);
+        int waves = Math.min(count, variables.integer("dragon-event.key-effect-waves"));
+        long interval = variables.integer("dragon-event.key-effect-wave-interval-ticks");
+        long generation = runGeneration;
+        for (int wave = 0; wave < waves; wave++) {
+            int currentWave = wave;
+            int inWave = visualKeyWaveCount(count, waves, wave);
+            plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+                if (runGeneration != generation || arena == null) return;
+                launchKeyWave(source, currentWave, inWave);
+            }, wave * interval);
+        }
+    }
+
+    static int visualKeyWaveCount(int total, int waves, int wave) {
+        if (total <= 0 || waves <= 0 || wave < 0 || wave >= waves) return 0;
+        return total / waves + (wave < total % waves ? 1 : 0);
+    }
+
+    private Location groundedKeySource(Location origin) {
+        int x = origin.getBlockX();
+        int z = origin.getBlockZ();
+        int y = arena.getHighestBlockYAt(x, z) + 1;
+        if (y < variables.integer("dragon-event.void-rescue-y")) return arenaSurface(0, 0);
+        return new Location(arena, x + .5, y + .8, z + .5);
+    }
+
+    private Location arenaSurface(int x, int z) {
+        return new Location(arena, x + .5, arena.getHighestBlockYAt(x, z) + 1d, z + .5);
+    }
+
+    private void launchKeyWave(Location source, int wave, int count) {
+        double sourceRadius = variables.decimal("dragon-event.key-effect-spread");
+        double horizontalMin = variables.decimal("dragon-event.key-effect-horizontal-min");
+        double horizontalMax = Math.max(horizontalMin,
+                variables.decimal("dragon-event.key-effect-horizontal-max"));
+        double verticalMin = variables.decimal("dragon-event.key-effect-vertical-min");
+        double verticalMax = Math.max(verticalMin, variables.decimal("dragon-event.key-effect-height"));
         int lifetime = variables.integer("dragon-event.key-effect-lifetime-ticks");
-        double spread = variables.decimal("dragon-event.key-effect-spread");
-        double height = variables.decimal("dragon-event.key-effect-height");
         for (int index = 0; index < count; index++) {
-            Location spawn = origin.clone().add(
-                    ThreadLocalRandom.current().nextDouble(-spread, spread),
-                    ThreadLocalRandom.current().nextDouble(height * .35, height),
-                    ThreadLocalRandom.current().nextDouble(-spread, spread));
+            double angle = wave * .47d + index * Math.PI * 2d / Math.max(1, count)
+                    + ThreadLocalRandom.current().nextDouble(-.12, .12);
+            double speed = ThreadLocalRandom.current().nextDouble(horizontalMin, Math.nextUp(horizontalMax));
+            Location spawn = source.clone().add(
+                    ThreadLocalRandom.current().nextDouble(-sourceRadius, sourceRadius),
+                    ThreadLocalRandom.current().nextDouble(-.4, .8),
+                    ThreadLocalRandom.current().nextDouble(-sourceRadius, sourceRadius));
             Item visual = spawn.getWorld().dropItem(spawn, items.key(1));
             visual.addScoreboardTag(KEY_EFFECT_TAG);
+            visual.setGlowing(true);
             visual.setPickupDelay(Integer.MAX_VALUE);
-            visual.setVelocity(new org.bukkit.util.Vector(
-                    ThreadLocalRandom.current().nextDouble(-.08, .08),
-                    ThreadLocalRandom.current().nextDouble(.04, .18),
-                    ThreadLocalRandom.current().nextDouble(-.08, .08)));
-            plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
-                if (!visual.isValid()) return;
-                Location vanish = visual.getLocation();
-                vanish.getWorld().spawnParticle(Particle.REVERSE_PORTAL, vanish,
-                        variables.integer("dragon-event.key-vanish-particle-count"), .25, .25, .25, .05);
-                visual.remove();
-            }, lifetime);
+            visual.setPersistent(false);
+            visual.setWillAge(false);
+            visual.setVelocity(new org.bukkit.util.Vector(Math.cos(angle) * speed,
+                    ThreadLocalRandom.current().nextDouble(verticalMin, Math.nextUp(verticalMax)),
+                    Math.sin(angle) * speed));
+            visualKeys.add(visual);
+            plugin.getServer().getScheduler().runTaskLater(plugin, () -> removeVisualKey(visual), lifetime);
         }
-        origin.getWorld().spawnParticle(Particle.END_ROD, origin, Math.max(8, count * 2),
-                spread, 1.5, spread, .08);
+        source.getWorld().spawnParticle(Particle.TOTEM_OF_UNDYING, source,
+                variables.integer("dragon-event.key-effect-fountain-particles"), 1.5, 1.5, 1.5, .8);
+        source.getWorld().spawnParticle(Particle.FIREWORK, source,
+                Math.max(1, variables.integer("dragon-event.key-effect-fountain-particles") / 2),
+                1, 1, 1, .22);
+        source.getWorld().playSound(source,
+                configuredSound("dragon-event.key-effect-sound", Sound.ENTITY_FIREWORK_ROCKET_BLAST),
+                (float) variables.decimal("dragon-event.effect-sound-volume"),
+                (float) Math.min(2d, variables.decimal("dragon-event.key-effect-pitch") + wave * .04d));
+    }
+
+    private void trailVisualKeys() {
+        visualKeys.removeIf(item -> !item.isValid() || item.isDead());
+        int interval = variables.integer("dragon-event.key-effect-trail-interval-ticks");
+        if (plugin.getServer().getCurrentTick() % interval != 0) return;
+        int particles = variables.integer("dragon-event.key-effect-trail-particles");
+        for (Item item : visualKeys) {
+            Location at = item.getLocation();
+            at.getWorld().spawnParticle(Particle.DUST, at, particles,
+                    .08, .08, .08, 0, (effectFrame & 1) == 0 ? BRIGHT : DARK);
+            at.getWorld().spawnParticle(Particle.END_ROD, at, 1, 0, 0, 0, 0);
+        }
+    }
+
+    private void removeVisualKey(Item visual) {
+        visualKeys.remove(visual);
+        if (!visual.isValid()) return;
+        Location vanish = visual.getLocation();
+        vanish.getWorld().spawnParticle(Particle.REVERSE_PORTAL, vanish,
+                variables.integer("dragon-event.key-vanish-particle-count"), .25, .25, .25, .05);
+        visual.remove();
     }
 
     private void amethystBlast() {
@@ -2215,6 +2393,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
 
     private void clearArenaEntities() {
         if (arena == null) return;
+        visualKeys.clear();
         // This is a dedicated disposable event world. Removing every non-player entity
         // is intentional: untagged mob drops, arrows, XP, old labels and entities saved
         // by an interrupted run must never leak into the next Dragon event.

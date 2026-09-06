@@ -54,15 +54,20 @@ final class GameVariableStoreTest {
         assertEquals(30, variables.integer("dragon-event.minions-per-wave"));
         assertEquals(80, variables.integer("dragon-event.minion-maximum-alive"));
         assertEquals(2, variables.integer("dragon-event.aggressive-attack-seconds"));
+        assertEquals(32, variables.integer("dragon-event.perch-interval-seconds"));
+        assertEquals(12, variables.integer("dragon-event.perch-duration-seconds"));
+        assertEquals(25d, variables.decimal("dragon-event.rage-health-step-percent"));
         assertEquals(8, variables.integer("dragon-event.chaos-interval-seconds"));
         assertEquals(48, variables.integer("dragon-event.reward-beacon-height"));
         assertEquals(2, variables.integer("dragon-event.reward-beacon-spacing"));
         assertEquals(3, variables.integer("dragon-event.reward-beacon-ring-count"));
-        assertEquals(360, variables.integer("dragon-event.reward-crate-arrival-particles"));
+        assertEquals(1200, variables.integer("dragon-event.reward-crate-arrival-particles"));
         assertTrue(variables.bool("dragon-event.reward-crate-arrival-lightning"));
-        assertEquals("Follow the violet beacon • 3 Keys per opening",
-                AmethystDragonService.rewardCrateSubtitle(
-                        variables.string("dragon-event.reward-crate-subtitle"), 3));
+        assertEquals(8, variables.integer("dragon-event.reward-crate-arrival-lightning-count"));
+        assertEquals(108, variables.integer("dragon-event.crystal-key-effect-count"));
+        assertEquals(108, variables.integer("dragon-event.wave-key-effect-count"));
+        assertEquals(336, variables.integer("dragon-event.death-key-effect-count"));
+        assertEquals(6, variables.integer("dragon-event.key-effect-waves"));
         assertEquals("AMETHYST DRAGON — EVENT REPORT",
                 variables.string("dragon-event.stats-header"));
     }
