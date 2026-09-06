@@ -227,6 +227,39 @@ class ResourcePackIconTests(unittest.TestCase):
                 flat.append(f"{path.stem} ({spread:.2f})")
         self.assertEqual([], flat, "these icons have no shading: " + ", ".join(flat))
 
+    def test_mini_dragon_model_is_wired_and_uses_the_vanilla_dragon_texture(self):
+        """The escort model is geometry over Minecraft's own dragon texture.
+
+        No artwork is drawn for it: every face samples the enderdragon texture the pack
+        already ships, at the vanilla model's own offsets. The texture lives under
+        textures/item/model/ because anything outside the item atlas renders as the
+        magenta checkerboard, and because that path is not an inventory icon.
+        """
+        root = RESOURCE_PACK / "src" / "assets" / "mgx"
+        texture = root / "textures" / "item" / "model" / "mini_dragon.png"
+        vanilla = (
+            RESOURCE_PACK / "src" / "assets" / "minecraft" / "textures"
+            / "entity" / "enderdragon" / "dragon.png"
+        )
+        self.assertEqual(vanilla.read_bytes(), texture.read_bytes())
+
+        for part in ("mini_dragon_body", "mini_dragon_wing_left", "mini_dragon_wing_right"):
+            with self.subTest(part=part):
+                definition = json.loads((root / "items" / f"{part}.json").read_text())
+                self.assertEqual(f"mgx:item/{part}", definition["model"]["model"])
+                wrapper = json.loads((root / "models" / "item" / f"{part}.json").read_text())
+                self.assertEqual(f"mgx:custom/{part}", wrapper["parent"])
+                self.assertEqual("mgx:item/model/mini_dragon", wrapper["textures"]["0"])
+                model = json.loads((root / "models" / "custom" / f"{part}.json").read_text())
+                self.assertTrue(model["elements"], "the model has no geometry")
+                for element in model["elements"]:
+                    for face in element["faces"].values():
+                        self.assertEqual("#0", face["texture"])
+                        # Vanilla UVs are 0-16 whatever the texture resolution is.
+                        for value in face["uv"]:
+                            self.assertGreaterEqual(value, 0)
+                            self.assertLessEqual(value, 16)
+
     def test_dragon_icons_use_generated_artwork_workflow(self):
         self.assertFalse(
             (RESOURCE_PACK / "build_dragon_cosmetic_icons.py").exists(),

@@ -12,7 +12,9 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.world.EntitiesLoadEvent;
+import org.bukkit.NamespacedKey;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.util.Transformation;
 import org.bukkit.util.Vector;
 import org.joml.AxisAngle4f;
@@ -52,7 +54,12 @@ final class MiniDragonEscort implements Listener {
     private static final int ESCORTS = 2;
     private static final double ORBIT_RADIUS = 2.35d;
     private static final double ORBIT_SPEED = 0.045d;
+    /** Sized so the model's wingspan matches the particle wings drawn over it. */
     private static final float MODEL_SCALE = 0.6f;
+    /** Body, left wing, right wing — the wings are separate so they can beat. */
+    private static final String[] PARTS = {
+            "mgx:mini_dragon_body", "mgx:mini_dragon_wing_left", "mgx:mini_dragon_wing_right"
+    };
     /** Matches the aura's own tick period so the flight interpolates instead of stepping. */
     private static final int TELEPORT_TICKS = 2;
 
@@ -133,10 +140,6 @@ final class MiniDragonEscort implements Listener {
         double radius = (moving ? 1.35d : ORBIT_RADIUS) * (0.86d + energy * 0.3d);
         List<Location> heads = new ArrayList<>();
         for (int index = 0; index < ESCORTS; index++) {
-            ItemDisplay dragon = resolve(owner, ids, index);
-            if (dragon == null) {
-                continue;
-            }
             double angle = phaseSeconds * ORBIT_SPEED * Math.PI * 2d + index * Math.PI;
             double height = 1.4d + Math.sin(phaseSeconds * 1.15d + index * Math.PI) * 0.34d
                     + energy * 0.45d;
@@ -146,7 +149,25 @@ final class MiniDragonEscort implements Listener {
             // Face along the orbit, so the pair reads as flying a circuit rather than
             // being dragged sideways through it.
             seat.setDirection(new Vector(-Math.sin(angle), 0d, Math.cos(angle)));
-            dragon.teleport(seat);
+            // The wings are their own displays purely so they can move. A display shows
+            // one static model, so a wingbeat has to be a rotation of a separate part.
+            float beat = (float) (Math.sin(phaseSeconds * 5.5d + index * Math.PI)
+                    * (0.45d + energy * 0.35d));
+            for (int part = 0; part < PARTS.length; part++) {
+                ItemDisplay piece = resolve(owner, ids, index * PARTS.length + part, part);
+                if (piece == null) {
+                    continue;
+                }
+                if (part > 0) {
+                    // Left and right take opposite signs, or one wing beats downward
+                    // while the other beats up.
+                    float roll = part == 1 ? beat : -beat;
+                    piece.setInterpolationDelay(0);
+                    piece.setInterpolationDuration(TELEPORT_TICKS);
+                    piece.setTransformation(transformation(roll));
+                }
+                piece.teleport(seat);
+            }
             heads.add(seat);
         }
         ids.removeIf(id -> resolveById(owner.getWorld(), id) == null);
@@ -223,17 +244,40 @@ final class MiniDragonEscort implements Listener {
                 && !VerificationLobbyService.isLobbyWorld(owner.getWorld());
     }
 
-    private ItemDisplay resolve(Player owner, List<UUID> ids, int index) {
-        while (ids.size() <= index) {
+    private ItemDisplay resolve(Player owner, List<UUID> ids, int slot, int part) {
+        while (ids.size() <= slot) {
             ids.add(null);
         }
-        ItemDisplay existing = resolveById(owner.getWorld(), ids.get(index));
+        ItemDisplay existing = resolveById(owner.getWorld(), ids.get(slot));
         if (existing != null) {
             return existing;
         }
-        ItemDisplay spawned = spawn(owner);
-        ids.set(index, spawned == null ? null : spawned.getUniqueId());
+        ItemDisplay spawned = spawn(owner, PARTS[part]);
+        ids.set(slot, spawned == null ? null : spawned.getUniqueId());
         return spawned;
+    }
+
+    private static Transformation transformation(float roll) {
+        return new Transformation(
+                new Vector3f(0f, 0f, 0f),
+                new AxisAngle4f(roll, 0f, 0f, 1f),
+                new Vector3f(MODEL_SCALE, MODEL_SCALE, MODEL_SCALE),
+                new AxisAngle4f(0f, 0f, 0f, 1f)
+        );
+    }
+
+    /** Any item will do: the item model component replaces what is drawn entirely. */
+    private static ItemStack modelItem(String model) {
+        ItemStack item = new ItemStack(Material.PAPER);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            NamespacedKey key = NamespacedKey.fromString(model);
+            if (key != null) {
+                meta.setItemModel(key);
+            }
+            item.setItemMeta(meta);
+        }
+        return item;
     }
 
     private ItemDisplay resolveById(World world, UUID id) {
@@ -248,20 +292,15 @@ final class MiniDragonEscort implements Listener {
         return dragon;
     }
 
-    private ItemDisplay spawn(Player owner) {
+    private ItemDisplay spawn(Player owner, String model) {
         try {
             return owner.getWorld().spawn(
                     owner.getLocation().add(0d, 2d, 0d), ItemDisplay.class, dragon -> {
                         dragon.addScoreboardTag(TAG);
-                        dragon.setItemStack(new ItemStack(Material.DRAGON_HEAD));
-                        dragon.setItemDisplayTransform(ItemDisplay.ItemDisplayTransform.HEAD);
+                        dragon.setItemStack(modelItem(model));
+                        dragon.setItemDisplayTransform(ItemDisplay.ItemDisplayTransform.FIXED);
                         dragon.setBillboard(Display.Billboard.FIXED);
-                        dragon.setTransformation(new Transformation(
-                                new Vector3f(0f, 0f, 0f),
-                                new AxisAngle4f(0f, 0f, 0f, 1f),
-                                new Vector3f(MODEL_SCALE, MODEL_SCALE, MODEL_SCALE),
-                                new AxisAngle4f(0f, 0f, 0f, 1f)
-                        ));
+                        dragon.setTransformation(transformation(0f));
                         // Without this the head jumps between orbit positions once per
                         // aura frame instead of flying between them.
                         dragon.setTeleportDuration(TELEPORT_TICKS);

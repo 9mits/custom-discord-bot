@@ -75,9 +75,13 @@ final class CosmeticTickResilienceTest {
                 "the scale attribute does not shrink an Ender Dragon; do not rely on it");
         assertTrue(!escort.contains("getBossBar"),
                 "a display entity has no boss bar and must not reach for one");
-        assertTrue(method(escort, "private ItemDisplay spawn(Player owner)")
+        assertTrue(method(escort, "private ItemDisplay spawn(Player owner, String model)")
                         .contains("catch (RuntimeException"),
                 "a failed escort spawn must degrade rather than propagate");
+        assertTrue(escort.contains("mgx:mini_dragon_body")
+                        && escort.contains("mgx:mini_dragon_wing_left")
+                        && escort.contains("mgx:mini_dragon_wing_right"),
+                "the escort is a body and two wings so the wings can beat");
     }
 
     /**
