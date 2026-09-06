@@ -18,7 +18,13 @@ import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import com.destroystokyo.paper.event.player.PlayerJumpEvent;
+import org.bukkit.event.player.PlayerAnimationEvent;
 import org.bukkit.event.player.PlayerCommandPreprocessEvent;
+import org.bukkit.event.player.PlayerDropItemEvent;
+import org.bukkit.event.player.PlayerItemHeldEvent;
+import org.bukkit.event.player.PlayerSwapHandItemsEvent;
+import org.bukkit.event.player.PlayerToggleSneakEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
@@ -56,8 +62,13 @@ final class AfkService implements Listener, CommandExecutor {
     private final AfkStore store;
     private BukkitTask task;
     private BukkitTask anchorTask;
-    /** How far an AFK player may drift before they are put back, in blocks. */
-    private static final double ANCHOR_TOLERANCE = 0.08d;
+    /**
+     * How far an AFK player may drift before they are put back, in blocks.
+     *
+     * <p>Loose enough that ordinary settling does not produce a stream of corrective
+     * teleports, tight enough that nobody is walked anywhere.
+     */
+    private static final double ANCHOR_TOLERANCE = 0.3d;
 
     AfkService(MGXAccessBridge plugin, long timeoutSeconds, boolean invincible, AfkStore store) {
         this.store = store;
@@ -229,12 +240,66 @@ final class AfkService implements Listener, CommandExecutor {
         }
     }
 
+    /**
+     * Movement wakes an idle player, but not while the hold is on them.
+     *
+     * <p>The hold restores an AFK player's horizontal position every tick, and waking
+     * needed a whole block of travel — so the hold cancelled the very movement that
+     * would have released it, and the only way out was to out-run a per-tick teleport.
+     * That is the deadlock this avoids.
+     *
+     * <p>While held, the release is a look change instead. Being shoved cannot turn a
+     * player's head, so it is the one signal a push can never produce, and it is also
+     * the first thing anybody actually does when they sit back down.
+     */
     @EventHandler(ignoreCancelled = true)
     public void onMove(PlayerMoveEvent event) {
         Location to = event.getTo();
-        if (to != null && differentBlock(event.getFrom(), to)) {
+        if (to == null) {
+            return;
+        }
+        Location from = event.getFrom();
+        if (afk.contains(event.getPlayer().getUniqueId())) {
+            if (AfkProtection.turnedEnough(from.getYaw(), from.getPitch(),
+                    to.getYaw(), to.getPitch())) {
+                activity(event.getPlayer());
+            }
+            return;
+        }
+        if (differentBlock(from, to)) {
             activity(event.getPlayer());
         }
+    }
+
+    /** Deliberate input a shove cannot imitate, so each one releases the hold at once. */
+    @EventHandler(ignoreCancelled = true)
+    public void onSneak(PlayerToggleSneakEvent event) {
+        activity(event.getPlayer());
+    }
+
+    @EventHandler(ignoreCancelled = true)
+    public void onJump(PlayerJumpEvent event) {
+        activity(event.getPlayer());
+    }
+
+    @EventHandler(ignoreCancelled = true)
+    public void onSwing(PlayerAnimationEvent event) {
+        activity(event.getPlayer());
+    }
+
+    @EventHandler(ignoreCancelled = true)
+    public void onSwapHands(PlayerSwapHandItemsEvent event) {
+        activity(event.getPlayer());
+    }
+
+    @EventHandler(ignoreCancelled = true)
+    public void onDropItem(PlayerDropItemEvent event) {
+        activity(event.getPlayer());
+    }
+
+    @EventHandler(ignoreCancelled = true)
+    public void onHeldItem(PlayerItemHeldEvent event) {
+        activity(event.getPlayer());
     }
 
     @EventHandler(ignoreCancelled = true)

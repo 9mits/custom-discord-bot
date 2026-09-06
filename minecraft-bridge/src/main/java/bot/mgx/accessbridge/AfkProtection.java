@@ -27,6 +27,36 @@ final class AfkProtection {
      *                         through a projectile they fired
      * @param voidDamage       whether the damage is the out-of-world kill
      */
+    /**
+     * How far a player has to turn their head before it counts as them coming back.
+     *
+     * <p>Being shoved cannot rotate a player's camera, which makes looking around the
+     * one movement signal a push can never fake. It is what releases the positional hold
+     * on an AFK player, so it has to be generous enough that Bedrock's camera jitter —
+     * the reason idle detection watches blocks rather than angles in the first place —
+     * does not wake somebody who has not touched their mouse.
+     */
+    static final float TURN_DEGREES = 6f;
+
+    /** Whether a look change is a real one rather than a client's idle drift. */
+    static boolean turnedEnough(float fromYaw, float fromPitch, float toYaw, float toPitch) {
+        float yaw = Math.abs(wrapDegrees(toYaw - fromYaw));
+        float pitch = Math.abs(toPitch - fromPitch);
+        return yaw + pitch >= TURN_DEGREES;
+    }
+
+    /** Yaw is unbounded and wraps, so 359 to 1 is two degrees rather than 358. */
+    private static float wrapDegrees(float degrees) {
+        float wrapped = degrees % 360f;
+        if (wrapped >= 180f) {
+            wrapped -= 360f;
+        }
+        if (wrapped < -180f) {
+            wrapped += 360f;
+        }
+        return wrapped;
+    }
+
     static Decision decide(boolean enabled, boolean afk, boolean attackerIsPlayer, boolean voidDamage) {
         if (!enabled || !afk) {
             return Decision.IGNORE;
