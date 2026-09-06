@@ -166,6 +166,60 @@ final class AmethystProgressStore {
         return after.dragonEggs();
     }
 
+    /**
+     * Clears the retired event's per-player counters, keeping this event's.
+     *
+     * <p>Run once when the retired event boards are moved onto the current ones, so the
+     * new leaderboards open empty instead of showing last event's names. Only the two
+     * counters those boards read are cleared: the Dragon totals are left alone, and so
+     * is anything else a player has earned.
+     *
+     * <p>The file is copied beside itself first. This is the one operation here that
+     * destroys player progress that cannot be recomputed, and it runs unattended on a
+     * server start, so it leaves something to restore from.
+     */
+    synchronized int clearRetiredEventProgress() {
+        LinkedHashMap<UUID, Counts> before = new LinkedHashMap<>(counts);
+        int cleared = 0;
+        for (Map.Entry<UUID, Counts> entry : before.entrySet()) {
+            Counts was = entry.getValue();
+            if (was.cratesOpened() == 0L && was.airdropsOpened() == 0L) {
+                continue;
+            }
+            cleared++;
+            Counts now = new Counts(0L, 0L, was.dragonDamage(), was.dragonCrystals(),
+                    was.dragonCratesOpened(), was.dragonEggs());
+            if (now.empty()) {
+                counts.remove(entry.getKey());
+            } else {
+                counts.put(entry.getKey(), now);
+            }
+        }
+        if (cleared == 0) {
+            return 0;
+        }
+        try {
+            backup();
+            save();
+        } catch (IOException | RuntimeException exception) {
+            counts.clear();
+            counts.putAll(before);
+            throw new IllegalStateException("Could not clear retired event progress", exception);
+        }
+        observer.run();
+        return cleared;
+    }
+
+    private void backup() throws IOException {
+        if (!Files.isRegularFile(file)) {
+            return;
+        }
+        Path copy = file.resolveSibling(file.getFileName() + ".before-dragon-event");
+        if (!Files.exists(copy)) {
+            Files.copy(file, copy);
+        }
+    }
+
     synchronized int clearAll() {
         int cleared = counts.size();
         if (cleared == 0) {

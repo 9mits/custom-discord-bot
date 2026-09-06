@@ -647,6 +647,19 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
+        if (holograms.migratedRetiredBoards()) {
+            // The stale placements are the trigger, and rewriting them removes it, so
+            // this runs exactly once however many times the server restarts afterwards.
+            try {
+                int cleared = amethystProgress.clearRetiredEventProgress();
+                getLogger().info("Moved the retired event holograms onto the Dragon"
+                        + " leaderboards and cleared " + cleared
+                        + " players' retired event progress.");
+            } catch (RuntimeException exception) {
+                getLogger().warning("Retired event progress could not be cleared: "
+                        + exception.getMessage());
+            }
+        }
         leaderboardService.onPublished(holograms::refresh);
         getServer().getScheduler().scheduleSyncRepeatingTask(
                 this, holograms::tickCountdown, 120L, 20L
