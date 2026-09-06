@@ -1,7 +1,0 @@
-{
-  "parent": "mgx:custom/mini_dragon_body",
-  "textures": {
-    "0": "mgx:item/model/mini_dragon",
-    "particle": "mgx:item/model/mini_dragon"
-  }
-}
