@@ -89,12 +89,40 @@ final class HologramService {
     private record Placement(Board board, UUID worldId, double x, double y, double z) {
     }
 
+    /**
+     * The previous event's two individual boards, moved onto this event's.
+     *
+     * <p>A server that ran the Amethyst event has {@code amethyst-crates} and
+     * {@code amethyst-airdrops} placed. Those boards no longer exist, and they used to
+     * be dropped silently on load — which does not remove the stands already standing
+     * in the world, it just abandons them, leaving two dead holograms where the event
+     * boards used to be. They are re-pointed at the Dragon event's boards instead, in
+     * place, so the display an operator already positioned keeps working.
+     *
+     * <p>Left becomes damage and right becomes crystals, matching how the pair was
+     * already laid out. {@code /mgxadmin hologram} swaps them if that is the wrong way
+     * round.
+     */
+    private static Board retiredEventBoard(String rawBoard) {
+        return switch (rawBoard.strip().toLowerCase(Locale.ROOT).replace('_', '-')) {
+            case "amethyst-crates" -> Board.DRAGON_DAMAGE;
+            case "amethyst-airdrops" -> Board.DRAGON_CRYSTALS;
+            default -> null;
+        };
+    }
+
+    /** Whether this load moved a retired event board onto the current one. */
+    boolean migratedRetiredBoards() {
+        return migratedRetiredBoards;
+    }
+
     private final Path file;
     private final LeaderboardService boards;
     private final ClanStore clans;
     private final DiscordIdentityService identities;
     private final Gson gson = new GsonBuilder().disableHtmlEscaping().create();
     private final List<Placement> placements = new ArrayList<>();
+    private boolean migratedRetiredBoards;
 
     HologramService(
             Path file,
@@ -107,6 +135,11 @@ final class HologramService {
         this.clans = clans;
         this.identities = identities;
         load();
+        if (migratedRetiredBoards) {
+            // Written before anything acts on the migration, so a failure here leaves
+            // the old file intact and the retired progress unreset rather than half done.
+            persist();
+        }
     }
 
     void place(Player player, Board board) throws IOException {
@@ -357,12 +390,12 @@ final class HologramService {
             for (JsonElement element : root.getAsJsonArray("placements")) {
                 JsonObject row = element.getAsJsonObject();
                 String rawBoard = row.get("board").getAsString();
-                if (rawBoard.equalsIgnoreCase("amethyst-crates")
-                        || rawBoard.equalsIgnoreCase("amethyst-airdrops")) {
-                    continue;
+                Board retired = retiredEventBoard(rawBoard);
+                if (retired != null) {
+                    migratedRetiredBoards = true;
                 }
                 placements.add(new Placement(
-                        Board.fromKey(rawBoard),
+                        retired != null ? retired : Board.fromKey(rawBoard),
                         UUID.fromString(row.get("world").getAsString()),
                         row.get("x").getAsDouble(),
                         row.get("y").getAsDouble(),
