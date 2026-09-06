@@ -1495,6 +1495,27 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         UUID playerId = player.getUniqueId();
         if (phase != Phase.REWARDS || departed.contains(playerId)
                 || !entrants.contains(playerId) || !returnGateOccupants.add(playerId)) return;
+        // Leaving the player inside a Nether portal causes the client to close the
+        // dialog as the portal transition completes. Move them onto the reward
+        // platform first, then open the confirmation after that client tick.
+        player.teleport(returnGatePromptLocation());
+        plugin.getServer().getScheduler().runTaskLater(plugin,
+                () -> showLeavePrompt(player, playerId), 2L);
+    }
+
+    private Location returnGatePromptLocation() {
+        int x = 0;
+        int z = 4;
+        return new Location(arena, x + .5, arena.getHighestBlockYAt(x, z) + 1.1, z + .5,
+                180f, 0f);
+    }
+
+    private void showLeavePrompt(Player player, UUID playerId) {
+        if (!player.isOnline() || phase != Phase.REWARDS || !isArena(player.getWorld())
+                || departed.contains(playerId) || !entrants.contains(playerId)) {
+            returnGateOccupants.remove(playerId);
+            return;
+        }
         Runnable confirm = () -> {
             if (player.isOnline() && phase == Phase.REWARDS && isArena(player.getWorld())
                     && entrants.contains(playerId) && !departed.contains(playerId)) {
@@ -1502,8 +1523,11 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                 leave(player);
             }
         };
-        Runnable cancel = () -> player.sendActionBar(Component.text(
-                variables.string("dragon-event.exit-cancel-message"), NamedTextColor.GRAY));
+        Runnable cancel = () -> {
+            returnGateOccupants.remove(playerId);
+            player.sendActionBar(Component.text(
+                    variables.string("dragon-event.exit-cancel-message"), NamedTextColor.GRAY));
+        };
         String title = variables.string("dragon-event.exit-confirm-title");
         String body = variables.string("dragon-event.exit-confirm-message");
         String button = variables.string("dragon-event.exit-confirm-button");
@@ -1797,7 +1821,33 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         if (!(event.getEntity() instanceof EnderDragon source)
                 || !source.getScoreboardTags().contains(DRAGON_TAG)
                 || !isArena(event.getLocation().getWorld())) return;
+        List<Block> destroyed = List.copyOf(event.blockList());
+        Set<Material> possibleDrops = new HashSet<>();
+        for (Block block : destroyed) {
+            possibleDrops.add(block.getType());
+            if (block.getType().name().contains("AMETHYST")) {
+                possibleDrops.add(Material.AMETHYST_SHARD);
+            }
+            block.setType(Material.AIR, false);
+        }
+        event.blockList().clear();
         event.setYield(0f);
+        // Paper's Dragon collision path can materialize drops outside the normal
+        // explosion yield calculation. Remove only drops produced at these exact
+        // destroyed blocks on the following tick; player inventory drops elsewhere
+        // in the arena remain untouched.
+        plugin.getServer().getScheduler().runTask(plugin, () -> {
+            for (Block block : destroyed) {
+                Location centre = block.getLocation().add(.5, .5, .5);
+                for (Entity nearby : block.getWorld().getNearbyEntities(centre, 1.25, 1.25, 1.25)) {
+                    if (nearby instanceof Item item
+                            && possibleDrops.contains(item.getItemStack().getType())
+                            && !item.getScoreboardTags().contains(KEY_EFFECT_TAG)) {
+                        item.remove();
+                    }
+                }
+            }
+        });
     }
 
     private void claimEgg(Player player, Block block) {
