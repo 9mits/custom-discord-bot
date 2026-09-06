@@ -30,6 +30,15 @@ produce a blurrier version of the same picture.
   test enforces the result, so a framing regression fails the build.
 - Use one strong silhouette, stepped square pixels, crisp edges, and no antialiasing.
 - Light from the upper left; use a dark lower-right outline and material shadow.
+- **The importer enforces the lighting rather than hoping for it.** Some generated
+  batches arrive tonally compressed — one violet at one brightness, no shadow, no
+  highlight — which is legible but flat and lifeless next to the rest of the set. The
+  shading pass widens each sprite's own value range *around its own midpoint*, so
+  deliberately dark artwork stays dark, then darkens the silhouette's lower-right
+  boundary and lifts its upper-left. It moves brightness only, on pixels that already
+  exist: hue and saturation stay exactly as generated, and no geometry is invented.
+  `secret_silhouette` is exempt — it is meant to be a flat black mask. The icon test
+  enforces a minimum value spread so a flat batch cannot ship unnoticed again.
 - Use a restrained material palette. The importer caps the final sprite at 32 colours.
 - Keep the object dimensional without smooth gradients, glow haze, or mobile-game gloss.
 - Keep Java and Bedrock identical. Bedrock is always generated from the Java texture.

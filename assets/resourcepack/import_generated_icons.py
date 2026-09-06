@@ -50,6 +50,15 @@ ALPHA_CUT = 58
 # pass stops correcting. Two logical pixels of slack keeps a wide, thin subject from
 # oscillating between one over and one under.
 FRAMING_TOLERANCE = 2
+# How much light-to-dark range a sprite needs before it reads as a solid object rather
+# than a flat shape, and how hard its own silhouette edge is shaded to light it.
+TARGET_SPREAD = 0.62
+MAX_STRETCH = 3.0
+EDGE_SHADOW = 0.68
+EDGE_HIGHLIGHT = 1.16
+# The masked placeholder is a flat black silhouette on purpose: it is what a crate shows
+# in place of a secret nobody owns yet, and giving it form would give the secret away.
+UNSHADED = {"secret_silhouette"}
 BACKGROUND_DISTANCE = 72
 FOCUS_ONLY = {
     "bronze_cataclysm",
@@ -214,7 +223,89 @@ def downscale(cropped: Image.Image, long_axis: int) -> Image.Image:
     return scaled
 
 
-def prepare(source: Path, focus_only: bool = False) -> Image.Image:
+def value_of(pixel: tuple[int, int, int, int]) -> float:
+    return max(pixel[0], pixel[1], pixel[2]) / 255.0
+
+
+def with_value(pixel: tuple[int, int, int, int], target: float) -> tuple[int, int, int, int]:
+    """Rescale a pixel's brightness, keeping its hue and saturation exactly."""
+    red, green, blue, alpha = pixel
+    peak = max(red, green, blue)
+    if peak == 0:
+        level = round(max(0.0, min(1.0, target)) * 255)
+        return (level, level, level, alpha)
+    factor = max(0.0, min(1.0, target)) * 255.0 / peak
+    return (
+        min(255, round(red * factor)),
+        min(255, round(green * factor)),
+        min(255, round(blue * factor)),
+        alpha,
+    )
+
+
+def shade(sprite: Image.Image, name: str) -> Image.Image:
+    """Give a flat generation the value range a Minecraft sprite needs to read as solid.
+
+    Some generated artwork arrives tonally compressed — a single violet at one
+    brightness, no shadow, no highlight — which is legible but looks flat and
+    lifeless next to the rest of the set. This does not draw or invent geometry:
+    it only moves brightness, on pixels that already exist, in the two ways the
+    art direction already asks for.
+
+    First the existing value ramp is stretched so the sprite's own darkest and
+    brightest pixels reach a usable range, and only when it is compressed to begin
+    with — artwork that already has depth is left alone rather than blown out.
+    Then the silhouette's own lower-right boundary is darkened and its upper-left
+    boundary lifted, which is the outline and the light direction the house style
+    specifies. Hue and saturation are never touched, so the colours stay the
+    artist's; only their brightness moves.
+    """
+    if name in UNSHADED:
+        return sprite
+    pixels = list(sprite.getdata())
+    width, height = sprite.size
+    opaque = [i for i, p in enumerate(pixels) if p[3] == 255]
+    if len(opaque) < 8:
+        return sprite
+
+    values = sorted(value_of(pixels[i]) for i in opaque)
+    low = values[int(len(values) * 0.10)]
+    high = values[int(len(values) * 0.90)]
+    middle = values[len(values) // 2]
+    spread = high - low
+    if spread < TARGET_SPREAD and spread > 0.001:
+        # Expanded around the sprite's own midpoint rather than onto a fixed floor.
+        # Pinning the dark end to a constant would drag deliberately dark artwork —
+        # a black hole, an obsidian relic — up into the light. This keeps every icon
+        # at the brightness its artist chose and only widens the range around it.
+        scale = min(MAX_STRETCH, TARGET_SPREAD / spread)
+        for i in opaque:
+            current = value_of(pixels[i])
+            pixels[i] = with_value(pixels[i], middle + (current - middle) * scale)
+
+    # A boundary pixel is one with transparency on the relevant diagonal. Shading the
+    # sprite's own edge is what turns a flat shape into a lit object.
+    def transparent(x: int, y: int) -> bool:
+        if not (0 <= x < width and 0 <= y < height):
+            return True
+        return pixels[y * width + x][3] != 255
+
+    shaded = list(pixels)
+    for i in opaque:
+        x, y = i % width, i // width
+        lower_right = transparent(x + 1, y) or transparent(x, y + 1)
+        upper_left = transparent(x - 1, y) or transparent(x, y - 1)
+        if lower_right and not upper_left:
+            shaded[i] = with_value(pixels[i], value_of(pixels[i]) * EDGE_SHADOW)
+        elif upper_left and not lower_right:
+            shaded[i] = with_value(pixels[i], value_of(pixels[i]) * EDGE_HIGHLIGHT)
+
+    out = sprite.copy()
+    out.putdata(shaded)
+    return out
+
+
+def prepare(source: Path, focus_only: bool = False, name: str = "") -> Image.Image:
     image = Image.open(source).convert("RGB")
     image.thumbnail((512, 512), Image.Resampling.BOX)
     alpha = meaningful_foreground(image, connected_background(image), focus_only)
@@ -247,6 +338,7 @@ def prepare(source: Path, focus_only: bool = False) -> Image.Image:
             break
         request = max(1, min(LOGICAL_SIZE * 2, round(request * CONTENT_SIZE / longest)))
 
+    best = shade(best, name)
     sprite = best.quantize(
         colors=PALETTE_SIZE,
         method=Image.Quantize.FASTOCTREE,
@@ -396,7 +488,7 @@ def main() -> None:
         prepared = (
             prepare_potion(source, POTION_PROFILES[name])
             if name in POTION_PROFILES
-            else prepare(source, focus_only=name in FOCUS_ONLY)
+            else prepare(source, focus_only=name in FOCUS_ONLY, name=name)
         )
         prepared.save(target, optimize=True)
 
