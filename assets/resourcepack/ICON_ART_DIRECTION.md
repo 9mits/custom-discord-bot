@@ -11,15 +11,20 @@ produce a blurrier version of the same picture.
 
 ## Production rules
 
-- Design on a deliberate **24x24 logical pixel grid**, exported at 48x48 as exact
-  2x2 blocks. This preserves strong Minecraft-scale pixels without tiny dotted detail.
+- Design on a deliberate **18x18 logical pixel grid**, exported at 72x72 as exact
+  4x4 blocks. This preserves strong Minecraft-scale pixels without tiny dotted detail.
   The two potion reskins are the only exception: they retain the supplied official
   reference's exact 160x160 canvas, alpha mask, bottle pixels, and pixel geometry.
-  The grid was 16x16 and threw away most of what the generated artwork contained —
-  a crown became four blocks and a wing became a wedge. 48 is still divisible by 16,
-  so Java's item atlas keeps all four mipmap levels.
+  The grid is the whole design decision: 16x16 threw away most of what the generated
+  artwork contained — a crown became four blocks and a wing became a wedge — while
+  24x24 made the pixels small enough that the icons stopped reading as pixel art.
+  18x18 is the chosen middle, close to vanilla item chunkiness but with enough grid
+  for the podium numerals and the crown points.
+- **Export at 4x, not 2x.** 36 divides only by 4 and would cap the item atlas mipmap
+  chain lower than the pack's existing 360x360 totem already does; 72 divides by 8
+  and matches that constraint, for a file that is still trivially small.
 - **Fill the content box.** The importer measures the sprite that actually survives its
-  alpha cut, rescales until the long axis lands on 22 logical pixels, and centres on
+  alpha cut, rescales until the long axis lands on 16 logical pixels, and centres on
   the true bounds. It used to fit the source's bounding box and hope, which is why some
   icons shipped floating small inside their canvas while others filled it. The icon
   test enforces the result, so a framing regression fails the build.
@@ -75,11 +80,11 @@ Use case: stylized-concept
 Asset type: single Minecraft inventory item icon for Java and Bedrock resource packs
 Input images: Image 1 is the official-feeling pixel-art quality reference; Image 2 is
 only the old subject reference and must be fully redesigned.
-Style/medium: authentic vanilla Minecraft inventory sprite visual language on a 24x24 logical grid;
+Style/medium: authentic vanilla Minecraft inventory sprite visual language on an 18x18 logical grid;
 one isolated object made from chunky deliberate square pixels, stepped diagonals,
 crisp hard edges, a restrained hand-authored-looking material value ramp, and a
 strong readable silhouette; no antialiasing.
-Composition/framing: centered, filling roughly 20x20 to 22x22 logical pixels with padding.
+Composition/framing: centered, filling roughly 15x15 to 16x16 logical pixels with padding.
 Lighting/mood: top-left highlight and dark lower-right outline/shadow; dimensional
 but restrained.
 Scene/backdrop: a completely flat removable background.
