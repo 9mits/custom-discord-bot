@@ -510,6 +510,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getCommand("settings").setExecutor(settingsService);
         getCommand("settings").setTabCompleter(settingsService);
         SettingsClientSupport clientSupport = new SettingsClientSupport();
+        BedrockForms bedrockForms = new BedrockForms(this);
         MainMenuService mainMenu = new MainMenuService(this, clientSupport);
         // Home for every Back that has no closer origin, which is what keeps Close off
         // every screen but this one.
@@ -540,7 +541,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         );
         amethystItems = new AmethystItemService(this);
         SpecialItemService specialItems = new SpecialItemService(this, amethystItems);
-        crateItems = new CrateItems(this, cosmeticStore, specialItems);
+        crateItems = new CrateItems(this, cosmeticStore, specialItems, gameVariables);
         clanBattles = new ClanBattleService(
                 this, clanBattleStore, clanStore, crateItems, cosmeticStore,
                 leaderboardService, playerSettings
@@ -581,7 +582,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         try {
             amethystDragon = new AmethystDragonService(
                     this, gameVariables, crateItems, crates, amethystItems,
-                    amethystProgress, clanBattles, amethystMobs
+                    amethystProgress, clanBattles, amethystMobs, clientSupport, bedrockForms
             );
             crates.dragonAccess(amethystDragon::canOpenCrate);
         } catch (IOException exception) {
@@ -665,7 +666,6 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 economyStore,
                 crateItems
         );
-        BedrockForms bedrockForms = new BedrockForms(this);
         StatsDialogService statsDialogs = new StatsDialogService(
                 this, profileStats, crateItems, dialogSupport, bedrockForms
         );

@@ -401,6 +401,17 @@ final class GameVariableStore {
                 "Pitch of the Dragon dimension exit sound.", 1.0, 0.5, 2.0, "pitch");
         decimal("dragon-event.exit-secondary-pitch", "Exit sound layer pitch", "Dragon Presentation",
                 "Pitch of the second Dragon dimension exit sound.", 1.45, 0.5, 2.0, "pitch");
+        text("dragon-event.exit-confirm-title", "Exit confirmation title", "Dragon Presentation",
+                "Title shown before a player permanently leaves a finished Dragon event.",
+                "Leave the Dragon Event?", 80);
+        text("dragon-event.exit-confirm-message", "Exit confirmation warning", "Dragon Presentation",
+                "Warning shown before leaving. The player cannot return after confirming.",
+                "Are you sure you want to leave? You cannot return to this Dragon event after leaving.", 240);
+        text("dragon-event.exit-confirm-button", "Exit confirmation button", "Dragon Presentation",
+                "Label of the permanent Dragon-event exit button.", "Leave Event", 40);
+        text("dragon-event.exit-cancel-message", "Exit cancellation message", "Dragon Presentation",
+                "Action-bar message shown when a player stays in the Dragon dimension.",
+                "You stayed in the Dragon event.", 100);
         integer("dragon-event.portal-selection-distance", "Portal selection distance", "Dragon Event",
                 "Maximum distance used by /dragonportal set.", 48, 4, 128,
                 "blocks", false);
@@ -909,6 +920,9 @@ final class GameVariableStore {
                 "Keys consumed by one Dragon Crate opening.", CrateKind.DRAGON.keyCost(), 1, 64, "keys", false);
         integer("crate.keys-per-hour", "Keys per online hour", "Crates",
                 "Ordinary keys earned for each completed online hour.", CrateService.KEYS_PER_HOUR, 1, 256, "keys", false);
+        integer("crate.key-stack-size", "Keys per stack", "Crates",
+                "Largest virtual key stack kept in one inventory slot.",
+                999, 1, 100_000, "keys", false);
         integer("crate.booster-keys-per-hour", "Booster keys per online hour", "Crates",
                 "Keys earned per online hour while the linked member is boosting.", CrateService.BOOSTER_KEYS_PER_HOUR, 1, 256, "keys", false);
         // Named after the thing you actually win. "Hidden Amethyst jackpot" told an

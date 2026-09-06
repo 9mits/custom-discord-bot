@@ -48,6 +48,7 @@ import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
+import org.bukkit.event.entity.EntityExplodeEvent;
 import org.bukkit.event.entity.EntityRegainHealthEvent;
 import org.bukkit.event.entity.EntitySpawnEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
@@ -140,6 +141,8 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     private final AmethystProgressStore progress;
     private final ClanBattleService clanBattles;
     private final AmethystMobService amethystMobs;
+    private final SettingsClientSupport clientSupport;
+    private final BedrockForms bedrockForms;
     private final Path portalFile;
     private final NamespacedKey eggKey;
     private Portal portal;
@@ -168,6 +171,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     private final List<PillarSpec> pillarSpecs = new ArrayList<>();
     private final Set<UUID> entrants = new HashSet<>();
     private final Set<UUID> departed = new HashSet<>();
+    private final Set<UUID> returnGateOccupants = new HashSet<>();
     private final Map<UUID, RunStats> stats = new HashMap<>();
     private final Set<String> claimableEggs = new HashSet<>();
     private final Set<Location> portalBlocks = new HashSet<>();
@@ -184,7 +188,9 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
             AmethystItemService amethystItems,
             AmethystProgressStore progress,
             ClanBattleService clanBattles,
-            AmethystMobService amethystMobs
+            AmethystMobService amethystMobs,
+            SettingsClientSupport clientSupport,
+            BedrockForms bedrockForms
     ) throws IOException {
         this.plugin = plugin;
         this.variables = variables;
@@ -194,6 +200,8 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         this.progress = progress;
         this.clanBattles = clanBattles;
         this.amethystMobs = amethystMobs;
+        this.clientSupport = clientSupport;
+        this.bedrockForms = bedrockForms;
         this.portalFile = plugin.getDataFolder().toPath().resolve("dragon-portal.json");
         this.eggKey = new NamespacedKey(plugin, "amethyst_dragon_egg");
         loadPortal();
@@ -284,7 +292,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         if (!isArena(event.getFrom().getWorld())) return false;
         event.setCancelled(true);
         if (phase == Phase.REWARDS) {
-            leave(event.getPlayer());
+            promptLeave(event.getPlayer());
         } else {
             event.getPlayer().sendActionBar(Component.text(
                     "The return portal opens after the Dragon falls.", NamedTextColor.RED));
@@ -384,6 +392,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         prepareArena();
         entrants.clear();
         departed.clear();
+        returnGateOccupants.clear();
         stats.clear();
         claimableEggs.clear();
         rewardedDamage = 0d;
@@ -1449,11 +1458,15 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
             enter(player);
             return;
         }
-        if (phase == Phase.REWARDS && returnGate != null && isArena(event.getTo().getWorld())
+        boolean insideReturnGate = phase == Phase.REWARDS && returnGate != null
+                && isArena(event.getTo().getWorld())
                 && event.getTo().distanceSquared(returnGate)
                 <= Math.pow(variables.decimal("dragon-event.return-gate-radius"), 2d)
-                && touchesDragonPortal(event.getTo())) {
-            leave(player);
+                && touchesDragonPortal(event.getTo());
+        if (insideReturnGate) {
+            promptLeave(player);
+        } else {
+            returnGateOccupants.remove(player.getUniqueId());
         }
     }
 
@@ -1471,10 +1484,35 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     }
 
     private void leave(Player player) {
+        returnGateOccupants.remove(player.getUniqueId());
         departed.add(player.getUniqueId());
         if (admissionBar != null) player.hideBossBar(admissionBar);
         showStats(player);
         teleportSpawn(player);
+    }
+
+    private void promptLeave(Player player) {
+        UUID playerId = player.getUniqueId();
+        if (phase != Phase.REWARDS || departed.contains(playerId)
+                || !entrants.contains(playerId) || !returnGateOccupants.add(playerId)) return;
+        Runnable confirm = () -> {
+            if (player.isOnline() && phase == Phase.REWARDS && isArena(player.getWorld())
+                    && entrants.contains(playerId) && !departed.contains(playerId)) {
+                player.closeDialog();
+                leave(player);
+            }
+        };
+        Runnable cancel = () -> player.sendActionBar(Component.text(
+                variables.string("dragon-event.exit-cancel-message"), NamedTextColor.GRAY));
+        String title = variables.string("dragon-event.exit-confirm-title");
+        String body = variables.string("dragon-event.exit-confirm-message");
+        String button = variables.string("dragon-event.exit-confirm-button");
+        if (!clientSupport.supportsDialogs(player)
+                && bedrockForms.confirm(player, title, body, button, confirm, cancel)) return;
+        Screens.confirm(player, title, List.of(
+                        io.papermc.paper.registry.data.dialog.body.DialogBody.plainMessage(
+                                Component.text(body, NamedTextColor.RED), 400)),
+                button, NamedTextColor.RED, ignored -> confirm.run(), ignored -> cancel.run());
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -1751,6 +1789,15 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                 && !(phase == Phase.FIGHT && event.getBlock().getType() == Material.IRON_BARS)) {
             event.setCancelled(true);
         }
+    }
+
+    /** Dragon terrain damage remains visible, but it never creates block-item drops. */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onDragonBreaksTerrain(EntityExplodeEvent event) {
+        if (!(event.getEntity() instanceof EnderDragon source)
+                || !source.getScoreboardTags().contains(DRAGON_TAG)
+                || !isArena(event.getLocation().getWorld())) return;
+        event.setYield(0f);
     }
 
     private void claimEgg(Player player, Block block) {
@@ -2457,6 +2504,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
             }
         }
         claimableEggs.clear();
+        returnGateOccupants.clear();
         for (Location block : rewardStructureBlocks) {
             if (block.getWorld() == arena) block.getBlock().setType(Material.AIR, false);
         }

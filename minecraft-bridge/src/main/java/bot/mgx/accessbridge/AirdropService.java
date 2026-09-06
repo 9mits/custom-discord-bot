@@ -760,7 +760,7 @@ final class AirdropService implements Listener {
         int boostedKeys = (int) Math.clamp(Math.round(contents.keys()
                 * AmethystEventCoordinator.lowActivityRewardMultiplier(variables)), 0L, Integer.MAX_VALUE);
         if (boostedKeys > 0) {
-            items.add(crateItems.key(boostedKeys));
+            items.addAll(crateItems.keyStacks(boostedKeys));
         }
         if (contents.shards() > 0) {
             items.add(crateItems.shard(contents.shards()));

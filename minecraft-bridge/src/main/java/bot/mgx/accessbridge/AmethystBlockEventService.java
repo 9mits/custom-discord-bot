@@ -824,7 +824,9 @@ final class AmethystBlockEventService implements Listener {
             int keys = (int) Math.round(Math.max(0, bundle.keys() + bonus)
                     * variables.decimal(tier + "-amethyst.key-multiplier")
                     * AmethystEventCoordinator.lowActivityRewardMultiplier(variables));
-            if (keys > 0 && !crateItems.giveKeys(player, keys)) giveOwned(player, crateItems.key(keys));
+            if (keys > 0 && !crateItems.giveKeys(player, keys)) {
+                crateItems.keyStacks(keys).forEach(stack -> giveOwned(player, stack));
+            }
             giveOwned(player, new ItemStack(Material.DIAMOND, bundle.diamonds()));
             giveOwned(player, new ItemStack(Material.EMERALD, bundle.emeralds()));
             giveOwned(player, new ItemStack(Material.GOLD_INGOT, bundle.gold()));
