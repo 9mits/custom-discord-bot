@@ -52,9 +52,10 @@ final class PvpDuelSafetyTest {
     }
 
     @Test
-    void unrelatedPvpIsCancelledAndDeathSideEffectsOptOut() throws Exception {
+    void openWorldPvpUsesItsOwnToggleAndDeathSideEffectsOptOut() throws Exception {
         String source = source();
-        assertTrue(source.contains("Uninvited PvP is blocked"));
+        assertTrue(source.contains("PvP is disabled. Use /pvp to fight."));
+        assertTrue(source.contains("plugin.openWorldPvpEnabled()"));
         assertTrue(source.contains("event.setCancelled(!opponent)"));
         assertTrue(source.contains("source instanceof Tameable"));
         assertTrue(source.contains("isOpponentAttack"));
@@ -68,12 +69,32 @@ final class PvpDuelSafetyTest {
     }
 
     @Test
-    void everyClientHasARealSetupAndAcceptancePath() throws Exception {
+    void openWorldToggleDoesNotDisableArrangedFights() throws Exception {
+        String plugin = Files.readString(SOURCE.getParent().resolve("MGXAccessBridge.java"),
+                StandardCharsets.UTF_8);
+        String forcePvp = plugin.substring(
+                plugin.indexOf("void forcePvp(boolean enabled)"),
+                plugin.indexOf("boolean inScreenshotMode")
+        );
+        assertFalse(forcePvp.contains("pvpDuels.pauseAll"));
+
+        String challengeChecks = source().substring(
+                source().indexOf("private boolean canChallenge"),
+                source().indexOf("private boolean acceptingChallenges")
+        );
+        assertFalse(challengeChecks.contains("openWorldPvpEnabled"));
+    }
+
+    @Test
+    void everyClientHasItemCosmeticAndAcceptancePaths() throws Exception {
         String source = source();
-        assertTrue(source.contains("DialogInput.text(REASON_INPUT"));
-        assertTrue(source.contains("forms.twoTextsAndToggle"));
         assertTrue(source.contains("openChestSetup"));
         assertTrue(source.contains("openChestAccept"));
+        assertTrue(source.contains("openItemWager"));
+        assertTrue(source.contains("openCosmeticWager"));
+        assertTrue(source.contains("restoreEscrow"));
+        assertFalse(source.contains("Both players must hold the stack"));
+        assertFalse(source.contains("maximum-money-wager"));
     }
 
     @Test

@@ -175,7 +175,7 @@ final class PlayerSettingsStore {
         TELEPORT_REQUESTS("teleport_requests", "Teleport requests",
                 "Let other players send you a teleport request.", true, Category.PRIVACY),
         DUEL_REQUESTS("duel_requests", "PvP challenges",
-                "Let other players send you a safe PvP challenge.", true, Category.PRIVACY),
+                "Let other players send you a PvP challenge.", true, Category.PRIVACY),
         ALLOW_PAYMENTS("allow_payments", "Allow payments",
                 "Let other players send you money with /pay.", true, Category.PRIVACY),
         PRIVATE_TRANSACTIONS("private_transactions", "Private transactions",

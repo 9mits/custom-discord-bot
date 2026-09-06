@@ -519,9 +519,11 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         Screens.installHome(mainMenu::open);
         getCommand("menu").setExecutor(mainMenu);
         getServer().getPluginManager().registerEvents(mainMenu, this);
+        CosmeticItems cosmeticItems = new CosmeticItems(this);
         try {
             pvpDuels = new PvpDuelService(
                     this, economyStore, playerSettings, clientSupport, bedrockForms,
+                    cosmeticStore, cosmeticItems,
                     getDataFolder().toPath().resolve("pvp-duel-recovery.json")
             );
         } catch (java.io.IOException exception) {
@@ -535,7 +537,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(pvpDuels, this);
         gameVariables.onChange(key -> {
             if (key.equals("pvp-duels.enabled") && !gameVariables.bool(key)) {
-                pvpDuels.pauseAll("Safe PvP was paused — stakes returned");
+                pvpDuels.pauseAll("/pvp was disabled — stakes returned");
             }
         });
         installQuickMenuDatapack();
@@ -552,10 +554,10 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 preferenceEffects.applyNightVision(player);
             }
         });
-        CosmeticItems cosmeticItems = new CosmeticItems(this);
         WardrobeService wardrobeService = new WardrobeService(
                 this, cosmeticStore, cosmeticItems, settingsService, leaderboardService
         );
+        pvpDuels.useWardrobe(wardrobeService);
         cosmeticEffects = new CosmeticEffectService(
                 this, cosmeticStore, cosmeticItems, wardrobeService, playerSettings,
                 leaderboardService
@@ -1284,9 +1286,6 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         if (launchService == null) {
             throw new IllegalStateException("Launch service is not ready.");
         }
-        if (pvpDuels != null) {
-            pvpDuels.pauseAll("The server launch paused PvP — stakes returned");
-        }
         launchService.start(sender);
     }
 
@@ -1303,9 +1302,6 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             throw new IllegalStateException("Launch service is not ready.");
         }
         launchService.forcePvp(enabled);
-        if (!enabled && pvpDuels != null) {
-            pvpDuels.pauseAll("All PvP was paused — stakes returned");
-        }
     }
 
     /** Whether this player is in {@code /mgxadmin devblog} screenshot mode. */
@@ -1317,9 +1313,6 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     void suspendPvp() {
         if (launchService != null) {
             launchService.suspendPvp();
-        }
-        if (pvpDuels != null) {
-            pvpDuels.pauseAll("A server event paused PvP — stakes returned");
         }
     }
 
@@ -1334,7 +1327,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         return launchService == null
                 ? "PvP state is not available yet."
                 : launchService.pvpStatus()
-                        + " Uninvited player damage is blocked; consent-only /pvp is "
+                        + " /pvp is "
                         + (gameVariables != null && gameVariables.bool("pvp-duels.enabled")
                                 ? "enabled." : "disabled.");
     }
@@ -1344,7 +1337,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         return pvpDuels != null && pvpDuels.isFighter(player.getUniqueId());
     }
 
-    boolean duelDamageEnabled() {
+    boolean openWorldPvpEnabled() {
         return launchService != null && launchService.pvpEnabled();
     }
 

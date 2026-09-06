@@ -8,23 +8,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class PvpDuelRulesTest {
     @Test
-    void reasonCarriesActualContextAndIsNormalized() {
-        assertFalse(PvpDuelRules.validReason(""));
-        assertFalse(PvpDuelRules.validReason("no"));
-        assertTrue(PvpDuelRules.validReason("friendly rematch"));
-        assertEquals("story rematch at spawn", PvpDuelRules.cleanReason(
-                "  story   rematch\n at spawn  "));
-        assertFalse(PvpDuelRules.validReason("x".repeat(81)));
-    }
-
-    @Test
-    void wagerCanBeFreeButNeverNegativeOrOverTheOwnerLimit() {
-        assertTrue(PvpDuelRules.validMoney(0L, 1_000_000L));
-        assertTrue(PvpDuelRules.validMoney(1_000_000L, 1_000_000L));
-        assertFalse(PvpDuelRules.validMoney(-1L, 1_000_000L));
-        assertFalse(PvpDuelRules.validMoney(1_000_001L, 1_000_000L));
+    void wagerHasNoConfiguredCapButCannotOverflowAWallet() {
+        assertTrue(PvpDuelRules.canReceivePool(Long.MAX_VALUE, 0L));
         assertTrue(PvpDuelRules.canReceivePool(1_000L, 500L));
         assertFalse(PvpDuelRules.canReceivePool(Long.MAX_VALUE, 1L));
+        assertFalse(PvpDuelRules.canReceivePool(1_000L, -1L));
     }
 
     @Test
