@@ -47,6 +47,7 @@ final class GameVariableStoreTest {
                 variables.string("dragon-event.countdown-bossbar-text"));
         assertEquals("PURPLE", variables.string("dragon-event.countdown-bossbar-color"));
         assertEquals("END", variables.string("dragon-event.sky-style"));
+        assertEquals(20, variables.integer("dragon-event.void-rescue-y"));
         assertEquals(6000, variables.integer("dragon-event.bright-sky-time"));
         assertEquals(18000, variables.integer("dragon-event.fight-sky-time"));
         assertEquals(true, variables.bool("dragon-event.pillar-lightning-enabled"));

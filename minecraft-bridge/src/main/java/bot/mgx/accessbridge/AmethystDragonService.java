@@ -1467,14 +1467,11 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     public void onVoidDamage(EntityDamageEvent event) {
         if (!(event.getEntity() instanceof Player player)
                 || event.getCause() != EntityDamageEvent.DamageCause.VOID
-                || !isArena(player.getWorld()) || !returnsToIsland(phase)
-                || !entrants.contains(player.getUniqueId()) || departed.contains(player.getUniqueId())) {
+                || !isArena(player.getWorld())) {
             return;
         }
         event.setCancelled(true);
-        player.setFallDistance(0f);
-        player.teleport(arenaSpawn());
-        arrivalEffect(player);
+        rescueToIsland(player);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -1491,7 +1488,28 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     /** Runs after the Dragon's own tracking pass, which otherwise adds its bar back. */
     @EventHandler
     public void onServerTickEnd(ServerTickEndEvent event) {
-        if (arena != null) hideVanillaDragonBar();
+        if (arena == null) return;
+        hideVanillaDragonBar();
+        rescueFallenPlayers();
+    }
+
+    private void rescueFallenPlayers() {
+        int rescueY = variables.integer("dragon-event.void-rescue-y");
+        for (Player player : List.copyOf(arena.getPlayers())) {
+            if (belowVoidRescueHeight(player.getLocation().getY(), rescueY)) {
+                rescueToIsland(player);
+            }
+        }
+    }
+
+    private void rescueToIsland(Player player) {
+        player.setFallDistance(0f);
+        player.teleport(arenaSpawn());
+        arrivalEffect(player);
+    }
+
+    static boolean belowVoidRescueHeight(double playerY, double rescueY) {
+        return playerY < rescueY;
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)

@@ -9,6 +9,13 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 final class AmethystDragonServiceTest {
     @Test
+    void dragonArenaRescuesPlayersBeforeVanillaVoidDamage() {
+        assertEquals(true, AmethystDragonService.belowVoidRescueHeight(19.99, 20));
+        assertEquals(false, AmethystDragonService.belowVoidRescueHeight(20, 20));
+        assertEquals(false, AmethystDragonService.belowVoidRescueHeight(80, 20));
+    }
+
+    @Test
     void dragonMinionsUseTheirVanillaMovementSpeeds() {
         assertEquals(0.23d, AmethystDragonService.normalMinionSpeed(EntityType.HUSK));
         assertEquals(0.25d, AmethystDragonService.normalMinionSpeed(EntityType.STRAY));

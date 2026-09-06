@@ -356,6 +356,9 @@ final class GameVariableStore {
         integer("dragon-event.entry-z", "Arena entry Z", "Dragon Event",
                 "Arena Z coordinate where admitted players land on the island surface.", 18, -200, 200,
                 "blocks", false);
+        integer("dragon-event.void-rescue-y", "Dragon arena rescue height", "Dragon Event",
+                "Players below this Y level in the Dragon dimension are returned to the island.",
+                20, -64, 256, "Y", false);
         integer("dragon-event.entry-particle-count", "Entry teleport particles", "Dragon Presentation",
                 "Particles shown when a player arrives in the Dragon arena.", 140, 0, 10000,
                 "particles", false);
