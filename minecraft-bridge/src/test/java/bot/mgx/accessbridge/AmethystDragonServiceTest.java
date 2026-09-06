@@ -55,4 +55,19 @@ final class AmethystDragonServiceTest {
                     AmethystDragonService.returnsToIsland(phase));
         }
     }
+
+    @Test
+    void visualKeyFountainDistributesEveryItemAcrossItsWaves() {
+        int total = 0;
+        for (int wave = 0; wave < 6; wave++) {
+            int count = AmethystDragonService.visualKeyWaveCount(108, 6, wave);
+            assertEquals(18, count);
+            total += count;
+        }
+        assertEquals(108, total);
+
+        assertEquals(4, AmethystDragonService.visualKeyWaveCount(20, 6, 0));
+        assertEquals(3, AmethystDragonService.visualKeyWaveCount(20, 6, 5));
+        assertEquals(0, AmethystDragonService.visualKeyWaveCount(20, 6, 6));
+    }
 }
