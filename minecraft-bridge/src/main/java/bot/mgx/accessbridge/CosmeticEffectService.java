@@ -162,7 +162,6 @@ final class CosmeticEffectService implements Listener {
     private final Set<String> failedSelectionClears = new HashSet<>();
     private final Set<String> missingEffectWarnings = new HashSet<>();
     private final Map<UUID, MusicAuraState> musicAuraStates = new HashMap<>();
-    private final MiniDragonEscort miniDragons;
     /** Players whose cosmetic tick has already thrown, so the log is not repeated. */
     private final java.util.Set<UUID> tickFailures = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private final Map<UUID, ArmorStand> rarityNameplates = new HashMap<>();
@@ -213,16 +212,11 @@ final class CosmeticEffectService implements Listener {
         this.wardrobe = wardrobe;
         this.settings = settings;
         this.leaderboard = leaderboard;
-        this.miniDragons = new MiniDragonEscort(plugin);
-    }
-
-    MiniDragonEscort miniDragons() {
-        return miniDragons;
     }
 
     void start() {
         if (task == null) {
-            miniDragons.start();
+            plugin.getServer().getWorlds().forEach(world -> sweepRetiredEscorts(world.getEntities()));
             plugin.getServer().getWorlds().forEach(world -> world.getEntities().stream()
                     .filter(entity -> entity.getScoreboardTags().contains(RARITY_NAMEPLATE_TAG))
                     .forEach(Entity::remove));
@@ -253,7 +247,6 @@ final class CosmeticEffectService implements Listener {
         for (UUID ownerId : List.copyOf(musicAuraStates.keySet())) {
             stopMusicAura(ownerId);
         }
-        miniDragons.stop();
         rarityNameplates.values().forEach(ArmorStand::remove);
         rarityNameplates.clear();
         for (UUID playerId : List.copyOf(floatingPlayers.keySet())) {
@@ -275,6 +268,29 @@ final class CosmeticEffectService implements Listener {
         activeRevealBars.clear();
     }
 
+    /**
+     * Removes the escort entities a retired cosmetic left behind.
+     *
+     * <p>The Amethyst Dragon Ascendant used to fly a pair of model dragons. Deleting the
+     * feature does not delete what it already spawned, and those sit in players' worlds
+     * until something takes them out, so the sweep outlives the thing that needed it.
+     * Chunks holding one are not necessarily loaded at startup, hence both paths.
+     */
+    static final String RETIRED_ESCORT_TAG = "mgx_mini_dragon";
+
+    private void sweepRetiredEscorts(java.util.Collection<Entity> entities) {
+        for (Entity entity : List.copyOf(entities)) {
+            if (entity.getScoreboardTags().contains(RETIRED_ESCORT_TAG)) {
+                entity.remove();
+            }
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onEntitiesLoad(org.bukkit.event.world.EntitiesLoadEvent event) {
+        sweepRetiredEscorts(event.getEntities());
+    }
+
     private void tick() {
         frame++;
         previousLocations.keySet().removeIf(uuid -> plugin.getServer().getPlayer(uuid) == null);
@@ -289,7 +305,6 @@ final class CosmeticEffectService implements Listener {
         for (UUID ownerId : List.copyOf(musicAuraStates.keySet())) {
             if (plugin.getServer().getPlayer(ownerId) == null) {
                 stopMusicAura(ownerId);
-                miniDragons.release(ownerId);
             }
         }
         if (frame % NAMEPLATE_SWEEP_FRAMES == 0L) {
@@ -306,7 +321,6 @@ final class CosmeticEffectService implements Listener {
                     previousLocations.remove(player.getUniqueId());
                     trailHistories.remove(player.getUniqueId());
                     stopMusicAura(player.getUniqueId());
-                    miniDragons.release(player.getUniqueId());
                     removeRarityNameplate(player.getUniqueId());
                     continue;
                 }
@@ -327,12 +341,6 @@ final class CosmeticEffectService implements Listener {
                     syncMusicAura(player, aura.orElseThrow());
                 } else {
                     stopMusicAura(player.getUniqueId());
-                }
-                if (aura.filter(definition -> DRAGON_MUSIC_AURA_ID.equals(definition.id()))
-                        .isPresent()) {
-                    syncDragonEscort(player, moving);
-                } else {
-                    miniDragons.release(player.getUniqueId());
                 }
                 aura.ifPresent(definition -> playAuraAmbience(player, definition));
                 // The music aura used to render every tick while every other aura thinned
@@ -1659,58 +1667,6 @@ final class CosmeticEffectService implements Listener {
         drawDragonMusicFormation(owner, centre, DragonMusicTimeline.at(phaseMillis),
                 (int) (phaseMillis / DragonMusicTimeline.SAMPLE_MILLIS),
                 PlayerSettingsStore.Setting.OWN_AURA_VISIBLE, moving);
-    }
-
-    /** Flies the escort on the aura's own clock so the pair banks with the song. */
-    private void syncDragonEscort(Player owner, boolean moving) {
-        MusicAuraState state = musicAuraStates.get(owner.getUniqueId());
-        if (state == null) {
-            miniDragons.release(owner.getUniqueId());
-            return;
-        }
-        long elapsed = Math.max(0L, System.currentTimeMillis() - state.startedAtMillis);
-        long phaseMillis = elapsed % DragonMusicTimeline.DURATION_MILLIS;
-        MusicAuraTimeline.Sample sample = DragonMusicTimeline.at(phaseMillis);
-        List<Location> heads = miniDragons.follow(owner, phaseMillis / 1_000.0d,
-                sample.energy(), moving,
-                viewers(owner, owner.getLocation(),
-                        PlayerSettingsStore.Setting.OWN_AURA_VISIBLE));
-        double beat = phaseMillis / 1_000.0d;
-        for (int index = 0; index < heads.size(); index++) {
-            drawEscortBody(owner, heads.get(index), beat + index * Math.PI, sample, moving);
-        }
-    }
-
-    /**
-     * The wings, neck and tail that turn a Dragon Head into a dragon.
-     *
-     * <p>The head is a display entity because a model is the one thing particles cannot
-     * do; everything attached to it is particles because a wingbeat is the one thing a
-     * display entity cannot do. Drawn from the head's own facing, so the pair banks with
-     * the orbit rather than flapping sideways through it.
-     */
-    /**
-     * The breath of an escort, and nothing else.
-     *
-     * <p>The wings, body and tail used to be drawn here because there was no model to
-     * draw them on. There is one now, and particle ribs laid over solid geometry read
-     * as noise rather than as glow, so all that is left is what the model cannot do.
-     */
-    private void drawEscortBody(
-            Player owner, Location head, double beat, MusicAuraTimeline.Sample sample,
-            boolean moving
-    ) {
-        if (moving || sample.onset() <= 0.4d) {
-            return;
-        }
-        Vector forward = head.getDirection().setY(0d);
-        if (forward.lengthSquared() < 0.001d) {
-            forward = new Vector(0d, 0d, 1d);
-        }
-        forward.normalize();
-        spawnMoving(owner, head.clone().add(forward.clone().multiply(0.55d)).add(0d, 0.1d, 0d),
-                Particle.DRAGON_BREATH, forward.clone().multiply(0.05d), null,
-                PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
     }
 
     private void drawDragonMusicFormation(
