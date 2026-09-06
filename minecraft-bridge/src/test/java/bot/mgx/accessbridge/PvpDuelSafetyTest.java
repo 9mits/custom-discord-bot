@@ -6,6 +6,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -143,6 +144,64 @@ final class PvpDuelSafetyTest {
         assertTrue(gate.contains("givingUp(typed[1])"));
         assertFalse(gate.contains("typed.equals(\"/pvp forfeit\")"));
         assertTrue(source.contains("case \"forfeit\", \"surrender\", \"giveup\", \"ff\" -> true;"));
+    }
+
+    /** A fight nobody engages in otherwise holds an arena and two escrows forever. */
+    @Test
+    void theFightLengthIsCappedInCodeNotOnlyInConfig() throws Exception {
+        assertEquals(15, PvpDuelService.MAXIMUM_DURATION_MINUTES);
+        String source = source();
+        String reader = source.substring(
+                source.indexOf("private int durationMinutes()"),
+                source.indexOf("private int returnSeconds()"));
+        assertTrue(reader.contains("Math.min(MAXIMUM_DURATION_MINUTES"));
+    }
+
+    /**
+     * The hold after a result must not shorten the crash guarantee. The recovery row
+     * is what takes a player home, so it may only be dropped once they are there.
+     */
+    @Test
+    void theReturnHoldKeepsItsRecoveryRowUntilThePlayerIsBack() throws Exception {
+        String source = source();
+        String settle = source.substring(
+                source.indexOf("private void endFight(Fight fight, UUID winnerId, String result, boolean immediate)"),
+                source.indexOf("private void beginAftermath"));
+        assertTrue(settle.contains("fight.settled.add(playerId)"));
+        assertFalse(settle.contains("safeRemoveRecovery"));
+
+        String finish = source.substring(
+                source.indexOf("private void finishReturn"),
+                source.indexOf("private void recordResults"));
+        assertTrue(finish.contains("restoreAtEnd(player, fight.states.get(playerId))"));
+        assertTrue(finish.contains("fight.settled.contains(playerId)"));
+        assertTrue(finish.contains("safeRemoveRecovery(playerId)"));
+        // A disable cannot schedule, and the throw would take the shutdown with it.
+        assertTrue(finish.contains("plugin.isEnabled()"));
+    }
+
+    @Test
+    void everyTeleportOutOfAFightIsRefusedTwice() throws Exception {
+        String source = source();
+        assertTrue(source.contains("public void onTeleportMonitor(PlayerTeleportEvent event)"));
+        assertTrue(source.contains("public void onProjectileLaunch(ProjectileLaunchEvent event)"));
+        assertTrue(source.contains("public void onConsume(PlayerItemConsumeEvent event)"));
+        assertTrue(source.contains("public void onPortalCreate(PortalCreateEvent event)"));
+        String dragon = Files.readString(SOURCE.getParent().resolve("AmethystDragonService.java"),
+                StandardCharsets.UTF_8);
+        assertTrue(dragon.contains("public void onArenaExitMonitor(PlayerTeleportEvent event)"));
+        assertTrue(dragon.contains("public void onArenaPortalCreate(PortalCreateEvent event)"));
+    }
+
+    /** A dead loser is on the respawn screen; their bed is outside the arena bounds. */
+    @Test
+    void respawningDuringTheHoldSeatsThePlayerBackInTheRing() throws Exception {
+        String source = source();
+        String respawn = source.substring(
+                source.indexOf("public void onRespawn(PlayerRespawnEvent event)"),
+                source.indexOf("private static void restoreSpectatorInventory"));
+        assertTrue(respawn.contains("held.phase == Phase.AFTERMATH"));
+        assertTrue(respawn.contains("held.arena.first()"));
     }
 
     @Test

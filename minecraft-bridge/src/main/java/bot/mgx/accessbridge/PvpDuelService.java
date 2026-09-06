@@ -3,6 +3,7 @@ package bot.mgx.accessbridge;
 import io.papermc.paper.dialog.DialogResponseView;
 import io.papermc.paper.event.player.AsyncChatEvent;
 import io.papermc.paper.registry.data.dialog.ActionButton;
+import io.papermc.paper.registry.data.dialog.body.DialogBody;
 import io.papermc.paper.registry.data.dialog.input.DialogInput;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -16,6 +17,7 @@ import org.bukkit.GameMode;
 import org.bukkit.HeightMap;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.World;
 import org.bukkit.WorldBorder;
@@ -26,6 +28,7 @@ import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.AreaEffectCloud;
+import org.bukkit.entity.EnderPearl;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Projectile;
@@ -43,6 +46,7 @@ import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityPlaceEvent;
 import org.bukkit.event.entity.EntityExplodeEvent;
 import org.bukkit.event.entity.EntityPickupItemEvent;
+import org.bukkit.event.entity.ProjectileLaunchEvent;
 import org.bukkit.event.entity.FoodLevelChangeEvent;
 import org.bukkit.event.entity.CreatureSpawnEvent;
 import org.bukkit.event.hanging.HangingPlaceEvent;
@@ -57,6 +61,7 @@ import org.bukkit.event.player.PlayerBucketFillEvent;
 import org.bukkit.event.player.PlayerCommandPreprocessEvent;
 import org.bukkit.event.player.PlayerDropItemEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
+import org.bukkit.event.player.PlayerItemConsumeEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
@@ -64,6 +69,7 @@ import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.event.vehicle.VehicleCreateEvent;
+import org.bukkit.event.world.PortalCreateEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
@@ -125,7 +131,11 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     static final int ACCEPT_DECLINE_SLOT = 21;
     static final int ACCEPT_CONFIRM_SLOT = 23;
     static final int SETUP_BOARD_SIZE = 27;
+    /** Where the result board stops showing gains and starts showing losses. */
+    private static final int RESULT_HALF = 18;
     private static final String MONEY_INPUT = "money";
+    /** No fight may be configured to outlast this, whatever the config says. */
+    static final int MAXIMUM_DURATION_MINUTES = 15;
     private static final long NOTICE_COOLDOWN_MILLIS = 2_000L;
     private static final Set<Material> DANGEROUS = Set.of(
             Material.WATER, Material.LAVA, Material.CACTUS, Material.MAGMA_BLOCK,
@@ -133,10 +143,16 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             Material.CAMPFIRE, Material.SOUL_CAMPFIRE, Material.SWEET_BERRY_BUSH
     );
 
-    private enum Phase { COUNTDOWN, FIGHTING, ENDING }
+    /**
+     * {@code AFTERMATH} is decided-but-not-yet-returned. The stakes have already
+     * moved, and the fighters are held in the ring, unhurtable, while the return
+     * counts down — losing a fight and being yanked home in the same tick left
+     * nobody any idea what had just happened.
+     */
+    private enum Phase { COUNTDOWN, FIGHTING, AFTERMATH, ENDING }
     private enum Board {
         HUB, TARGETS, SETUP, SETUP_ITEMS, SETUP_COSMETICS,
-        INCOMING, ACCEPT, ACCEPT_ITEMS, ACCEPT_COSMETICS, LIVE
+        INCOMING, ACCEPT, ACCEPT_ITEMS, ACCEPT_COSMETICS, LIVE, RESULT
     }
     private enum Prompt { MONEY }
 
@@ -172,6 +188,33 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     private record Arena(Location center, Location first, Location second, double diameter) {
     }
 
+    /**
+     * What one player walked away with, kept until their next fight replaces it.
+     *
+     * <p>Written once, when the fight is decided, because the screens that show it
+     * are opened after the stakes have already moved and the arena is gone: asking
+     * the live state at that point would report nothing happened.
+     */
+    private record FightResult(
+            UUID opponentId,
+            String opponentName,
+            boolean won,
+            boolean draw,
+            String reason,
+            long moneyDelta,
+            long seconds,
+            double damageDealt,
+            double damageTaken,
+            int hitsLanded,
+            List<ItemStack> gained,
+            List<ItemStack> lost
+    ) {
+        FightResult {
+            gained = cloneItems(gained);
+            lost = cloneItems(lost);
+        }
+    }
+
     private record PlayerState(PvpDuelStore.Recovery recovery, WorldBorder previousBorder) {
     }
 
@@ -185,9 +228,14 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         final Arena arena;
         final Map<UUID, PlayerState> states;
         final Set<UUID> spectators = new HashSet<>();
+        final Map<UUID, Double> damage = new HashMap<>();
+        final Map<UUID, Integer> hits = new HashMap<>();
+        final Set<UUID> settled = new HashSet<>();
         Phase phase = Phase.COUNTDOWN;
+        long fightingSince;
         BukkitTask countdownTask;
         BukkitTask timeoutTask;
+        BukkitTask returnTask;
 
         Fight(
                 UUID id,
@@ -264,6 +312,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     private final Map<UUID, PlayerState> pendingDeathRestore = new HashMap<>();
     private final Set<UUID> starting = new HashSet<>();
     private final Set<UUID> internalTeleports = new HashSet<>();
+    private final Map<UUID, FightResult> results = new HashMap<>();
     private final Map<UUID, DuelDraft> setupDrafts = new HashMap<>();
     private final Map<UUID, DuelDraft> acceptDrafts = new HashMap<>();
     private final Map<UUID, Prompt> prompts = new HashMap<>();
@@ -313,8 +362,19 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         return plugin.gameVariables().integer("pvp-duels.countdown-seconds");
     }
 
+    /**
+     * How long a fight may run. Hard-capped: two players who simply refuse to
+     * engage otherwise hold an arena, a pair of escrowed wagers and everyone
+     * watching for as long as the config file says.
+     */
     private int durationMinutes() {
-        return plugin.gameVariables().integer("pvp-duels.duration-minutes");
+        return Math.max(1, Math.min(MAXIMUM_DURATION_MINUTES,
+                plugin.gameVariables().integer("pvp-duels.duration-minutes")));
+    }
+
+    private int returnSeconds() {
+        return Math.max(0, Math.min(30,
+                plugin.gameVariables().integer("pvp-duels.return-seconds")));
     }
 
     private int arenaDiameter() {
@@ -428,7 +488,8 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             List<BedrockForms.Button> buttons = List.of(
                     new BedrockForms.Button("Start a Fight", () -> openTargets(player)),
                     new BedrockForms.Button("Incoming (" + incoming + ")", () -> openIncoming(player)),
-                    new BedrockForms.Button("Watch Live Fights (" + fights.size() + ")", () -> openLive(player))
+                    new BedrockForms.Button("Watch Live Fights (" + fights.size() + ")", () -> openLive(player)),
+                    new BedrockForms.Button("How It Works", () -> openRules(player))
             );
             if (!forms.menu(player, "PvP", hubBody(), buttons)) {
                 openChestHub(player);
@@ -441,13 +502,51 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 Screens.button("item/writable_book", "Incoming (" + incoming + ")",
                         "View your challenges.", this::openIncoming),
                 Screens.button("item/spyglass", "Watch Live Fights (" + fights.size() + ")",
-                        "Watch a fight.", this::openLive)
+                        "Watch a fight.", this::openLive),
+                Screens.button("item/book", "How It Works",
+                        "The rules, in full, before you stake anything.", this::openRules)
         );
         Screens.show(player, "PvP", Screens.body(hubBody()), buttons, 1, null);
     }
 
     private String hubBody() {
         return "Fight anywhere. KEEP INVENTORY is always on.";
+    }
+
+    /**
+     * The rules, written out.
+     *
+     * <p>A duel moves a player's money, items and cosmetics to somebody else, and the
+     * only place any of that was previously explained was a one-line tooltip. Nobody
+     * should have to lose a wager to find out how the thing works.
+     */
+    private void openRules(Player player) {
+        List<String> rules = List.of(
+                "Both fighters stake the same money. Items and cosmetics are yours alone to add.",
+                "KEEP INVENTORY is always on. You never drop what you are carrying, and you keep your levels.",
+                "You are moved to untouched terrain nobody has visited, and put back on the exact block you left.",
+                "Only your opponent can hurt you, and you can only hurt them.",
+                "No blocks, buckets, boats, pearls or teleports. You cannot leave the ring.",
+                "The winner takes both stakes and a trophy head. A draw hands everything back.",
+                "The fight lasts at most " + durationMinutes() + " minutes. Running out the clock is a draw.",
+                "Type /pvp to give up. Your opponent takes everything staked.",
+                "Logging out counts as giving up.",
+                "Spectators watch from a fixed stand. They cannot chat, move or interfere."
+        );
+        if (!clientSupport.supportsDialogs(player)) {
+            if (!forms.menu(player, "How PvP Works", String.join("\n\n", rules),
+                    List.of(), this::openHub)) {
+                for (String rule : rules) {
+                    player.sendMessage(line("• " + rule));
+                }
+            }
+            return;
+        }
+        List<DialogBody> body = new ArrayList<>();
+        for (String rule : rules) {
+            body.add(DialogBody.plainMessage(MenuText.body("• " + rule), 400));
+        }
+        Screens.show(player, "How PvP Works", body, List.of(), 1, this::openHub);
     }
 
     private void openTargets(Player player) {
@@ -1049,6 +1148,9 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         }
         player.setWorldBorder(personalBorder(fight.arena));
         boolean moved = teleport(player, start);
+        if (moved) {
+            arenaArrivalEffect(player);
+        }
         player.sendMessage(prefix().append(Component.text(
                 "KEEP INVENTORY is active. Fight only your opponent. "
                         + "Type /pvp to give up — the stakes go to them.",
@@ -1073,6 +1175,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         }
         if (remaining <= 0) {
             fight.phase = Phase.FIGHTING;
+            fight.fightingSince = System.currentTimeMillis();
             for (UUID playerId : List.of(fight.first, fight.second)) {
                 Player player = Bukkit.getPlayer(playerId);
                 if (player != null) {
@@ -1082,7 +1185,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                             Component.text("KEEP INVENTORY", NamedTextColor.GREEN),
                             Title.Times.times(Duration.ZERO, Duration.ofSeconds(1), Duration.ofMillis(300))
                     ));
-                    player.playSound(player, Sound.ENTITY_ENDER_DRAGON_GROWL, 0.6f, 1.4f);
+                    fightStartEffect(player);
                 }
             }
             fight.timeoutTask = plugin.getServer().getScheduler().runTaskLater(
@@ -1099,7 +1202,11 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                         Component.text("KEEP INVENTORY", NamedTextColor.GREEN),
                         Title.Times.times(Duration.ZERO, Duration.ofMillis(800), Duration.ofMillis(100))
                 ));
-                player.playSound(player, Sound.BLOCK_NOTE_BLOCK_HAT, 0.8f, 1.1f);
+                // Rising, so the last tick before FIGHT! is audibly the last one.
+                player.playSound(player, Sound.BLOCK_NOTE_BLOCK_HAT, 0.8f,
+                        Math.min(2f, 0.9f + (countdownSeconds() - remaining) * 0.12f));
+                player.getWorld().spawnParticle(Particle.CRIT,
+                        player.getLocation().add(0d, 1d, 0d), 12, 0.4d, 0.5d, 0.4d, 0.02d);
             }
         }
         fight.countdownTask = plugin.getServer().getScheduler().runTaskLater(
@@ -1109,6 +1216,10 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
 
     private void openFightStatus(Player player, Fight fight) {
         if (fight == null) {
+            return;
+        }
+        if (fight.phase == Phase.AFTERMATH) {
+            openResultScreen(player);
             return;
         }
         String body = fight.label()
@@ -1142,10 +1253,29 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private void endFight(Fight fight, UUID winnerId, String result) {
+        endFight(fight, winnerId, result, false);
+    }
+
+    /**
+     * Settles a fight.
+     *
+     * <p>{@code immediate} sends both players home in this tick instead of holding
+     * the ring open for the return countdown. Disable and the owner's pause use it,
+     * because a scheduled task is not going to run in either case.
+     */
+    private void endFight(Fight fight, UUID winnerId, String result, boolean immediate) {
         if (fight == null || fight.phase == Phase.ENDING) {
             return;
         }
-        fight.phase = Phase.ENDING;
+        if (fight.phase == Phase.AFTERMATH) {
+            // Already settled and counting down. A shutdown still has to send them
+            // home, because the scheduled return is not going to get its chance.
+            if (immediate) {
+                finishReturn(fight);
+            }
+            return;
+        }
+        fight.phase = Phase.AFTERMATH;
         cancel(fight.countdownTask);
         cancel(fight.timeoutTask);
         Player first = Bukkit.getPlayer(fight.first);
@@ -1181,12 +1311,6 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             }
         }
 
-        fighting.remove(fight.first);
-        fighting.remove(fight.second);
-        fights.remove(fight.id);
-        restoreAtEnd(first, fight.states.get(fight.first));
-        restoreAtEnd(second, fight.states.get(fight.second));
-
         Set<UUID> receivedPhysicalCustody = new HashSet<>();
         if (winnerId == null) {
             returnStake(first, fight.states.get(fight.first));
@@ -1210,9 +1334,11 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             winner.saveData();
         }
 
-        // Clear durable escrow only after physical prizes have reached an online
-        // inventory and that player data has been flushed. If Paper stops earlier,
-        // recovery favours returning an item over silently destroying it.
+        // Clear the stake half of durable escrow only after physical prizes have
+        // reached an online inventory and that player data has been flushed. If Paper
+        // stops earlier, recovery favours returning an item over destroying it. The
+        // recovery row itself survives until the player is actually back where they
+        // started, so a crash during the return countdown is still a journey home.
         for (UUID playerId : List.of(fight.first, fight.second)) {
             PvpDuelStore.Recovery recovery = fight.states.get(playerId).recovery();
             if (!recovery.encodedStake().isEmpty() && !receivedPhysicalCustody.contains(playerId)) {
@@ -1225,11 +1351,9 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                         + ": " + failure.getMessage());
                 continue;
             }
-            Player player = Bukkit.getPlayer(playerId);
-            if (player != null && !player.isDead()) {
-                safeRemoveRecovery(playerId);
-            }
+            fight.settled.add(playerId);
         }
+        recordResults(fight, winnerId, result);
         announceFightEnd(fight, winner, result);
         if (winner != null) {
             record("duel_finished", winner, winner.getName() + " won a PvP fight")
@@ -1237,6 +1361,99 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                             ? fight.secondName : fight.firstName)
                     .detail("result", result)
                     .record();
+        }
+        if (immediate || returnSeconds() <= 0) {
+            finishReturn(fight);
+            return;
+        }
+        beginAftermath(fight, winnerId);
+    }
+
+    /**
+     * Holds the decided ring open so the result can land before the world moves.
+     *
+     * <p>Nothing of value is still at stake here — the money, items and cosmetics
+     * have already changed hands — so the only job left is telling both players what
+     * happened and putting them back.
+     */
+    private void beginAftermath(Fight fight, UUID winnerId) {
+        for (UUID playerId : List.of(fight.first, fight.second)) {
+            Player player = Bukkit.getPlayer(playerId);
+            if (player == null) {
+                continue;
+            }
+            player.closeInventory();
+            player.closeDialog();
+            if (player.isDead()) {
+                // On the respawn screen. onRespawn seats them back in the ring, and
+                // setting health or invulnerability on a corpse does neither of them.
+                continue;
+            }
+            player.setInvulnerable(true);
+            player.setFireTicks(0);
+            if (player.getAttribute(Attribute.MAX_HEALTH) != null) {
+                player.setHealth(player.getAttribute(Attribute.MAX_HEALTH).getValue());
+            }
+            outcomeEffect(player, winnerId == null ? null : playerId.equals(winnerId));
+        }
+        tickReturn(fight, returnSeconds());
+    }
+
+    private void tickReturn(Fight fight, int remaining) {
+        if (fight.phase != Phase.AFTERMATH) {
+            return;
+        }
+        if (remaining <= 0) {
+            finishReturn(fight);
+            return;
+        }
+        for (UUID playerId : List.of(fight.first, fight.second)) {
+            Player player = Bukkit.getPlayer(playerId);
+            if (player == null) {
+                continue;
+            }
+            // The bottom action bar is where this project puts a teleport warmup.
+            player.sendActionBar(Component.text("Returning home in ", NamedTextColor.GRAY)
+                    .append(Component.text(remaining, ORANGE, TextDecoration.BOLD))
+                    .append(Component.text(remaining == 1 ? " second" : " seconds",
+                            NamedTextColor.GRAY)));
+            if (remaining <= 3) {
+                player.playSound(player, Sound.BLOCK_NOTE_BLOCK_HAT, 0.5f, 1.6f);
+            }
+        }
+        fight.returnTask = plugin.getServer().getScheduler().runTaskLater(
+                plugin, () -> tickReturn(fight, remaining - 1), 20L
+        );
+    }
+
+    /** Puts both fighters back where they started and takes the fight down. */
+    private void finishReturn(Fight fight) {
+        if (fight.phase == Phase.ENDING) {
+            return;
+        }
+        fight.phase = Phase.ENDING;
+        cancel(fight.returnTask);
+        fighting.remove(fight.first);
+        fighting.remove(fight.second);
+        fights.remove(fight.id);
+        for (UUID playerId : List.of(fight.first, fight.second)) {
+            Player player = Bukkit.getPlayer(playerId);
+            restoreAtEnd(player, fight.states.get(playerId));
+            if (player == null || player.isDead()) {
+                continue;
+            }
+            // A recovery whose escrow could not be closed is deliberately left behind:
+            // it is the only record that this player is owed something.
+            if (fight.settled.contains(playerId)) {
+                safeRemoveRecovery(playerId);
+            }
+            arrivalSound(player);
+            // A tick behind the teleport, so the summary is not opened onto a screen
+            // the return is still moving. Not during a disable, where the scheduler
+            // refuses new work and the throw would take the shutdown with it.
+            if (plugin.isEnabled()) {
+                runLater(player, this::openResultScreen);
+            }
         }
     }
 
@@ -1272,6 +1489,258 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         restorePlayer(player, state);
     }
 
+    private void recordResults(Fight fight, UUID winnerId, String reason) {
+        long seconds = fight.fightingSince <= 0L ? 0L
+                : Math.max(0L, (System.currentTimeMillis() - fight.fightingSince) / 1000L);
+        for (UUID playerId : List.of(fight.first, fight.second)) {
+            UUID opponentId = fight.opponent(playerId);
+            String opponentName = playerId.equals(fight.first)
+                    ? fight.secondName : fight.firstName;
+            boolean draw = winnerId == null;
+            boolean won = !draw && playerId.equals(winnerId);
+            List<ItemStack> gained = new ArrayList<>();
+            List<ItemStack> lost = new ArrayList<>();
+            if (won) {
+                // A draw hands every stake back, so only a decided fight moves anything.
+                gained.addAll(decodeStakeItems(
+                        fight.states.get(opponentId).recovery().encodedStake()));
+                gained.add(duelHead(opponentId, opponentName));
+            } else if (!draw) {
+                lost.addAll(decodeStakeItems(
+                        fight.states.get(playerId).recovery().encodedStake()));
+            }
+            results.put(playerId, new FightResult(
+                    opponentId, opponentName, won, draw, reason,
+                    draw ? 0L : (won ? fight.moneyEach : -fight.moneyEach), seconds,
+                    fight.damage.getOrDefault(playerId, 0d),
+                    fight.damage.getOrDefault(opponentId, 0d),
+                    fight.hits.getOrDefault(playerId, 0),
+                    gained, lost
+            ));
+        }
+    }
+
+    /**
+     * The scoreboard for one fight, opened once the player is home again.
+     *
+     * <p>Everything on it was written when the fight was decided. Reading it back
+     * off the live world would report an arena that no longer exists and stakes that
+     * have already moved.
+     */
+    private void openResultScreen(Player player) {
+        FightResult result = results.get(player.getUniqueId());
+        if (result == null) {
+            error(player, "You have no recent fight to look at.");
+            return;
+        }
+        String headline = result.draw() ? "Draw" : result.won() ? "Victory" : "Defeat";
+        String title = headline + " vs " + result.opponentName();
+        if (!clientSupport.supportsDialogs(player)) {
+            sendResultLines(player, result);
+            List<BedrockForms.Button> buttons = List.of(
+                    new BedrockForms.Button("Money & Items",
+                            () -> openResultChest(player)));
+            if (!forms.menu(player, title, result.reason(), buttons, null)) {
+                openResultChest(player);
+            }
+            return;
+        }
+        List<DialogBody> body = new ArrayList<>();
+        body.add(DialogBody.plainMessage(MenuText.head(result.opponentId()), 400));
+        body.add(DialogBody.plainMessage(MenuText.body(result.reason()), 400));
+        body.add(DialogBody.plainMessage(Component.empty(), 400));
+        body.add(DialogBody.plainMessage(MenuText.stat("Money", "item/gold_ingot",
+                signedMoney(result.moneyDelta())), 400));
+        body.add(DialogBody.plainMessage(MenuText.stat("Items won", "item/shulker_shell",
+                result.gained().size() + " stack(s)"), 400));
+        body.add(DialogBody.plainMessage(MenuText.stat("Items lost", "item/rotten_flesh",
+                result.lost().size() + " stack(s)"), 400));
+        body.add(DialogBody.plainMessage(MenuText.stat("Damage dealt", "item/diamond_sword",
+                damage(result.damageDealt())), 400));
+        body.add(DialogBody.plainMessage(MenuText.stat("Damage taken", "item/diamond_chestplate",
+                damage(result.damageTaken())), 400));
+        body.add(DialogBody.plainMessage(MenuText.stat("Hits landed", "item/arrow",
+                String.valueOf(result.hitsLanded())), 400));
+        body.add(DialogBody.plainMessage(MenuText.stat("Fight length", "item/clock_00",
+                clock(result.seconds())), 400));
+        List<ActionButton> buttons = List.of(
+                Screens.button("item/gold_ingot", "Money & Items",
+                        "See exactly what moved.", this::openResultChest)
+        );
+        Screens.show(player, title, body, buttons, 1, null);
+    }
+
+    /** The same numbers as chat lines, for a client that cannot draw the screen. */
+    private void sendResultLines(Player player, FightResult result) {
+        player.sendMessage(Component.empty());
+        player.sendMessage(prefix().append(Component.text(
+                (result.draw() ? "DRAW" : result.won() ? "VICTORY" : "DEFEAT")
+                        + " vs " + result.opponentName(), NamedTextColor.WHITE,
+                TextDecoration.BOLD)));
+        player.sendMessage(line(result.reason()));
+        player.sendMessage(line("Money: " + signedMoney(result.moneyDelta())));
+        player.sendMessage(line("Items won: " + result.gained().size()
+                + " • lost: " + result.lost().size()));
+        player.sendMessage(line("Damage dealt: " + damage(result.damageDealt())
+                + " • taken: " + damage(result.damageTaken())));
+        player.sendMessage(line("Hits landed: " + result.hitsLanded()
+                + " • length: " + clock(result.seconds())));
+        player.sendMessage(Component.empty());
+    }
+
+    /**
+     * What actually moved, laid out as items.
+     *
+     * <p>A list of names never reads as convincingly as the stack itself, and the
+     * cash is the one thing in a duel with no item to show — so it gets a gold bar
+     * whose name is the amount.
+     */
+    private void openResultChest(Player player) {
+        FightResult result = results.get(player.getUniqueId());
+        if (result == null) {
+            error(player, "You have no recent fight to look at.");
+            return;
+        }
+        player.closeDialog();
+        DuelBoard holder = board(Board.RESULT, null, BOARD_SIZE,
+                result.draw() ? "Draw" : result.won() ? "You Won" : "You Lost");
+        List<ItemStack> gained = new ArrayList<>();
+        if (result.moneyDelta() > 0L) {
+            gained.add(moneyBar(result.moneyDelta(), result.opponentName()));
+        }
+        gained.addAll(result.gained());
+        List<ItemStack> lost = new ArrayList<>();
+        if (result.moneyDelta() < 0L) {
+            lost.add(moneyBar(result.moneyDelta(), result.opponentName()));
+        }
+        lost.addAll(result.lost());
+        int shownGained = fill(holder.inventory, 0, RESULT_HALF, gained);
+        for (int slot = RESULT_HALF; slot < RESULT_HALF + 9; slot++) {
+            holder.inventory.setItem(slot, MenuItems.button(
+                    Material.GRAY_STAINED_GLASS_PANE, " "));
+        }
+        int shownLost = fill(holder.inventory, RESULT_HALF + 9, PAGE_SIZE, lost);
+        holder.inventory.setItem(RESULT_HALF + 4, MenuItems.button(Material.GRAY_STAINED_GLASS_PANE,
+                "Above: gained  •  Below: lost"));
+        holder.inventory.setItem(45, MenuItems.button(Material.PLAYER_HEAD,
+                result.draw() ? "Draw" : result.won() ? "You Won" : "You Lost",
+                result.reason(),
+                "Gained " + gained.size() + (shownGained < gained.size()
+                        ? " (" + shownGained + " shown)" : ""),
+                "Lost " + lost.size() + (shownLost < lost.size()
+                        ? " (" + shownLost + " shown)" : ""),
+                "These are pictures. The real ones are already yours."));
+        MenuItems.back(holder.inventory);
+        MenuItems.show(plugin, player, holder.inventory);
+    }
+
+    /** Draws as many stacks as fit and reports how many that was. */
+    private static int fill(Inventory inventory, int from, int until, List<ItemStack> items) {
+        int slot = from;
+        for (ItemStack item : items) {
+            if (slot >= until) break;
+            if (empty(item)) continue;
+            ItemStack shown = item.clone();
+            org.bukkit.inventory.meta.ItemMeta meta = shown.getItemMeta();
+            if (meta != null) {
+                MenuItems.asButton(meta);
+                shown.setItemMeta(meta);
+            }
+            inventory.setItem(slot, shown);
+            slot++;
+        }
+        return slot - from;
+    }
+
+    private static ItemStack moneyBar(long delta, String opponentName) {
+        boolean won = delta > 0L;
+        ItemStack bar = new ItemStack(Material.GOLD_INGOT);
+        org.bukkit.inventory.meta.ItemMeta meta = bar.getItemMeta();
+        if (meta != null) {
+            meta.displayName(Component.text(signedMoney(delta),
+                            won ? NamedTextColor.GREEN : NamedTextColor.RED, TextDecoration.BOLD)
+                    .decoration(TextDecoration.ITALIC, false));
+            meta.lore(List.of(
+                    line(won ? "Won from " + opponentName + "." : "Lost to " + opponentName + "."),
+                    line(won ? "Already paid into your wallet."
+                            : "Already taken from your wallet."),
+                    line("Both fighters staked the same amount.")
+            ));
+            MenuItems.asButton(meta);
+            bar.setItemMeta(meta);
+        }
+        return bar;
+    }
+
+    private static String signedMoney(long delta) {
+        if (delta == 0L) {
+            return "no cash staked";
+        }
+        return (delta > 0L ? "+" : "-") + EconomyFormat.dollars(Math.abs(delta));
+    }
+
+    private static String damage(double amount) {
+        return String.format(Locale.US, "%,.1f", amount);
+    }
+
+    private static String clock(long seconds) {
+        return String.format(Locale.US, "%d:%02d", seconds / 60L, seconds % 60L);
+    }
+
+    // ------------------------------------------------------------ effects
+
+    /** Arriving in the ring, before the countdown starts. */
+    private static void arenaArrivalEffect(Player player) {
+        player.playSound(player, Sound.ENTITY_ENDERMAN_TELEPORT, 0.9f, 1.2f);
+        player.getWorld().spawnParticle(Particle.PORTAL,
+                player.getLocation().add(0d, 1d, 0d), 60, 0.4d, 0.8d, 0.4d, 0.6d);
+    }
+
+    private static void fightStartEffect(Player player) {
+        player.playSound(player, Sound.ENTITY_ENDER_DRAGON_GROWL, 0.6f, 1.4f);
+        player.playSound(player, Sound.BLOCK_BELL_RESONATE, 0.7f, 0.8f);
+        player.getWorld().spawnParticle(Particle.FLAME,
+                player.getLocation().add(0d, 1d, 0d), 40, 0.6d, 0.6d, 0.6d, 0.05d);
+    }
+
+    /** {@code won} is null for a draw. */
+    private static void outcomeEffect(Player player, Boolean won) {
+        Title.Times times = Title.Times.times(
+                Duration.ZERO, Duration.ofSeconds(3), Duration.ofMillis(600));
+        Location where = player.getLocation().add(0d, 1d, 0d);
+        if (won == null) {
+            player.showTitle(Title.title(
+                    Component.text("DRAW", NamedTextColor.YELLOW, TextDecoration.BOLD),
+                    Component.text("Every stake goes back", NamedTextColor.WHITE), times));
+            player.playSound(player, Sound.BLOCK_NOTE_BLOCK_BASS, 0.9f, 0.8f);
+            player.getWorld().spawnParticle(Particle.CLOUD, where, 30, 0.5d, 0.6d, 0.5d, 0.02d);
+            return;
+        }
+        if (won) {
+            player.showTitle(Title.title(
+                    Component.text("VICTORY", ORANGE, TextDecoration.BOLD),
+                    Component.text("You take both stakes", NamedTextColor.GREEN), times));
+            // The advancement chime: the one sound on the server that already means
+            // "you just achieved something", so it needs no explaining.
+            player.playSound(player, Sound.UI_TOAST_CHALLENGE_COMPLETE, 1f, 1f);
+            player.playSound(player, Sound.ENTITY_PLAYER_LEVELUP, 0.7f, 1.2f);
+            player.getWorld().spawnParticle(
+                    Particle.TOTEM_OF_UNDYING, where, 90, 0.5d, 1d, 0.5d, 0.4d);
+            player.getWorld().spawnParticle(Particle.FIREWORK, where, 40, 0.6d, 1d, 0.6d, 0.2d);
+            return;
+        }
+        player.showTitle(Title.title(
+                Component.text("DEFEAT", NamedTextColor.RED, TextDecoration.BOLD),
+                Component.text("Your stake goes to them", NamedTextColor.GRAY), times));
+        player.playSound(player, Sound.ENTITY_ELDER_GUARDIAN_CURSE, 0.5f, 1.4f);
+        player.playSound(player, Sound.BLOCK_ANVIL_LAND, 0.4f, 0.6f);
+        player.getWorld().spawnParticle(Particle.LARGE_SMOKE, where, 50, 0.5d, 0.8d, 0.5d, 0.02d);
+    }
+
+    private static void arrivalSound(Player player) {
+        player.playSound(player, Sound.ENTITY_ENDERMAN_TELEPORT, 0.6f, 1.4f);
+    }
+
     private void announceFightEnd(Fight fight, Player winner, String result) {
         Component message = prefix().append(winner == null
                 ? Component.text(fight.label() + " ended in a draw. " + result + ".",
@@ -1288,7 +1757,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
 
     private void openLive(Player player) {
         List<Fight> live = fights.values().stream()
-                .filter(fight -> fight.phase != Phase.ENDING)
+                .filter(fight -> fight.phase == Phase.COUNTDOWN || fight.phase == Phase.FIGHTING)
                 .toList();
         if (!clientSupport.supportsDialogs(player)) {
             List<BedrockForms.Button> buttons = live.stream()
@@ -1314,7 +1783,8 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private void joinSpectator(Player player, Fight fight) {
-        if (fight == null || fight.phase == Phase.ENDING || !fights.containsKey(fight.id)) {
+        if (fight == null || fight.phase == Phase.AFTERMATH || fight.phase == Phase.ENDING
+                || !fights.containsKey(fight.id)) {
             error(player, "That fight has ended.");
             return;
         }
@@ -1769,10 +2239,13 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 return;
             }
             if (event instanceof EntityDamageByEntityEvent byEntity) {
-                boolean opponent = isOpponentAttack(
-                        byEntity, victimFight.opponent(victim.getUniqueId())
-                );
+                UUID opponentId = victimFight.opponent(victim.getUniqueId());
+                boolean opponent = isOpponentAttack(byEntity, opponentId);
                 event.setCancelled(!opponent);
+                if (opponent) {
+                    victimFight.damage.merge(opponentId, event.getFinalDamage(), Double::sum);
+                    victimFight.hits.merge(opponentId, 1, Integer::sum);
+                }
             }
             return;
         }
@@ -1795,7 +2268,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     public void onDeath(PlayerDeathEvent event) {
         Player victim = event.getPlayer();
         Fight fight = fighting.get(victim.getUniqueId());
-        if (fight == null || fight.phase == Phase.ENDING) {
+        if (fight == null || fight.phase != Phase.FIGHTING) {
             return;
         }
         event.setKeepInventory(true);
@@ -1816,7 +2289,17 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onRespawn(PlayerRespawnEvent event) {
-        PlayerState state = pendingDeathRestore.remove(event.getPlayer().getUniqueId());
+        UUID playerId = event.getPlayer().getUniqueId();
+        Fight held = fighting.get(playerId);
+        if (held != null && held.phase == Phase.AFTERMATH) {
+            // Their bed is outside the ring, and the arena bounds would freeze them
+            // there for the rest of the countdown. Seat them back where they fell;
+            // the return takes them home a few seconds later like everyone else.
+            event.setRespawnLocation(held.first.equals(playerId)
+                    ? held.arena.first() : held.arena.second());
+            return;
+        }
+        PlayerState state = pendingDeathRestore.remove(playerId);
         if (state == null) {
             return;
         }
@@ -1826,7 +2309,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         }
         plugin.getServer().getScheduler().runTask(plugin, () -> {
             restorePlayer(event.getPlayer(), state);
-            safeRemoveRecovery(event.getPlayer().getUniqueId());
+            safeRemoveRecovery(playerId);
         });
     }
 
@@ -1864,6 +2347,22 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         }
     }
 
+    /**
+     * Restates the refusal after every other plugin has had its turn.
+     *
+     * <p>HIGHEST is not the end of the chain, and this server runs plugins that move
+     * players around. Maintenance already learned that a later handler re-allowing
+     * what was refused simply wins, so the answer is given twice — the second time
+     * where nothing can follow it.
+     */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = false)
+    public void onTeleportMonitor(PlayerTeleportEvent event) {
+        if (!event.isCancelled() && isParticipant(event.getPlayer().getUniqueId())
+                && !internalTeleports.contains(event.getPlayer().getUniqueId())) {
+            event.setCancelled(true);
+        }
+    }
+
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onCommand(PlayerCommandPreprocessEvent event) {
         if (!isParticipant(event.getPlayer().getUniqueId())) {
@@ -1886,6 +2385,66 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             // the controlled exit routes, so they must reach this service.
             event.setCancelled(false);
         }
+    }
+
+    /**
+     * An ender pearl is a teleport, and a teleport is how a fight gets abandoned.
+     *
+     * <p>{@code onTeleport} already refuses the landing, but that spends the pearl to
+     * go nowhere. Refusing the throw keeps the pearl and says why, which is the same
+     * answer given for every other way out of the ring.
+     */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onProjectileLaunch(ProjectileLaunchEvent event) {
+        if (!(event.getEntity() instanceof EnderPearl pearl)
+                || !(pearl.getShooter() instanceof Player shooter)
+                || !isParticipant(shooter.getUniqueId())) {
+            return;
+        }
+        event.setCancelled(true);
+        maybeNotice(shooter, "Ender pearls do not work in a fight.");
+    }
+
+    /** Chorus fruit is the other teleport, and it is eaten rather than thrown. */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onConsume(PlayerItemConsumeEvent event) {
+        if (event.getItem().getType() != Material.CHORUS_FRUIT
+                || !isParticipant(event.getPlayer().getUniqueId())) {
+            return;
+        }
+        event.setCancelled(true);
+        maybeNotice(event.getPlayer(), "Chorus fruit does not work in a fight.");
+    }
+
+    /**
+     * No portal is opening inside a duel.
+     *
+     * <p>Placing and igniting are both refused already, so this cannot normally be
+     * reached — but a portal is a hole in the one wall the whole feature depends on,
+     * and it is worth closing twice.
+     */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onPortalCreate(PortalCreateEvent event) {
+        if (event.getEntity() instanceof Player player && isParticipant(player.getUniqueId())) {
+            event.setCancelled(true);
+            return;
+        }
+        for (org.bukkit.block.BlockState block : event.getBlocks()) {
+            if (insideAnyArena(block.getLocation())) {
+                event.setCancelled(true);
+                return;
+            }
+        }
+    }
+
+    /** One explanation per player every couple of seconds, however hard they spam it. */
+    private void maybeNotice(Player player, String message) {
+        long now = System.currentTimeMillis();
+        if (now - notices.getOrDefault(player.getUniqueId(), 0L) < NOTICE_COOLDOWN_MILLIS) {
+            return;
+        }
+        notices.put(player.getUniqueId(), now);
+        error(player, message);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
@@ -2003,10 +2562,15 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     public void onQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
         Fight fight = fighting.get(player.getUniqueId());
-        if (fight != null && fight.phase != Phase.ENDING) {
+        if (fight != null && fight.phase == Phase.AFTERMATH) {
+            // Already decided and already paid. Their settled recovery takes them
+            // home on the next join instead of stranding them in the ring.
+            finishReturn(fight);
+        } else if (fight != null && fight.phase != Phase.ENDING) {
             endFight(fight, fight.opponent(player.getUniqueId()),
                     player.getName() + " left and gave up");
         }
+        results.remove(player.getUniqueId());
         if (spectators.containsKey(player.getUniqueId())) {
             leaveSpectator(player, false);
         }
@@ -2028,7 +2592,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
 
     void stop() {
         for (Fight fight : List.copyOf(fights.values())) {
-            endFight(fight, null, "Server restart — stakes returned");
+            endFight(fight, null, "Server restart — stakes returned", true);
         }
         for (UUID spectatorId : List.copyOf(spectators.keySet())) {
             Player player = Bukkit.getPlayer(spectatorId);
@@ -2036,6 +2600,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         }
         invitations.clear();
         prompts.clear();
+        results.clear();
         setupDrafts.clear();
         acceptDrafts.clear();
         lastChallenges.clear();
@@ -2045,7 +2610,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     /** An owner pause resolves live contracts as draws instead of freezing fighters. */
     void pauseAll(String reason) {
         for (Fight fight : List.copyOf(fights.values())) {
-            endFight(fight, null, reason);
+            endFight(fight, null, reason, true);
         }
     }
 
@@ -2345,12 +2910,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private void maybeExplainBlocked(Player attacker) {
-        long now = System.currentTimeMillis();
-        if (now - notices.getOrDefault(attacker.getUniqueId(), 0L) < NOTICE_COOLDOWN_MILLIS) {
-            return;
-        }
-        notices.put(attacker.getUniqueId(), now);
-        error(attacker, "PvP is disabled. Use /pvp to fight.");
+        maybeNotice(attacker, "PvP is disabled. Use /pvp to fight.");
     }
 
     private boolean teleport(Player player, Location location) {

@@ -1069,7 +1069,11 @@ final class GameVariableStore {
         integer("pvp-duels.duration-minutes", "Fight time limit", "PvP Duels",
                 "Minutes before an unfinished duel becomes a draw and returns both stakes.",
                 config.getLong("pvp-duels.duration-minutes", 10),
-                1, 120, "minutes", false);
+                1, PvpDuelService.MAXIMUM_DURATION_MINUTES, "minutes", false);
+        integer("pvp-duels.return-seconds", "Return countdown", "PvP Duels",
+                "Seconds the fighters stay in the ring after a result before going home.",
+                config.getLong("pvp-duels.return-seconds", 10),
+                0, 30, "seconds", false);
         integer("pvp-duels.arena-diameter", "Personal arena border", "PvP Duels",
                 "Width of the temporary personal border around a duel.",
                 config.getLong("pvp-duels.arena-diameter", 96),
