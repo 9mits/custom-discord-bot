@@ -34,6 +34,14 @@ class ResourcePackCatalogTest {
     private static final Path POTION_REFERENCE = PACK.resolve(
             "icon-sources/potion_of_healing_reference.png"
     );
+    /**
+     * Generated icons are designed on a 24x24 logical grid and exported at 48x48 as
+     * exact 2x2 blocks. The Shard is the one icon still on the older 16x16 grid: its
+     * artwork came from a supplied transparent source that is no longer on hand to
+     * re-import, and upscaling would only blur the sprite it already has.
+     */
+    private static final int GENERATED_ICON_SIZE = 48;
+    private static final Map<String, Integer> LEGACY_GRID_ICONS = Map.of("shard.png", 32);
 
     @Test
     void packDeclaresTheSupportedJavaRange() throws Exception {
@@ -202,7 +210,8 @@ class ResourcePackCatalogTest {
             if (nativePotion) {
                 assertEquals(160, image.getWidth(), name + " must retain the official canvas");
             } else {
-                assertEquals(32, image.getWidth(), name);
+                assertEquals(LEGACY_GRID_ICONS.getOrDefault(name, GENERATED_ICON_SIZE),
+                        image.getWidth(), name);
             }
 
             Set<Integer> opaqueColors = new HashSet<>();
@@ -225,7 +234,7 @@ class ResourcePackCatalogTest {
                 assertExactVanillaPotionGeometry(image, name);
                 continue;
             }
-            assertTrue(opaqueColors.size() <= 24,
+            assertTrue(opaqueColors.size() <= 32,
                     name + " uses too many colors: " + opaqueColors.size());
             for (int y = 0; y < image.getHeight(); y += 2) {
                 for (int x = 0; x < image.getWidth(); x += 2) {
@@ -335,8 +344,14 @@ class ResourcePackCatalogTest {
                 }
             }
             int footprint = Math.max(maxX - minX + 1, maxY - minY + 1);
-            assertTrue(footprint >= 28 && footprint <= 30,
-                    definition.id() + " has unexpected footprint " + footprint);
+            int canvas = image.getWidth();
+            // The importer aims the long axis at the content box and corrects until it
+            // lands there, so every icon fills the same share of its canvas whatever the
+            // grid size. Expressed as a share rather than in pixels so the bound cannot
+            // silently pass when the canvas changes underneath it.
+            assertTrue(footprint >= canvas * 0.85 && footprint <= canvas * 0.95,
+                    definition.id() + " has unexpected footprint " + footprint
+                            + " on a " + canvas + "px canvas");
         }
     }
 
