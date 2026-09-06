@@ -12,7 +12,9 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.world.EntitiesLoadEvent;
+import org.bukkit.NamespacedKey;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.util.Transformation;
 import org.bukkit.util.Vector;
 import org.joml.AxisAngle4f;
@@ -52,7 +54,23 @@ final class MiniDragonEscort implements Listener {
     private static final int ESCORTS = 2;
     private static final double ORBIT_RADIUS = 2.35d;
     private static final double ORBIT_SPEED = 0.045d;
-    private static final float MODEL_SCALE = 0.6f;
+    /** Chosen so the model's wingspan lands near two blocks beside a 1.8-block player. */
+    private static final float MODEL_SCALE = 0.5f;
+    /**
+     * Three wing positions, cycled to make a wingbeat.
+     *
+     * <p>A display shows one static model, and an item model element takes a single
+     * fixed rotation, so a wing cannot be animated in place. Swapping between three
+     * whole models is what a beat actually is here. It also keeps every part of the
+     * dragon in one model, which is what a previous attempt at separate wing entities
+     * failed to keep aligned.
+     */
+    private static final String[] FLAP = {
+            "mgx:mini_dragon_mid", "mgx:mini_dragon_up",
+            "mgx:mini_dragon_mid", "mgx:mini_dragon_down"
+    };
+    /** Aura frames per wing position. Four ticks a frame is a beat, not a flicker. */
+    private static final int FLAP_FRAMES = 2;
     /** Matches the aura's own tick period so the flight interpolates instead of stepping. */
     private static final int TELEPORT_TICKS = 2;
 
@@ -62,6 +80,8 @@ final class MiniDragonEscort implements Listener {
     private final Map<UUID, Set<UUID>> hiddenFrom = new HashMap<>();
     /** Owners whose escort has already failed to spawn, so the log is not repeated. */
     private final Set<UUID> spawnFailures = new HashSet<>();
+    /** Which wing position each escort is currently showing, so it is only swapped on change. */
+    private final Map<UUID, String> wearing = new HashMap<>();
 
     MiniDragonEscort(MGXAccessBridge plugin) {
         this.plugin = plugin;
@@ -147,6 +167,11 @@ final class MiniDragonEscort implements Listener {
             // being dragged sideways through it.
             seat.setDirection(new Vector(-Math.sin(angle), 0d, Math.cos(angle)));
             dragon.teleport(seat);
+            String wanted = FLAP[(int) Math.floorMod(
+                    (long) (phaseSeconds * 20d / FLAP_FRAMES) + index * 2L, FLAP.length)];
+            if (!wanted.equals(wearing.put(dragon.getUniqueId(), wanted))) {
+                dragon.setItemStack(modelItem(wanted));
+            }
             heads.add(seat);
         }
         ids.removeIf(id -> resolveById(owner.getWorld(), id) == null);
@@ -208,6 +233,7 @@ final class MiniDragonEscort implements Listener {
             if (entity != null) {
                 entity.remove();
             }
+            wearing.remove(id);
         }
     }
 
@@ -236,6 +262,20 @@ final class MiniDragonEscort implements Listener {
         return spawned;
     }
 
+    /** Any item will do: the item model component replaces what is drawn entirely. */
+    private static ItemStack modelItem(String model) {
+        ItemStack item = new ItemStack(Material.PAPER);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            NamespacedKey key = NamespacedKey.fromString(model);
+            if (key != null) {
+                meta.setItemModel(key);
+            }
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
     private ItemDisplay resolveById(World world, UUID id) {
         if (id == null) {
             return null;
@@ -253,8 +293,8 @@ final class MiniDragonEscort implements Listener {
             return owner.getWorld().spawn(
                     owner.getLocation().add(0d, 2d, 0d), ItemDisplay.class, dragon -> {
                         dragon.addScoreboardTag(TAG);
-                        dragon.setItemStack(new ItemStack(Material.DRAGON_HEAD));
-                        dragon.setItemDisplayTransform(ItemDisplay.ItemDisplayTransform.HEAD);
+                        dragon.setItemStack(modelItem(FLAP[0]));
+                        dragon.setItemDisplayTransform(ItemDisplay.ItemDisplayTransform.FIXED);
                         dragon.setBillboard(Display.Billboard.FIXED);
                         dragon.setTransformation(new Transformation(
                                 new Vector3f(0f, 0f, 0f),

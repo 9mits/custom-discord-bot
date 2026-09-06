@@ -227,6 +227,50 @@ class ResourcePackIconTests(unittest.TestCase):
                 flat.append(f"{path.stem} ({spread:.2f})")
         self.assertEqual([], flat, "these icons have no shading: " + ", ".join(flat))
 
+    def test_mini_dragon_model_is_the_vanilla_dragon(self):
+        """The escort is Minecraft's own dragon geometry over Minecraft's own texture.
+
+        Nothing here is drawn or invented: the boxes were read out of the client's
+        model class and the texture is the pack's existing enderdragon texture, copied
+        under textures/item/model/ because anything off the item atlas renders as the
+        magenta checkerboard and because that path is not an inventory icon.
+        """
+        root = RESOURCE_PACK / "src" / "assets" / "mgx"
+        vanilla = (
+            RESOURCE_PACK / "src" / "assets" / "minecraft" / "textures"
+            / "entity" / "enderdragon" / "dragon.png"
+        )
+        self.assertEqual(
+            vanilla.read_bytes(),
+            (root / "textures" / "item" / "model" / "mini_dragon.png").read_bytes(),
+        )
+        for part in ("mini_dragon_up", "mini_dragon_mid", "mini_dragon_down"):
+            with self.subTest(part=part):
+                definition = json.loads((root / "items" / f"{part}.json").read_text())
+                self.assertEqual(f"mgx:item/{part}", definition["model"]["model"])
+                wrapper = json.loads((root / "models" / "item" / f"{part}.json").read_text())
+                self.assertEqual(f"mgx:custom/{part}", wrapper["parent"])
+                self.assertEqual("mgx:item/model/mini_dragon", wrapper["textures"]["0"])
+                model = json.loads((root / "models" / "custom" / f"{part}.json").read_text())
+                self.assertGreater(len(model["elements"]), 40, "the dragon lost its geometry")
+                for element in model["elements"]:
+                    for axis in range(3):
+                        self.assertLessEqual(element["from"][axis], element["to"][axis])
+                        for value in (element["from"][axis], element["to"][axis]):
+                            # Minecraft rejects an item model outside this range outright.
+                            self.assertGreaterEqual(value, -16)
+                            self.assertLessEqual(value, 32)
+                    if "rotation" in element:
+                        # Only these five angles exist in the item model format.
+                        self.assertIn(element["rotation"]["angle"],
+                                      (-45, -22.5, 0, 22.5, 45))
+                        self.assertIn(element["rotation"]["axis"], ("x", "y", "z"))
+                    for face in element["faces"].values():
+                        self.assertEqual("#0", face["texture"])
+                        for value in face["uv"]:
+                            self.assertGreaterEqual(value, 0)
+                            self.assertLessEqual(value, 16)
+
     def test_dragon_icons_use_generated_artwork_workflow(self):
         self.assertFalse(
             (RESOURCE_PACK / "build_dragon_cosmetic_icons.py").exists(),
