@@ -17,6 +17,7 @@ import org.bukkit.entity.Player;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
@@ -243,6 +244,25 @@ final class Screens {
                                 .append(MenuText.buttonLabel(" " + label, NamedTextColor.WHITE)))
                 .width(150)
                 .action(callback(run));
+        return tooltip == null || tooltip.isBlank()
+                ? builder.build()
+                : builder.tooltip(MenuText.actionHint(tooltip)).build();
+    }
+
+    /**
+     * A button that wears somebody's face.
+     *
+     * <p>A list of usernames is a list of strings; the same list with heads on it is
+     * a list of people. Only for a button that actually names a player.
+     */
+    static ActionButton playerButton(
+            UUID playerId, String name, String tooltip, Consumer<Player> run
+    ) {
+        ActionButton.Builder builder = ActionButton.builder(Component.empty()
+                        .append(MenuText.head(playerId))
+                        .append(MenuText.buttonLabel(" " + name, NamedTextColor.WHITE)))
+                .width(150)
+                .action(callback((response, audience) -> run.accept(audience)));
         return tooltip == null || tooltip.isBlank()
                 ? builder.build()
                 : builder.tooltip(MenuText.actionHint(tooltip)).build();

@@ -5,6 +5,7 @@ import io.papermc.paper.event.player.AsyncChatEvent;
 import io.papermc.paper.registry.data.dialog.ActionButton;
 import io.papermc.paper.registry.data.dialog.body.DialogBody;
 import io.papermc.paper.registry.data.dialog.input.DialogInput;
+import net.kyori.adventure.bossbar.BossBar;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextColor;
@@ -146,6 +147,8 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     private static final int RESULT_HALF = 18;
     /** Blocks put back per tick, so a big revert never lands as one stall. */
     private static final int RESTORE_BLOCKS_PER_TICK = 400;
+    /** Wide enough that an icon, a heading and its detail stay on one line. */
+    private static final int RULE_WIDTH = 560;
     private static final String MONEY_INPUT = "money";
     /** No fight may be configured to outlast this, whatever the config says. */
     static final int MAXIMUM_DURATION_MINUTES = 15;
@@ -250,6 +253,8 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         BukkitTask timeoutTask;
         BukkitTask returnTask;
         BukkitTask sweepTask;
+        BukkitTask clockTask;
+        BossBar clock;
 
         Fight(
                 UUID id,
@@ -547,7 +552,8 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private String hubBody() {
-        return "Fight anywhere. KEEP INVENTORY is always on.";
+        return "Fight anywhere. KEEP INVENTORY is always on, so you never drop a thing.\n"
+                + "The winner takes both stakes and a trophy head.";
     }
 
     /**
@@ -558,33 +564,51 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
      * should have to lose a wager to find out how the thing works.
      */
     private void openRules(Player player) {
-        List<String> rules = List.of(
-                "Both fighters stake the same money. Items and cosmetics are yours alone to add.",
-                "KEEP INVENTORY is always on. You never drop what you are carrying, and you keep your levels.",
-                "You are moved to untouched terrain nobody has visited, and put back on the exact block you left.",
-                "Only your opponent can hurt you, and you can only hurt them.",
-                "Dig and build freely. Nothing you break drops, every block you place comes "
-                        + "back to you, and the arena is put back exactly as it was.",
-                "No buckets, boats, containers, pearls or teleports. You cannot leave the ring.",
-                "Nothing else is alive in there. Mobs are cleared and cannot spawn.",
-                "The winner takes both stakes and a trophy head. A draw hands everything back.",
-                "The fight lasts at most " + durationMinutes() + " minutes. Running out the clock is a draw.",
-                "Type /pvp to give up. Your opponent takes everything staked.",
-                "Logging out counts as giving up.",
-                "Spectators watch from a fixed stand. They cannot chat, move or interfere."
+        List<String[]> rules = List.of(
+                new String[] {"item/gold_ingot", "Stakes",
+                        "Both fighters put up the same cash."},
+                new String[] {"item/shulker_shell", "Extras",
+                        "Items and cosmetics are yours alone to add."},
+                new String[] {"item/totem_of_undying", "Keep Inventory",
+                        "You drop nothing. Your levels stay."},
+                new String[] {"item/map", "The Ring",
+                        "Untouched terrain. You return to the block you left."},
+                new String[] {"item/iron_pickaxe", "Digging",
+                        "Break and build freely. Nothing drops; it is all put back."},
+                new String[] {"item/diamond_sword", "Damage",
+                        "Only your opponent can hurt you."},
+                new String[] {"item/ender_pearl", "No Exit",
+                        "Pearls, teleports, buckets and boats are refused."},
+                new String[] {"item/rotten_flesh", "No Mobs",
+                        "Nothing else is alive in there."},
+                new String[] {"item/clock_00", "The Clock",
+                        durationMinutes() + " minutes, then it is a draw."},
+                new String[] {"item/golden_apple", "Winning",
+                        "Both stakes, plus a trophy head."},
+                new String[] {"item/barrier", "Giving Up",
+                        "/pvp, or logging out. They take everything."},
+                new String[] {"item/spyglass", "Spectators",
+                        "Frozen, silent, and unable to interfere."}
         );
         if (!clientSupport.supportsDialogs(player)) {
-            if (!forms.menu(player, "How PvP Works", String.join("\n\n", rules),
+            StringBuilder text = new StringBuilder();
+            for (String[] rule : rules) {
+                text.append(rule[1]).append(" — ").append(rule[2]).append("\n\n");
+            }
+            if (!forms.menu(player, "How PvP Works", text.toString().strip(),
                     List.of(), this::openHub)) {
-                for (String rule : rules) {
-                    player.sendMessage(line("• " + rule));
+                for (String[] rule : rules) {
+                    player.sendMessage(prefix().append(Component
+                            .text(rule[1] + " ", ORANGE, TextDecoration.BOLD))
+                            .append(Component.text(rule[2], NamedTextColor.WHITE)));
                 }
             }
             return;
         }
         List<DialogBody> body = new ArrayList<>();
-        for (String rule : rules) {
-            body.add(DialogBody.plainMessage(MenuText.body("• " + rule), 400));
+        for (String[] rule : rules) {
+            body.add(DialogBody.plainMessage(
+                    MenuText.rule(rule[0], rule[1], rule[2]), RULE_WIDTH));
         }
         Screens.show(player, "How PvP Works", body, List.of(), 1, this::openHub);
     }
@@ -604,8 +628,8 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         }
         List<ActionButton> buttons = new ArrayList<>();
         for (Player target : targets) {
-            buttons.add(Screens.button(null, target.getName(),
-                    "Challenge this player.", viewer -> {
+            buttons.add(Screens.playerButton(target.getUniqueId(), target.getName(),
+                    "Set a wager and challenge them.", viewer -> {
                         Player current = Bukkit.getPlayer(target.getUniqueId());
                         if (current == null) {
                             error(viewer, "They went offline.");
@@ -845,7 +869,8 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         }
         List<ActionButton> buttons = new ArrayList<>();
         for (Invitation invitation : incoming) {
-            buttons.add(Screens.button(null, name(invitation.challenger()),
+            buttons.add(Screens.playerButton(invitation.challenger(),
+                    name(invitation.challenger()),
                     stakeSummary(invitation.moneyEach(), invitation.challengerItems().size(),
                             invitation.challengerCosmetics().size()),
                     viewer -> openInvitation(viewer, invitation)));
@@ -1222,6 +1247,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         if (remaining <= 0) {
             fight.phase = Phase.FIGHTING;
             fight.fightingSince = System.currentTimeMillis();
+            startClock(fight);
             for (UUID playerId : List.of(fight.first, fight.second)) {
                 Player player = Bukkit.getPlayer(playerId);
                 if (player != null) {
@@ -1258,6 +1284,62 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         fight.countdownTask = plugin.getServer().getScheduler().runTaskLater(
                 plugin, () -> tickCountdown(fight, remaining - 1), 20L
         );
+    }
+
+    /**
+     * A visible clock for the whole fight.
+     *
+     * <p>A duel that runs out becomes a draw and hands both stakes back, which is a
+     * result worth playing towards — and impossible to play towards without knowing
+     * how long is left. The bar is shown to the fighters and to anybody watching.
+     */
+    private void startClock(Fight fight) {
+        long endsAt = fight.fightingSince + durationMinutes() * 60_000L;
+        fight.clock = BossBar.bossBar(Component.empty(), 1f,
+                BossBar.Color.RED, BossBar.Overlay.NOTCHED_10);
+        tickClock(fight, endsAt);
+    }
+
+    private void tickClock(Fight fight, long endsAt) {
+        if (fight.phase != Phase.FIGHTING || fight.clock == null) {
+            return;
+        }
+        long total = Math.max(1L, durationMinutes() * 60_000L);
+        long left = Math.max(0L, endsAt - System.currentTimeMillis());
+        fight.clock.name(Component.text(fight.label() + "  ", NamedTextColor.WHITE)
+                .append(Component.text(clock(left / 1000L), left <= 30_000L
+                        ? NamedTextColor.RED : ORANGE, TextDecoration.BOLD))
+                .append(Component.text(" left", NamedTextColor.GRAY)));
+        fight.clock.progress(Math.max(0f, Math.min(1f, (float) left / total)));
+        fight.clock.color(left <= 60_000L ? BossBar.Color.RED : BossBar.Color.YELLOW);
+        for (UUID viewerId : clockAudience(fight)) {
+            Player viewer = Bukkit.getPlayer(viewerId);
+            if (viewer != null) {
+                viewer.showBossBar(fight.clock);
+            }
+        }
+        fight.clockTask = plugin.getServer().getScheduler().runTaskLater(
+                plugin, () -> tickClock(fight, endsAt), 20L);
+    }
+
+    private List<UUID> clockAudience(Fight fight) {
+        List<UUID> audience = new ArrayList<>(List.of(fight.first, fight.second));
+        audience.addAll(fight.spectators);
+        return audience;
+    }
+
+    private void stopClock(Fight fight) {
+        cancel(fight.clockTask);
+        if (fight.clock == null) {
+            return;
+        }
+        for (UUID viewerId : clockAudience(fight)) {
+            Player viewer = Bukkit.getPlayer(viewerId);
+            if (viewer != null) {
+                viewer.hideBossBar(fight.clock);
+            }
+        }
+        fight.clock = null;
     }
 
     private void openFightStatus(Player player, Fight fight) {
@@ -1324,6 +1406,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         fight.phase = Phase.AFTERMATH;
         cancel(fight.countdownTask);
         cancel(fight.timeoutTask);
+        stopClock(fight);
         Player first = Bukkit.getPlayer(fight.first);
         Player second = Bukkit.getPlayer(fight.second);
         // CombatLog is allowed to protect ordinary fights, but it must not cancel the
@@ -1593,8 +1676,10 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         if (!clientSupport.supportsDialogs(player)) {
             sendResultLines(player, result);
             List<BedrockForms.Button> buttons = List.of(
-                    new BedrockForms.Button("Money & Items",
-                            () -> openResultChest(player)));
+                    new BedrockForms.Button("Money & Items", () -> openResultChest(player)),
+                    new BedrockForms.Button("Rematch", () -> rematch(player,
+                            result.opponentId(), Math.abs(result.moneyDelta())))
+            );
             if (!forms.menu(player, title, result.reason(), buttons, null)) {
                 openResultChest(player);
             }
@@ -1602,27 +1687,63 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         }
         List<DialogBody> body = new ArrayList<>();
         body.add(DialogBody.plainMessage(MenuText.head(result.opponentId()), 400));
-        body.add(DialogBody.plainMessage(MenuText.body(result.reason()), 400));
+        body.add(DialogBody.plainMessage(Component.empty()
+                .append(Component.text(headline.toUpperCase(Locale.ROOT),
+                        result.draw() ? NamedTextColor.YELLOW
+                                : result.won() ? ORANGE : NamedTextColor.RED,
+                        TextDecoration.BOLD))
+                .decoration(TextDecoration.ITALIC, false), 400));
+        body.add(DialogBody.plainMessage(MenuText.muted(result.reason()), 400));
         body.add(DialogBody.plainMessage(Component.empty(), 400));
         body.add(DialogBody.plainMessage(MenuText.stat("Money", "item/gold_ingot",
                 signedMoney(result.moneyDelta())), 400));
-        body.add(DialogBody.plainMessage(MenuText.stat("Items won", "item/shulker_shell",
-                result.gained().size() + " stack(s)"), 400));
-        body.add(DialogBody.plainMessage(MenuText.stat("Items lost", "item/rotten_flesh",
-                result.lost().size() + " stack(s)"), 400));
+        // A line reading "lost: 0 stack(s)" is a line nobody needed to read.
+        if (!result.gained().isEmpty()) {
+            body.add(DialogBody.plainMessage(MenuText.stat("Won", "item/shulker_shell",
+                    result.gained().size() + " stack(s)"), 400));
+        }
+        if (!result.lost().isEmpty()) {
+            body.add(DialogBody.plainMessage(MenuText.stat("Lost", "item/rotten_flesh",
+                    result.lost().size() + " stack(s)"), 400));
+        }
         body.add(DialogBody.plainMessage(MenuText.stat("Damage dealt", "item/diamond_sword",
-                damage(result.damageDealt())), 400));
+                damage(result.damageDealt()) + "  (" + result.hitsLanded() + " hits)"), 400));
         body.add(DialogBody.plainMessage(MenuText.stat("Damage taken", "item/diamond_chestplate",
                 damage(result.damageTaken())), 400));
-        body.add(DialogBody.plainMessage(MenuText.stat("Hits landed", "item/arrow",
-                String.valueOf(result.hitsLanded())), 400));
         body.add(DialogBody.plainMessage(MenuText.stat("Fight length", "item/clock_00",
                 clock(result.seconds())), 400));
+        long again = Math.abs(result.moneyDelta());
         List<ActionButton> buttons = List.of(
                 Screens.button("item/gold_ingot", "Money & Items",
-                        "See exactly what moved.", this::openResultChest)
+                        "See exactly what moved.", this::openResultChest),
+                Screens.button("item/wooden_sword", "Rematch",
+                        "Challenge them again for the same stake.",
+                        viewer -> rematch(viewer, result.opponentId(), again))
         );
-        Screens.show(player, title, body, buttons, 1, null);
+        Screens.show(player, title, body, buttons, 2, null);
+    }
+
+    /**
+     * The question after a duel is "again?", not "how much?".
+     *
+     * <p>The cash is carried over when the loser can still cover it, and quietly
+     * dropped to nothing when they cannot, so a rematch offer is never a screen that
+     * refuses itself.
+     */
+    private void rematch(Player player, UUID opponentId, long money) {
+        Player opponent = Bukkit.getPlayer(opponentId);
+        if (opponent == null) {
+            error(player, "They are not online any more.");
+            return;
+        }
+        if (!canChallenge(player, opponent, true)
+                || !acceptingChallenges(player, opponent, true)) {
+            return;
+        }
+        DuelDraft draft = new DuelDraft(opponentId);
+        draft.money = economy.balance(player.getUniqueId()) >= money ? money : 0L;
+        setupDrafts.put(player.getUniqueId(), draft);
+        openSetupScreen(player, opponent, draft);
     }
 
     /** The same numbers as chat lines, for a client that cannot draw the screen. */
@@ -1816,7 +1937,8 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 .toList();
         if (!clientSupport.supportsDialogs(player)) {
             List<BedrockForms.Button> buttons = live.stream()
-                    .map(fight -> new BedrockForms.Button(fight.label(),
+                    .map(fight -> new BedrockForms.Button(
+                            fight.label() + " — " + liveSummary(fight),
                             () -> joinSpectator(player, fight)))
                     .toList();
             if (!forms.menu(player, "Live Fights",
@@ -1828,13 +1950,23 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         }
         List<ActionButton> buttons = new ArrayList<>();
         for (Fight fight : live) {
-            buttons.add(Screens.button(null, fight.label(), "Watch",
+            buttons.add(Screens.button(null, fight.label(), liveSummary(fight),
                     viewer -> joinSpectator(viewer, fight)));
         }
         Screens.show(player, "Live Fights", Screens.body(live.isEmpty()
                         ? "No fight is live right now."
                         : "Watch from an anchored stand. No items, interaction, free roam, or chat."),
                 buttons, 2, this::openHub);
+    }
+
+    /** What is actually at stake, and how long they have been at it. */
+    private String liveSummary(Fight fight) {
+        if (fight.phase == Phase.COUNTDOWN) {
+            return "Starting now  •  " + EconomyFormat.dollars(fight.moneyEach) + " each";
+        }
+        long seconds = fight.fightingSince <= 0L ? 0L
+                : (System.currentTimeMillis() - fight.fightingSince) / 1000L;
+        return clock(seconds) + " in  •  " + EconomyFormat.dollars(fight.moneyEach) + " each";
     }
 
     private void joinSpectator(Player player, Fight fight) {
@@ -1916,6 +2048,9 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             if (fighter != null) {
                 fighter.showPlayer(plugin, player);
             }
+        }
+        if (spectator.fight().clock != null) {
+            player.hideBossBar(spectator.fight().clock);
         }
         restoreSpectatorInventory(player, spectator.player().recovery());
         restorePlayer(player, spectator.player());
