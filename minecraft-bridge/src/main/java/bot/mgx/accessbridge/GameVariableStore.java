@@ -582,6 +582,38 @@ final class GameVariableStore {
         integer("dragon-event.reward-beacon-spacing", "Dragon Crate beacon spacing", "Dragon Presentation",
                 "Vertical spacing between particle points in the Dragon Crate beacon.", 2, 1, 12,
                 "blocks", false);
+        integer("dragon-event.reward-beacon-ring-count", "Dragon Crate beacon rings", "Dragon Presentation",
+                "Animated rings circling the Dragon Crate while it is available.", 3, 0, 12,
+                "rings", false);
+        integer("dragon-event.reward-beacon-ring-points", "Dragon Crate ring detail", "Dragon Presentation",
+                "Particle points drawn around each Dragon Crate beacon ring.", 24, 4, 96,
+                "points", false);
+        decimal("dragon-event.reward-beacon-ring-radius", "Dragon Crate ring radius", "Dragon Presentation",
+                "Radius of the innermost animated ring around the Dragon Crate.", 2.8, 0.5, 12,
+                "blocks");
+        decimal("dragon-event.reward-beacon-ring-spacing", "Dragon Crate ring spacing", "Dragon Presentation",
+                "Additional radius between each animated Dragon Crate ring.", 1.15, 0, 6,
+                "blocks");
+        integer("dragon-event.reward-crate-arrival-particles", "Dragon Crate arrival particles", "Dragon Presentation",
+                "Large particle burst emitted when the Dragon Crate becomes usable.", 360, 0, 10000,
+                "particles", false);
+        bool("dragon-event.reward-crate-arrival-lightning", "Dragon Crate arrival lightning", "Dragon Presentation",
+                "Show harmless lightning at the Dragon Crate when it becomes usable.", true);
+        text("dragon-event.reward-crate-title", "Dragon Crate arrival title", "Dragon Presentation",
+                "Large title shown to event participants when the Dragon Crate becomes usable.",
+                "AMETHYST DRAGON CRATE", 100);
+        text("dragon-event.reward-crate-subtitle", "Dragon Crate arrival subtitle", "Dragon Presentation",
+                "Subtitle shown to participants; <cost> becomes the live Key cost.",
+                "Follow the violet beacon • <cost> Keys per opening", 140);
+        integer("dragon-event.reward-crate-title-fade-in-ticks", "Dragon Crate title fade in", "Dragon Presentation",
+                "Fade-in time for the Dragon Crate arrival title.", 5, 0, 100,
+                "ticks", false);
+        integer("dragon-event.reward-crate-title-stay-ticks", "Dragon Crate title duration", "Dragon Presentation",
+                "Time the Dragon Crate arrival title remains on screen.", 60, 1, 400,
+                "ticks", false);
+        integer("dragon-event.reward-crate-title-fade-out-ticks", "Dragon Crate title fade out", "Dragon Presentation",
+                "Fade-out time for the Dragon Crate arrival title.", 15, 0, 100,
+                "ticks", false);
         integer("dragon-event.reward-crate-x", "Reward Crate X", "Dragon Event",
                 "Arena X coordinate used for the Dragon Crate, placed on the surface.", 8, -200, 200,
                 "blocks", false);
