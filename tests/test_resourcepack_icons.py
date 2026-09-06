@@ -46,6 +46,12 @@ IMPORTED_MOD_HASHES = {
 # sprite it shipped with rather than being upscaled into a blurrier version of itself.
 GENERATED_ICON = (72, 4)
 LEGACY_GRID_ICONS = {"shard": (32, 2)}
+# The masked placeholder is a flat black silhouette on purpose: it is what a crate shows
+# in place of a secret nobody owns yet, and giving it form would give the secret away.
+DELIBERATELY_FLAT_ICONS = {"secret_silhouette"}
+# Comfortably under the current minimum (0.55) so ordinary artwork variation passes,
+# and far above the 0.13-0.27 the flat batch was shipping at.
+MINIMUM_VALUE_SPREAD = 0.45
 POTION_REFERENCE = RESOURCE_PACK / "icon-sources" / "potion_of_healing_reference.png"
 EVENT_SONG_SHA256 = "768d3d503ac3e8ba39f6db1213a8296abcde9260944212fd5fe00d0f81ecc448"
 DRAGON_SONG_SHA256 = "5cf005148259f8ed415215077245e3fccaa4ca351174034109bafe4a447ade2d"
@@ -191,6 +197,35 @@ class ResourcePackIconTests(unittest.TestCase):
                 digests.add(hashlib.sha256(path.read_bytes()).digest())
 
         self.assertEqual(len(icons), len(digests), "custom icons must not be duplicate recolour assets")
+
+    def test_generated_icons_have_enough_light_to_read_as_solid(self):
+        """A sprite with no light-to-dark range looks flat and lifeless in the slot.
+
+        Several generated batches arrived tonally compressed — one violet at one
+        brightness, no shadow, no highlight. The importer's shading pass widens each
+        sprite's own value range around its own midpoint and shades its silhouette
+        edge, which is the lighting the art direction already specifies. This is the
+        floor that keeps a future flat batch from shipping unnoticed.
+        """
+        flat = []
+        for path in self.icon_paths():
+            if path.stem in LINKED_ICON_SIZES or path.stem in NATIVE_POTION_ICONS:
+                continue
+            if path.stem in DELIBERATELY_FLAT_ICONS:
+                continue
+            with Image.open(path) as image:
+                image = image.convert("RGBA")
+                if image.size != (GENERATED_ICON[0],) * 2:
+                    continue
+                values = sorted(
+                    max(pixel[:3]) / 255
+                    for pixel in image.getdata()
+                    if pixel[3] == 255
+                )
+            spread = values[int(len(values) * 0.90)] - values[int(len(values) * 0.10)]
+            if spread < MINIMUM_VALUE_SPREAD:
+                flat.append(f"{path.stem} ({spread:.2f})")
+        self.assertEqual([], flat, "these icons have no shading: " + ", ".join(flat))
 
     def test_dragon_icons_use_generated_artwork_workflow(self):
         self.assertFalse(
