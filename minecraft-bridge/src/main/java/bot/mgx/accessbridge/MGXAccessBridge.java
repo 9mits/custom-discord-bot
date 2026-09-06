@@ -524,7 +524,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             pvpDuels = new PvpDuelService(
                     this, economyStore, playerSettings, clientSupport, bedrockForms,
                     cosmeticStore, cosmeticItems,
-                    getDataFolder().toPath().resolve("pvp-duel-recovery.json")
+                    getDataFolder().toPath().resolve("pvp-duel-recovery.json"),
+                    getDataFolder().toPath().resolve("pvp-arena-restore.json")
             );
         } catch (java.io.IOException exception) {
             getLogger().severe("MGXAccessBridge could not open PvP duel recovery: "

@@ -128,7 +128,7 @@ pvp-duels:
   # How long the fighters stay in the ring after it is decided, before the
   # return home. 0 sends them back immediately.
   return-seconds: 10
-  arena-diameter: 96
+  arena-diameter: 160
   minimum-radius: 2000
   maximum-radius: 90000
   location-attempts: 40

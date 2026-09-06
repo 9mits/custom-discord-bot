@@ -204,6 +204,76 @@ final class PvpDuelSafetyTest {
         assertTrue(respawn.contains("held.arena.first()"));
     }
 
+    /**
+     * Digging is allowed, so the world has to come back. The recorded set is only
+     * complete because every other way a block can change is refused outright.
+     */
+    @Test
+    void everyBlockChangeInsideAnArenaIsEitherRecordedOrRefused() throws Exception {
+        String source = source();
+        String breaking = source.substring(
+                source.indexOf("public void onBreak(BlockBreakEvent event)"),
+                source.indexOf("public void onPlace(BlockPlaceEvent event)"));
+        assertTrue(breaking.contains("remember(fight, event.getBlock())"));
+        // Fresh terrain nobody has mined would otherwise be the cheapest ore run.
+        assertTrue(breaking.contains("event.setDropItems(false)"));
+        assertTrue(breaking.contains("event.setExpToDrop(0)"));
+
+        String placing = source.substring(
+                source.indexOf("public void onPlace(BlockPlaceEvent event)"),
+                source.indexOf("public void onEntityChangeBlock"));
+        assertTrue(placing.contains("BlockMultiPlaceEvent multi"));
+        assertTrue(placing.contains("instanceof Container"));
+
+        for (String refused : new String[] {
+                "public void onFlow(BlockFromToEvent event)",
+                "public void onForm(BlockFormEvent event)",
+                "public void onSpread(BlockSpreadEvent event)",
+                "public void onFade(BlockFadeEvent event)",
+                "public void onLeavesDecay(LeavesDecayEvent event)",
+                "public void onPhysics(BlockPhysicsEvent event)"
+        }) {
+            assertTrue(source.contains(refused), refused);
+        }
+        // A falling block leaves one position and arrives at another; both count.
+        assertTrue(source.contains("public void onEntityChangeBlock(EntityChangeBlockEvent event)"));
+        // Physics is the hottest of these by far and must cost nothing when idle.
+        String physics = source.substring(
+                source.indexOf("public void onPhysics(BlockPhysicsEvent event)"),
+                source.indexOf("private boolean insideArena"));
+        assertTrue(physics.indexOf("fights.isEmpty()") < physics.indexOf("fightAt("));
+    }
+
+    @Test
+    void theArenaIsPutBackAndWhatWasPlacedIsPaidBack() throws Exception {
+        String source = source();
+        String finish = source.substring(
+                source.indexOf("private void finishReturn"),
+                source.indexOf("private void recordResults"));
+        assertTrue(finish.contains("returnPlacedBlocks(playerId)"));
+        assertTrue(finish.contains("sweepArena(fight)"));
+        assertTrue(finish.contains("restoreArena(fight.id)"));
+        assertTrue(finish.indexOf("returnPlacedBlocks") < finish.indexOf("restoreAtEnd"));
+        assertTrue(finish.indexOf("restoreArena") > finish.indexOf("restoreAtEnd"));
+        // Physics on would start the same landslide the revert is undoing.
+        assertTrue(source.contains("block.setBlockData(Bukkit.createBlockData("
+                + "snapshot.blockData()), false)"));
+        assertTrue(source.contains("RESTORE_BLOCKS_PER_TICK"));
+    }
+
+    @Test
+    void nothingAliveSharesTheRingWithTheFighters() throws Exception {
+        String source = source();
+        assertTrue(source.contains("insideAnyArena(event.getLocation())) event.setCancelled(true)"));
+        String sweep = source.substring(
+                source.indexOf("private void sweepArena(Fight fight)"),
+                source.indexOf("private boolean insideArena"));
+        assertTrue(sweep.contains("entity instanceof org.bukkit.entity.Item"));
+        assertTrue(sweep.contains("entity instanceof Player"));
+        assertTrue(sweep.contains("tameable.getOwner() != null"));
+        assertTrue(source.contains("fight.sweepTask = plugin.getServer().getScheduler()"));
+    }
+
     @Test
     void challengesRespectPrivacyAndDoNotForceOpenARecipientsMenu() throws Exception {
         String source = source();
