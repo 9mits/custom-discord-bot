@@ -4,6 +4,7 @@ import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeInstance;
+import org.bukkit.boss.BossBar;
 import org.bukkit.entity.EnderDragon;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
@@ -26,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.logging.Level;
 
 /**
  * Two real, shrunken Ender Dragons circling the wearer of the Amethyst Dragon Ascendant.
@@ -53,6 +55,8 @@ final class MiniDragonEscort implements Listener {
     private final Map<UUID, List<UUID>> escorts = new HashMap<>();
     /** Who is currently being kept from seeing one owner's escort, so it is only diffed. */
     private final Map<UUID, Set<UUID>> hiddenFrom = new HashMap<>();
+    /** Owners whose escort has already failed to spawn, so the log is not repeated. */
+    private final Set<UUID> spawnFailures = new HashSet<>();
 
     MiniDragonEscort(MGXAccessBridge plugin) {
         this.plugin = plugin;
@@ -169,6 +173,7 @@ final class MiniDragonEscort implements Listener {
     /** Removes both escorts. Safe to call for a player that never had one. */
     void release(UUID ownerId) {
         hiddenFrom.remove(ownerId);
+        spawnFailures.remove(ownerId);
         List<UUID> ids = escorts.remove(ownerId);
         if (ids == null) {
             return;
@@ -281,18 +286,36 @@ final class MiniDragonEscort implements Listener {
                         dragon.setRemoveWhenFarAway(true);
                         // The vanilla dragon bar belongs to the End fight. An aura that
                         // put one on every nearby screen would read as a live boss.
-                        dragon.getBossBar().setVisible(false);
-                        dragon.getBossBar().removeAll();
+                        //
+                        // Outside the End there is no dragon fight to own that bar, and
+                        // getBossBar() is null rather than empty. Dereferencing it threw
+                        // out of the spawn consumer, out of the cosmetic tick, and took
+                        // every remaining effect on the server with it — the wearer heard
+                        // the music and saw nothing, because the music is synced one line
+                        // earlier than the drawing.
+                        BossBar bar = dragon.getBossBar();
+                        if (bar != null) {
+                            bar.setVisible(false);
+                            bar.removeAll();
+                        }
                         AttributeInstance scale = dragon.getAttribute(Attribute.SCALE);
                         if (scale != null) {
                             scale.setBaseValue(SCALE);
                         }
                     });
-        } catch (IllegalArgumentException | IllegalStateException exception) {
-            plugin.getLogger().warning(
-                    "Could not spawn a mini Dragon escort for " + owner.getName()
-                            + ": " + exception.getMessage()
-            );
+        } catch (RuntimeException exception) {
+            // An escort is decoration. Whatever a future server build does to entity
+            // spawning, the aura it belongs to has to keep drawing, so this degrades to
+            // no escort rather than propagating. Reported once per owner: the caller
+            // retries every tick, and a stack trace ten times a second is its own outage.
+            if (spawnFailures.add(owner.getUniqueId())) {
+                plugin.getLogger().log(
+                        Level.WARNING,
+                        "Could not spawn a mini Dragon escort for " + owner.getName()
+                                + "; the aura continues without one.",
+                        exception
+                );
+            }
             return null;
         }
     }

@@ -1168,9 +1168,13 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
 
     /** Exercises the same broadcast and VFX path as a real win, without minting a reward. */
     void testReveal(Player player, CrateCatalog.RevealTier tier) {
-        CrateCatalog.Reward reward = CrateCatalog.revealExample(tier).orElseThrow(
+        testReveal(player, CrateCatalog.revealExample(tier).orElseThrow(
                 () -> new IllegalArgumentException("That crate reveal tier is not available.")
-        );
+        ));
+    }
+
+    /** The same, for a reveal that has to be named because its tier has two members. */
+    void testReveal(Player player, CrateCatalog.Reward reward) {
         announceTieredWin(player, reward, selectedKinds.getOrDefault(
                 player.getUniqueId(), CrateKind.DEFAULT
         ));
