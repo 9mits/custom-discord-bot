@@ -31,6 +31,7 @@ final class PlayerStatsService {
     private final Path statsDirectory;
     private final EconomyStore money;
     private final AmethystProgressStore amethystProgress;
+    private final PvpRecordStore duels;
     private final Map<UUID, Cached> cache = new HashMap<>();
     private final Map<UUID, String> rememberedNames = new HashMap<>();
 
@@ -41,12 +42,14 @@ final class PlayerStatsService {
             MGXAccessBridge plugin,
             Path statsDirectory,
             EconomyStore money,
-            AmethystProgressStore amethystProgress
+            AmethystProgressStore amethystProgress,
+            PvpRecordStore duels
     ) {
         this.plugin = plugin;
         this.statsDirectory = statsDirectory;
         this.money = money;
         this.amethystProgress = amethystProgress;
+        this.duels = duels;
     }
 
     /**
@@ -145,7 +148,7 @@ final class PlayerStatsService {
                     snapshot.blocksMined(),
                     snapshot.walkedCm(),
                     money.balance(uuid)
-            ));
+            ).withDuelKills(duels.of(uuid).kills()));
         } catch (IOException | RuntimeException exception) {
             plugin.getLogger().warning(
                     "Could not read statistics for " + uuid + ": " + exception.getMessage()

@@ -172,6 +172,15 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     }
     private enum Prompt { MONEY }
 
+    /**
+     * How a fight finished, as distinct from who won it.
+     *
+     * <p>The Kills board counts {@code KILL} only. Somebody who surrenders is beaten
+     * but not killed, and a board that cannot tell the difference rewards pressing a
+     * button over winning a fight.
+     */
+    private enum Ending { KILL, SURRENDER, UNDECIDED }
+
     private record Invitation(
             UUID id,
             UUID challenger,
@@ -325,6 +334,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     private WardrobeService wardrobe;
     private final PvpDuelStore store;
     private final ArenaRestoreStore arenaRestore;
+    private final PvpRecordStore duelRecords;
     /** What each fighter put down, so reverting the arena does not eat their blocks. */
     private final Map<UUID, Map<Material, Integer>> placed = new HashMap<>();
     private final Map<UUID, Invitation> invitations = new LinkedHashMap<>();
@@ -351,7 +361,8 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             CosmeticStore cosmetics,
             CosmeticItems cosmeticItems,
             java.nio.file.Path recoveryFile,
-            java.nio.file.Path arenaRestoreFile
+            java.nio.file.Path arenaRestoreFile,
+            PvpRecordStore duelRecords
     ) throws IOException {
         this.plugin = plugin;
         this.economy = economy;
@@ -362,6 +373,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         this.cosmeticItems = cosmeticItems;
         this.store = new PvpDuelStore(recoveryFile);
         this.arenaRestore = new ArenaRestoreStore(arenaRestoreFile);
+        this.duelRecords = duelRecords;
         this.victimKey = new org.bukkit.NamespacedKey(plugin, "trophy_victim");
         // Money can be repaired while its owner is offline. Items and locations wait
         // for join, but raising to the pre-duel value is idempotent and never removes
@@ -526,6 +538,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     private void openHub(Player player) {
         expireInvitations();
         int incoming = incoming(player.getUniqueId()).size();
+        String record = recordLine(player.getUniqueId());
         if (!clientSupport.supportsDialogs(player)) {
             List<BedrockForms.Button> buttons = List.of(
                     new BedrockForms.Button("Start a Fight", () -> openTargets(player)),
@@ -533,7 +546,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                     new BedrockForms.Button("Watch Live Fights (" + fights.size() + ")", () -> openLive(player)),
                     new BedrockForms.Button("How It Works", () -> openRules(player))
             );
-            if (!forms.menu(player, "PvP", hubBody(), buttons)) {
+            if (!forms.menu(player, "PvP", hubBody() + "\n" + record, buttons)) {
                 openChestHub(player);
             }
             return;
@@ -548,7 +561,32 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 Screens.button("item/book", "How It Works",
                         "The rules, in full, before you stake anything.", this::openRules)
         );
-        Screens.show(player, "PvP", Screens.body(hubBody()), buttons, 1, null);
+        Screens.show(player, "PvP", List.of(
+                DialogBody.plainMessage(MenuText.body(hubBody()), 400),
+                DialogBody.plainMessage(Component.empty(), 400),
+                DialogBody.plainMessage(MenuText.muted(record), 400)
+        ), buttons, 1, null);
+    }
+
+    /**
+     * Your standing, on the screen you open to fight.
+     *
+     * <p>The Kills board ranks this number, so it should not take a trip to a
+     * leaderboard to find out what yours is.
+     */
+    private String recordLine(UUID playerId) {
+        PvpRecordStore.Record record = duelRecords.of(playerId);
+        if (record.isEmpty()) {
+            return "You have not fought yet.";
+        }
+        String line = record.wins() + "W  " + record.losses() + "L"
+                + (record.draws() > 0 ? "  " + record.draws() + "D" : "")
+                + "   •   " + record.kills() + " kills"
+                + "   •   " + Math.round(record.winRate() * 100d) + "% won";
+        if (record.streak() >= 2L) {
+            line += "   •   " + record.streak() + " in a row";
+        }
+        return line;
     }
 
     private String hubBody() {
@@ -1377,11 +1415,16 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             error(player, "You are not in a fight.");
             return;
         }
-        endFight(fight, fight.opponent(player.getUniqueId()), player.getName() + " gave up");
+        endFight(fight, fight.opponent(player.getUniqueId()),
+                player.getName() + " gave up", Ending.SURRENDER);
     }
 
     private void endFight(Fight fight, UUID winnerId, String result) {
-        endFight(fight, winnerId, result, false);
+        endFight(fight, winnerId, result, Ending.UNDECIDED);
+    }
+
+    private void endFight(Fight fight, UUID winnerId, String result, Ending ending) {
+        endFight(fight, winnerId, result, false, ending);
     }
 
     /**
@@ -1391,7 +1434,9 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
      * the ring open for the return countdown. Disable and the owner's pause use it,
      * because a scheduled task is not going to run in either case.
      */
-    private void endFight(Fight fight, UUID winnerId, String result, boolean immediate) {
+    private void endFight(
+            Fight fight, UUID winnerId, String result, boolean immediate, Ending ending
+    ) {
         if (fight == null || fight.phase == Phase.ENDING) {
             return;
         }
@@ -1483,6 +1528,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             fight.settled.add(playerId);
         }
         recordResults(fight, winnerId, result);
+        rememberRecord(fight, winnerId, ending);
         announceFightEnd(fight, winner, result);
         if (winner != null) {
             record("duel_finished", winner, winner.getName() + " won a PvP fight")
@@ -1655,6 +1701,26 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                     fight.hits.getOrDefault(playerId, 0),
                     gained, lost
             ));
+        }
+    }
+
+    /**
+     * Writes the fight into both players' permanent records.
+     *
+     * <p>Failing to save must not cost anybody their stakes, which have already
+     * moved by the time this runs — so a broken record file is logged and the fight
+     * still finishes.
+     */
+    private void rememberRecord(Fight fight, UUID winnerId, Ending ending) {
+        try {
+            if (winnerId == null) {
+                duelRecords.drew(fight.first, fight.second);
+                return;
+            }
+            duelRecords.settle(winnerId, fight.opponent(winnerId), ending == Ending.KILL);
+        } catch (RuntimeException failure) {
+            plugin.getLogger().warning(
+                    "Could not save a PvP record: " + failure.getMessage());
         }
     }
 
@@ -2474,7 +2540,8 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 NamedTextColor.GOLD
         ));
         plugin.getServer().getScheduler().runTask(plugin,
-                () -> endFight(fight, winner, victim.getName() + " was defeated"));
+                () -> endFight(fight, winner, victim.getName() + " was defeated",
+                        Ending.KILL));
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
@@ -3075,7 +3142,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             finishReturn(fight);
         } else if (fight != null && fight.phase != Phase.ENDING) {
             endFight(fight, fight.opponent(player.getUniqueId()),
-                    player.getName() + " left and gave up");
+                    player.getName() + " left and gave up", Ending.SURRENDER);
         }
         results.remove(player.getUniqueId());
         if (spectators.containsKey(player.getUniqueId())) {
@@ -3099,7 +3166,8 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
 
     void stop() {
         for (Fight fight : List.copyOf(fights.values())) {
-            endFight(fight, null, "Server restart — stakes returned", true);
+            endFight(fight, null, "Server restart — stakes returned",
+                    true, Ending.UNDECIDED);
         }
         for (UUID spectatorId : List.copyOf(spectators.keySet())) {
             Player player = Bukkit.getPlayer(spectatorId);
@@ -3118,7 +3186,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     /** An owner pause resolves live contracts as draws instead of freezing fighters. */
     void pauseAll(String reason) {
         for (Fight fight : List.copyOf(fights.values())) {
-            endFight(fight, null, reason, true);
+            endFight(fight, null, reason, true, Ending.UNDECIDED);
         }
     }
 

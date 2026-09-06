@@ -532,7 +532,7 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
     private static String boardName(LeaderboardType type) {
         return switch (type) {
             case WEALTH -> "Money $";
-            case KILLS -> "Kills " + type.icon();
+            case KILLS -> "PvP Kills " + type.icon();
             case PLAYTIME -> "Playtime";
             case BLOCKS_MINED -> "Blocks mined";
             case BLOCKS_WALKED -> "Blocks walked";

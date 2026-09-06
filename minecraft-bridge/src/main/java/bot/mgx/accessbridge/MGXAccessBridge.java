@@ -79,6 +79,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private ChatRelayService chatRelayService;
     private LuckPermsService luckPermsService;
     private LeaderboardService leaderboardService;
+    private PvpRecordStore pvpRecords;
     private PersonalNotificationService personalNotifications;
     private CapabilityService capabilityService;
     private ClanStore clanStore;
@@ -391,12 +392,22 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         gameVariables.onChange(this::scheduleGameVariableBroadcast);
         verificationLobby = new VerificationLobbyService(this, bridgeClient);
         chatRelayService = new ChatRelayService(bridgeClient, playerSettings);
+        try {
+            pvpRecords = new PvpRecordStore(
+                    getDataFolder().toPath().resolve("pvp-records.json"));
+        } catch (java.io.IOException exception) {
+            getLogger().severe("MGXAccessBridge could not open PvP records: "
+                    + exception.getMessage());
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        }
         // Statistics live beside the main world, which is where the server writes them.
         PlayerStatsService statsService = new PlayerStatsService(
                 this,
                 getServer().getWorlds().get(0).getWorldFolder().toPath().resolve("stats"),
                 economyStore,
-                amethystProgress
+                amethystProgress,
+                pvpRecords
         );
         capabilityService = new CapabilityService(
                 this,
@@ -416,6 +427,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 bridgeConfig.leaderboardRefreshTicks()
         );
         economyStore.onChange(leaderboardService::refreshSoon);
+        pvpRecords.onChange(leaderboardService::refreshSoon);
         amethystProgress.onChange(leaderboardService::refreshSoon);
         clanBattleStore.onChange(leaderboardService::refreshSoon);
         sidebarService.useLeaderboardService(leaderboardService);
@@ -430,7 +442,6 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(clanMenuService, this);
         getServer().getPluginManager().registerEvents(playerMenuService, this);
         getServer().getPluginManager().registerEvents(chatRelayService, this);
-        getServer().getPluginManager().registerEvents(leaderboardService, this);
         getServer().getPluginManager().registerEvents(teleportWarmups, this);
         teleportMenus = new TeleportMenuService(this);
         getServer().getPluginManager().registerEvents(teleportMenus, this);
@@ -525,7 +536,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                     this, economyStore, playerSettings, clientSupport, bedrockForms,
                     cosmeticStore, cosmeticItems,
                     getDataFolder().toPath().resolve("pvp-duel-recovery.json"),
-                    getDataFolder().toPath().resolve("pvp-arena-restore.json")
+                    getDataFolder().toPath().resolve("pvp-arena-restore.json"),
+                    pvpRecords
             );
         } catch (java.io.IOException exception) {
             getLogger().severe("MGXAccessBridge could not open PvP duel recovery: "
