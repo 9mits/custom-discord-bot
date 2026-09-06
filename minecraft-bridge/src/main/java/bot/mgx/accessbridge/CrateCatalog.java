@@ -211,7 +211,7 @@ final class CrateCatalog {
     private static final Set<String> AMETHYST_EXCLUSIVE_IDS = Set.of(
             "amethyst_pickaxe", "amethyst_shovel", "amethyst_axe",
             "amethyst_shield", "amethyst_totem", "amethyst_sword", "amethyst_hoe",
-            "amethyst_bow", "amethyst_fishing_rod", "amethyst_helmet",
+            "amethyst_bow", "amethyst_helmet",
             "amethyst_chestplate", "amethyst_leggings", "amethyst_boots",
             "amethyst_elytra", "amethyst_arrows", "amethyst_apple"
     );
@@ -607,14 +607,14 @@ final class CrateCatalog {
      */
     private static List<Reward> buildAmethystRewards() {
         List<Reward> rewards = new ArrayList<>();
-        // Common - 62,547 of 100,000, and every one of them purple.
+        // Common - 62,562 of 100,000, and every one of them purple.
         //
         // The geode shell was the obvious theme and the wrong one: calcite is white
         // stone and smooth basalt and tinted glass both read as black, so five
         // openings in eight paid out something that looked like rubble. What the
         // crate is called is what it should be full of.
         rewards.add(item(
-                "amethyst_shards", "32 Amethyst Shards", Category.RESOURCE, 12_547,
+                "amethyst_shards", "32 Amethyst Shards", Category.RESOURCE, 12_562,
                 "AMETHYST_SHARD", 32, "A bright stack of vanilla amethyst shards."
         ));
         rewards.add(item(
@@ -799,9 +799,6 @@ final class CrateCatalog {
         rewards.add(amethystItem("amethyst_bow", "Amethyst Bow", Category.TREASURE, 10,
                 "BOW", "mgx:amethyst_bow",
                 "Activates for 24 hours with high Power and crystal impact blasts."));
-        rewards.add(amethystItem("amethyst_fishing_rod", "Amethyst Fishing Rod",
-                Category.TREASURE, 15, "FISHING_ROD", "mgx:amethyst_fishing_rod",
-                "Activates for 24 hours with high Luck of the Sea and Lure."));
         rewards.add(amethystItem("amethyst_helmet", "Amethyst Helmet", Category.TREASURE, 6,
                 "DIAMOND_HELMET", "mgx:amethyst_helmet", "Part of the 24-hour Dragon Guard set."));
         rewards.add(amethystItem("amethyst_chestplate", "Amethyst Chestplate", Category.TREASURE, 6,
@@ -830,7 +827,7 @@ final class CrateCatalog {
     private static List<Reward> buildDragonRewards() {
         LinkedHashMap<String, int[]> weights = new LinkedHashMap<>();
         // Three openings per second for the full hour is 10,800 rolls. The pool is
-        // therefore 99.158% modest purple building, food and enchanting supplies.
+        // therefore 99.181% modest purple building, food and enchanting supplies.
         // Each chase item remains slightly easier than in the ordinary Amethyst Crate,
         // while the volume can no longer flood the server with temporary equipment.
         weights.put("amethyst_shards", new int[]{17_000, 8});
@@ -841,11 +838,10 @@ final class CrateCatalog {
         weights.put("amethyst_clusters", new int[]{9_000, 4});
         weights.put("amethyst_golden_carrots", new int[]{8_000, 4});
         weights.put("amethyst_experience_bottles", new int[]{7_000, 4});
-        weights.put("amethyst_glowstone", new int[]{5_158, 8});
+        weights.put("amethyst_glowstone", new int[]{5_181, 8});
         weights.put("amethyst_arrows", new int[]{378, 0});
         weights.put("amethyst_apple", new int[]{150, 0});
         weights.put("amethyst_hoe", new int[]{45, 0});
-        weights.put("amethyst_fishing_rod", new int[]{23, 0});
         weights.put("amethyst_sword", new int[]{30, 0});
         weights.put("amethyst_bow", new int[]{15, 0});
         weights.put("amethyst_pickaxe", new int[]{30, 0});
@@ -919,13 +915,12 @@ final class CrateCatalog {
         rewards.add(shardCopy("amethyst_sword", 1_000));
         rewards.add(shardCopy("amethyst_hoe", 1_200));
         rewards.add(shardCopy("amethyst_bow", 600));
-        rewards.add(shardCopy("amethyst_fishing_rod", 800));
         rewards.add(shardCopy("amethyst_helmet", 300));
         rewards.add(shardCopy("amethyst_chestplate", 300));
         rewards.add(shardCopy("amethyst_leggings", 300));
         rewards.add(shardCopy("amethyst_boots", 300));
         rewards.add(shardCopy("amethyst_elytra", 50));
-        rewards.add(shardCopy("amethyst_arrows", 2_500));
+        rewards.add(shardCopy("amethyst_arrows", 3_300));
         rewards.add(shardCopy("amethyst_apple", 1_000));
 
         for (String cosmeticId : List.of(

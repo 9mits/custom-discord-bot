@@ -725,17 +725,6 @@
         }
       }
     ],
-    "minecraft:fishing_rod": [
-      {
-        "type": "definition",
-        "model": "mgx:amethyst_fishing_rod",
-        "bedrock_identifier": "mgx:amethyst_fishing_rod",
-        "display_name": "Amethyst Fishing Rod",
-        "bedrock_options": {
-          "icon": "mgx:amethyst_fishing_rod"
-        }
-      }
-    ],
     "minecraft:diamond_helmet": [
       {
         "type": "definition",

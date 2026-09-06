@@ -62,7 +62,6 @@
     {"java_item": "minecraft:diamond_sword", "model": "mgx:amethyst_sword", "bedrock_identifier": "mgx:amethyst_sword", "display_name": "Amethyst Sword"},
     {"java_item": "minecraft:diamond_hoe", "model": "mgx:amethyst_hoe", "bedrock_identifier": "mgx:amethyst_hoe", "display_name": "Amethyst Hoe"},
     {"java_item": "minecraft:bow", "model": "mgx:amethyst_bow", "bedrock_identifier": "mgx:amethyst_bow", "display_name": "Amethyst Bow"},
-    {"java_item": "minecraft:fishing_rod", "model": "mgx:amethyst_fishing_rod", "bedrock_identifier": "mgx:amethyst_fishing_rod", "display_name": "Amethyst Fishing Rod"},
     {"java_item": "minecraft:diamond_helmet", "model": "mgx:amethyst_helmet", "bedrock_identifier": "mgx:amethyst_helmet", "display_name": "Amethyst Helmet"},
     {"java_item": "minecraft:diamond_chestplate", "model": "mgx:amethyst_chestplate", "bedrock_identifier": "mgx:amethyst_chestplate", "display_name": "Amethyst Chestplate"},
     {"java_item": "minecraft:diamond_leggings", "model": "mgx:amethyst_leggings", "bedrock_identifier": "mgx:amethyst_leggings", "display_name": "Amethyst Leggings"},

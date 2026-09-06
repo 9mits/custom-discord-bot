@@ -109,9 +109,9 @@ final class SettingMetadataTest {
         // Every distribution an owner edits, and how many rows each holds.
         Map<String, Integer> expected = new LinkedHashMap<>();
         expected.put("crate.default", 64);
-        expected.put("crate.amethyst", 62);
-        expected.put("crate.shard", 56);
-        expected.put("crate.dragon", 35);
+        expected.put("crate.amethyst", 61);
+        expected.put("crate.shard", 55);
+        expected.put("crate.dragon", 34);
         expected.put("amethyst-block.tier", 3);
         expected.put("airdrop.rarity", 4);
         expected.put("airdrop.loot.common", 13);
@@ -155,9 +155,9 @@ final class SettingMetadataTest {
         }
         Map<String, Integer> expected = new TreeMap<>();
         expected.put("crate.default", 64);
-        expected.put("crate.amethyst", 62);
-        expected.put("crate.shard", 56);
-        expected.put("crate.dragon", 35);
+        expected.put("crate.amethyst", 61);
+        expected.put("crate.shard", 55);
+        expected.put("crate.dragon", 34);
         expected.put("amethyst-block.tier", 3);
         expected.put("airdrop.rarity", 4);
         expected.put("airdrop.loot.common", 13);
@@ -266,11 +266,11 @@ final class SettingMetadataTest {
         }
         assertEquals(
                 Map.ofEntries(
-                        Map.entry("crates", 228),
+                        Map.entry("crates", 225),
                         Map.entry("airdrops", 119),
                         Map.entry("online_rewards", 67),
                         Map.entry("amethyst_blocks", 49),
-                        Map.entry("dragon_event", 216),
+                        Map.entry("dragon_event", 228),
                         Map.entry("permissions", 4),
                         Map.entry("shop", 21),
                         Map.entry("admin_events", 17),
@@ -280,7 +280,7 @@ final class SettingMetadataTest {
                         Map.entry("players", 12),
                         Map.entry("event_multipliers", 9),
                         Map.entry("crate_balance", 7),
-                        Map.entry("amethyst_shop", 29),
+                        Map.entry("amethyst_shop", 27),
                         Map.entry("clans", 4),
                         Map.entry("boss_bars", 4),
                         Map.entry("enchantments", 4),
@@ -297,7 +297,7 @@ final class SettingMetadataTest {
                 perGroup,
                 "the catalogue moved between panel pages"
         );
-        assertEquals(872, perGroup.values().stream().mapToInt(Integer::intValue).sum(),
+        assertEquals(879, perGroup.values().stream().mapToInt(Integer::intValue).sum(),
                 "group counts no longer add up to the catalogue");
     }
 

@@ -19,8 +19,6 @@ LINKED_ICON_SIZES = {
     "amethyst_chestplate": (16, 16),
     "amethyst_dragon_egg": (16, 16),
     "amethyst_elytra": (16, 16),
-    "amethyst_fishing_rod": (16, 16),
-    "amethyst_fishing_rod_cast": (16, 16),
     "amethyst_helmet": (16, 16),
     "amethyst_hoe": (16, 16),
     "amethyst_leggings": (16, 16),
@@ -37,6 +35,7 @@ IMPORTED_MOD_HASHES = {
     "amethyst_shovel": "32b5016af36735c55d1614cf065d2b906eb58bb55fa4703fc7ddc9d799d78547",
     "amethyst_axe": "5c43672b2716bcb2fd4f5e0c06c66080eb1cf00b60d8c72cc4d8f581bbbec030",
     "amethyst_shield": "79c0eaaf8939888df6b0e28e1a080db648cd56a5a9622d74f51596a1e385ee01",
+    "amethyst_sword": "4e1b69e98d1bed76f5f40ecc26fea99afe77a1da82eca352301299aa5aef9488",
 }
 POTION_REFERENCE = RESOURCE_PACK / "icon-sources" / "potion_of_healing_reference.png"
 EVENT_SONG_SHA256 = "768d3d503ac3e8ba39f6db1213a8296abcde9260944212fd5fe00d0f81ecc448"
@@ -76,7 +75,7 @@ class ResourcePackIconTests(unittest.TestCase):
 
     def test_custom_icons_are_valid_distinct_minecraft_sprites(self):
         icons = self.icon_paths()
-        self.assertEqual(93, len(icons))
+        self.assertEqual(91, len(icons))
 
         digests = set()
         for path in icons:

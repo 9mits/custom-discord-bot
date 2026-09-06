@@ -470,7 +470,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     private void openOdds(
             Player player, CrateKind kind, int requestedPage, boolean oddsSelectorBack
     ) {
-        List<CrateCatalog.Reward> rewards = variables.rewards(kind);
+        List<CrateCatalog.Reward> rewards = oddsRewards(kind, variables.rewards(kind));
         int pageCount = Math.max(1, (rewards.size() + ODDS_PER_PAGE - 1) / ODDS_PER_PAGE);
         int page = Math.max(1, Math.min(pageCount, requestedPage));
         CrateMenu holder = new CrateMenu(Screen.ODDS, page, kind, oddsSelectorBack);
@@ -483,9 +483,11 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         int last = Math.min(rewards.size(), first + ODDS_PER_PAGE);
         for (int index = first; index < last; index++) {
             CrateCatalog.Reward reward = rewards.get(index);
-            inventory.setItem(index - first, items.oddsPreview(
-                    reward, cosmeticItems, variables.displayedChance(kind, reward)
-            ));
+            inventory.setItem(index - first, kind == CrateKind.DRAGON && reward.secret()
+                    ? items.oddsPreview(reward, cosmeticItems)
+                    : items.oddsPreview(
+                            reward, cosmeticItems, variables.displayedChance(kind, reward)
+                    ));
         }
         if (page > 1) {
             inventory.setItem(PREVIOUS_SLOT, MenuItems.button(Material.ARROW, "Previous Page"));
@@ -496,6 +498,19 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             inventory.setItem(NEXT_SLOT, MenuItems.button(Material.ARROW, "Next Page"));
         }
         MenuItems.show(plugin, player, inventory);
+    }
+
+    /** The hidden Dragon roll still occupies a traditional masked Secret slot in odds. */
+    static List<CrateCatalog.Reward> oddsRewards(
+            CrateKind kind, List<CrateCatalog.Reward> configuredRewards
+    ) {
+        List<CrateCatalog.Reward> rewards = new ArrayList<>(configuredRewards);
+        if (kind == CrateKind.DRAGON) {
+            CosmeticCatalog.hiddenDragonRewards().stream().findFirst()
+                    .map(CrateCatalog::cosmetic)
+                    .ifPresent(rewards::add);
+        }
+        return List.copyOf(rewards);
     }
 
     /**

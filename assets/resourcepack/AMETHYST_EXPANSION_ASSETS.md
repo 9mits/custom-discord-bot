@@ -4,8 +4,7 @@ Only visual and audio assets were imported. None of the source projects' recipes
 statistics, abilities, drops, entities, or gameplay code is used by the server.
 
 - **Amethyst Revamped 1.2.3** (`amethyst_revamped-1.2.3-neoforge-1.21.4.jar`,
-  supplied by the server owner): hoe and armor item sprites. Its so-called rod
-  sprite is a short Amethyst stick, so it is not used for the Fishing Rod.
+  supplied by the server owner): hoe and armor item sprites.
 - **Amethyst Sword 1.0.0** (`amethyst_sword-1.0.0-forge-1.20.1.jar`, supplied by
   the server owner): exact Amethyst Sword item sprite.
 - **Dragon Mounts Remastered 1.9.2**
@@ -25,9 +24,6 @@ statistics, abilities, drops, entities, or gameplay code is used by the server.
   <https://github.com/redfox193/Amethyst-Update>
 - **`music.ogg`** (supplied by the server owner): music for the Secret Amethyst
   Dragon Ascendant reveal.
-- The Fishing Rod uses Minecraft's correct cast/uncast fishing-rod silhouettes,
-  recoloured from the supplied Amethyst Dragon palette after the supplied packs
-  and available external packs were checked for a suitable 2D item sprite.
 - The Amethyst Dragon cosmetics and individual/clan podium icons are derived from
   the existing detailed 32x32 wardrobe icon set. `build_dragon_cosmetic_icons.py`
   preserves that established vanilla-style pixel density and shading.

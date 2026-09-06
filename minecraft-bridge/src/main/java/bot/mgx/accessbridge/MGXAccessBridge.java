@@ -837,7 +837,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 amethystBlockEvent,
                 amethystProgress,
                 clanBattles,
-                gameVariables
+                gameVariables,
+                amethystItems,
+                amethystDragon
         );
         getCommand("mgxadmin").setExecutor(adminService);
         getCommand("mgxadmin").setTabCompleter(adminService);

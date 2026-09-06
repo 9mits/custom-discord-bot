@@ -336,7 +336,7 @@ class CrateCatalogTest {
         int commonWeight = CrateKind.DRAGON.rewards().stream()
                 .filter(reward -> common.contains(reward.id()))
                 .mapToInt(CrateCatalog.Reward::weight).sum();
-        assertEquals(99_158, commonWeight);
+        assertEquals(99_181, commonWeight);
         assertTrue(commonWeight > CrateCatalog.TOTAL_WEIGHT * .99);
         assertEquals(CrateCatalog.TOTAL_WEIGHT,
                 CrateKind.DRAGON.rewards().stream().mapToInt(CrateCatalog.Reward::weight).sum());

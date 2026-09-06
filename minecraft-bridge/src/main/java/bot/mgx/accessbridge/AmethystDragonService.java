@@ -370,6 +370,10 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         announce(render(variables.string("dragon-event.portal-open-message"),
                 "minutes", String.valueOf(variables.integer("dragon-event.portal-open-minutes"))),
                 configuredSound("dragon-event.portal-open-sound", Sound.BLOCK_BEACON_ACTIVATE));
+        broadcastSound(
+                "dragon-event.portal-open-secondary-sound", Sound.ENTITY_ENDER_DRAGON_GROWL,
+                "dragon-event.portal-open-secondary-pitch"
+        );
         portalTransition(true);
     }
 
@@ -421,6 +425,10 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                 + variables.integer("dragon-event.summoning-timeout-seconds") * 1000L;
         announce(variables.string("dragon-event.portal-closed-message"),
                 configuredSound("dragon-event.portal-closed-sound", Sound.BLOCK_END_PORTAL_SPAWN));
+        broadcastSound(
+                "dragon-event.portal-closed-secondary-sound", Sound.BLOCK_BEACON_DEACTIVATE,
+                "dragon-event.portal-closed-secondary-pitch"
+        );
         refreshPortalDisplay();
         animatePillars();
     }
@@ -1495,6 +1503,17 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         }
     }
 
+    /** Plays departure audio after the teleport so only the departing client hears it. */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onCompletedArenaExit(PlayerTeleportEvent event) {
+        if (event.getTo() == null || !isArena(event.getFrom().getWorld())
+                || isArena(event.getTo().getWorld()) || phase != Phase.REWARDS) return;
+        Player player = event.getPlayer();
+        plugin.getServer().getScheduler().runTask(plugin, () -> {
+            if (player.isOnline() && !isArena(player.getWorld())) departureSound(player);
+        });
+    }
+
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onDamage(EntityDamageByEntityEvent event) {
         Player attacker = attacker(event.getDamager());
@@ -1749,6 +1768,10 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                 configuredSound("dragon-event.egg-claim-sound", Sound.UI_TOAST_CHALLENGE_COMPLETE),
                 (float) variables.decimal("dragon-event.effect-sound-volume"),
                 (float) variables.decimal("dragon-event.egg-claim-pitch"));
+        playLocalSound(
+                player, "dragon-event.egg-claim-secondary-sound", Sound.BLOCK_END_PORTAL_SPAWN,
+                "dragon-event.egg-claim-secondary-pitch"
+        );
     }
 
     private void createElytra(Player player, ItemStack egg) {
@@ -1855,6 +1878,10 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         if (model != null) meta.setItemModel(model);
         egg.setItemMeta(meta);
         return egg;
+    }
+
+    ItemStack eggForTesting() {
+        return dragonEgg();
     }
 
     private boolean isDragonEgg(ItemStack item) {
@@ -1973,6 +2000,21 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                 configuredSound("dragon-event.entry-sound", Sound.ENTITY_ENDERMAN_TELEPORT),
                 (float) variables.decimal("dragon-event.effect-sound-volume"),
                 (float) variables.decimal("dragon-event.entry-pitch"));
+        playLocalSound(
+                player, "dragon-event.entry-secondary-sound", Sound.BLOCK_AMETHYST_BLOCK_CHIME,
+                "dragon-event.entry-secondary-pitch"
+        );
+    }
+
+    private void departureSound(Player player) {
+        playLocalSound(
+                player, "dragon-event.exit-sound", Sound.ENTITY_ENDERMAN_TELEPORT,
+                "dragon-event.exit-pitch"
+        );
+        playLocalSound(
+                player, "dragon-event.exit-secondary-sound", Sound.BLOCK_AMETHYST_BLOCK_CHIME,
+                "dragon-event.exit-secondary-pitch"
+        );
     }
 
     private void pulseEffects() {
@@ -2828,6 +2870,21 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
             return Sound.valueOf(variables.string(key));
         } catch (IllegalArgumentException ignored) {
             return fallback;
+        }
+    }
+
+    private void playLocalSound(Player player, String soundKey, Sound fallback, String pitchKey) {
+        player.playSound(player.getLocation(), configuredSound(soundKey, fallback),
+                (float) variables.decimal("dragon-event.effect-sound-volume"),
+                (float) variables.decimal(pitchKey));
+    }
+
+    private void broadcastSound(String soundKey, Sound fallback, String pitchKey) {
+        Sound sound = configuredSound(soundKey, fallback);
+        float volume = (float) variables.decimal("dragon-event.announcement-volume");
+        float pitch = (float) variables.decimal(pitchKey);
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            player.playSound(player.getLocation(), sound, volume, pitch);
         }
     }
 
