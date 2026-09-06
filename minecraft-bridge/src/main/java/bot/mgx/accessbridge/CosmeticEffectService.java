@@ -160,6 +160,7 @@ final class CosmeticEffectService implements Listener {
     private final Map<UUID, Location> previousLocations = new HashMap<>();
     private final Map<UUID, Deque<Location>> trailHistories = new HashMap<>();
     private final Set<String> failedSelectionClears = new HashSet<>();
+    private final Set<String> missingEffectWarnings = new HashSet<>();
     private final Map<UUID, MusicAuraState> musicAuraStates = new HashMap<>();
     private final Map<UUID, ArmorStand> rarityNameplates = new HashMap<>();
     private final Map<UUID, AtmosphereState> revealAtmospheres = new HashMap<>();
@@ -238,6 +239,7 @@ final class CosmeticEffectService implements Listener {
         previousLocations.clear();
         trailHistories.clear();
         failedSelectionClears.clear();
+        missingEffectWarnings.clear();
         for (UUID ownerId : List.copyOf(musicAuraStates.keySet())) {
             stopMusicAura(ownerId);
         }
@@ -1233,7 +1235,76 @@ final class CosmeticEffectService implements Listener {
             case "dragon_clan_1" -> drawSovereignBrood(owner, centre, phase, step);
             case "dragon_clan_2" -> drawCrystalVanguard(owner, centre, phase, step);
             case "dragon_clan_3" -> drawVioletKin(owner, centre, phase, step);
-            default -> { }
+            default -> drawMissingAura(owner, definition, centre, phase, step);
+        }
+    }
+
+    /**
+     * A catalog or live-added cosmetic must never equip as an invisible aura. The
+     * warning identifies the missing dispatch while the wearer gets an unmistakable
+     * amethyst formation instead of an empty slot.
+     */
+    private void drawMissingAura(
+            Player owner, CosmeticCatalog.Definition definition,
+            Location centre, double phase, int step
+    ) {
+        warnMissingEffect(definition);
+        Color violet = Color.fromRGB(170, 67, 238);
+        Color shine = Color.fromRGB(235, 191, 255);
+        drawRing(owner, centre.clone().add(0d, -0.92d, 0d),
+                1.12d + Math.sin(phase * 0.45d) * 0.14d,
+                20, phase * 0.65d, violet, 1.05f,
+                PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        Location core = centre.clone().add(0d, 0.3d + Math.sin(phase * 0.7d) * 0.2d, 0d);
+        drawVerticalGem(owner, core, horizontalSide(owner), 0.48d,
+                -phase * 0.5d, violet, shine);
+        if (step % 16 == 0) {
+            spawn(owner, core, Particle.ENCHANTED_HIT, 7,
+                    0.32d, 0.45d, 0.32d, 0.02d, null,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        }
+    }
+
+    private void drawMissingTrail(
+            Player owner, CosmeticCatalog.Definition definition, List<Location> history
+    ) {
+        warnMissingEffect(definition);
+        Color violet = Color.fromRGB(170, 67, 238);
+        Color shine = Color.fromRGB(235, 191, 255);
+        Vector side = trailSide(history);
+        for (int shard = 0; shard < 4; shard++) {
+            int index = CosmeticAnimation.trailIndex(frame / 2L, history.size(), shard * 4);
+            Location root = trailPoint(history, index, 0.28d + shard * 0.1d);
+            Location tip = root.clone().add(side.clone().multiply((shard % 2 == 0 ? -1 : 1)
+                    * (0.35d + shard * 0.08d))).add(0d, 0.5d, 0d);
+            drawLine(owner, root, tip, 4, shard % 2 == 0 ? violet : shine, 0.88f,
+                    PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+        }
+    }
+
+    private void animateMissingKill(
+            Player owner, CosmeticCatalog.Definition definition, Location centre
+    ) {
+        warnMissingEffect(definition);
+        Color violet = Color.fromRGB(170, 67, 238);
+        animate(owner, centre, 26, 2L, step -> {
+            double burst = CosmeticAnimation.easeOutBack(step / 25d);
+            drawRing(owner, centre.clone().add(0d, 0.25d, 0d),
+                    0.2d + burst * 2.8d, 22, step * 0.35d,
+                    violet, 1.1f, PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+            if (step == 10) {
+                spawn(owner, centre, Particle.SONIC_BOOM, 1,
+                        0d, 0d, 0d, 0d, null,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+            }
+        });
+    }
+
+    private void warnMissingEffect(CosmeticCatalog.Definition definition) {
+        String key = definition.category().name() + ":" + definition.id();
+        if (missingEffectWarnings.add(key)) {
+            plugin.getLogger().warning("Cosmetic effect dispatch is missing for " + key
+                    + "; rendering the amethyst fallback.");
         }
     }
 
@@ -1797,24 +1868,65 @@ final class CosmeticEffectService implements Listener {
     ) {
         Color gold = Color.fromRGB(245, 183, 44);
         Color violet = Color.fromRGB(151, 58, 225);
+        Color shine = Color.fromRGB(240, 202, 255);
         Vector side = horizontalSide(owner);
+        Vector forward = new Vector(-side.getZ(), 0d, side.getX());
         Location egg = centre.clone().add(0d, -0.05d, 0d);
         drawVerticalGem(owner, egg, side, 0.48d, -phase * 0.25d, violet, gold);
+        drawRing(owner, centre.clone().add(0d, -0.94d, 0d),
+                1.32d + Math.sin(phase * 0.48d) * 0.14d,
+                24, -phase * 0.62d, gold, 1.05f,
+                PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        drawRing(owner, centre.clone().add(0d, -0.89d, 0d),
+                0.72d + Math.cos(phase * 0.61d) * 0.1d,
+                16, phase * 0.82d, violet, 0.86f,
+                PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
         for (int brood = 0; brood < 3; brood++) {
             double angle = phase * 0.52d + brood * Math.PI * 2d / 3d;
+            Vector radial = side.clone().multiply(Math.cos(angle))
+                    .add(forward.clone().multiply(Math.sin(angle)));
+            Vector tangent = side.clone().multiply(-Math.sin(angle))
+                    .add(forward.clone().multiply(Math.cos(angle)));
             Location head = centre.clone().add(Math.cos(angle) * 1.18d,
                     0.18d + Math.sin(angle * 2d) * 0.3d,
                     Math.sin(angle) * 1.18d);
             Location tail = centre.clone().add(Math.cos(angle - 0.62d) * 0.78d,
                     -0.1d, Math.sin(angle - 0.62d) * 0.78d);
-            drawLine(owner, tail, head, 5, brood == step / 27 ? gold : violet, 0.92f,
+            Color active = brood == (step / 9) % 3 ? gold : violet;
+            drawLine(owner, tail, head, 6, active, 1.02f,
                     PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
-            dust(owner, head.clone().add(0d, 0.08d, 0d), gold, 0.7f,
+            Location wingRoot = tail.clone().add(radial.clone().multiply(0.16d)).add(0d, 0.12d, 0d);
+            for (int direction : new int[]{-1, 1}) {
+                Location wingTip = wingRoot.clone()
+                        .add(tangent.clone().multiply(direction * 0.48d))
+                        .add(radial.clone().multiply(-0.18d)).add(0d, 0.38d, 0d);
+                drawLine(owner, wingRoot, wingTip, 4,
+                        direction == 1 ? shine : active, 0.82f,
+                        PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            }
+            Location horn = head.clone().add(radial.clone().multiply(0.14d)).add(0d, 0.24d, 0d);
+            drawLine(owner, head, horn, 3, gold, 0.75f,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            dust(owner, head.clone().add(tangent.clone().multiply(0.08d)).add(0d, 0.08d, 0d),
+                    shine, 0.82f,
                     PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
         }
         Location crown = centre.clone().add(0d, 1.32d, 0d);
         drawRing(owner, crown, 0.48d, 10, phase, gold, 1.05f,
                 PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        for (int horn = -2; horn <= 2; horn++) {
+            Location root = crown.clone().add(side.clone().multiply(horn * 0.2d));
+            Location tip = root.clone().add(0d, horn == 0 ? 0.52d : 0.28d, 0d);
+            drawLine(owner, root, tip, 3, horn % 2 == 0 ? shine : gold, 0.86f,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        }
+        if (step % 18 == 0) {
+            spawn(owner, egg, Particle.ENCHANTED_HIT, 8,
+                    0.5d, 0.7d, 0.5d, 0.03d, null,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            sound(owner, centre, Sound.ENTITY_ENDER_DRAGON_FLAP, 0.42f, 1.45f,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        }
     }
 
     /** A faceted shield locks in front of its owner while crystal lances patrol its edge. */
@@ -1835,6 +1947,16 @@ final class CosmeticEffectService implements Listener {
             drawLine(owner, shoulder, bottom, 6, violet, 1.05f,
                     PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
         }
+        drawLine(owner, top, bottom, 8, silver, 0.82f,
+                PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        drawLine(owner,
+                shield.clone().add(side.clone().multiply(-0.5d)),
+                shield.clone().add(side.clone().multiply(0.5d)),
+                6, violet, 0.9f, PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        drawRing(owner, centre.clone().add(0d, -0.92d, 0d),
+                1.25d + Math.sin(phase * 0.5d) * 0.12d,
+                24, phase * 0.56d, silver, 0.95f,
+                PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
         for (int lance = 0; lance < 4; lance++) {
             double angle = phase * 0.48d + lance * Math.PI / 2d;
             Vector radial = side.clone().multiply(Math.cos(angle))
@@ -1847,6 +1969,8 @@ final class CosmeticEffectService implements Listener {
         if (step % 24 == 0) {
             spawn(owner, shield, Particle.ENCHANTED_HIT, 5, 0.35d, 0.55d, 0.15d,
                     0.02d, null, PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            sound(owner, centre, Sound.ITEM_SHIELD_BLOCK, 0.4f, 1.25f,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
         }
     }
 
@@ -1856,6 +1980,12 @@ final class CosmeticEffectService implements Listener {
     ) {
         Color bronze = Color.fromRGB(207, 111, 62);
         Color violet = Color.fromRGB(174, 76, 235);
+        Color shine = Color.fromRGB(240, 200, 255);
+        Vector side = horizontalSide(owner);
+        drawRing(owner, centre.clone().add(0d, -0.92d, 0d),
+                1.18d + Math.sin(phase * 0.44d) * 0.16d,
+                24, -phase * 0.58d, bronze, 0.98f,
+                PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
         for (int crest = 0; crest < 3; crest++) {
             double angle = phase * 0.38d + crest * Math.PI * 2d / 3d;
             double pulse = 0.9d + (crest == (step / 9) % 3 ? 0.32d : 0d);
@@ -1864,6 +1994,8 @@ final class CosmeticEffectService implements Listener {
             Location upper = at.clone().add(0d, 0.38d, 0d);
             drawRing(owner, upper, 0.28d, 6, -angle, crest % 2 == 0 ? bronze : violet,
                     0.82f, PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            drawVerticalGem(owner, upper, side, 0.24d + (pulse - 0.9d) * 0.35d,
+                    angle, crest == (step / 9) % 3 ? shine : violet, bronze);
             Location next = centre.clone().add(
                     Math.cos(angle + Math.PI * 2d / 3d) * pulse,
                     -0.2d + ((crest + 1) % 3) * 0.45d,
@@ -1872,6 +2004,9 @@ final class CosmeticEffectService implements Listener {
                     PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
         }
         if (step % 18 == 0) {
+            spawn(owner, centre.clone().add(0d, 0.35d, 0d), Particle.ENCHANTED_HIT,
+                    9, 0.65d, 0.85d, 0.65d, 0.025d, null,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
             sound(owner, centre, Sound.BLOCK_AMETHYST_BLOCK_RESONATE, 0.4f, 1.35f,
                     PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
         }
@@ -2384,7 +2519,7 @@ final class CosmeticEffectService implements Listener {
             case "dragonflight_wake" -> drawDragonflightWake(owner, history);
             case "shardwing_procession" -> drawShardwingProcession(owner, history);
             case "crystalfire_trail" -> drawCrystalfireTrail(owner, history);
-            default -> { }
+            default -> drawMissingTrail(owner, definition, history);
         }
     }
 
@@ -2772,7 +2907,7 @@ final class CosmeticEffectService implements Listener {
             case "dragonheart_rupture" -> animateDragonheartRupture(owner, centre);
             case "crystal_wingfall" -> animateCrystalWingfall(owner, centre);
             case "endscale_cataclysm" -> animateEndscaleCataclysm(owner, centre);
-            default -> { }
+            default -> animateMissingKill(owner, definition, centre);
         }
     }
 
@@ -3619,6 +3754,13 @@ final class CosmeticEffectService implements Listener {
                 18 + (3 - rank) * 3, -phase * 0.7d, metal, 0.9f,
                 PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
         if (step % 20 == 0) {
+            drawRing(owner, centre.clone().add(0d, 0.2d, 0d),
+                    0.35d + awaken * (1.55d - rank * 0.1d),
+                    20, phase * 1.15d, shine, 1.08f,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            spawn(owner, heart, Particle.ENCHANTED_HIT, 6 + (3 - rank),
+                    0.45d, 0.75d, 0.45d, 0.025d, null,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
             sound(owner, centre, rank == 1 ? Sound.ENTITY_ENDER_DRAGON_FLAP
                             : Sound.BLOCK_AMETHYST_BLOCK_RESONATE,
                     0.42f, 1.05f + (3 - rank) * 0.2f,
@@ -3924,7 +4066,7 @@ final class CosmeticEffectService implements Listener {
                 }
             }
             case "resonant_apotheosis" -> drawResonantApotheosis(owner, centre, phase, step);
-            default -> { }
+            default -> drawMissingAura(owner, definition, centre, phase, step);
         }
     }
 
@@ -4064,7 +4206,7 @@ final class CosmeticEffectService implements Listener {
                 }
             }
             case "shattered_continuum" -> drawShatteredContinuum(owner, history);
-            default -> { }
+            default -> drawMissingTrail(owner, definition, history);
         }
     }
 
@@ -4160,7 +4302,7 @@ final class CosmeticEffectService implements Listener {
             case "reapers_verdict" -> animateReapersVerdict(owner, centre);
             case "divine_rupture" -> animateDivineRupture(owner, centre);
             case "crystalline_extinction" -> animateCrystallineExtinction(owner, centre);
-            default -> { }
+            default -> animateMissingKill(owner, definition, centre);
         }
     }
 
