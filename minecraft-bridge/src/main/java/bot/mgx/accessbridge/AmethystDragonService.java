@@ -1597,6 +1597,24 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         }
     }
 
+    /**
+     * Restates the arena seal after every other plugin has had its turn.
+     *
+     * <p>The HIGHEST pass above is not the end of the chain, and a later handler that
+     * re-allows a teleport out of a sealed arena wins. Maintenance already carries a
+     * MONITOR pass for exactly this reason.
+     */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = false)
+    public void onArenaExitMonitor(PlayerTeleportEvent event) {
+        if (event.isCancelled() || event.getTo() == null
+                || !isArena(event.getFrom().getWorld()) || isArena(event.getTo().getWorld())) {
+            return;
+        }
+        if (phase == Phase.SUMMONING || phase == Phase.FIGHT || phase == Phase.VICTORY) {
+            event.setCancelled(true);
+        }
+    }
+
     /** Plays departure audio after the teleport so only the departing client hears it. */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onCompletedArenaExit(PlayerTeleportEvent event) {
