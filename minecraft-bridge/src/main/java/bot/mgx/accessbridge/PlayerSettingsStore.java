@@ -40,7 +40,7 @@ final class PlayerSettingsStore {
         COSMETICS("Cosmetics", "Your auras, trails, kill effects and odds tag.",
                 "item/nether_star"),
         AUDIO("Audio", "Server sounds and synced cosmetic music.", "block/note_block"),
-        PRIVACY("Privacy", "Control which linked account details other players can see.",
+        PRIVACY("Privacy", "Control requests, payments, and personal information.",
                 "item/iron_door"),
         HUD("HUD & Scoreboard", "Bars, overlays and sidebar sections.",
                 "item/experience_bottle");
@@ -174,6 +174,8 @@ final class PlayerSettingsStore {
                 "Render trails left by other players.", true, Category.COSMETICS),
         TELEPORT_REQUESTS("teleport_requests", "Teleport requests",
                 "Let other players send you a teleport request.", true, Category.PRIVACY),
+        DUEL_REQUESTS("duel_requests", "PvP challenges",
+                "Let other players send you a safe PvP challenge.", true, Category.PRIVACY),
         ALLOW_PAYMENTS("allow_payments", "Allow payments",
                 "Let other players send you money with /pay.", true, Category.PRIVACY),
         PRIVATE_TRANSACTIONS("private_transactions", "Private transactions",

@@ -263,7 +263,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
                 .record();
         Component formed = Component.text(
                 result.own().name() + " and " + result.other().name()
-                        + " are now allies. You cannot damage each other.",
+                        + " are now allies. You cannot damage each other outside an accepted /pvp duel.",
                 LIGHT_ORANGE
         );
         broadcast(result.own(), formed);
@@ -305,7 +305,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
                 NamedTextColor.GRAY)));
         for (String name : names) {
             player.sendMessage(prefix().append(Component.text("  " + name, ORANGE, TextDecoration.BOLD))
-                    .append(Component.text(" — no friendly fire", NamedTextColor.GRAY)));
+                    .append(Component.text(" — no uninvited friendly fire", NamedTextColor.GRAY)));
         }
     }
 
@@ -512,7 +512,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
             player.sendMessage(help("/clans", "Open the clan menu"));
             player.sendMessage(help("/clans donate [amount]", "Give money to the clan"));
             player.sendMessage(help("/clans balance | donors", "What the clan holds, and who gave it"));
-            player.sendMessage(help("/clans allies", "Clans you cannot damage"));
+            player.sendMessage(help("/clans allies", "Clans protected outside accepted duels"));
             player.sendMessage(help("/clans warp [name]", "Open or use the shared warp directory"));
             if (role != ClanStore.ClanRole.MEMBER) {
                 player.sendMessage(help("/clans upgrade", "Spend the balance on levels or slots"));
@@ -540,7 +540,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
         }
         player.sendMessage(Component.text(
                 "  Clan protection: members of the same clan, and of allied clans,"
-                        + " cannot damage one another.",
+                        + " cannot damage one another outside an accepted /pvp duel.",
                 NamedTextColor.GRAY
         ));
     }

@@ -164,9 +164,9 @@ final class MgxCommandRouter implements CommandExecutor, TabCompleter {
                     Tier.OWNER, "serials reset", List.of()),
 
             // ---- server ------------------------------------------------------
-            new Route("server pvp show", "is PvP on", Tier.STAFF, "pvp status", List.of()),
-            new Route("server pvp enable", "pin PvP on", Tier.MANAGE, "pvp on", List.of()),
-            new Route("server pvp disable", "pin PvP off", Tier.MANAGE, "pvp off", List.of()),
+            new Route("server pvp show", "safe PvP availability", Tier.STAFF, "pvp status", List.of()),
+            new Route("server pvp enable", "enable consent duels", Tier.MANAGE, "pvp on", List.of()),
+            new Route("server pvp disable", "pause all PvP", Tier.MANAGE, "pvp off", List.of()),
             new Route("server launch start", "run the launch countdown",
                     Tier.OWNER, "startserver", List.of()),
             new Route("server update publish", "show everyone the update banner",

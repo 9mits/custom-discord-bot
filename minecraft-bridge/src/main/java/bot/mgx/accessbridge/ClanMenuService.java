@@ -395,7 +395,7 @@ final class ClanMenuService implements Listener {
             allyLore.add("Staff offer one with /clans ally <clan>.");
         } else {
             allyLore.addAll(allies);
-            allyLore.add("No friendly fire with these clans.");
+            allyLore.add("No uninvited friendly fire with these clans.");
         }
         inventory.setItem(16, button(Material.SHIELD, "Allies", allyLore));
         ClanIcon icon = ClanIcon.resolve(clan.icon());

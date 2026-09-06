@@ -677,7 +677,8 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
     public void onPlayerDeath(PlayerDeathEvent event) {
         Player victim = event.getPlayer();
         Player killer = victim.getKiller();
-        if (killer == null || killer.getUniqueId().equals(victim.getUniqueId())) {
+        if (killer == null || killer.getUniqueId().equals(victim.getUniqueId())
+                || plugin.inPvpDuel(victim)) {
             return;
         }
         List<CosmeticStore.Token> moved;

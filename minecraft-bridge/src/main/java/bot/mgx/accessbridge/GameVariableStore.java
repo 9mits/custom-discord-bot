@@ -1051,6 +1051,50 @@ final class GameVariableStore {
                 "Safe-ground candidates checked before giving up on a random teleport.",
                 config.getLong("rtp.attempts", 24), 1, 100, "attempts", false);
 
+        bool("pvp-duels.enabled", "Consent PvP enabled", "PvP Duels",
+                "Whether players may arrange direct, keep-inventory PvP through /pvp.",
+                config.getBoolean("pvp-duels.enabled", true));
+        integer("pvp-duels.invite-seconds", "Challenge expiry", "PvP Duels",
+                "Seconds a player has to review and accept a duel challenge.",
+                config.getLong("pvp-duels.invite-seconds", 120),
+                15, 3_600, "seconds", false);
+        integer("pvp-duels.challenge-cooldown-seconds", "Challenge cooldown", "PvP Duels",
+                "Seconds a player must wait before sending another duel challenge.",
+                config.getLong("pvp-duels.challenge-cooldown-seconds", 30),
+                0, 3_600, "seconds", false);
+        integer("pvp-duels.countdown-seconds", "Fight countdown", "PvP Duels",
+                "Seconds both fighters are frozen and protected after arriving.",
+                config.getLong("pvp-duels.countdown-seconds", 5),
+                1, 30, "seconds", false);
+        integer("pvp-duels.duration-minutes", "Fight time limit", "PvP Duels",
+                "Minutes before an unfinished duel becomes a draw and returns both stakes.",
+                config.getLong("pvp-duels.duration-minutes", 10),
+                1, 120, "minutes", false);
+        integer("pvp-duels.arena-diameter", "Personal arena border", "PvP Duels",
+                "Width of the temporary personal border around a duel.",
+                config.getLong("pvp-duels.arena-diameter", 96),
+                32, 256, "blocks", false);
+        integer("pvp-duels.minimum-radius", "Arena search minimum", "PvP Duels",
+                "Nearest distance from world spawn an untouched duel arena may be placed.",
+                config.getLong("pvp-duels.minimum-radius", 2_000),
+                500, 100_000, "blocks", false);
+        integer("pvp-duels.maximum-radius", "Arena search maximum", "PvP Duels",
+                "Farthest distance from world spawn an untouched duel arena may be placed.",
+                config.getLong("pvp-duels.maximum-radius", 90_000),
+                1_000, 100_000, "blocks", false);
+        integer("pvp-duels.location-attempts", "Arena search attempts", "PvP Duels",
+                "Untouched terrain candidates checked before a duel safely gives up.",
+                config.getLong("pvp-duels.location-attempts", 40),
+                1, 100, "attempts", false);
+        integer("pvp-duels.maximum-money-wager", "Maximum cash wager", "PvP Duels",
+                "Most money each fighter may put into one duel.",
+                config.getLong("pvp-duels.maximum-money-wager", 1_000_000),
+                0, 1_000_000_000, "money", false);
+        integer("pvp-duels.maximum-spectators", "Viewing stand capacity", "PvP Duels",
+                "Most anchored spectators who may watch one duel at once.",
+                config.getLong("pvp-duels.maximum-spectators", 8),
+                0, 64, "players", false);
+
         integer("verification.expiry-seconds", "Verification expiry", "Players",
                 "Seconds a pending verification stays valid before it lapses.",
                 config.getLong("verification-expiry-seconds", 900L), 60, 604_800, "seconds", false);

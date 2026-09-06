@@ -56,12 +56,15 @@ final class ClientParityTest {
                 "HomesDialogService.java",
                 "ClanWarpDialogService.java",
                 "StatsDialogService.java",
-                "TeleportDialogService.java"
+                "TeleportDialogService.java",
+                "PvpDuelService.java"
         );
         List<String> missing = new ArrayList<>();
         for (String name : typed) {
             String text = Files.readString(SOURCE.resolve(name), StandardCharsets.UTF_8);
-            if (text.contains("DialogInput.text") && !text.contains("forms.prompt")) {
+            if (text.contains("DialogInput.text")
+                    && !text.contains("forms.prompt")
+                    && !text.contains("forms.twoTextsAndToggle")) {
                 missing.add(name);
             }
         }

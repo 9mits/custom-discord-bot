@@ -138,7 +138,7 @@ final class GuideService implements CommandExecutor, TabCompleter {
         player.sendMessage(detail("IDENTITY", "The clan name is also its 2-6 character tag.", GOLD));
         player.sendMessage(detail("THEME", "Leaders can choose a named color or custom hex color.", NamedTextColor.LIGHT_PURPLE));
         player.sendMessage(detail("VISIBILITY", "Your tag appears in chat, nametags, Tab, and the scoreboard.", NamedTextColor.AQUA));
-        player.sendMessage(detail("PROTECTION", "Members of the same clan cannot damage one another.", NamedTextColor.GREEN));
+        player.sendMessage(detail("PROTECTION", "Members of the same clan cannot damage one another outside an accepted /pvp duel.", NamedTextColor.GREEN));
         player.sendMessage(detail(
                 "MANAGEMENT",
                 "Any member can donate. Leaders manage settings and staff; leaders and staff can invite or remove members.",
@@ -168,6 +168,7 @@ final class GuideService implements CommandExecutor, TabCompleter {
         player.sendMessage(guideLink("/warp", "Open the public warp directory", NamedTextColor.AQUA));
         player.sendMessage(guideLink("/home", "Open your home directory", NamedTextColor.AQUA));
         player.sendMessage(guideLink("/rtp", "Find a safe random overworld location", NamedTextColor.GREEN));
+        player.sendMessage(guideLink("/pvp", "Arrange a consent-only fight with KEEP INVENTORY", NamedTextColor.RED));
         player.sendMessage(guideLink("/tpa <player>", "Request a teleport; the traveller waits after acceptance", NamedTextColor.YELLOW));
         player.sendMessage(guideLink("/leaderboard", "Richest players and clans", ORANGE));
         player.sendMessage(guideLink("/clans", "Open your available clan commands", GOLD));

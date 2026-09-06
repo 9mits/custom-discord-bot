@@ -43,7 +43,7 @@ final class TrophyHeadService implements Listener {
     public void onPlayerDeath(PlayerDeathEvent event) {
         Player victim = event.getPlayer();
         Player killer = victim.getKiller();
-        if (killer == null) {
+        if (killer == null || plugin.inPvpDuel(victim)) {
             return;
         }
         try {
