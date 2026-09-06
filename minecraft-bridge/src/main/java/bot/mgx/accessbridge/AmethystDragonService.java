@@ -158,6 +158,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     private double dragonHealthScale = 1d;
     private BossBar admissionBar;
     private BossBar dragonBar;
+    private BossBar rewardBar;
     private long lastAggressiveAttackAt;
     private long lastMinionWaveAt;
     private long lastChaosAt;
@@ -220,6 +221,9 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                 if (arena != null && key.equals("dragon-event.border-size")) {
                     arena.getWorldBorder().setSize(variables.integer("dragon-event.border-size"));
                 }
+                if (phase == Phase.REWARDS && key.startsWith("dragon-event.reward-bossbar")) {
+                    createRewardBar();
+                }
             });
         });
     }
@@ -249,6 +253,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         cancelSummoningTask();
         hideAdmissionBar();
         hideDragonBar();
+        hideRewardBar();
         hideVanillaDragonBar();
         CrateKind.dragonAvailableSource(() -> false);
         CrateKind.dragonEndSource(() -> 0L);
@@ -325,6 +330,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
             closeRewards();
         }
         if (phase == Phase.PORTAL_OPEN) updateAdmissionBar();
+        if (phase == Phase.REWARDS) updateRewardBar();
         updateDisplays();
         pulseEffects();
     }
@@ -388,6 +394,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     private void prepareRun() {
         runGeneration++;
         hideDragonBar();
+        hideRewardBar();
         recreateArenaForRun();
         prepareArena();
         entrants.clear();
@@ -652,6 +659,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         phase = Phase.REWARDS;
         phaseEndsAt = System.currentTimeMillis()
                 + variables.integer("dragon-event.crate-minutes") * 60_000L;
+        createRewardBar();
         dragon = null;
         int x = deathAt.getBlockX();
         int z = deathAt.getBlockZ();
@@ -681,6 +689,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         cancelSummoningTask();
         hideAdmissionBar();
         hideDragonBar();
+        hideRewardBar();
         hideVanillaDragonBar();
         phase = Phase.WAITING;
         phaseEndsAt = 0L;
@@ -1487,6 +1496,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         returnGateOccupants.remove(player.getUniqueId());
         departed.add(player.getUniqueId());
         if (admissionBar != null) player.hideBossBar(admissionBar);
+        if (rewardBar != null) player.hideBossBar(rewardBar);
         showStats(player);
         teleportSpawn(player);
     }
@@ -1525,17 +1535,30 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         };
         Runnable cancel = () -> {
             returnGateOccupants.remove(playerId);
+            player.closeDialog();
             player.sendActionBar(Component.text(
                     variables.string("dragon-event.exit-cancel-message"), NamedTextColor.GRAY));
         };
         String title = variables.string("dragon-event.exit-confirm-title");
         String body = variables.string("dragon-event.exit-confirm-message");
+        String heading = variables.string("dragon-event.exit-confirm-heading");
+        String details = variables.string("dragon-event.exit-confirm-details");
+        String time = render(variables.string("dragon-event.exit-confirm-time"),
+                "time", duration(phaseEndsAt - System.currentTimeMillis()));
         String button = variables.string("dragon-event.exit-confirm-button");
         if (!clientSupport.supportsDialogs(player)
-                && bedrockForms.confirm(player, title, body, button, confirm, cancel)) return;
+                && bedrockForms.confirm(player, title,
+                heading + "\n\n" + body + "\n\n" + details + "\n\n" + time,
+                button, confirm, cancel)) return;
         Screens.confirm(player, title, List.of(
                         io.papermc.paper.registry.data.dialog.body.DialogBody.plainMessage(
-                                Component.text(body, NamedTextColor.RED), 400)),
+                                Component.text(heading, NamedTextColor.RED, TextDecoration.BOLD), 420),
+                        io.papermc.paper.registry.data.dialog.body.DialogBody.plainMessage(
+                                Component.text(body, NamedTextColor.WHITE), 420),
+                        io.papermc.paper.registry.data.dialog.body.DialogBody.plainMessage(
+                                Component.text(details, NamedTextColor.GRAY), 420),
+                        io.papermc.paper.registry.data.dialog.body.DialogBody.plainMessage(
+                                Component.text(time, AMETHYST, TextDecoration.BOLD), 420)),
                 button, NamedTextColor.RED, ignored -> confirm.run(), ignored -> cancel.run());
     }
 
@@ -1561,6 +1584,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                     "The Dragon arena is sealed until the fight ends.", NamedTextColor.RED));
         } else if (phase == Phase.REWARDS) {
             departed.add(playerId);
+            if (rewardBar != null) event.getPlayer().hideBossBar(rewardBar);
             resetArenaSky(event.getPlayer());
         }
     }
@@ -2298,6 +2322,40 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         if (dragonBar == null) return;
         for (Player player : Bukkit.getOnlinePlayers()) player.hideBossBar(dragonBar);
         dragonBar = null;
+    }
+
+    private void createRewardBar() {
+        hideRewardBar();
+        if (!variables.bool("dragon-event.reward-bossbar-enabled")) return;
+        rewardBar = BossBar.bossBar(Component.empty(), 1f,
+                variables.barColour("dragon-event.reward-bossbar-color", BossBar.Color.PURPLE),
+                BossBar.Overlay.valueOf(variables.string("dragon-event.reward-bossbar-overlay")));
+        updateRewardBar();
+    }
+
+    private void updateRewardBar() {
+        if (!variables.bool("dragon-event.reward-bossbar-enabled")) {
+            hideRewardBar();
+            return;
+        }
+        if (rewardBar == null) createRewardBar();
+        if (rewardBar == null || arena == null) return;
+        long remaining = Math.max(0L, phaseEndsAt - System.currentTimeMillis());
+        long total = Math.max(1L, variables.integer("dragon-event.crate-minutes") * 60_000L);
+        rewardBar.name(Component.text(render(variables.string("dragon-event.reward-bossbar-text"),
+                "time", duration(remaining)), AMETHYST, TextDecoration.BOLD));
+        rewardBar.progress((float) Math.clamp((double) remaining / total, 0d, 1d));
+        for (Player player : arena.getPlayers()) {
+            if (entrants.contains(player.getUniqueId()) && !departed.contains(player.getUniqueId())) {
+                player.showBossBar(rewardBar);
+            }
+        }
+    }
+
+    private void hideRewardBar() {
+        if (rewardBar == null) return;
+        for (Player player : Bukkit.getOnlinePlayers()) player.hideBossBar(rewardBar);
+        rewardBar = null;
     }
 
     private void keyWaterfall(Location origin, int count) {
