@@ -30,9 +30,11 @@ final class CrateItems {
     private final NamespacedKey legacyRewardSpinMarker;
     private final CosmeticStore cosmeticStore;
     private final SpecialItemService specialItems;
+    private final GameVariableStore variables;
 
     CrateItems(
-            MGXAccessBridge plugin, CosmeticStore cosmeticStore, SpecialItemService specialItems
+            MGXAccessBridge plugin, CosmeticStore cosmeticStore, SpecialItemService specialItems,
+            GameVariableStore variables
     ) {
         keyMarker = new NamespacedKey(plugin, "crate_key");
         keyCountMarker = new NamespacedKey(plugin, "crate_key_count");
@@ -43,6 +45,7 @@ final class CrateItems {
         legacyRewardSpinMarker = new NamespacedKey(plugin, "lootbox_reward_spin");
         this.cosmeticStore = cosmeticStore;
         this.specialItems = specialItems;
+        this.variables = variables;
     }
 
     ItemStack shard(int amount) {
@@ -81,6 +84,9 @@ final class CrateItems {
 
     ItemStack key(long amount) {
         if (amount <= 0) throw new IllegalArgumentException("Key amount must be positive.");
+        if (amount > keyStackSize()) {
+            throw new IllegalArgumentException("One key stack cannot exceed " + keyStackSize() + ".");
+        }
         ItemStack item = new ItemStack(Material.TRIAL_KEY);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
@@ -103,6 +109,32 @@ final class CrateItems {
             item.setItemMeta(meta);
         }
         return item;
+    }
+
+    /** Builds visible key bundles whose displayed balance never exceeds the configured cap. */
+    List<ItemStack> keyStacks(long amount) {
+        List<ItemStack> stacks = new ArrayList<>();
+        for (long portion : keyPortions(amount, keyStackSize())) {
+            stacks.add(key(portion));
+        }
+        return List.copyOf(stacks);
+    }
+
+    static List<Long> keyPortions(long amount, int maximum) {
+        if (amount < 0L) throw new IllegalArgumentException("Key amount cannot be negative.");
+        if (maximum < 1) throw new IllegalArgumentException("Key stack size must be positive.");
+        List<Long> portions = new ArrayList<>();
+        long remaining = amount;
+        while (remaining > 0L) {
+            long portion = Math.min(remaining, maximum);
+            portions.add(portion);
+            remaining -= portion;
+        }
+        return List.copyOf(portions);
+    }
+
+    private int keyStackSize() {
+        return variables.integer("crate.key-stack-size");
     }
 
     boolean isKey(ItemStack item) {
@@ -135,56 +167,89 @@ final class CrateItems {
         return Math.addExact(total, keyCount(player.getInventory().getItemInOffHand()));
     }
 
-    /** One transferable item holds the balance; legacy 64-stacks keep their full value. */
+    /** Consolidates legacy physical stacks, then splits them into capped 999-style bundles. */
     void upgradeLegacyKeys(Player player) {
         ItemStack[] storage = player.getInventory().getStorageContents();
-        int first = -1;
         long total = 0L;
+        List<Integer> available = new ArrayList<>();
         for (int i = 0; i < storage.length; i++) {
-            if (!isKey(storage[i])) continue;
-            if (first < 0) first = i;
-            total = Math.addExact(total, keyCount(storage[i]));
+            if (isKey(storage[i])) {
+                total = Math.addExact(total, keyCount(storage[i]));
+                available.add(i);
+            }
         }
         ItemStack offhand = player.getInventory().getItemInOffHand();
-        if (first < 0) {
-            if (isKey(offhand)) player.getInventory().setItemInOffHand(key(keyCount(offhand)));
-            return;
-        }
-        total = Math.addExact(total, keyCount(offhand));
-        ItemStack combined = key(total);
+        boolean keyInOffhand = isKey(offhand);
+        if (keyInOffhand) total = Math.addExact(total, keyCount(offhand));
+        if (total <= 0L) return;
         for (int i = 0; i < storage.length; i++) {
-            if (isKey(storage[i])) storage[i] = i == first ? combined : null;
+            if (storage[i] == null && !available.contains(i)) available.add(i);
+        }
+        int needed = keyPortions(total, keyStackSize()).size();
+        int slots = available.size() + (keyInOffhand ? 1 : 0);
+        // Preserve an oversized balance intact until the player has room to split it safely.
+        if (needed > slots) return;
+        for (int i = 0; i < storage.length; i++) {
+            if (isKey(storage[i])) storage[i] = null;
+        }
+        if (keyInOffhand) player.getInventory().setItemInOffHand(null);
+        List<ItemStack> stacks = keyStacks(total);
+        int written = 0;
+        for (int slot : available) {
+            if (written >= stacks.size()) break;
+            storage[slot] = stacks.get(written++);
         }
         player.getInventory().setStorageContents(storage);
-        if (isKey(offhand)) player.getInventory().setItemInOffHand(null);
+        if (written < stacks.size()) player.getInventory().setItemInOffHand(stacks.get(written));
     }
 
     boolean giveKeys(Player player, long amount) {
         if (amount <= 0) return false;
         upgradeLegacyKeys(player);
         ItemStack[] storage = player.getInventory().getStorageContents();
+        long capacity = 0L;
         for (int i = 0; i < storage.length; i++) {
-            if (isKey(storage[i])) {
-                storage[i] = key(Math.addExact(keyCount(storage[i]), amount));
-                player.getInventory().setStorageContents(storage);
-                return true;
-            }
+            long held = keyCount(storage[i]);
+            if (held > 0L && held < keyStackSize()) capacity += keyStackSize() - held;
+            else if (storage[i] == null) capacity += keyStackSize();
         }
         ItemStack offhand = player.getInventory().getItemInOffHand();
-        if (isKey(offhand)) {
-            player.getInventory().setItemInOffHand(key(Math.addExact(keyCount(offhand), amount)));
-            return true;
+        long offhandKeys = keyCount(offhand);
+        if (offhandKeys > 0L && offhandKeys < keyStackSize()) {
+            capacity += keyStackSize() - offhandKeys;
         }
-        var leftovers = player.getInventory().addItem(key(amount));
-        if (leftovers.isEmpty()) return true;
-        return false;
+        if (capacity < amount) return false;
+
+        long remaining = amount;
+        for (int i = 0; i < storage.length && remaining > 0L; i++) {
+            long held = keyCount(storage[i]);
+            if (held <= 0L || held >= keyStackSize()) continue;
+            long added = Math.min(remaining, keyStackSize() - held);
+            storage[i] = key(held + added);
+            remaining -= added;
+        }
+        if (remaining > 0L && offhandKeys > 0L && offhandKeys < keyStackSize()) {
+            long added = Math.min(remaining, keyStackSize() - offhandKeys);
+            player.getInventory().setItemInOffHand(key(offhandKeys + added));
+            remaining -= added;
+        }
+        for (int i = 0; i < storage.length && remaining > 0L; i++) {
+            if (storage[i] != null) continue;
+            long added = Math.min(remaining, keyStackSize());
+            storage[i] = key(added);
+            remaining -= added;
+        }
+        player.getInventory().setStorageContents(storage);
+        return remaining == 0L;
     }
 
     boolean giveKeysOrDrop(Player player, long amount) {
         if (giveKeys(player, amount)) return true;
-        Item dropped = player.getWorld().dropItemNaturally(player.getLocation(), key(amount));
-        dropped.setOwner(player.getUniqueId());
-        dropped.setPickupDelay(20);
+        for (ItemStack stack : keyStacks(amount)) {
+            Item dropped = player.getWorld().dropItemNaturally(player.getLocation(), stack);
+            dropped.setOwner(player.getUniqueId());
+            dropped.setPickupDelay(20);
+        }
         return true;
     }
 

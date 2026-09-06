@@ -249,7 +249,7 @@ final class AmethystMobService implements Listener {
             return;
         }
         int keys = keyDrop();
-        event.getDrops().add(crateItems.key(keys));
+        event.getDrops().addAll(crateItems.keyStacks(keys));
         entity.getWorld().spawnParticle(
                 Particle.DUST, entity.getLocation().add(0d, 1d, 0d), 45,
                 0.7d, 1d, 0.7d, 0d,
