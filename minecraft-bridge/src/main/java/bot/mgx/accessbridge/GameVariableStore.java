@@ -297,10 +297,18 @@ final class GameVariableStore {
         choice("dragon-event.portal-open-sound", "Portal open sound", "Dragon Presentation",
                 "Sound played server-wide when the portal opens.", "BLOCK_BEACON_ACTIVATE",
                 List.of("BLOCK_BEACON_ACTIVATE", "ENTITY_ENDER_DRAGON_GROWL", "UI_TOAST_CHALLENGE_COMPLETE"));
+        choice("dragon-event.portal-open-secondary-sound", "Portal open sound layer", "Dragon Presentation",
+                "Second sound played server-wide when the portal opens.", "ENTITY_ENDER_DRAGON_GROWL",
+                List.of("ENTITY_ENDER_DRAGON_GROWL", "BLOCK_END_PORTAL_SPAWN",
+                        "BLOCK_RESPAWN_ANCHOR_CHARGE", "BLOCK_AMETHYST_BLOCK_RESONATE"));
         choice("dragon-event.portal-closed-sound", "Portal close sound", "Dragon Presentation",
                 "Sound played server-wide when the portal seals and pillar summoning begins.",
                 "BLOCK_END_PORTAL_SPAWN",
                 List.of("BLOCK_END_PORTAL_SPAWN", "BLOCK_BEACON_DEACTIVATE", "BLOCK_RESPAWN_ANCHOR_DEPLETE"));
+        choice("dragon-event.portal-closed-secondary-sound", "Portal close sound layer", "Dragon Presentation",
+                "Second sound played server-wide when the portal seals.", "BLOCK_BEACON_DEACTIVATE",
+                List.of("BLOCK_BEACON_DEACTIVATE", "BLOCK_RESPAWN_ANCHOR_DEPLETE",
+                        "ENTITY_ENDERMAN_TELEPORT", "BLOCK_AMETHYST_BLOCK_RESONATE"));
         choice("dragon-event.start-sound", "Fight start sound", "Dragon Presentation",
                 "Sound played when the event begins.", "ENTITY_ENDER_DRAGON_GROWL",
                 List.of("ENTITY_ENDER_DRAGON_GROWL", "BLOCK_RESPAWN_ANCHOR_CHARGE", "ENTITY_WITHER_SPAWN"));
@@ -325,6 +333,11 @@ final class GameVariableStore {
         choice("dragon-event.egg-claim-sound", "Dragon Egg claim sound", "Dragon Presentation",
                 "Sound played for the player who claims an Amethyst Dragon Egg.", "UI_TOAST_CHALLENGE_COMPLETE",
                 List.of("UI_TOAST_CHALLENGE_COMPLETE", "BLOCK_END_PORTAL_SPAWN", "BLOCK_AMETHYST_BLOCK_CHIME"));
+        choice("dragon-event.egg-claim-secondary-sound", "Dragon Egg claim sound layer", "Dragon Presentation",
+                "Second client-only sound played for the player who claims an Amethyst Dragon Egg.",
+                "BLOCK_END_PORTAL_SPAWN",
+                List.of("BLOCK_END_PORTAL_SPAWN", "ITEM_TOTEM_USE",
+                        "BLOCK_AMETHYST_BLOCK_CHIME", "BLOCK_RESPAWN_ANCHOR_CHARGE"));
         choice("dragon-event.elytra-create-sound", "Elytra creation sound", "Dragon Presentation",
                 "Sound played when an egg awakens an Amethyst Elytra.", "BLOCK_RESPAWN_ANCHOR_CHARGE",
                 List.of("BLOCK_RESPAWN_ANCHOR_CHARGE", "ITEM_TOTEM_USE", "BLOCK_BEACON_ACTIVATE"));
@@ -365,8 +378,29 @@ final class GameVariableStore {
         choice("dragon-event.entry-sound", "Entry teleport sound", "Dragon Presentation",
                 "Sound played when a player arrives in the Dragon arena.", "ENTITY_ENDERMAN_TELEPORT",
                 List.of("ENTITY_ENDERMAN_TELEPORT", "BLOCK_END_PORTAL_SPAWN", "BLOCK_RESPAWN_ANCHOR_CHARGE"));
+        choice("dragon-event.entry-secondary-sound", "Entry teleport sound layer", "Dragon Presentation",
+                "Second client-only sound played to a player entering the Dragon arena.",
+                "BLOCK_AMETHYST_BLOCK_CHIME",
+                List.of("BLOCK_AMETHYST_BLOCK_CHIME", "BLOCK_END_PORTAL_SPAWN",
+                        "BLOCK_RESPAWN_ANCHOR_CHARGE", "ITEM_CHORUS_FRUIT_TELEPORT"));
         decimal("dragon-event.entry-pitch", "Entry teleport pitch", "Dragon Presentation",
                 "Pitch of the arena arrival sound.", 1.15, 0.5, 2.0, "pitch");
+        decimal("dragon-event.entry-secondary-pitch", "Entry sound layer pitch", "Dragon Presentation",
+                "Pitch of the second arena arrival sound.", 1.55, 0.5, 2.0, "pitch");
+        choice("dragon-event.exit-sound", "Exit teleport sound", "Dragon Presentation",
+                "Client-only sound played to a player leaving the Dragon dimension.",
+                "ENTITY_ENDERMAN_TELEPORT",
+                List.of("ENTITY_ENDERMAN_TELEPORT", "BLOCK_END_PORTAL_SPAWN",
+                        "UI_TOAST_CHALLENGE_COMPLETE", "ITEM_CHORUS_FRUIT_TELEPORT"));
+        choice("dragon-event.exit-secondary-sound", "Exit teleport sound layer", "Dragon Presentation",
+                "Second client-only sound played to a player leaving the Dragon dimension.",
+                "BLOCK_AMETHYST_BLOCK_CHIME",
+                List.of("BLOCK_AMETHYST_BLOCK_CHIME", "BLOCK_BEACON_ACTIVATE",
+                        "UI_TOAST_CHALLENGE_COMPLETE", "BLOCK_END_PORTAL_SPAWN"));
+        decimal("dragon-event.exit-pitch", "Exit teleport pitch", "Dragon Presentation",
+                "Pitch of the Dragon dimension exit sound.", 1.0, 0.5, 2.0, "pitch");
+        decimal("dragon-event.exit-secondary-pitch", "Exit sound layer pitch", "Dragon Presentation",
+                "Pitch of the second Dragon dimension exit sound.", 1.45, 0.5, 2.0, "pitch");
         integer("dragon-event.portal-selection-distance", "Portal selection distance", "Dragon Event",
                 "Maximum distance used by /dragonportal set.", 48, 4, 128,
                 "blocks", false);
@@ -746,6 +780,10 @@ final class GameVariableStore {
                 "Volume of server-wide Dragon event announcement sounds.", 1.15, 0.0, 10.0, "volume");
         decimal("dragon-event.announcement-pitch", "Dragon announcement pitch", "Dragon Presentation",
                 "Pitch of server-wide Dragon event announcement sounds.", 1.0, 0.5, 2.0, "pitch");
+        decimal("dragon-event.portal-open-secondary-pitch", "Portal open layer pitch", "Dragon Presentation",
+                "Pitch of the second server-wide portal opening sound.", 0.75, 0.5, 2.0, "pitch");
+        decimal("dragon-event.portal-closed-secondary-pitch", "Portal close layer pitch", "Dragon Presentation",
+                "Pitch of the second server-wide portal closing sound.", 0.8, 0.5, 2.0, "pitch");
         decimal("dragon-event.damage-wave-pitch", "Damage reward pitch", "Dragon Presentation",
                 "Pitch of the damage reward wave sound.", 0.7, 0.5, 2.0, "pitch");
         decimal("dragon-event.crystal-break-pitch", "Crystal reward pitch", "Dragon Presentation",
@@ -754,6 +792,8 @@ final class GameVariableStore {
                 "Pitch of the Dragon's Amethyst Blast sound.", 1.35, 0.5, 2.0, "pitch");
         decimal("dragon-event.egg-claim-pitch", "Dragon Egg claim pitch", "Dragon Presentation",
                 "Pitch of the Dragon Egg claim sound.", 1.1, 0.5, 2.0, "pitch");
+        decimal("dragon-event.egg-claim-secondary-pitch", "Dragon Egg sound layer pitch", "Dragon Presentation",
+                "Pitch of the second client-only Dragon Egg claim sound.", 0.8, 0.5, 2.0, "pitch");
         decimal("dragon-event.elytra-create-pitch", "Elytra creation pitch", "Dragon Presentation",
                 "Pitch of the Amethyst Elytra creation sound.", 1.3, 0.5, 2.0, "pitch");
         bool("low-activity-boost.enabled", "Low-activity boost enabled", "Amethyst Events",
@@ -786,12 +826,6 @@ final class GameVariableStore {
                 "level", false);
         integer("amethyst-items.bow-infinity-level", "Amethyst Bow Infinity", "Amethyst Items",
                 "Infinity level on new Amethyst Bows. Set to zero to disable it.", 1, 0, 1,
-                "level", false);
-        integer("amethyst-items.rod-luck-level", "Fishing Rod luck", "Amethyst Items",
-                "Luck of the Sea level applied to new Amethyst Fishing Rods.", 5, 0, 255,
-                "level", false);
-        integer("amethyst-items.rod-lure-level", "Fishing Rod lure", "Amethyst Items",
-                "Lure level applied to new Amethyst Fishing Rods.", 5, 0, 255,
                 "level", false);
         integer("amethyst-items.arrow-damage", "Amethyst Arrow bonus damage", "Amethyst Items",
                 "Extra damage dealt by a consumable Amethyst Arrow.", 8, 0, 1000, "damage", false);

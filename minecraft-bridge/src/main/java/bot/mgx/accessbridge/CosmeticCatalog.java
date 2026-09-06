@@ -667,6 +667,18 @@ final class CosmeticCatalog {
         return AMETHYST_AIRDROP_REWARDS;
     }
 
+    /** Session-only wardrobe set used by the local Amethyst expansion test kit. */
+    static List<Definition> latestAmethystExpansionRewards() {
+        return java.util.stream.Stream.of(
+                        AMETHYST_REWARDS.stream(), HIDDEN_AMETHYST_REWARDS.stream(),
+                        AMETHYST_AIRDROP_REWARDS.stream(), DRAGON_REWARDS.stream(),
+                        HIDDEN_DRAGON_REWARDS.stream(), DRAGON_LEADERBOARD_REWARDS.stream(),
+                        DRAGON_CLAN_REWARDS.stream()
+                )
+                .flatMap(stream -> stream)
+                .toList();
+    }
+
     /** Crate and leaderboard entries whose item models must ship in the resource pack. */
     static List<Definition> visualEntries() {
         return java.util.stream.Stream.of(

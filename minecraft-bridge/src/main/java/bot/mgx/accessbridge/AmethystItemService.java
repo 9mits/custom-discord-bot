@@ -26,7 +26,6 @@ import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityShootBowEvent;
 import org.bukkit.event.entity.EntityResurrectEvent;
 import org.bukkit.event.inventory.InventoryOpenEvent;
-import org.bukkit.event.player.PlayerFishEvent;
 import org.bukkit.event.player.PlayerItemConsumeEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerItemDamageEvent;
@@ -60,7 +59,7 @@ final class AmethystItemService implements Listener {
     private static final TextColor AMETHYST = TextColor.color(0xB56CFF);
     private static final Set<String> TIMED_KINDS = Set.of(
             "pickaxe", "shovel", "axe", "shield", "sword", "hoe", "bow",
-            "fishing_rod", "helmet", "chestplate", "leggings", "boots", "elytra"
+            "helmet", "chestplate", "leggings", "boots", "elytra"
     );
     private static final Set<String> ARMOR_KINDS = Set.of("helmet", "chestplate", "leggings", "boots");
     /** The three that break blocks, and so the three Efficiency means anything on. */
@@ -163,10 +162,6 @@ final class AmethystItemService implements Listener {
                     Material.BOW, "bow", "Amethyst Bow",
                     "Crystal shots deal bonus damage", "Every shot leaves violet lightning",
                     "mgx:amethyst_bow"));
-            case "amethyst_fishing_rod" -> Optional.of(createTimed(
-                    Material.FISHING_ROD, "fishing_rod", "Amethyst Fishing Rod",
-                    "Treasure-tuned fishing", "Luck of the Sea V and Lure V",
-                    "mgx:amethyst_fishing_rod"));
             case "amethyst_helmet" -> Optional.of(armor(Material.DIAMOND_HELMET, "helmet", "Amethyst Helmet"));
             case "amethyst_chestplate" -> Optional.of(armor(Material.DIAMOND_CHESTPLATE, "chestplate", "Amethyst Chestplate"));
             case "amethyst_leggings" -> Optional.of(armor(Material.DIAMOND_LEGGINGS, "leggings", "Amethyst Leggings"));
@@ -287,12 +282,6 @@ final class AmethystItemService implements Listener {
                 int infinity = (int) tuned("amethyst-items.bow-infinity-level", 1);
                 if (infinity > 0) meta.addEnchant(Enchantment.INFINITY, infinity, true);
             }
-            case "fishing_rod" -> {
-                meta.addEnchant(Enchantment.LUCK_OF_THE_SEA,
-                        (int) tuned("amethyst-items.rod-luck-level", 5), true);
-                meta.addEnchant(Enchantment.LURE,
-                        (int) tuned("amethyst-items.rod-lure-level", 5), true);
-            }
             default -> { }
         }
         NamespacedKey model = NamespacedKey.fromString(modelKey);
@@ -331,7 +320,6 @@ final class AmethystItemService implements Listener {
         String trigger = switch (kind) {
             case "shield" -> "Timer begins on your first successful block.";
             case "sword", "bow" -> "Timer begins on your first attack.";
-            case "fishing_rod" -> "Timer begins on your first cast.";
             case "helmet", "chestplate", "leggings", "boots", "elytra" ->
                     "Timer begins when equipped and used.";
             default -> "Timer begins when you first break a block.";
@@ -546,13 +534,6 @@ final class AmethystItemService implements Listener {
                 crystalLightning(event.getEntity());
             }
         }
-    }
-
-    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
-    public void onFish(PlayerFishEvent event) {
-        ItemStack rod = event.getPlayer().getInventory().getItemInMainHand();
-        if (kind(rod).filter("fishing_rod"::equals).isPresent()
-                && !expired(rod, System.currentTimeMillis())) activate(event.getPlayer(), rod);
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)

@@ -162,7 +162,6 @@ class ResourcePackCatalogTest {
                 Map.entry("amethyst_sword.png", List.of(16, 16)),
                 Map.entry("amethyst_hoe.png", List.of(16, 16)),
                 Map.entry("amethyst_bow.png", List.of(16, 16)),
-                Map.entry("amethyst_fishing_rod.png", List.of(16, 16)),
                 Map.entry("amethyst_helmet.png", List.of(16, 16)),
                 Map.entry("amethyst_chestplate.png", List.of(16, 16)),
                 Map.entry("amethyst_leggings.png", List.of(16, 16)),

@@ -12,6 +12,7 @@ import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemStack;
 import org.bukkit.util.StringUtil;
 
 import java.util.ArrayList;
@@ -51,7 +52,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
      */
     private static final List<String> SUBCOMMANDS = List.of(
             "startserver", "teststart", "pvp", "give", "ranks", "eco", "bounty", "hologram",
-            "reset", "testverify", "testcrate", "testairdrop", "testamethystblock", "devblog", "update", "serials",
+            "reset", "testverify", "testcrate", "testlatest", "testairdrop", "testamethystblock", "devblog", "update", "serials",
             "cosmetics", "clanbattle", "event", "variables", "help"
     );
     private static final List<String> CRATE_REVEAL_TIERS = List.of(
@@ -101,6 +102,8 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     private final AmethystProgressStore amethystProgress;
     private final ClanBattleService clanBattles;
     private final GameVariableStore variables;
+    private final AmethystItemService amethystItems;
+    private final AmethystDragonService amethystDragon;
 
     AdminCommandService(
             MGXAccessBridge plugin,
@@ -122,7 +125,9 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             AmethystBlockEventService amethystBlocks,
             AmethystProgressStore amethystProgress,
             ClanBattleService clanBattles,
-            GameVariableStore variables
+            GameVariableStore variables,
+            AmethystItemService amethystItems,
+            AmethystDragonService amethystDragon
     ) {
         this.plugin = plugin;
         this.rankSync = rankSync;
@@ -144,6 +149,8 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         this.amethystProgress = amethystProgress;
         this.clanBattles = clanBattles;
         this.variables = variables;
+        this.amethystItems = amethystItems;
+        this.amethystDragon = amethystDragon;
     }
 
     @Override
@@ -189,6 +196,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 case "reset" -> reset(sender, args);
                 case "testverify" -> testVerify(sender, args);
                 case "testcrate", "cratetest", "testreveal" -> testCrateReveal(sender, args);
+                case "testlatest", "latestkit" -> testLatestContent(sender);
                 case "airdrop", "calldrop" -> callAirdrop(sender, args);
                 case "testairdrop", "airdroptest", "testdrop" -> testAirdrop(sender, args);
                 case "testamethystblock", "testhugeblock" -> testAmethystBlock(sender, args);
@@ -1069,6 +1077,60 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         success(sender, "Verification reset requested. You will disconnect, then reconnect into the lobby.");
     }
 
+    /** Gives one non-serial test copy of every item and cosmetic from the Amethyst expansion. */
+    private void testLatestContent(CommandSender sender) {
+        if (!plugin.isLocalTestServer()) {
+            throw new IllegalArgumentException(
+                    "The latest-content kit is available only on the local test server."
+            );
+        }
+        if (!(sender instanceof Player player)) {
+            throw new IllegalArgumentException("Run /mgxadmin testlatest as the player testing it.");
+        }
+
+        List<ItemStack> itemKit = new ArrayList<>();
+        for (CrateCatalog.Reward reward : CrateCatalog.amethyst()) {
+            if (!reward.cosmetic() && CrateCatalog.isExclusiveAmethyst(reward)) {
+                itemKit.add(amethystItems.create(reward).orElseThrow(() ->
+                        new IllegalStateException("No test item exists for " + reward.id())));
+            }
+        }
+        itemKit.add(amethystDragon.eggForTesting());
+        long emptySlots = Arrays.stream(player.getInventory().getStorageContents())
+                .filter(java.util.Objects::isNull)
+                .count();
+        if (emptySlots < itemKit.size()) {
+            throw new IllegalArgumentException(
+                    "Make at least " + itemKit.size() + " empty inventory slots first."
+            );
+        }
+        for (ItemStack item : itemKit) {
+            if (!player.getInventory().addItem(item).isEmpty()) {
+                throw new IllegalStateException("The latest-content kit did not fit in your inventory.");
+            }
+        }
+
+        Set<String> alreadyStored = cosmetics.stored(player.getUniqueId()).stream()
+                .map(CosmeticStore.Token::cosmeticId)
+                .collect(Collectors.toSet());
+        int cosmeticCount = 0;
+        for (CosmeticCatalog.Definition definition
+                : CosmeticCatalog.latestAmethystExpansionRewards()) {
+            if (alreadyStored.add(definition.id())) {
+                cosmetics.mintPreview(player.getUniqueId(), definition.id());
+                cosmeticCount++;
+            }
+        }
+        player.updateInventory();
+        success(sender, "Added " + itemKit.size() + " Amethyst test items to your inventory and "
+                + cosmeticCount + " missing expansion cosmetics to your Wardrobe.");
+        report(sender, "latest_content_test", "Granted the local Amethyst expansion test kit")
+                .detail("player", player.getName())
+                .detail("items", Integer.toString(itemKit.size()))
+                .detail("cosmetics", Integer.toString(cosmeticCount))
+                .record();
+    }
+
     /** Runs the real reveal presentation without changing inventories or crate state. */
     private void testCrateReveal(CommandSender sender, String[] args) {
         if (!plugin.isLocalTestServer()) {
@@ -1551,6 +1613,11 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                             "  /mgxadmin testcrate <rarity> [player]", ORANGE
                     ).append(Component.text(
                             "  run the complete crate reveal without granting loot",
+                            NamedTextColor.GRAY
+                    )));
+            sender.sendMessage(Component.text("  /mgxadmin testlatest", ORANGE)
+                    .append(Component.text(
+                            "  give yourself every Amethyst expansion item and cosmetic",
                             NamedTextColor.GRAY
                     )));
             sender.sendMessage(Component.text("  /mgxadmin testairdrop all", ORANGE)

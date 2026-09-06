@@ -3,6 +3,7 @@ package bot.mgx.accessbridge;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -61,7 +62,7 @@ final class ShardCrateCatalogTest {
         Set<String> shardSources = CrateCatalog.shard().stream()
                 .map(CrateCatalog.Reward::sourceId).collect(java.util.stream.Collectors.toSet());
         Set<String> expectedItems = Set.of(
-                "amethyst_sword", "amethyst_hoe", "amethyst_bow", "amethyst_fishing_rod",
+                "amethyst_sword", "amethyst_hoe", "amethyst_bow",
                 "amethyst_helmet", "amethyst_chestplate", "amethyst_leggings", "amethyst_boots",
                 "amethyst_elytra", "amethyst_arrows", "amethyst_apple"
         );
@@ -75,6 +76,20 @@ final class ShardCrateCatalogTest {
                 .map(CrateCatalog.Reward::sourceId).collect(java.util.stream.Collectors.toSet());
         assertTrue(dragonSources.containsAll(expectedItems));
         assertEquals(9L, CrateCatalog.dragon().stream().filter(CrateCatalog.Reward::cosmetic).count());
+    }
+
+    @Test
+    void dragonOddsIncludeOneTraditionalMaskedSecretEntry() {
+        List<CrateCatalog.Reward> odds = CrateService.oddsRewards(
+                CrateKind.DRAGON, CrateCatalog.dragon()
+        );
+        assertEquals(CrateCatalog.dragon().size() + 1, odds.size());
+        CrateCatalog.Reward secret = odds.getLast();
+        assertTrue(secret.secret());
+        CosmeticCatalog.Definition definition = CosmeticCatalog.find(secret.cosmeticId()).orElseThrow();
+        assertTrue(definition.secret());
+        assertEquals(CosmeticCatalog.MASKED_MODEL_KEY,
+                CosmeticItems.previewModelKey(definition, true));
     }
 
     private static CrateCatalog.Reward find(String id) {

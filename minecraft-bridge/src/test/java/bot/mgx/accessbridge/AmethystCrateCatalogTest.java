@@ -140,7 +140,7 @@ final class AmethystCrateCatalogTest {
         for (CrateCatalog.Reward reward : CrateCatalog.amethyst()) {
             byTier.merge(reward.rarityDisplay(), reward.weight(), Integer::sum);
         }
-        assertEquals(62_547, byTier.get("Common"));
+        assertEquals(62_562, byTier.get("Common"));
         assertEquals(22_000, byTier.get("Uncommon"));
         assertEquals(11_000, byTier.get("Rare"));
         assertEquals(3_752, byTier.get("Epic"));
@@ -316,7 +316,7 @@ final class AmethystCrateCatalogTest {
                         "amethyst_(shards|blocks|purpur|purple_glass|purple_concrete|clusters|golden_carrots|experience_bottles|glowstone)"
                 ))
                 .mapToInt(CrateCatalog.Reward::weight).sum();
-        assertEquals(99_158, commonWeight);
+        assertEquals(99_181, commonWeight);
         assertEquals(CrateCatalog.TOTAL_WEIGHT,
                 CrateCatalog.dragon().stream().mapToInt(CrateCatalog.Reward::weight).sum());
         assertTrue(CrateCatalog.dragon().stream()
