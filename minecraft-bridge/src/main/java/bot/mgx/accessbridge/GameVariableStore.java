@@ -1076,8 +1076,8 @@ final class GameVariableStore {
                 0, 30, "seconds", false);
         integer("pvp-duels.arena-diameter", "Personal arena border", "PvP Duels",
                 "Width of the temporary personal border around a duel.",
-                config.getLong("pvp-duels.arena-diameter", 96),
-                32, 256, "blocks", false);
+                config.getLong("pvp-duels.arena-diameter", 160),
+                32, 400, "blocks", false);
         integer("pvp-duels.minimum-radius", "Arena search minimum", "PvP Duels",
                 "Nearest distance from world spawn an untouched duel arena may be placed.",
                 config.getLong("pvp-duels.minimum-radius", 2_000),

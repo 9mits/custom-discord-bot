@@ -23,6 +23,8 @@ import org.bukkit.World;
 import org.bukkit.WorldBorder;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.block.Block;
+import org.bukkit.block.BlockState;
+import org.bukkit.block.Container;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -33,16 +35,25 @@ import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Projectile;
 import org.bukkit.entity.TNTPrimed;
+import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Tameable;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockExplodeEvent;
+import org.bukkit.event.block.BlockFadeEvent;
+import org.bukkit.event.block.BlockFromToEvent;
+import org.bukkit.event.block.BlockPhysicsEvent;
+import org.bukkit.event.block.BlockFormEvent;
+import org.bukkit.event.block.BlockMultiPlaceEvent;
+import org.bukkit.event.block.BlockSpreadEvent;
+import org.bukkit.event.block.LeavesDecayEvent;
 import org.bukkit.event.block.BlockIgniteEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.entity.EntityChangeBlockEvent;
 import org.bukkit.event.entity.EntityPlaceEvent;
 import org.bukkit.event.entity.EntityExplodeEvent;
 import org.bukkit.event.entity.EntityPickupItemEvent;
@@ -133,6 +144,8 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     static final int SETUP_BOARD_SIZE = 27;
     /** Where the result board stops showing gains and starts showing losses. */
     private static final int RESULT_HALF = 18;
+    /** Blocks put back per tick, so a big revert never lands as one stall. */
+    private static final int RESTORE_BLOCKS_PER_TICK = 400;
     private static final String MONEY_INPUT = "money";
     /** No fight may be configured to outlast this, whatever the config says. */
     static final int MAXIMUM_DURATION_MINUTES = 15;
@@ -236,6 +249,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         BukkitTask countdownTask;
         BukkitTask timeoutTask;
         BukkitTask returnTask;
+        BukkitTask sweepTask;
 
         Fight(
                 UUID id,
@@ -305,6 +319,9 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     private final CosmeticItems cosmeticItems;
     private WardrobeService wardrobe;
     private final PvpDuelStore store;
+    private final ArenaRestoreStore arenaRestore;
+    /** What each fighter put down, so reverting the arena does not eat their blocks. */
+    private final Map<UUID, Map<Material, Integer>> placed = new HashMap<>();
     private final Map<UUID, Invitation> invitations = new LinkedHashMap<>();
     private final Map<UUID, Fight> fights = new LinkedHashMap<>();
     private final Map<UUID, Fight> fighting = new HashMap<>();
@@ -328,7 +345,8 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             BedrockForms forms,
             CosmeticStore cosmetics,
             CosmeticItems cosmeticItems,
-            java.nio.file.Path recoveryFile
+            java.nio.file.Path recoveryFile,
+            java.nio.file.Path arenaRestoreFile
     ) throws IOException {
         this.plugin = plugin;
         this.economy = economy;
@@ -338,6 +356,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         this.cosmetics = cosmetics;
         this.cosmeticItems = cosmeticItems;
         this.store = new PvpDuelStore(recoveryFile);
+        this.arenaRestore = new ArenaRestoreStore(arenaRestoreFile);
         this.victimKey = new org.bukkit.NamespacedKey(plugin, "trophy_victim");
         // Money can be repaired while its owner is offline. Items and locations wait
         // for join, but raising to the pre-duel value is idempotent and never removes
@@ -347,6 +366,24 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             if (economy.balance(entry.getKey()) < before) {
                 economy.set(entry.getKey(), before);
             }
+        }
+        // An arena the last run never got to put back. Deliberately delayed: worlds
+        // are ready by enable, but the chunks are not, and a revert on the enable
+        // tick would load them all before the server has finished starting.
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+            for (UUID duelId : arenaRestore.all().keySet()) {
+                restoreArena(duelId);
+            }
+        }, 200L);
+        plugin.getServer().getScheduler().runTaskTimer(plugin, this::flushArenaRestore, 40L, 40L);
+    }
+
+    private void flushArenaRestore() {
+        try {
+            arenaRestore.flush();
+        } catch (RuntimeException failure) {
+            plugin.getLogger().warning(
+                    "Could not save the PvP arena restore: " + failure.getMessage());
         }
     }
 
@@ -526,7 +563,10 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 "KEEP INVENTORY is always on. You never drop what you are carrying, and you keep your levels.",
                 "You are moved to untouched terrain nobody has visited, and put back on the exact block you left.",
                 "Only your opponent can hurt you, and you can only hurt them.",
-                "No blocks, buckets, boats, pearls or teleports. You cannot leave the ring.",
+                "Dig and build freely. Nothing you break drops, every block you place comes "
+                        + "back to you, and the arena is put back exactly as it was.",
+                "No buckets, boats, containers, pearls or teleports. You cannot leave the ring.",
+                "Nothing else is alive in there. Mobs are cleared and cannot spawn.",
                 "The winner takes both stakes and a trophy head. A draw hands everything back.",
                 "The fight lasts at most " + durationMinutes() + " minutes. Running out the clock is a draw.",
                 "Type /pvp to give up. Your opponent takes everything staked.",
@@ -1125,6 +1165,12 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             endFight(fight, null, "A protected teleport was refused — stakes returned");
             return;
         }
+        // Spawning is refused inside a live arena, but the arena is chosen and its
+        // chunks generated before the fight exists, so whatever generated with the
+        // terrain is already standing in it.
+        clearArenaMobs(fight);
+        fight.sweepTask = plugin.getServer().getScheduler().runTaskTimer(
+                plugin, () -> clearArenaMobs(fight), 100L, 100L);
         record("duel_started", first, fight.label() + " began a PvP fight")
                 .detail("opponent", second.getName())
                 .detail("money_each", String.valueOf(fight.moneyEach))
@@ -1433,11 +1479,15 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         }
         fight.phase = Phase.ENDING;
         cancel(fight.returnTask);
+        cancel(fight.sweepTask);
         fighting.remove(fight.first);
         fighting.remove(fight.second);
         fights.remove(fight.id);
         for (UUID playerId : List.of(fight.first, fight.second)) {
             Player player = Bukkit.getPlayer(playerId);
+            // Owed before the teleport, so the blocks land in their inventory rather
+            // than on the arena floor that is about to be put back.
+            returnPlacedBlocks(playerId);
             restoreAtEnd(player, fight.states.get(playerId));
             if (player == null || player.isDead()) {
                 continue;
@@ -1455,6 +1505,11 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 runLater(player, this::openResultScreen);
             }
         }
+        // Last, with both fighters already gone: nobody is standing in a block that
+        // is about to come back, and the floor is swept before it is put back so a
+        // broken container's spill cannot outlive the container it came from.
+        sweepArena(fight);
+        restoreArena(fight.id);
     }
 
     private void settleMoney(Fight fight, UUID winnerId) {
@@ -2447,14 +2502,331 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         error(player, message);
     }
 
+    /**
+     * Fighters may dig, and every block they touch is written down first.
+     *
+     * <p>The terrain is real, untouched, generated-for-this-fight world, so breaking
+     * cover is fair and mining it is not: nothing dropped, and the whole arena is put
+     * back when the fight is over. A spectator is still refused outright — they are
+     * standing in someone else's fight.
+     */
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onBreak(BlockBreakEvent event) {
-        if (isParticipant(event.getPlayer().getUniqueId())) event.setCancelled(true);
+        Fight fight = fighting.get(event.getPlayer().getUniqueId());
+        if (fight == null) {
+            if (isParticipant(event.getPlayer().getUniqueId())) event.setCancelled(true);
+            return;
+        }
+        if (fight.phase != Phase.FIGHTING || !insideArena(fight, event.getBlock().getLocation())) {
+            event.setCancelled(true);
+            return;
+        }
+        remember(fight, event.getBlock());
+        // The arena is fresh world nobody has mined. Letting it drop would make a duel
+        // the cheapest diamond in the game.
+        event.setDropItems(false);
+        event.setExpToDrop(0);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onPlace(BlockPlaceEvent event) {
-        if (isParticipant(event.getPlayer().getUniqueId())) event.setCancelled(true);
+        Fight fight = fighting.get(event.getPlayer().getUniqueId());
+        if (fight == null) {
+            if (isParticipant(event.getPlayer().getUniqueId())) event.setCancelled(true);
+            return;
+        }
+        if (fight.phase != Phase.FIGHTING
+                || !insideArena(fight, event.getBlockPlaced().getLocation())) {
+            event.setCancelled(true);
+            return;
+        }
+        // A chest placed mid-fight would be reverted away with whatever was put in
+        // it, and only the chest itself is owed back. Refusing the placement is a
+        // smaller loss than eating an inventory.
+        if (event.getBlockPlaced().getState() instanceof Container) {
+            event.setCancelled(true);
+            maybeNotice(event.getPlayer(), "Containers cannot be placed in a fight.");
+            return;
+        }
+        if (event instanceof BlockMultiPlaceEvent multi) {
+            for (BlockState replaced : multi.getReplacedBlockStates()) {
+                remember(fight, replaced.getBlock());
+            }
+        } else {
+            remember(fight, event.getBlockPlaced());
+        }
+        // Reverting the arena deletes this block, so its owner is owed it back. The
+        // item in hand, not the block, because a door and a bed are one item and two
+        // blocks.
+        ItemStack used = event.getItemInHand();
+        if (!empty(used)) {
+            placed.computeIfAbsent(event.getPlayer().getUniqueId(), ignored -> new HashMap<>())
+                    .merge(used.getType(), 1, Integer::sum);
+        }
+    }
+
+    /**
+     * A falling block is two block changes, and both are worth writing down.
+     *
+     * <p>Break the support out from under sand and the sand leaves its position and
+     * arrives somewhere lower. Recording only what the player hit would restore the
+     * hole and leave the sand where it landed.
+     */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onEntityChangeBlock(EntityChangeBlockEvent event) {
+        Fight fight = fightAt(event.getBlock().getLocation());
+        if (fight != null) {
+            remember(fight, event.getBlock());
+        }
+    }
+
+    /**
+     * The arena holds still for the length of the fight.
+     *
+     * <p>Everything here changes a block without anybody asking it to — lava finding
+     * a hole a fighter just made, leaves letting go of a felled tree, ice melting.
+     * Refusing the lot is what makes the recorded set of changes the complete set,
+     * and a revert that misses a change is a revert that leaves a scar.
+     */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onFlow(BlockFromToEvent event) {
+        if (fightAt(event.getBlock().getLocation()) != null
+                || fightAt(event.getToBlock().getLocation()) != null) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onForm(BlockFormEvent event) {
+        if (fightAt(event.getBlock().getLocation()) != null) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onSpread(BlockSpreadEvent event) {
+        if (fightAt(event.getBlock().getLocation()) != null) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onFade(BlockFadeEvent event) {
+        if (fightAt(event.getBlock().getLocation()) != null) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onLeavesDecay(LeavesDecayEvent event) {
+        if (fightAt(event.getBlock().getLocation()) != null) event.setCancelled(true);
+    }
+
+    /**
+     * The arena has no gravity and nothing pops off a wall for the length of a fight.
+     *
+     * <p>Dig out the block under a torch and vanilla breaks the torch; dig out the
+     * one under sand and the sand falls. Neither is a change anybody asked for, and
+     * neither passes through break or place, so neither would be written down —
+     * a revert would put the support back and leave the torch gone.
+     *
+     * <p>This event is one of the hottest Paper fires, so the guard leaves before it
+     * does anything at all unless a fight is actually running.
+     */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onPhysics(BlockPhysicsEvent event) {
+        if (fights.isEmpty()) {
+            return;
+        }
+        if (fightAt(event.getBlock().getLocation()) != null) {
+            event.setCancelled(true);
+        }
+    }
+
+    /**
+     * Empties the ring of anything alive that is not a fighter.
+     *
+     * <p>{@code onCreatureSpawn} refuses new spawns, but the arena's chunks are
+     * generated while it is still only a candidate, so the cows and skeletons that
+     * came with the terrain are already there when the fight registers. A repeat
+     * sweep also catches anything that walked in from beyond the border.
+     *
+     * <p>Tamed animals and armour stands are left alone. Nothing should own one out
+     * here, and deleting somebody's pet to tidy an arena is not a trade worth making.
+     */
+    private void clearArenaMobs(Fight fight) {
+        if (fight.phase == Phase.ENDING) {
+            return;
+        }
+        sweepArena(fight);
+    }
+
+    /** The sweep itself, also run once at teardown when the phase guard is past. */
+    private void sweepArena(Fight fight) {
+        Location center = fight.arena.center();
+        World world = center.getWorld();
+        if (world == null) {
+            return;
+        }
+        // The arena is a cylinder, so the box only needs its radius across, and a
+        // generous but bounded height rather than the whole column.
+        double reach = fight.arena.diameter() / 2d + 4d;
+        for (Entity entity : world.getNearbyEntities(center, reach, 160d, reach)) {
+            if (!insideArena(fight, entity.getLocation())) {
+                continue;
+            }
+            // Nothing legitimately drops in a duel: keep-inventory is on, block
+            // breaking drops nothing and dropping is refused. Anything lying on the
+            // floor is spill from a broken container that is about to be restored
+            // holding those same items.
+            if (entity instanceof org.bukkit.entity.Item) {
+                entity.remove();
+                continue;
+            }
+            if (!(entity instanceof LivingEntity) || entity instanceof Player
+                    || entity instanceof org.bukkit.entity.ArmorStand
+                    || (entity instanceof Tameable tameable && tameable.getOwner() != null)) {
+                continue;
+            }
+            entity.remove();
+        }
+    }
+
+    private boolean insideArena(Fight fight, Location location) {
+        Location center = fight.arena.center();
+        return center.getWorld() != null && center.getWorld().equals(location.getWorld())
+                && PvpDuelRules.inside(location.getX(), location.getZ(),
+                        center.getX(), center.getZ(), fight.arena.diameter());
+    }
+
+    /** The live fight whose ring holds this block, or null. */
+    private Fight fightAt(Location location) {
+        if (fights.isEmpty() || location.getWorld() == null) {
+            return null;
+        }
+        for (Fight fight : fights.values()) {
+            if (insideArena(fight, location)) {
+                return fight;
+            }
+        }
+        return null;
+    }
+
+    /** Writes down what a position held, once, before anything changes it. */
+    private void remember(Fight fight, Block block) {
+        Location center = fight.arena.center();
+        if (center.getWorld() == null) {
+            return;
+        }
+        String contents = "";
+        if (block.getState() instanceof Container container) {
+            contents = encodeItems(container.getInventory().getContents());
+        }
+        try {
+            arenaRestore.remember(fight.id, center.getWorld().getUID(),
+                    center.getWorld().getName(), new ArenaRestoreStore.Snapshot(
+                            block.getX(), block.getY(), block.getZ(),
+                            block.getBlockData().getAsString(), contents));
+        } catch (RuntimeException failure) {
+            plugin.getLogger().warning("Could not record a PvP arena block: "
+                    + failure.getMessage());
+        }
+    }
+
+    /**
+     * Puts the arena back exactly as the world generated it.
+     *
+     * <p>Physics is deliberately off. Replaying a hillside with physics on starts
+     * the sand falling again the moment the block under it lands, which is the same
+     * damage this is undoing.
+     */
+    private void restoreArena(UUID duelId) {
+        ArenaRestoreStore.ArenaEdits edits = arenaRestore.find(duelId).orElse(null);
+        if (edits == null) {
+            return;
+        }
+        World world = Bukkit.getWorld(edits.worldId());
+        if (world == null) {
+            world = Bukkit.getWorld(edits.worldName());
+        }
+        if (world == null) {
+            // Keep the record. The world may be back on the next start, and a scar
+            // that can still be undone is better than one that cannot.
+            plugin.getLogger().warning("A PvP arena cannot be restored yet: world "
+                    + edits.worldName() + " is not loaded.");
+            return;
+        }
+        List<ArenaRestoreStore.Snapshot> pending = List.copyOf(edits.blocks().values());
+        if (!plugin.isEnabled()) {
+            // Shutting down: there is no next tick to spread the work over.
+            restoreRange(world, pending, 0, pending.size());
+            completeRestore(duelId, pending.size());
+            return;
+        }
+        restoreBatch(duelId, world, pending, 0);
+    }
+
+    /**
+     * Reverts a slice per tick.
+     *
+     * <p>A dug-out arena spans chunks that are no longer loaded — always so after a
+     * crash, where this runs at startup — and {@code getBlockAt} loads them as it
+     * goes. Doing thousands in one tick is a visible freeze at exactly the moment
+     * the server is trying to come up.
+     */
+    private void restoreBatch(
+            UUID duelId, World world, List<ArenaRestoreStore.Snapshot> pending, int from
+    ) {
+        int until = Math.min(pending.size(), from + RESTORE_BLOCKS_PER_TICK);
+        restoreRange(world, pending, from, until);
+        if (until >= pending.size()) {
+            completeRestore(duelId, pending.size());
+            return;
+        }
+        plugin.getServer().getScheduler().runTask(plugin,
+                () -> restoreBatch(duelId, world, pending, until));
+    }
+
+    private void restoreRange(
+            World world, List<ArenaRestoreStore.Snapshot> pending, int from, int until
+    ) {
+        for (int index = from; index < until; index++) {
+            ArenaRestoreStore.Snapshot snapshot = pending.get(index);
+            try {
+                Block block = world.getBlockAt(snapshot.x(), snapshot.y(), snapshot.z());
+                block.setBlockData(Bukkit.createBlockData(snapshot.blockData()), false);
+                if (!snapshot.contents().isEmpty()
+                        && block.getState() instanceof Container container) {
+                    container.getInventory().setContents(sized(
+                            decodeItems(snapshot.contents()),
+                            container.getInventory().getContents().length));
+                    container.update(true, false);
+                }
+            } catch (RuntimeException failure) {
+                plugin.getLogger().warning("Could not restore a PvP arena block at "
+                        + snapshot.x() + "," + snapshot.y() + "," + snapshot.z()
+                        + ": " + failure.getMessage());
+            }
+        }
+    }
+
+    private void completeRestore(UUID duelId, int restored) {
+        arenaRestore.forget(duelId);
+        flushArenaRestore();
+        if (restored > 0) {
+            plugin.getLogger().info("Restored " + restored + " block(s) of a PvP arena.");
+        }
+    }
+
+    /** Hands back what a fighter put down, since reverting the arena takes it away. */
+    private void returnPlacedBlocks(UUID playerId) {
+        Map<Material, Integer> owed = placed.remove(playerId);
+        Player player = Bukkit.getPlayer(playerId);
+        if (owed == null || owed.isEmpty() || player == null) {
+            return;
+        }
+        owed.forEach((material, count) -> {
+            int remaining = count;
+            while (remaining > 0) {
+                int stack = Math.min(remaining, material.getMaxStackSize());
+                giveSafely(player, new ItemStack(material, stack));
+                remaining -= stack;
+            }
+        });
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
@@ -2601,6 +2973,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         invitations.clear();
         prompts.clear();
         results.clear();
+        placed.clear();
         setupDrafts.clear();
         acceptDrafts.clear();
         lastChallenges.clear();
