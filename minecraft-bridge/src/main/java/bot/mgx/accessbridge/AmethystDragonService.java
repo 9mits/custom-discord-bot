@@ -1226,6 +1226,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
             rewardChest.getBlock().setType(Material.CHEST, false);
             completeReturnGate(center);
             spawnDragonCrateHologram();
+            announceRewardCrate(animatedChest);
             spawnRewardEggs();
             CrateDisplayService.spawnStyledLabel(center.clone().add(0, 2.03, 0),
                     Component.text(variables.string("dragon-event.return-gate-title"), AMETHYST,
@@ -1233,11 +1234,43 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
             CrateDisplayService.spawnStyledLabel(center.clone().add(0, 1.75, 0),
                     Component.text(variables.string("dragon-event.return-gate-subtitle"),
                             NamedTextColor.GRAY), DISPLAY_TAG);
-            arena.playSound(rewardChest,
-                    configuredSound("dragon-event.reward-spawn-sound", Sound.BLOCK_END_PORTAL_SPAWN),
-                    (float) variables.decimal("dragon-event.effect-sound-volume"),
-                    (float) variables.decimal("dragon-event.reward-spawn-pitch"));
         }, (long) steps * interval);
+    }
+
+    private void announceRewardCrate(Location chest) {
+        if (variables.bool("dragon-event.effects-enabled")) {
+            int particles = variables.integer("dragon-event.reward-crate-arrival-particles");
+            arena.spawnParticle(Particle.END_ROD, chest, particles / 3,
+                    3.5, 3.5, 3.5, .16);
+            arena.spawnParticle(Particle.REVERSE_PORTAL, chest, particles / 3,
+                    4.5, 2.8, 4.5, .2);
+            arena.spawnParticle(Particle.DUST, chest, particles - 2 * (particles / 3),
+                    3.8, 3.2, 3.8, .06, BRIGHT);
+            if (variables.bool("dragon-event.reward-crate-arrival-lightning")) {
+                arena.strikeLightningEffect(chest);
+            }
+        }
+        Sound sound = configuredSound("dragon-event.reward-spawn-sound", Sound.BLOCK_END_PORTAL_SPAWN);
+        float volume = (float) variables.decimal("dragon-event.effect-sound-volume");
+        float pitch = (float) variables.decimal("dragon-event.reward-spawn-pitch");
+        int cost = crates.keyCost(CrateKind.DRAGON);
+        Component title = Component.text(variables.string("dragon-event.reward-crate-title"),
+                AMETHYST, TextDecoration.BOLD);
+        Component subtitle = Component.text(rewardCrateSubtitle(
+                variables.string("dragon-event.reward-crate-subtitle"), cost), NamedTextColor.WHITE);
+        net.kyori.adventure.title.Title.Times times = net.kyori.adventure.title.Title.Times.times(
+                Duration.ofMillis(variables.integer("dragon-event.reward-crate-title-fade-in-ticks") * 50L),
+                Duration.ofMillis(variables.integer("dragon-event.reward-crate-title-stay-ticks") * 50L),
+                Duration.ofMillis(variables.integer("dragon-event.reward-crate-title-fade-out-ticks") * 50L));
+        for (Player player : arena.getPlayers()) {
+            if (!entrants.contains(player.getUniqueId()) || departed.contains(player.getUniqueId())) continue;
+            player.showTitle(net.kyori.adventure.title.Title.title(title, subtitle, times));
+            player.playSound(player.getLocation(), sound, volume, pitch);
+        }
+    }
+
+    static String rewardCrateSubtitle(String template, int cost) {
+        return template.replace("<cost>", Integer.toString(cost));
     }
 
     private void rewardSpawnFrame(Location gate, Location chest, int frame, int frames) {
@@ -1879,6 +1912,25 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
             arena.spawnParticle(Particle.END_ROD, point, 1, .05, .18, .05, 0);
             arena.spawnParticle(Particle.DUST, point, 1, .08, .08, .08, 0,
                     y % (spacing * 2) == 0 ? BRIGHT : DARK);
+        }
+        int rings = variables.integer("dragon-event.reward-beacon-ring-count");
+        int points = variables.integer("dragon-event.reward-beacon-ring-points");
+        double baseRadius = variables.decimal("dragon-event.reward-beacon-ring-radius");
+        double radiusSpacing = variables.decimal("dragon-event.reward-beacon-ring-spacing");
+        double phase = effectFrame * .16d;
+        for (int ring = 0; ring < rings; ring++) {
+            double radius = baseRadius + ring * radiusSpacing;
+            double y = -.25d + ring * .8d;
+            for (int point = 0; point < points; point++) {
+                double angle = phase * (ring % 2 == 0 ? 1d : -1d)
+                        + point * Math.PI * 2d / points;
+                Location at = centre.clone().add(
+                        Math.cos(angle) * radius,
+                        y + Math.sin(angle * 3d) * .35d,
+                        Math.sin(angle) * radius);
+                arena.spawnParticle(Particle.DUST, at, 1, 0, 0, 0, 0,
+                        ring % 2 == 0 ? BRIGHT : DARK);
+            }
         }
     }
 

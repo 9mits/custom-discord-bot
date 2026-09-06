@@ -56,6 +56,12 @@ final class GameVariableStoreTest {
         assertEquals(8, variables.integer("dragon-event.chaos-interval-seconds"));
         assertEquals(48, variables.integer("dragon-event.reward-beacon-height"));
         assertEquals(2, variables.integer("dragon-event.reward-beacon-spacing"));
+        assertEquals(3, variables.integer("dragon-event.reward-beacon-ring-count"));
+        assertEquals(360, variables.integer("dragon-event.reward-crate-arrival-particles"));
+        assertTrue(variables.bool("dragon-event.reward-crate-arrival-lightning"));
+        assertEquals("Follow the violet beacon • 3 Keys per opening",
+                AmethystDragonService.rewardCrateSubtitle(
+                        variables.string("dragon-event.reward-crate-subtitle"), 3));
         assertEquals("AMETHYST DRAGON — EVENT REPORT",
                 variables.string("dragon-event.stats-header"));
     }
