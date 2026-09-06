@@ -1677,7 +1677,7 @@ final class CosmeticEffectService implements Listener {
                         PlayerSettingsStore.Setting.OWN_AURA_VISIBLE));
         double beat = phaseMillis / 1_000.0d;
         for (int index = 0; index < heads.size(); index++) {
-            drawEscortBody(owner, heads.get(index), beat + index * Math.PI, sample);
+            drawEscortBody(owner, heads.get(index), beat + index * Math.PI, sample, moving);
         }
     }
 
@@ -1690,40 +1690,80 @@ final class CosmeticEffectService implements Listener {
      * the orbit rather than flapping sideways through it.
      */
     private void drawEscortBody(
-            Player owner, Location head, double beat, MusicAuraTimeline.Sample sample
+            Player owner, Location head, double beat, MusicAuraTimeline.Sample sample,
+            boolean moving
     ) {
-        Color membrane = Color.fromRGB(126, 48, 196);
-        Color edge = Color.fromRGB(224, 176, 255);
+        Color membrane = Color.fromRGB(108, 40, 172);
+        Color edge = Color.fromRGB(226, 178, 255);
+        Color bone = Color.fromRGB(158, 78, 226);
         Vector forward = head.getDirection().setY(0d);
         if (forward.lengthSquared() < 0.001d) {
             forward = new Vector(0d, 0d, 1d);
         }
         forward.normalize();
+        Vector back = forward.clone().multiply(-1d);
         Vector side = new Vector(-forward.getZ(), 0d, forward.getX());
-        double flap = Math.sin(beat * 6.5d) * (0.26d + sample.bass() * 0.22d);
+        // Everything below is in head-lengths, then scaled once. Drawn at full size the
+        // pair spanned three blocks of wing each and swallowed the player they orbit;
+        // the point of an escort is that it is small enough to be an escort.
+        double size = 0.62d;
+        double flap = Math.sin(beat * 5.5d) * (0.34d + sample.bass() * 0.26d) * size;
 
+        // Neck, body and a tapering tail, so the head is the front of something rather
+        // than an object on its own.
+        Location shoulders = head.clone().add(back.clone().multiply(0.42d * size)).add(0d, -0.04d * size, 0d);
+        drawLine(owner, head, shoulders, 3, bone, 0.6f,
+                PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        Location hips = shoulders.clone().add(back.clone().multiply(0.5d * size));
+        drawLine(owner, shoulders, hips, 4, membrane, 0.66f,
+                PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        Location previous = hips;
+        int tailSegments = moving ? 4 : 6;
+        for (int segment = 1; segment <= tailSegments; segment++) {
+            double sway = Math.sin(beat * 4d - segment * 0.7d) * (0.05d + segment * 0.035d) * size;
+            Location at = hips.clone()
+                    .add(back.clone().multiply(segment * 0.26d * size))
+                    .add(side.clone().multiply(sway))
+                    .add(0d, Math.sin(beat * 3d - segment * 0.5d) * 0.05d * size, 0d);
+            drawLine(owner, previous, at, 3, segment % 2 == 0 ? bone : membrane,
+                    Math.max(0.34f, 0.62f - segment * 0.045f),
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            previous = at;
+        }
+
+        // A wing is ribs plus the trailing edge between their tips. Ribs alone read as
+        // scattered dots, which is what the first attempt at this actually looked like.
         for (int wing : new int[]{-1, 1}) {
-            for (int bone = 1; bone <= 4; bone++) {
-                double reach = bone * 0.17d;
-                Location at = head.clone()
-                        .subtract(forward.clone().multiply(0.18d + bone * 0.05d))
+            Location joint = shoulders.clone()
+                    .add(side.clone().multiply(wing * 0.3d * size))
+                    .add(0d, 0.26d * size + flap * 0.55d, 0d);
+            drawLine(owner, shoulders, joint, 3, bone, 0.62f,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            Location previousTip = null;
+            // Every aura here thins as its wearer moves so a sprint does not smear the
+            // effect through the world. A wing is no exception: fewer ribs, and no
+            // trailing edge between them.
+            int ribs = moving ? 3 : 5;
+            for (int rib = 0; rib < ribs; rib++) {
+                double fan = rib / (double) (ribs - 1);
+                double reach = (0.55d + fan * 0.62d) * size;
+                Location tip = joint.clone()
                         .add(side.clone().multiply(wing * reach))
-                        .add(0d, 0.12d + flap * (bone / 4d), 0d);
-                dust(owner, at, bone % 2 == 0 ? edge : membrane,
-                        0.55f, PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+                        .add(back.clone().multiply(fan * 0.78d * size))
+                        .add(0d, flap * (1d - fan * 0.45d) - fan * 0.3d * size, 0d);
+                drawLine(owner, joint, tip, 4, rib % 2 == 0 ? edge : membrane, 0.58f,
+                        PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+                if (previousTip != null && !moving) {
+                    drawLine(owner, previousTip, tip, 3, membrane, 0.52f,
+                            PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+                }
+                previousTip = tip;
             }
         }
-        for (int segment = 1; segment <= 5; segment++) {
-            Location at = head.clone()
-                    .subtract(forward.clone().multiply(0.22d + segment * 0.16d))
-                    .add(0d, Math.sin(beat * 4d - segment * 0.6d) * 0.09d, 0d);
-            dust(owner, at, segment % 2 == 0 ? membrane : edge,
-                    Math.max(0.32f, 0.6f - segment * 0.05f),
-                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
-        }
+
         if (sample.onset() > 0.4d) {
-            spawnMoving(owner, head.clone().add(forward.clone().multiply(0.28d)),
-                    Particle.DRAGON_BREATH, forward.clone().multiply(0.045d), null,
+            spawnMoving(owner, head.clone().add(forward.clone().multiply(0.3d * size)),
+                    Particle.DRAGON_BREATH, forward.clone().multiply(0.05d), null,
                     PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
         }
     }
