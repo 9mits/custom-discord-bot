@@ -230,7 +230,8 @@ final class BountyService implements CommandExecutor, TabCompleter, Listener {
     public void onDeath(PlayerDeathEvent event) {
         Player victim = event.getEntity();
         Player killer = victim.getKiller();
-        if (killer == null || killer.getUniqueId().equals(victim.getUniqueId())) {
+        if (killer == null || killer.getUniqueId().equals(victim.getUniqueId())
+                || plugin.inPvpDuel(victim)) {
             return;
         }
         long available = bounties.amountOn(victim.getUniqueId());

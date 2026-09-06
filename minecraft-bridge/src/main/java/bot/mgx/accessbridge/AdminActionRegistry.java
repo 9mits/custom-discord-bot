@@ -106,11 +106,10 @@ final class AdminActionRegistry {
                 new Action("amethyst.spawn", "Start a Huge Amethyst Block", "Events",
                         "Places a cooperative Huge Amethyst Block, announced to everyone.",
                         "", List.of()),
-                new Action("pvp.set", "Pin PvP on or off", "Server",
-                        "Forces PvP either way everywhere, overriding the launch hold."
-                                + " Players are told, because it changes whether they can"
-                                + " be hit where they stand.",
-                        "Every player is told, and this survives a restart.", List.of(
+                new Action("pvp.set", "Pin safe PvP on or off", "Server",
+                        "Controls consent-only duels and overrides the launch hold."
+                                + " Turning it off resolves every live fight as a draw.",
+                        "Every player is told, and the setting survives a restart.", List.of(
                         Param.choice("state", "PvP", List.of("on", "off"), "")
                 )),
                 new Action("maintenance.set", "Hold the server closed", "Server",
@@ -204,7 +203,9 @@ final class AdminActionRegistry {
             case "pvp.set" -> {
                 boolean on = state(arguments);
                 plugin.forcePvp(on);
-                yield "PvP is pinned " + (on ? "on" : "off") + " everywhere.";
+                yield on
+                        ? "Consent-only /pvp is pinned on; uninvited damage stays blocked."
+                        : "All PvP is pinned off; live duels were resolved as draws.";
             }
             case "maintenance.set" -> {
                 boolean on = state(arguments);

@@ -135,6 +135,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private SpawnMobBarrierService spawnMobBarrier;
     private BroadcastDisplayService broadcastDisplayService;
     private TeleportWarmupService teleportWarmups;
+    private PvpDuelService pvpDuels;
     private VerificationLobbyService verificationLobby;
     private final WhitelistDirectory whitelistDirectory = new WhitelistDirectory();
 
@@ -486,6 +487,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 || getCommand("pay") == null
                 || getCommand("bounty") == null
                 || getCommand("afk") == null
+                || getCommand("pvp") == null
                 || getCommand("verify") == null
                 || getCommand("crate") == null
                 || getCommand("echest") == null
@@ -517,6 +519,25 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         Screens.installHome(mainMenu::open);
         getCommand("menu").setExecutor(mainMenu);
         getServer().getPluginManager().registerEvents(mainMenu, this);
+        try {
+            pvpDuels = new PvpDuelService(
+                    this, economyStore, playerSettings, clientSupport, bedrockForms,
+                    getDataFolder().toPath().resolve("pvp-duel-recovery.json")
+            );
+        } catch (java.io.IOException exception) {
+            getLogger().severe("MGXAccessBridge could not open PvP duel recovery: "
+                    + exception.getMessage());
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        }
+        getCommand("pvp").setExecutor(pvpDuels);
+        getCommand("pvp").setTabCompleter(pvpDuels);
+        getServer().getPluginManager().registerEvents(pvpDuels, this);
+        gameVariables.onChange(key -> {
+            if (key.equals("pvp-duels.enabled") && !gameVariables.bool(key)) {
+                pvpDuels.pauseAll("Safe PvP was paused — stakes returned");
+            }
+        });
         installQuickMenuDatapack();
         PlayerPreferenceEffects preferenceEffects =
                 new PlayerPreferenceEffects(this, playerSettings);
@@ -940,6 +961,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         if (teleportWarmups != null) {
             teleportWarmups.stop();
         }
+        if (pvpDuels != null) {
+            pvpDuels.stop();
+        }
         if (personalNotifications != null) {
             personalNotifications.stop();
         }
@@ -1260,6 +1284,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         if (launchService == null) {
             throw new IllegalStateException("Launch service is not ready.");
         }
+        if (pvpDuels != null) {
+            pvpDuels.pauseAll("The server launch paused PvP — stakes returned");
+        }
         launchService.start(sender);
     }
 
@@ -1276,6 +1303,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             throw new IllegalStateException("Launch service is not ready.");
         }
         launchService.forcePvp(enabled);
+        if (!enabled && pvpDuels != null) {
+            pvpDuels.pauseAll("All PvP was paused — stakes returned");
+        }
     }
 
     /** Whether this player is in {@code /mgxadmin devblog} screenshot mode. */
@@ -1288,6 +1318,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         if (launchService != null) {
             launchService.suspendPvp();
         }
+        if (pvpDuels != null) {
+            pvpDuels.pauseAll("A server event paused PvP — stakes returned");
+        }
     }
 
     /** Puts PvP back under the operator pin or the launch hold after an event borrowed it. */
@@ -1298,7 +1331,21 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     }
 
     String pvpStatus() {
-        return launchService == null ? "PvP state is not available yet." : launchService.pvpStatus();
+        return launchService == null
+                ? "PvP state is not available yet."
+                : launchService.pvpStatus()
+                        + " Uninvited player damage is blocked; consent-only /pvp is "
+                        + (gameVariables != null && gameVariables.bool("pvp-duels.enabled")
+                                ? "enabled." : "disabled.");
+    }
+
+    /** True only while this player is one of the two accepted duel fighters. */
+    boolean inPvpDuel(Player player) {
+        return pvpDuels != null && pvpDuels.isFighter(player.getUniqueId());
+    }
+
+    boolean duelDamageEnabled() {
+        return launchService != null && launchService.pvpEnabled();
     }
 
     void setMaintenance(boolean enabled) {

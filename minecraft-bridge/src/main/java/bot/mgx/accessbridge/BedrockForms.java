@@ -29,6 +29,10 @@ final class BedrockForms {
     record Button(String label, Runnable action) {
     }
 
+    /** Two text fields and one switch, used by compact contract/setup screens. */
+    record TextToggleResult(String first, String second, boolean toggled) {
+    }
+
     private final MGXAccessBridge plugin;
 
     BedrockForms(MGXAccessBridge plugin) {
@@ -167,6 +171,40 @@ final class BedrockForms {
             }
             onSubmit.accept(List.copyOf(selected));
         }));
+        if (onCancel != null) {
+            form.closedResultHandler(() -> onMain(onCancel));
+        }
+        return send(player, form.build());
+    }
+
+    /**
+     * A small mixed form. Keeping it here preserves the same main-thread handoff and
+     * graceful chest fallback as every other Bedrock screen.
+     */
+    boolean twoTextsAndToggle(
+            Player player,
+            String title,
+            String firstLabel,
+            String firstInitial,
+            String secondLabel,
+            String secondInitial,
+            String toggleLabel,
+            boolean toggleInitial,
+            Consumer<TextToggleResult> onSubmit,
+            Runnable onCancel
+    ) {
+        CustomForm.Builder form = CustomForm.builder()
+                .title(title)
+                .input(firstLabel, "", firstInitial == null ? "" : firstInitial)
+                .input(secondLabel, "", secondInitial == null ? "" : secondInitial)
+                .toggle(toggleLabel, toggleInitial)
+                .validResultHandler(response -> onMain(() -> onSubmit.accept(
+                        new TextToggleResult(
+                                response.asInput(0) == null ? "" : response.asInput(0),
+                                response.asInput(1) == null ? "" : response.asInput(1),
+                                response.asToggle(2)
+                        )
+                )));
         if (onCancel != null) {
             form.closedResultHandler(() -> onMain(onCancel));
         }

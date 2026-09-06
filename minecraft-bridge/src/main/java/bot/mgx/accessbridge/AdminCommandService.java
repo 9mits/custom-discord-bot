@@ -288,13 +288,15 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             default -> throw new IllegalArgumentException("Use /mgxadmin pvp <on|off|status>.");
         };
         plugin.forcePvp(enabled);
-        // Players are told because it changes whether they can be hit where they stand,
-        // and the pin is the one PvP change no countdown announced for them.
-        Bukkit.broadcast(Component.text(
-                "PvP is now " + (enabled ? "ON" : "OFF") + ".", NamedTextColor.GOLD
+        // Players are told because off pauses even accepted duels. On only enables the
+        // consent system; the direct-damage gate still blocks unsolicited world PvP.
+        Bukkit.broadcast(Component.text(enabled
+                ? "Safe /pvp duels are now available. Uninvited PvP stays blocked."
+                : "All PvP, including safe duels, is now paused.", NamedTextColor.GOLD
         ).decorate(TextDecoration.BOLD));
-        success(sender, "PvP is pinned " + (enabled ? "on" : "off")
-                + " everywhere. It stays there through a restart and through the launch hold.");
+        success(sender, enabled
+                ? "PvP is pinned on for consent-only /pvp duels. Uninvited damage remains blocked."
+                : "PvP is pinned off everywhere. Live duels were resolved as draws.");
         report(sender, "admin_pvp", sender.getName() + " pinned PvP "
                 + (enabled ? "on" : "off")).detail("state", enabled ? "on" : "off").record();
     }

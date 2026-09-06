@@ -74,6 +74,7 @@ record SettingMetadata(
         EVENT_SCHEDULE("Event Schedule"),
         AMETHYST_MOBS("Amethyst Mobs"),
         EVENT_MULTIPLIERS("Event Multipliers"),
+        PVP_DUELS("PvP Duels"),
         PLAYERS("Players"),
         WORLD("World"),
         CLANS("Clans"),
@@ -251,6 +252,9 @@ record SettingMetadata(
         }
         if (key.startsWith("events.")) {
             return Group.EVENT_MULTIPLIERS;
+        }
+        if (key.startsWith("pvp-duels.")) {
+            return Group.PVP_DUELS;
         }
         if (key.startsWith("afk.") || key.startsWith("rtp.")
                 || key.startsWith("verification.") || key.startsWith("combat.")) {

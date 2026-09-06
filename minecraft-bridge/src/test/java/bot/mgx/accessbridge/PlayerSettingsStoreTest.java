@@ -105,6 +105,7 @@ class PlayerSettingsStoreTest {
         assertEquals(
                 List.of(
                         PlayerSettingsStore.Setting.TELEPORT_REQUESTS,
+                        PlayerSettingsStore.Setting.DUEL_REQUESTS,
                         PlayerSettingsStore.Setting.ALLOW_PAYMENTS,
                         PlayerSettingsStore.Setting.PRIVATE_TRANSACTIONS
                 ),
