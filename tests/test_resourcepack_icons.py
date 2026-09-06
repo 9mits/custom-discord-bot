@@ -82,6 +82,31 @@ class ResourcePackIconTests(unittest.TestCase):
         self.assertEqual(expected, java_built["pack"]["description"])
         self.assertEqual(expected, bedrock_built["header"]["description"])
 
+    def test_built_java_pack_matches_every_source_file(self):
+        """The shipped zip must be the sources, not a stale build of them.
+
+        Editing a texture without re-running build_pack.py leaves the client loading
+        the previous artwork while the repo looks correct, which is invisible in every
+        other check here — the Bedrock pack has this guard, the Java pack did not, and
+        eight icons shipped stale because of it.
+        """
+        source_root = RESOURCE_PACK / "src"
+        with zipfile.ZipFile(RESOURCE_PACK / "MysteriousSMPX.zip") as pack:
+            packed = set(pack.namelist())
+            stale = []
+            for path in sorted(source_root.rglob("*")):
+                if not path.is_file():
+                    continue
+                name = path.relative_to(source_root).as_posix()
+                if name not in packed:
+                    stale.append(f"{name} (missing from the zip)")
+                elif pack.read(name) != path.read_bytes():
+                    stale.append(f"{name} (stale in the zip)")
+        self.assertEqual(
+            [], stale,
+            "rebuild with assets/resourcepack/build_pack.py: " + ", ".join(stale[:8]),
+        )
+
     def test_custom_icons_are_valid_distinct_minecraft_sprites(self):
         icons = self.icon_paths()
         self.assertEqual(91, len(icons))
