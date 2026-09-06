@@ -162,6 +162,7 @@ final class CosmeticEffectService implements Listener {
     private final Set<String> failedSelectionClears = new HashSet<>();
     private final Set<String> missingEffectWarnings = new HashSet<>();
     private final Map<UUID, MusicAuraState> musicAuraStates = new HashMap<>();
+    private final MiniDragonEscort miniDragons;
     private final Map<UUID, ArmorStand> rarityNameplates = new HashMap<>();
     private final Map<UUID, AtmosphereState> revealAtmospheres = new HashMap<>();
     private final Map<UUID, FloatingPlayerState> floatingPlayers = new HashMap<>();
@@ -210,10 +211,16 @@ final class CosmeticEffectService implements Listener {
         this.wardrobe = wardrobe;
         this.settings = settings;
         this.leaderboard = leaderboard;
+        this.miniDragons = new MiniDragonEscort(plugin);
+    }
+
+    MiniDragonEscort miniDragons() {
+        return miniDragons;
     }
 
     void start() {
         if (task == null) {
+            miniDragons.start();
             plugin.getServer().getWorlds().forEach(world -> world.getEntities().stream()
                     .filter(entity -> entity.getScoreboardTags().contains(RARITY_NAMEPLATE_TAG))
                     .forEach(Entity::remove));
@@ -243,6 +250,7 @@ final class CosmeticEffectService implements Listener {
         for (UUID ownerId : List.copyOf(musicAuraStates.keySet())) {
             stopMusicAura(ownerId);
         }
+        miniDragons.stop();
         rarityNameplates.values().forEach(ArmorStand::remove);
         rarityNameplates.clear();
         for (UUID playerId : List.copyOf(floatingPlayers.keySet())) {
@@ -278,6 +286,7 @@ final class CosmeticEffectService implements Listener {
         for (UUID ownerId : List.copyOf(musicAuraStates.keySet())) {
             if (plugin.getServer().getPlayer(ownerId) == null) {
                 stopMusicAura(ownerId);
+                miniDragons.release(ownerId);
             }
         }
         if (frame % NAMEPLATE_SWEEP_FRAMES == 0L) {
@@ -288,6 +297,7 @@ final class CosmeticEffectService implements Listener {
                 previousLocations.remove(player.getUniqueId());
                 trailHistories.remove(player.getUniqueId());
                 stopMusicAura(player.getUniqueId());
+                miniDragons.release(player.getUniqueId());
                 removeRarityNameplate(player.getUniqueId());
                 continue;
             }
@@ -308,6 +318,12 @@ final class CosmeticEffectService implements Listener {
                 syncMusicAura(player, aura.orElseThrow());
             } else {
                 stopMusicAura(player.getUniqueId());
+            }
+            if (aura.filter(definition -> DRAGON_MUSIC_AURA_ID.equals(definition.id()))
+                    .isPresent()) {
+                syncDragonEscort(player, moving);
+            } else {
+                miniDragons.release(player.getUniqueId());
             }
             aura.ifPresent(definition -> playAuraAmbience(player, definition));
             // The music aura used to render every tick while every other aura thinned
@@ -872,55 +888,8 @@ final class CosmeticEffectService implements Listener {
                     drawLine(player, root, root.clone().add(0d, height, 0d), 5,
                             jewels[pillar % jewels.length], 1.08f, null);
                 }
-                if (step % 20 == 0) {
-                    spawn(player, centre, Particle.FLASH, 1,
-                            0d, 0d, 0d, 0d, null, null);
-                    spawn(player, centre, Particle.SONIC_BOOM, 1,
-                            0d, 0d, 0d, 0d, null, null);
-                }
-                // Chaos, but built rather than random: a dense overlapping stack around
-                // the winner, and only the landmark beats go out to the whole server, so
-                // twenty-five seconds of this does not become twenty-five seconds of
-                // noise in everybody else's ears.
-                if (step % 3 == 0) {
-                    Sound chaos = chaosPool[(step / 3) % chaosPool.length];
-                    float pitch = 0.55f + ((step * 7) % 13) / 13f * 1.35f;
-                    sound(player, centre, chaos, 1f, pitch, null);
-                }
-                if (step % 9 == 0) {
-                    sound(player, centre, Sound.ENTITY_WITHER_SHOOT, 0.8f,
-                            0.5f + ((step * 5) % 11) / 11f, null);
-                    sound(player, centre, Sound.BLOCK_AMETHYST_BLOCK_CHIME, 1f,
-                            0.6f + ((step * 3) % 17) / 17f * 1.4f, null);
-                }
-                if (step % 25 == 0) {
-                    sound(player, centre, Sound.ENTITY_GENERIC_EXPLODE, 0.9f,
-                            0.6f + (step % 50) / 50f, null);
-                    sound(player, centre, Sound.ENTITY_LIGHTNING_BOLT_THUNDER, 0.7f, 1.4f, null);
-                }
-                // Real strikes walking a ring around the winner. The storm is the point:
-                // an Exotic borrows a dusk sky, a Secret tears the weather open.
-                if (step % 14 == 0) {
-                    revealLightning(player, 6d + (step % 3) * 2.5d, step * 0.77d);
-                }
-                if (step == 40 || step == 120 || step == 200) {
-                    playServerwideRevealSound(Sound.ENTITY_ELDER_GUARDIAN_CURSE, 0.8f, 0.8f);
-                }
-                if (step == 200) {
-                    playServerwideRevealSound(Sound.UI_TOAST_CHALLENGE_COMPLETE, 1f, 1.4f);
-                }
-                if (step == 80 || step == 160 || step == 230) {
-                    spawn(player, centre, Particle.TOTEM_OF_UNDYING,
-                            80, 1d, 1.5d, 1d, 0.2d, null, null);
-                    playServerwideRevealSound(
-                            step == 230 ? Sound.ENTITY_ENDER_DRAGON_GROWL
-                                    : Sound.ENTITY_WARDEN_SONIC_BOOM,
-                            1.1f, step == 230 ? 0.72f : 1.15f
-                    );
-                    for (Player viewer : plugin.getServer().getOnlinePlayers()) {
-                        globalPlayerPulse(viewer, false);
-                    }
-                }
+                grandSecretProduction(player, centre, step, GENUINE_REVEAL_FRAMES,
+                        chaosPool, true);
             }
             if (step == GENUINE_REVEAL_FRAMES - 1) {
                 endRevealAtmosphere(player);
@@ -931,6 +900,92 @@ final class CosmeticEffectService implements Listener {
                 activeRevealBars.remove(bar);
             }
         });
+    }
+
+    /**
+     * The part of a Secret reveal that is not the cosmetic: the storm, the strikes, the
+     * landmark beats, and the pulse every player on the server feels.
+     *
+     * <p>This used to live inside the Iridescent Imperium's own reveal, which is why the
+     * Amethyst Dragon Ascendant — the other Secret, and the reward this server actually
+     * chases — opened with nothing but a boss bar. A Secret is a server-wide event; it
+     * cannot depend on which Secret it happens to be.
+     *
+     * <p>Landmark beats are placed as fractions of the reveal rather than fixed frame
+     * numbers, so a reveal of any length still lands its three escalations and its
+     * finish in the right places.
+     *
+     * @param chaosAudio whether to run the every-third-frame sound blender. A Secret with
+     *                   a composed track of its own gets the whole storm and none of the
+     *                   blender: stacking one on the other buries the music.
+     */
+    private void grandSecretProduction(
+            Player player,
+            Location centre,
+            int step,
+            int frames,
+            Sound[] chaosPool,
+            boolean chaosAudio
+    ) {
+        if (step % 20 == 0) {
+            spawn(player, centre, Particle.FLASH, 1, 0d, 0d, 0d, 0d, null, null);
+            spawn(player, centre, Particle.SONIC_BOOM, 1, 0d, 0d, 0d, 0d, null, null);
+        }
+        // Chaos, but built rather than random: a dense overlapping stack around the
+        // winner, and only the landmark beats go out to the whole server, so
+        // twenty-five seconds of this does not become twenty-five seconds of noise in
+        // everybody else's ears.
+        if (chaosAudio && step % 3 == 0) {
+            Sound chaos = chaosPool[(step / 3) % chaosPool.length];
+            float pitch = 0.55f + ((step * 7) % 13) / 13f * 1.35f;
+            sound(player, centre, chaos, 1f, pitch, null);
+        }
+        if (chaosAudio && step % 9 == 0) {
+            sound(player, centre, Sound.ENTITY_WITHER_SHOOT, 0.8f,
+                    0.5f + ((step * 5) % 11) / 11f, null);
+            sound(player, centre, Sound.BLOCK_AMETHYST_BLOCK_CHIME, 1f,
+                    0.6f + ((step * 3) % 17) / 17f * 1.4f, null);
+        }
+        if (chaosAudio && step % 25 == 0) {
+            sound(player, centre, Sound.ENTITY_GENERIC_EXPLODE, 0.9f,
+                    0.6f + (step % 50) / 50f, null);
+            sound(player, centre, Sound.ENTITY_LIGHTNING_BOLT_THUNDER, 0.7f, 1.4f, null);
+        }
+        // Real strikes walking a ring around the winner. The storm is the point: an
+        // Exotic borrows a dusk sky, a Secret tears the weather open.
+        if (step % 14 == 0) {
+            revealLightning(player, 6d + (step % 3) * 2.5d, step * 0.77d);
+        }
+        int[] curses = revealBeats(frames, 0.16d, 0.48d, 0.8d);
+        int[] surges = revealBeats(frames, 0.32d, 0.64d, 0.92d);
+        if (step == curses[0] || step == curses[1] || step == curses[2]) {
+            playServerwideRevealSound(Sound.ENTITY_ELDER_GUARDIAN_CURSE, 0.8f, 0.8f);
+        }
+        if (step == curses[2]) {
+            playServerwideRevealSound(Sound.UI_TOAST_CHALLENGE_COMPLETE, 1f, 1.4f);
+        }
+        if (step == surges[0] || step == surges[1] || step == surges[2]) {
+            boolean finale = step == surges[2];
+            spawn(player, centre, Particle.TOTEM_OF_UNDYING,
+                    80, 1d, 1.5d, 1d, 0.2d, null, null);
+            playServerwideRevealSound(
+                    finale ? Sound.ENTITY_ENDER_DRAGON_GROWL : Sound.ENTITY_WARDEN_SONIC_BOOM,
+                    1.1f, finale ? 0.72f : 1.15f
+            );
+            for (Player viewer : plugin.getServer().getOnlinePlayers()) {
+                globalPlayerPulse(viewer, false);
+            }
+        }
+    }
+
+    /** Frame numbers for the landmark beats of a reveal of any length. */
+    private static int[] revealBeats(int frames, double... fractions) {
+        int[] beats = new int[fractions.length];
+        for (int index = 0; index < fractions.length; index++) {
+            beats[index] = Math.max(1, Math.min(frames - 1,
+                    (int) Math.round(frames * fractions[index])));
+        }
+        return beats;
     }
 
     private void playDragonGenuineSecretReveal(Player player, CrateCatalog.Reward reward) {
@@ -962,7 +1017,18 @@ final class CosmeticEffectService implements Listener {
             globalPlayerPulse(viewer, true);
             playMusicFor(viewer, DRAGON_MUSIC_AURA_SOUND);
         }
+        // A Secret is the loudest thing that happens on this server, and the Ascendant
+        // used to arrive on a boss bar alone. It gets the Imperium's opening and its
+        // storm; what it does not get is the sound blender, which would bury the track.
+        playServerwideRevealSound(Sound.ENTITY_WITHER_SPAWN, 1.25f, 0.62f);
+        playServerwideRevealSound(Sound.UI_TOAST_CHALLENGE_COMPLETE, 1f, 0.78f);
         beginRevealAtmosphere(player, true);
+        Sound[] chaosPool = chaosRevealSounds();
+        Color[] jewels = {
+                Color.fromRGB(186, 74, 255), Color.fromRGB(96, 214, 255),
+                Color.fromRGB(232, 177, 255), Color.fromRGB(113, 35, 171),
+                Color.fromRGB(83, 157, 235)
+        };
         Location base = floatingPlayers.get(player.getUniqueId()).returnLocation().clone();
         animate(player, base.clone().add(0d, 1d, 0d), DragonMusicTimeline.SAMPLE_COUNT,
                 REVEAL_FRAME_TICKS, step -> {
@@ -974,6 +1040,22 @@ final class CosmeticEffectService implements Listener {
             if (player.isOnline()) {
                 Location centre = player.getLocation().add(0d, 0.9d, 0d);
                 drawDragonMusicFormation(player, centre, DragonMusicTimeline.at(step * 100L), step, null);
+                double beat = 0.55d + Math.sin(step * 0.52d) * 0.35d;
+                double expanding = 0.9d + (step % 25) / 25d * 3.2d;
+                drawRing(player, centre.clone().add(0d, -0.85d, 0d), expanding,
+                        32, step * 0.24d, jewels[(step / 8) % jewels.length], 1.18f, null);
+                for (int pillar = 0; pillar < 12; pillar++) {
+                    double angle = pillar * Math.PI / 6d + step * 0.19d;
+                    double height = 0.55d + ((pillar + step) % 5) * 0.42d + beat;
+                    Location root = centre.clone().add(
+                            Math.cos(angle) * (1.15d + beat * 0.4d), -0.9d,
+                            Math.sin(angle) * (1.15d + beat * 0.4d)
+                    );
+                    drawLine(player, root, root.clone().add(0d, height, 0d), 5,
+                            jewels[pillar % jewels.length], 1.08f, null);
+                }
+                grandSecretProduction(player, centre, step,
+                        DragonMusicTimeline.SAMPLE_COUNT, chaosPool, false);
             }
             if (step == DragonMusicTimeline.SAMPLE_COUNT - 1) {
                 for (Player viewer : plugin.getServer().getOnlinePlayers()) {
@@ -1449,7 +1531,7 @@ final class CosmeticEffectService implements Listener {
         Color accent = couture[(band + formation) % couture.length];
 
         Vector side = horizontalSide(owner);
-        Vector forward = new Vector(-side.getZ(), 0d, side.getX());
+        Vector depth = horizontalBackward(side);
         Location heart = centre.clone().add(
                 0d, -0.18d + bass * 0.62d + hit * 0.82d, 0d
         );
@@ -1471,7 +1553,7 @@ final class CosmeticEffectService implements Listener {
             } * spread;
             Location at = heart.clone()
                     .add(side.clone().multiply(Math.cos(angle) * orbitRadius))
-                    .add(forward.clone().multiply(Math.sin(angle) * orbitRadius * 0.72d))
+                    .add(depth.clone().multiply(Math.sin(angle) * orbitRadius * 0.72d))
                     .add(0d, vertical + hit * (jewel % 2 == 0 ? 0.55d : -0.3d), 0d);
             Color jewelColour = jewel % 3 == 0
                     ? accent : jewel % 2 == 0 ? amethyst : lilac;
@@ -1490,7 +1572,7 @@ final class CosmeticEffectService implements Listener {
             double pointHeight = point % 3 == 0 ? 0.45d + high * 0.55d + hit * 0.45d : 0.1d;
             Location at = crown.clone()
                     .add(side.clone().multiply(Math.cos(angle) * (0.55d + bass * 0.32d) * spread))
-                    .add(forward.clone().multiply(Math.sin(angle) * (0.55d + bass * 0.32d) * spread))
+                    .add(depth.clone().multiply(Math.sin(angle) * (0.55d + bass * 0.32d) * spread))
                     .add(0d, pointHeight, 0d);
             dust(owner, at, point % 3 == 0 ? champagne : amethyst,
                     point % 3 == 0 ? 1.05f : 0.78f,
@@ -1507,7 +1589,7 @@ final class CosmeticEffectService implements Listener {
                 default -> high;
             };
             Vector radial = side.clone().multiply(Math.cos(angle))
-                    .add(forward.clone().multiply(Math.sin(angle)));
+                    .add(depth.clone().multiply(Math.sin(angle)));
             Location root = centre.clone()
                     .add(radial.clone().multiply((1.08d + hit * 0.45d) * spread))
                     .add(0d, -0.88d, 0d);
@@ -1559,6 +1641,21 @@ final class CosmeticEffectService implements Listener {
                 PlayerSettingsStore.Setting.OWN_AURA_VISIBLE, moving);
     }
 
+    /** Flies the escort on the aura's own clock so the pair banks with the song. */
+    private void syncDragonEscort(Player owner, boolean moving) {
+        MusicAuraState state = musicAuraStates.get(owner.getUniqueId());
+        if (state == null) {
+            miniDragons.release(owner.getUniqueId());
+            return;
+        }
+        long elapsed = Math.max(0L, System.currentTimeMillis() - state.startedAtMillis);
+        long phaseMillis = elapsed % DragonMusicTimeline.DURATION_MILLIS;
+        miniDragons.follow(owner, phaseMillis / 1_000.0d,
+                DragonMusicTimeline.at(phaseMillis).energy(), moving,
+                viewers(owner, owner.getLocation(),
+                        PlayerSettingsStore.Setting.OWN_AURA_VISIBLE));
+    }
+
     private void drawDragonMusicFormation(
             Player owner,
             Location centre,
@@ -1597,7 +1694,7 @@ final class CosmeticEffectService implements Listener {
         Color shine = movement >= 4
                 ? Color.fromRGB(177, 228, 255) : Color.fromRGB(242, 202, 255);
         Vector side = horizontalSide(owner);
-        Vector forward = new Vector(-side.getZ(), 0d, side.getX());
+        Vector forward = horizontalForward(side);
         Location heart = centre.clone().add(0d, 0.08d + bass * 0.5d, 0d);
         Location floor = centre.clone().add(0d, -0.9d, 0d);
 
@@ -1714,6 +1811,59 @@ final class CosmeticEffectService implements Listener {
             }
         }
 
+        // Everything below is the Ascendant's permanent stage, not part of a section.
+        // The movements above are the story; without a standing spectacle underneath them
+        // the rarest reward in the game spent whole bars looking like a single silhouette.
+        // This is the same production the Imperium runs — a literal band visualiser, one
+        // ring per frequency band, a crown, and transients that detonate — dressed in
+        // dragon regalia instead of couture jewels.
+        Color[] regalia = {deep, amethyst, shine, Color.fromRGB(96, 214, 255)};
+        int band = bass >= mid && bass >= high ? 0 : mid >= high ? 2 : 1;
+        Color accentColour = regalia[(band + movement) % regalia.length];
+
+        for (int bar = 0; bar < 10; bar++) {
+            double angle = bar * Math.PI * 2d / 10d - time * 0.32d;
+            double bandEnergy = switch (bar % 3) {
+                case 0 -> bass;
+                case 1 -> mid;
+                default -> high;
+            };
+            Vector radial = side.clone().multiply(Math.cos(angle))
+                    .add(forward.clone().multiply(Math.sin(angle)));
+            Location root = centre.clone()
+                    .add(radial.clone().multiply((1.12d + hit * 0.42d) * spread))
+                    .add(0d, -0.9d, 0d);
+            Location tip = root.clone()
+                    .add(0d, (0.22d + bandEnergy * 1.7d + hit * 0.85d) * spread, 0d);
+            drawLine(owner, root, tip, 4, regalia[(bar + movement) % regalia.length],
+                    0.9f + (float) hit * 0.35f, visibility);
+        }
+
+        double[] bands = {bass, mid, high};
+        for (int ring = 0; ring < bands.length; ring++) {
+            drawRing(owner, centre.clone().add(0d, -0.58d + ring * 0.56d, 0d),
+                    (0.4d + bands[ring] * 1.2d + hit * 0.55d) * spread,
+                    18, time * (ring % 2 == 0 ? 1.75d : -1.75d),
+                    ring == 0 ? deep : ring == 1 ? accentColour : shine,
+                    0.82f + (float) hit * 0.3f, visibility);
+        }
+
+        Location regalCrown = centre.clone().add(0d, 1.26d + bass * 0.3d + hit * 0.68d, 0d);
+        for (int point = 0; point < 12; point++) {
+            double angle = -time * 0.7d + point * Math.PI * 2d / 12d;
+            double pointHeight = point % 3 == 0 ? 0.44d + high * 0.52d + hit * 0.44d : 0.09d;
+            Location at = regalCrown.clone()
+                    .add(side.clone().multiply(Math.cos(angle) * (0.54d + bass * 0.3d) * spread))
+                    .add(forward.clone().multiply(Math.sin(angle) * (0.54d + bass * 0.3d) * spread))
+                    .add(0d, pointHeight, 0d);
+            dust(owner, at, point % 3 == 0 ? shine : amethyst,
+                    point % 3 == 0 ? 1.05f : 0.78f, visibility);
+        }
+
+        double groundPulse = (0.8d + energy * 1.08d + hit * 1.7d) * spread;
+        drawRing(owner, floor, groundPulse, 30,
+                time * (movement % 2 == 0 ? 1.65d : -1.65d), accentColour, 1.02f, visibility);
+
         if (!moving && hit > 0.28d) {
             Particle accent = switch (movement) {
                 case 0 -> Particle.REVERSE_PORTAL;
@@ -1729,6 +1879,14 @@ final class CosmeticEffectService implements Listener {
                     0.28d + hit * 0.45d, 0.02d + hit * 0.035d, null, visibility);
             drawRing(owner, heart, 0.25d + hit * 2.65d, 22,
                     -time * 2.4d, shine, 0.85f + (float) hit * 0.4f, visibility);
+            if (hit >= 0.35d) {
+                spawn(owner, regalCrown, hit > 0.78d ? Particle.FLASH : Particle.FIREWORK,
+                        1, 0d, 0d, 0d, 0d, null, visibility);
+                spawn(owner, heart, Particle.ELECTRIC_SPARK,
+                        3 + (int) Math.round(hit * 5d),
+                        0.26d + hit * 0.45d, 0.4d + hit * 0.6d, 0.26d + hit * 0.45d,
+                        0.02d + hit * 0.04d, null, visibility);
+            }
         }
     }
 
@@ -1740,7 +1898,7 @@ final class CosmeticEffectService implements Listener {
         Color crystal = Color.fromRGB(221, 164, 255);
         Color eye = Color.fromRGB(98, 226, 255);
         Vector side = horizontalSide(owner);
-        Vector backwards = new Vector(side.getZ(), 0d, -side.getX());
+        Vector backwards = horizontalBackward(side);
         double assemble = CosmeticAnimation.easeOutBack(
                 CosmeticAnimation.phaseProgress(step, 0, 20)
         );
@@ -1796,7 +1954,7 @@ final class CosmeticEffectService implements Listener {
         Color dark = Color.fromRGB(61, 17, 104);
         Color eye = Color.fromRGB(116, 237, 255);
         Vector side = horizontalSide(owner);
-        Vector forward = new Vector(-side.getZ(), 0d, side.getX());
+        Vector depth = horizontalBackward(side);
         for (int wyrm = 0; wyrm < 2; wyrm++) {
             double headAngle = phase * (wyrm == 0 ? 0.72d : -0.72d) + wyrm * Math.PI;
             for (int segment = 0; segment < 11; segment++) {
@@ -1804,17 +1962,17 @@ final class CosmeticEffectService implements Listener {
                 double radius = 1.18d - segment * 0.045d;
                 Location at = centre.clone()
                         .add(side.clone().multiply(Math.cos(angle) * radius))
-                        .add(forward.clone().multiply(Math.sin(angle) * radius))
+                        .add(depth.clone().multiply(Math.sin(angle) * radius))
                         .add(0d, Math.sin(angle * 2d + wyrm * Math.PI) * 0.48d, 0d);
                 dust(owner, at, segment % 3 == 0 ? dark : violet,
                         segment == 0 ? 1.45f : Math.max(0.65f, 1.05f - segment * 0.035f),
                         PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
                 if (segment == 0) {
-                    Location gaze = at.clone().add(forward.clone().multiply(0.12d)).add(0d, 0.09d, 0d);
+                    Location gaze = at.clone().add(depth.clone().multiply(0.12d)).add(0d, 0.09d, 0d);
                     dust(owner, gaze, eye, 0.72f, PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
                     if (step % 20 == wyrm * 10) {
                         spawnMoving(owner, gaze, Particle.DRAGON_BREATH,
-                                forward.clone().multiply(0.055d).setY(0.018d), null,
+                                depth.clone().multiply(0.055d).setY(0.018d), null,
                                 PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
                     }
                 }
@@ -1832,7 +1990,7 @@ final class CosmeticEffectService implements Listener {
         Color amethyst = Color.fromRGB(153, 67, 226);
         Color facet = Color.fromRGB(231, 185, 255);
         Vector side = horizontalSide(owner);
-        Vector backwards = new Vector(side.getZ(), 0d, -side.getX());
+        Vector backwards = horizontalBackward(side);
         double open = 0.72d + Math.sin(phase * 0.42d) * 0.18d;
         Location seat = centre.clone().add(backwards.clone().multiply(0.48d)).add(0d, -0.58d, 0d);
         for (int spine = -4; spine <= 4; spine++) {
@@ -1870,7 +2028,7 @@ final class CosmeticEffectService implements Listener {
         Color violet = Color.fromRGB(151, 58, 225);
         Color shine = Color.fromRGB(240, 202, 255);
         Vector side = horizontalSide(owner);
-        Vector forward = new Vector(-side.getZ(), 0d, side.getX());
+        Vector depth = horizontalBackward(side);
         Location egg = centre.clone().add(0d, -0.05d, 0d);
         drawVerticalGem(owner, egg, side, 0.48d, -phase * 0.25d, violet, gold);
         drawRing(owner, centre.clone().add(0d, -0.94d, 0d),
@@ -1884,9 +2042,9 @@ final class CosmeticEffectService implements Listener {
         for (int brood = 0; brood < 3; brood++) {
             double angle = phase * 0.52d + brood * Math.PI * 2d / 3d;
             Vector radial = side.clone().multiply(Math.cos(angle))
-                    .add(forward.clone().multiply(Math.sin(angle)));
+                    .add(depth.clone().multiply(Math.sin(angle)));
             Vector tangent = side.clone().multiply(-Math.sin(angle))
-                    .add(forward.clone().multiply(Math.cos(angle)));
+                    .add(depth.clone().multiply(Math.cos(angle)));
             Location head = centre.clone().add(Math.cos(angle) * 1.18d,
                     0.18d + Math.sin(angle * 2d) * 0.3d,
                     Math.sin(angle) * 1.18d);
@@ -1936,7 +2094,7 @@ final class CosmeticEffectService implements Listener {
         Color silver = Color.fromRGB(184, 215, 238);
         Color violet = Color.fromRGB(153, 72, 224);
         Vector side = horizontalSide(owner);
-        Vector forward = new Vector(-side.getZ(), 0d, side.getX());
+        Vector forward = horizontalForward(side);
         Location shield = centre.clone().add(forward.clone().multiply(0.82d));
         Location top = shield.clone().add(0d, 0.9d, 0d);
         Location bottom = shield.clone().add(0d, -0.72d, 0d);
@@ -1969,7 +2127,11 @@ final class CosmeticEffectService implements Listener {
         if (step % 24 == 0) {
             spawn(owner, shield, Particle.ENCHANTED_HIT, 5, 0.35d, 0.55d, 0.15d,
                     0.02d, null, PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
-            sound(owner, centre, Sound.ITEM_SHIELD_BLOCK, 0.4f, 1.25f,
+            // A shield bash is a wooden knock: the wrong material entirely for a crystal
+            // aura, and loud enough on a 24-tick loop to be the thing people notice.
+            sound(owner, centre, Sound.BLOCK_AMETHYST_BLOCK_CHIME, 0.32f, 1.15f,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            sound(owner, centre, Sound.BLOCK_AMETHYST_CLUSTER_HIT, 0.22f, 1.5f,
                     PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
         }
     }
@@ -2048,11 +2210,11 @@ final class CosmeticEffectService implements Listener {
         Color crystal = Color.fromRGB(210, 145, 255);
         double open = CosmeticAnimation.pingPong(step / 79d);
         Vector side = horizontalSide(owner);
-        Vector forward = new Vector(-side.getZ(), 0d, side.getX());
+        Vector depth = horizontalBackward(side);
         for (int arch = 0; arch < 4; arch++) {
             double angle = arch * Math.PI / 2d + phase * 0.18d;
             Vector radial = side.clone().multiply(Math.cos(angle))
-                    .add(forward.clone().multiply(Math.sin(angle)));
+                    .add(depth.clone().multiply(Math.sin(angle)));
             Location base = centre.clone().add(radial.clone().multiply(0.45d + open * 0.7d))
                     .add(0d, -0.85d, 0d);
             Location peak = centre.clone().add(radial.clone().multiply(0.22d))
@@ -2971,7 +3133,7 @@ final class CosmeticEffectService implements Listener {
         Color membrane = Color.fromRGB(196, 116, 255);
         Color edge = Color.fromRGB(238, 211, 255);
         Vector side = horizontalSide(owner);
-        Vector forward = new Vector(-side.getZ(), 0d, side.getX());
+        Vector backward = horizontalBackward(side);
         animate(owner, centre, 40, 2L, step -> {
             double fall = CosmeticAnimation.smooth(CosmeticAnimation.phaseProgress(step, 0, 20));
             Location root = centre.clone().add(0d, 3.1d - fall * 2.45d, 0d);
@@ -2982,11 +3144,11 @@ final class CosmeticEffectService implements Listener {
                     double folded = reach * (1d - close * 0.72d);
                     Location elbow = root.clone()
                             .add(side.clone().multiply(direction * folded * 0.55d))
-                            .add(forward.clone().multiply(0.18d + feather * 0.06d))
+                            .add(backward.clone().multiply(0.18d + feather * 0.06d))
                             .add(0d, 0.45d - feather * 0.08d, 0d);
                     Location tip = root.clone()
                             .add(side.clone().multiply(direction * folded))
-                            .add(forward.clone().multiply(0.28d + feather * 0.1d))
+                            .add(backward.clone().multiply(0.28d + feather * 0.1d))
                             .add(0d, 0.35d - feather * 0.23d, 0d);
                     drawLine(owner, root, elbow, 3, edge, 0.88f,
                             PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
@@ -3673,7 +3835,7 @@ final class CosmeticEffectService implements Listener {
                 : rank == 2 ? Color.fromRGB(224, 242, 255)
                 : Color.fromRGB(255, 184, 126);
         Vector side = horizontalSide(owner);
-        Vector backwards = new Vector(side.getZ(), 0d, -side.getX());
+        Vector backwards = horizontalBackward(side);
         double awaken = CosmeticAnimation.easeOutBack(
                 CosmeticAnimation.phaseProgress(step, 0, 22)
         );
@@ -4078,7 +4240,7 @@ final class CosmeticEffectService implements Listener {
         Color crystal = Color.fromRGB(218, 170, 255);
         Color resonance = Color.fromRGB(125, 225, 255);
         Vector side = horizontalSide(owner);
-        Vector forward = new Vector(-side.getZ(), 0d, side.getX());
+        Vector depth = horizontalBackward(side);
         double awaken = CosmeticAnimation.easeOutBack(
                 CosmeticAnimation.phaseProgress(step, 0, 18)
         );
@@ -4095,7 +4257,7 @@ final class CosmeticEffectService implements Listener {
             double wave = Math.sin(angle * (2d + formation)) * (0.12d + formation * 0.09d);
             Location at = heart.clone()
                     .add(side.clone().multiply(Math.cos(angle) * radius * awaken))
-                    .add(forward.clone().multiply(Math.sin(angle) * radius * 0.7d * awaken))
+                    .add(depth.clone().multiply(Math.sin(angle) * radius * 0.7d * awaken))
                     .add(0d, wave + (formation == 2 ? Math.cos(angle) * 0.38d : 0d), 0d);
             dust(owner, at, gem % 3 == 0 ? resonance : crystal,
                     formation == 2 ? 1.12f : 0.9f,
@@ -4710,6 +4872,24 @@ final class CosmeticEffectService implements Listener {
         }
         forward.normalize();
         return new Vector(-forward.getZ(), 0d, forward.getX());
+    }
+
+    /**
+     * The direction the wearer is actually looking, rebuilt from {@code side}.
+     *
+     * <p>Rotating {@code side} by another quarter turn the same way lands on the
+     * <em>opposite</em> of the look vector, so every effect that derived a facing this
+     * way was mirrored: wings meant to beat behind a player hung in front of their face,
+     * and a shield meant to lead them trailed off their back. These two helpers name the
+     * axis they return, so the handedness is stated once instead of re-derived per effect.
+     */
+    private static Vector horizontalForward(Vector side) {
+        return new Vector(side.getZ(), 0d, -side.getX());
+    }
+
+    /** Directly behind the wearer; the anchor for wings, capes, thrones and trails. */
+    private static Vector horizontalBackward(Vector side) {
+        return new Vector(-side.getZ(), 0d, side.getX());
     }
 
     private void dust(

@@ -23,7 +23,10 @@ import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerTeleportEvent;
+import org.bukkit.event.player.PlayerVelocityEvent;
 import org.bukkit.scheduler.BukkitTask;
+import org.bukkit.util.Vector;
 
 import java.util.Locale;
 import java.util.Map;
@@ -41,8 +44,20 @@ final class AfkService implements Listener, CommandExecutor {
     private final Set<UUID> afk = ConcurrentHashMap.newKeySet();
     /** When each live AFK stretch began, so it can be closed into {@link AfkStore}. */
     private final Map<UUID, Long> afkSince = new ConcurrentHashMap<>();
+    /**
+     * Where each AFK player was standing when they stopped playing.
+     *
+     * <p>The last line of defence behind the team collision rule: whatever a piston,
+     * a boat, a wind charge or a client the server does not control manages to shove,
+     * the horizontal position is put back. Only X and Z are restored, so a player whose
+     * floor is mined still falls and a player in a vehicle is left entirely alone.
+     */
+    private final Map<UUID, Location> anchors = new ConcurrentHashMap<>();
     private final AfkStore store;
     private BukkitTask task;
+    private BukkitTask anchorTask;
+    /** How far an AFK player may drift before they are put back, in blocks. */
+    private static final double ANCHOR_TOLERANCE = 0.08d;
 
     AfkService(MGXAccessBridge plugin, long timeoutSeconds, boolean invincible, AfkStore store) {
         this.store = store;
@@ -56,12 +71,17 @@ final class AfkService implements Listener, CommandExecutor {
         long now = System.currentTimeMillis();
         plugin.getServer().getOnlinePlayers().forEach(player -> lastActivity.put(player.getUniqueId(), now));
         task = plugin.getServer().getScheduler().runTaskTimer(plugin, this::checkIdle, 20L, 20L);
+        anchorTask = plugin.getServer().getScheduler().runTaskTimer(plugin, this::holdAnchors, 1L, 1L);
     }
 
     void stop() {
         if (task != null) {
             task.cancel();
             task = null;
+        }
+        if (anchorTask != null) {
+            anchorTask.cancel();
+            anchorTask = null;
         }
         // A shutdown must not swallow the stretch a player is in the middle of, or a
         // server that restarts nightly records almost no AFK at all.
@@ -74,6 +94,7 @@ final class AfkService implements Listener, CommandExecutor {
         }
         afk.clear();
         afkSince.clear();
+        anchors.clear();
         lastActivity.clear();
         lastCombat.clear();
     }
@@ -146,6 +167,19 @@ final class AfkService implements Listener, CommandExecutor {
         return true;
     }
 
+    /**
+     * Every server-side shove: knockback, wind charges, explosions, fishing rods.
+     *
+     * <p>An AFK player is already immune to the damage those carry, so letting the
+     * push through was the one half of the effect that still landed.
+     */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onVelocity(PlayerVelocityEvent event) {
+        if (afk.contains(event.getPlayer().getUniqueId())) {
+            event.setCancelled(true);
+        }
+    }
+
     @EventHandler
     public void onJoin(PlayerJoinEvent event) {
         event.getPlayer().setCollidable(true);
@@ -160,6 +194,7 @@ final class AfkService implements Listener, CommandExecutor {
         closeSession(id, event.getPlayer());
         lastActivity.remove(id);
         lastCombat.remove(id);
+        anchors.remove(id);
         afk.remove(id);
     }
 
@@ -291,9 +326,49 @@ final class AfkService implements Listener, CommandExecutor {
         }
     }
 
+    /**
+     * Puts an AFK player back on the spot they left, once per tick.
+     *
+     * <p>Deliberately horizontal only, and only while they are standing on their own
+     * two feet. Restoring Y would hold someone in the air when their floor is removed,
+     * and a player in a boat or a minecart is meant to travel.
+     */
+    private void holdAnchors() {
+        for (UUID playerId : Set.copyOf(afk)) {
+            Player player = plugin.getServer().getPlayer(playerId);
+            Location anchor = anchors.get(playerId);
+            if (player == null || anchor == null || player.getVehicle() != null) {
+                continue;
+            }
+            Location now = player.getLocation();
+            if (anchor.getWorld() != now.getWorld()) {
+                anchors.put(playerId, now.clone());
+                continue;
+            }
+            double driftX = now.getX() - anchor.getX();
+            double driftZ = now.getZ() - anchor.getZ();
+            if (driftX * driftX + driftZ * driftZ < ANCHOR_TOLERANCE * ANCHOR_TOLERANCE) {
+                continue;
+            }
+            Location held = now.clone();
+            held.setX(anchor.getX());
+            held.setZ(anchor.getZ());
+            player.teleport(held, PlayerTeleportEvent.TeleportCause.PLUGIN);
+            player.setVelocity(new Vector(0d, Math.min(0d, player.getVelocity().getY()), 0d));
+        }
+    }
+
     private void activity(Player player) {
         lastActivity.put(player.getUniqueId(), System.currentTimeMillis());
-        if (afk.contains(player.getUniqueId())) {
+        if (!afk.contains(player.getUniqueId())) {
+            return;
+        }
+        // Waking on the next tick was fine while nothing held the player in place. The
+        // anchor runs every tick, so a deferred wake let a returning player take one
+        // step and be dragged back before their own move event had been acted on.
+        if (plugin.getServer().isPrimaryThread()) {
+            markActive(player);
+        } else {
             plugin.getServer().getScheduler().runTask(plugin, () -> markActive(player));
         }
     }
@@ -302,6 +377,7 @@ final class AfkService implements Listener, CommandExecutor {
         lastActivity.put(player.getUniqueId(), System.currentTimeMillis());
         if (afk.add(player.getUniqueId())) {
             afkSince.put(player.getUniqueId(), System.currentTimeMillis());
+            anchors.put(player.getUniqueId(), player.getLocation().clone());
             player.setCollidable(false);
             player.sendActionBar(Component.text("You are now AFK.", NamedTextColor.GRAY));
             report(player, true, 0L);
@@ -312,6 +388,7 @@ final class AfkService implements Listener, CommandExecutor {
     private void markActive(Player player) {
         lastActivity.put(player.getUniqueId(), System.currentTimeMillis());
         if (afk.remove(player.getUniqueId())) {
+            anchors.remove(player.getUniqueId());
             player.setCollidable(true);
             closeSession(player.getUniqueId(), player);
             player.sendActionBar(Component.text("Welcome back.", NamedTextColor.GREEN));

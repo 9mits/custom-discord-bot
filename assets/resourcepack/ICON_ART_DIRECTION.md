@@ -4,21 +4,32 @@ MGX cosmetic textures are derived from artwork generated with ChatGPT's built-in
 image-generation tool. The pack must not use a script to draw new icon geometry
 pixel by pixel. Exact supplied source assets are the exceptions documented below.
 
-The Shard currency starts from the exact transparent crystal-cluster source supplied
-for the feature, then passes through the normal 16x16 logical-grid importer so Java
-and Bedrock receive the same crisp inventory sprite.
+The Shard currency started from the exact transparent crystal-cluster source supplied
+for the feature. It is the one icon still on the older 16x16 grid, at 32x32: that
+supplied source is no longer on hand to re-import, and upscaling the sprite would only
+produce a blurrier version of the same picture.
 
 ## Production rules
 
-- Design on a deliberate **16x16 logical pixel grid**, exported at 32x32 as exact
+- Design on a deliberate **24x24 logical pixel grid**, exported at 48x48 as exact
   2x2 blocks. This preserves strong Minecraft-scale pixels without tiny dotted detail.
   The two potion reskins are the only exception: they retain the supplied official
   reference's exact 160x160 canvas, alpha mask, bottle pixels, and pixel geometry.
+  The grid was 16x16 and threw away most of what the generated artwork contained —
+  a crown became four blocks and a wing became a wedge. 48 is still divisible by 16,
+  so Java's item atlas keeps all four mipmap levels.
+- **Fill the content box.** The importer measures the sprite that actually survives its
+  alpha cut, rescales until the long axis lands on 22 logical pixels, and centres on
+  the true bounds. It used to fit the source's bounding box and hope, which is why some
+  icons shipped floating small inside their canvas while others filled it. The icon
+  test enforces the result, so a framing regression fails the build.
 - Use one strong silhouette, stepped square pixels, crisp edges, and no antialiasing.
 - Light from the upper left; use a dark lower-right outline and material shadow.
-- Use a restrained material palette. The importer caps the final sprite at 24 colours.
+- Use a restrained material palette. The importer caps the final sprite at 32 colours.
 - Keep the object dimensional without smooth gradients, glow haze, or mobile-game gloss.
 - Keep Java and Bedrock identical. Bedrock is always generated from the Java texture.
+  Rebuild both packs after any import: `python3 assets/resourcepack/build_pack.py`
+  then `python3 assets/resourcepack/bedrock/build_pack.py`.
 - Review every icon both enlarged with nearest-neighbour scaling and at inventory size.
 
 ### Locked Amethyst equipment assets
@@ -64,11 +75,11 @@ Use case: stylized-concept
 Asset type: single Minecraft inventory item icon for Java and Bedrock resource packs
 Input images: Image 1 is the official-feeling pixel-art quality reference; Image 2 is
 only the old subject reference and must be fully redesigned.
-Style/medium: authentic vanilla Minecraft inventory sprite visual language on a 16x16 logical grid;
+Style/medium: authentic vanilla Minecraft inventory sprite visual language on a 24x24 logical grid;
 one isolated object made from chunky deliberate square pixels, stepped diagonals,
 crisp hard edges, a restrained hand-authored-looking material value ramp, and a
 strong readable silhouette; no antialiasing.
-Composition/framing: centered, filling roughly 12x12 to 14x14 logical pixels with padding.
+Composition/framing: centered, filling roughly 20x20 to 22x22 logical pixels with padding.
 Lighting/mood: top-left highlight and dark lower-right outline/shadow; dimensional
 but restrained.
 Scene/backdrop: a completely flat removable background.

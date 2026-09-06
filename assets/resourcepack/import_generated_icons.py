@@ -3,10 +3,22 @@
 
 This importer never draws or invents icon geometry. It only removes the flat
 generation backdrop, trims model artifacts, and scales the selected generated
-artwork onto a 16x16 logical pixel grid, then enlarges that grid exactly 2x for
-clean 32x32 inventory rendering. Potion reskins are the deliberate exception:
+artwork onto a 24x24 logical pixel grid, then enlarges that grid exactly 2x for
+clean 48x48 inventory rendering. Potion reskins are the deliberate exception:
 the supplied official bottle is copied exactly and only its existing liquid
 pixels receive a colour ramp sampled from the corresponding generated edit.
+
+The logical grid was 16x16, which threw away most of what the generated artwork
+actually contained: a crown became four blocks and a wing became a wedge. 24x24
+is still a coarse, deliberately chunky Minecraft grid — every logical pixel is a
+crisp 2x2 block in the exported file — with enough room for a readable silhouette.
+
+Framing is measured rather than assumed. Fitting the source's bounding box to the
+content box and hoping is what left some icons floating small inside their canvas:
+the alpha cut that follows the downscale eats the soft outer rows, so the sprite
+that actually ships is smaller than the box it was fitted to. Every icon is now
+scaled, cut, re-measured and corrected until its realised long axis fills the
+content box, then centred on the true bounds. Icons end up the same visual size.
 """
 
 from __future__ import annotations
@@ -23,10 +35,15 @@ from PIL import Image, ImageDraw, ImageFont
 PACK_ROOT = Path(__file__).resolve().parent
 ITEM_ROOT = PACK_ROOT / "src/assets/mgx/textures/item"
 POTION_REFERENCE = PACK_ROOT / "icon-sources/potion_of_healing_reference.png"
-CANVAS_SIZE = 32
-LOGICAL_SIZE = 16
-CONTENT_SIZE = 14
-PALETTE_SIZE = 24
+CANVAS_SIZE = 48
+LOGICAL_SIZE = 24
+CONTENT_SIZE = 22
+PALETTE_SIZE = 32
+ALPHA_CUT = 58
+# How close to CONTENT_SIZE the realised long axis has to land before the framing
+# pass stops correcting. Two logical pixels of slack keeps a wide, thin subject from
+# oscillating between one over and one under.
+FRAMING_TOLERANCE = 2
 BACKGROUND_DISTANCE = 72
 FOCUS_ONLY = {
     "bronze_cataclysm",
@@ -169,9 +186,31 @@ def meaningful_foreground(
     return alpha
 
 
+def downscale(cropped: Image.Image, long_axis: int) -> Image.Image:
+    """Reduce an isolated high-resolution subject to a hard-edged logical sprite.
+
+    BOX retains the model's lighting and material separation while reducing the
+    high-resolution generation, and the alpha cut afterwards is what makes the
+    result a Minecraft sprite rather than a thumbnail: no partially transparent
+    edge pixels, so every boundary is a stepped, deliberate one.
+    """
+    width, height = cropped.size
+    longest = max(width, height)
+    target = (
+        max(1, round(width * long_axis / longest)),
+        max(1, round(height * long_axis / longest)),
+    )
+    scaled = cropped.resize(target, Image.Resampling.BOX)
+    scaled.putdata([
+        (red, green, blue, 255 if alpha_value >= ALPHA_CUT else 0)
+        for red, green, blue, alpha_value in scaled.getdata()
+    ])
+    return scaled
+
+
 def prepare(source: Path, focus_only: bool = False) -> Image.Image:
     image = Image.open(source).convert("RGB")
-    image.thumbnail((256, 256), Image.Resampling.BOX)
+    image.thumbnail((512, 512), Image.Resampling.BOX)
     alpha = meaningful_foreground(image, connected_background(image), focus_only)
     bounds = alpha.getbbox()
     if bounds is None:
@@ -180,34 +219,47 @@ def prepare(source: Path, focus_only: bool = False) -> Image.Image:
     isolated = Image.new("RGBA", image.size, (0, 0, 0, 0))
     isolated.paste(image, (0, 0), alpha)
     cropped = isolated.crop(bounds)
-    width, height = cropped.size
-    square_size = max(width, height)
-    padding = max(1, square_size // 28)
-    square = Image.new(
-        "RGBA",
-        (square_size + 2 * padding, square_size + 2 * padding),
-        (0, 0, 0, 0),
-    )
-    square.alpha_composite(
-        cropped,
-        (padding + (square_size - width) // 2, padding + (square_size - height) // 2),
-    )
-    # BOX retains the model's lighting and material separation while reducing
-    # the high-resolution generation. The deliberately coarse logical grid keeps
-    # tiny one-pixel highlights from turning the inventory icon into dotted noise.
-    scaled = square.resize((CONTENT_SIZE, CONTENT_SIZE), Image.Resampling.BOX)
-    scaled.putdata([
-        (red, green, blue, 255 if alpha_value >= 58 else 0)
-        for red, green, blue, alpha_value in scaled.getdata()
-    ])
-    scaled = scaled.quantize(
+
+    # Aim at the content box, measure what actually survived the alpha cut, and aim
+    # again. Two corrections are enough in practice; the loop stops on the first
+    # attempt that lands inside tolerance so a subject that fits first time is not
+    # rescaled for nothing.
+    request = CONTENT_SIZE
+    best = None
+    for _ in range(6):
+        candidate = downscale(cropped, request)
+        realised = candidate.getchannel("A").getbbox()
+        if realised is None:
+            raise ValueError(f"generated source {source} vanished at icon scale")
+        trimmed = candidate.crop(realised)
+        longest = max(trimmed.size)
+        if best is None or abs(longest - CONTENT_SIZE) < abs(max(best.size) - CONTENT_SIZE):
+            best = trimmed
+        if abs(longest - CONTENT_SIZE) <= FRAMING_TOLERANCE:
+            break
+        if longest <= 0:
+            break
+        request = max(1, min(LOGICAL_SIZE * 2, round(request * CONTENT_SIZE / longest)))
+
+    sprite = best.quantize(
         colors=PALETTE_SIZE,
         method=Image.Quantize.FASTOCTREE,
         dither=Image.Dither.NONE,
     ).convert("RGBA")
+    if max(sprite.size) > LOGICAL_SIZE:
+        sprite = downscale(sprite, LOGICAL_SIZE)
+        realised = sprite.getchannel("A").getbbox()
+        if realised is not None:
+            sprite = sprite.crop(realised)
+
     logical = Image.new("RGBA", (LOGICAL_SIZE, LOGICAL_SIZE), (0, 0, 0, 0))
-    offset = (LOGICAL_SIZE - CONTENT_SIZE + 1) // 2
-    logical.alpha_composite(scaled, (offset, offset))
+    logical.alpha_composite(
+        sprite,
+        (
+            (LOGICAL_SIZE - sprite.width) // 2,
+            (LOGICAL_SIZE - sprite.height) // 2,
+        ),
+    )
     return logical.resize((CANVAS_SIZE, CANVAS_SIZE), Image.Resampling.NEAREST)
 
 
