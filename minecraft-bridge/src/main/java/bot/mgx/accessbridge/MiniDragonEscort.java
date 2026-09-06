@@ -1,23 +1,22 @@
 package bot.mgx.accessbridge;
 
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.World;
-import org.bukkit.attribute.Attribute;
-import org.bukkit.attribute.AttributeInstance;
-import org.bukkit.boss.BossBar;
-import org.bukkit.entity.EnderDragon;
+import org.bukkit.entity.Display;
 import org.bukkit.entity.Entity;
+import org.bukkit.entity.ItemDisplay;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
-import org.bukkit.event.entity.EntityChangeBlockEvent;
-import org.bukkit.event.entity.EntityDamageByEntityEvent;
-import org.bukkit.event.entity.EntityDamageEvent;
-import org.bukkit.event.entity.EntityExplodeEvent;
-import org.bukkit.event.entity.EntityTargetEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.world.EntitiesLoadEvent;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.util.Transformation;
 import org.bukkit.util.Vector;
+import org.joml.AxisAngle4f;
+import org.joml.Vector3f;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -30,26 +29,32 @@ import java.util.UUID;
 import java.util.logging.Level;
 
 /**
- * Two real, shrunken Ender Dragons circling the wearer of the Amethyst Dragon Ascendant.
+ * Two small dragons circling the wearer of the Amethyst Dragon Ascendant.
  *
- * <p>Particles cannot beat a wing, so the escort is the actual {@code EnderDragon} model
- * scaled down through the generic scale attribute — that is what buys the real flap
- * animation, the head turn, and the silhouette everybody already recognises.
+ * <p>Each one is a Dragon Head item model on a display entity, flown along the aura's
+ * own music clock, with the wings and tail that turn a head into a dragon drawn as
+ * particles by the aura around the position this class reports back.
  *
- * <p>Everything an Ender Dragon otherwise <em>does</em> is taken away rather than trusted
- * to stay quiet. The entity has no AI, no gravity, no boss bar, no sound, no collision and
- * no drops, it is invulnerable, and the three ways a dragon can still reach the world —
- * chewing through walls, hurting whoever it passes, and picking a target — are cancelled
- * by id here rather than left to a game rule. It is a costume, so it is treated as one.
+ * <p>It was a real {@code EnderDragon} shrunk with the generic scale attribute, which
+ * does not work: the Ender Dragon is drawn by its own boss renderer rather than the one
+ * every scalable mob uses, so the attribute has no visual effect, and its hitbox parts
+ * are a fixed size regardless. What that actually produced was a full-size Ender Dragon
+ * parked over the wearer's base.
+ *
+ * <p>A display entity has no AI, no health, no hitbox, no boss bar and no capacity to
+ * damage anything or eat a wall, so the failure that mattered cannot recur: the worst a
+ * bug here can leave behind is a floating head, which the sweeps below clear.
  */
 final class MiniDragonEscort implements Listener {
-    /** Marks an escort so a guard can recognise one without holding the map. */
+    /** Marks an escort so a sweep can recognise one without holding the map. */
     static final String TAG = "mgx_mini_dragon";
 
     private static final int ESCORTS = 2;
     private static final double ORBIT_RADIUS = 2.35d;
     private static final double ORBIT_SPEED = 0.045d;
-    private static final double SCALE = 0.11d;
+    private static final float MODEL_SCALE = 0.6f;
+    /** Matches the aura's own tick period so the flight interpolates instead of stepping. */
+    private static final int TELEPORT_TICKS = 2;
 
     private final MGXAccessBridge plugin;
     private final Map<UUID, List<UUID>> escorts = new HashMap<>();
@@ -62,19 +67,10 @@ final class MiniDragonEscort implements Listener {
         this.plugin = plugin;
     }
 
-    /**
-     * Any escort left behind by a crash or a reload, swept before the first one is spawned.
-     *
-     * <p>An orphan is a full-size hostile boss in somebody's overworld, so this runs on
-     * start rather than being left to the removal paths that a clean shutdown would use.
-     */
+    /** Any escort left behind by a crash or a reload, swept before the first one is spawned. */
     void start() {
         for (World world : plugin.getServer().getWorlds()) {
-            for (Entity entity : world.getEntities()) {
-                if (entity.getScoreboardTags().contains(TAG)) {
-                    entity.remove();
-                }
-            }
+            sweep(world.getEntities());
         }
     }
 
@@ -85,13 +81,42 @@ final class MiniDragonEscort implements Listener {
     }
 
     /**
-     * Keeps exactly two escorts alive around the owner and flies them one frame on.
+     * Chunks holding an orphan are not necessarily loaded when the plugin starts, so the
+     * sweep repeats as they arrive. This is also what removes the full-size Ender Dragons
+     * an earlier build of this class left behind in the world.
+     */
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onEntitiesLoad(EntitiesLoadEvent event) {
+        sweep(event.getEntities());
+    }
+
+    private void sweep(Collection<Entity> entities) {
+        for (Entity entity : List.copyOf(entities)) {
+            if (entity.getScoreboardTags().contains(TAG) && !isTracked(entity.getUniqueId())) {
+                entity.remove();
+            }
+        }
+    }
+
+    private boolean isTracked(UUID entityId) {
+        for (List<UUID> ids : escorts.values()) {
+            if (ids.contains(entityId)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Keeps two escorts alive around the owner and flies them one frame on.
      *
      * @param phaseSeconds the music timeline position, so the orbit rides the same beat
      *                     as the rest of the aura instead of drifting against it
      * @param energy       0..1 loudness, which opens the orbit out and lifts the pair
+     * @return where each dragon now is, facing along its flight, so the aura can draw
+     *         its wings and tail
      */
-    void follow(
+    List<Location> follow(
             Player owner,
             double phaseSeconds,
             double energy,
@@ -100,33 +125,33 @@ final class MiniDragonEscort implements Listener {
     ) {
         if (!canHost(owner)) {
             release(owner.getUniqueId());
-            return;
+            return List.of();
         }
         List<UUID> ids = escorts.computeIfAbsent(owner.getUniqueId(), ignored -> new ArrayList<>());
         // Moving pulls the pair in tight against the wearer so a sprint does not drag two
         // dragons through the scenery, matching how the aura itself narrows in motion.
         double radius = (moving ? 1.35d : ORBIT_RADIUS) * (0.86d + energy * 0.3d);
+        List<Location> heads = new ArrayList<>();
         for (int index = 0; index < ESCORTS; index++) {
-            EnderDragon dragon = resolve(owner, ids, index);
+            ItemDisplay dragon = resolve(owner, ids, index);
             if (dragon == null) {
                 continue;
             }
-            double angle = phaseSeconds * ORBIT_SPEED * Math.PI * 2d
-                    + index * Math.PI;
-            double height = 1.55d + Math.sin(phaseSeconds * 1.15d + index * Math.PI) * 0.42d
-                    + energy * 0.55d;
-            Location centre = owner.getLocation();
-            Location seat = centre.clone().add(
+            double angle = phaseSeconds * ORBIT_SPEED * Math.PI * 2d + index * Math.PI;
+            double height = 1.4d + Math.sin(phaseSeconds * 1.15d + index * Math.PI) * 0.34d
+                    + energy * 0.45d;
+            Location seat = owner.getLocation().clone().add(
                     Math.cos(angle) * radius, height, Math.sin(angle) * radius
             );
             // Face along the orbit, so the pair reads as flying a circuit rather than
             // being dragged sideways through it.
-            Vector heading = new Vector(-Math.sin(angle), 0d, Math.cos(angle));
-            seat.setDirection(heading);
+            seat.setDirection(new Vector(-Math.sin(angle), 0d, Math.cos(angle)));
             dragon.teleport(seat);
+            heads.add(seat);
         }
         ids.removeIf(id -> resolveById(owner.getWorld(), id) == null);
         applyVisibility(owner, ids, allowedViewers);
+        return List.copyOf(heads);
     }
 
     /**
@@ -152,7 +177,7 @@ final class MiniDragonEscort implements Listener {
                 continue;
             }
             for (UUID id : ids) {
-                EnderDragon dragon = resolveById(owner.getWorld(), id);
+                ItemDisplay dragon = resolveById(owner.getWorld(), id);
                 if (dragon == null) {
                     continue;
                 }
@@ -191,117 +216,56 @@ final class MiniDragonEscort implements Listener {
         release(event.getPlayer().getUniqueId());
     }
 
-    /** An Ender Dragon eats every block it flies through; this is what stops it. */
-    @EventHandler(priority = EventPriority.LOWEST)
-    public void onExplode(EntityExplodeEvent event) {
-        if (isEscort(event.getEntity())) {
-            event.setCancelled(true);
-            event.blockList().clear();
-        }
-    }
-
-    @EventHandler(priority = EventPriority.LOWEST)
-    public void onChangeBlock(EntityChangeBlockEvent event) {
-        if (isEscort(event.getEntity())) {
-            event.setCancelled(true);
-        }
-    }
-
-    /** Nothing can hurt an escort, and an escort can hurt nobody. */
-    @EventHandler(priority = EventPriority.LOWEST)
-    public void onDamage(EntityDamageEvent event) {
-        if (isEscort(event.getEntity())) {
-            event.setCancelled(true);
-        }
-    }
-
-    @EventHandler(priority = EventPriority.LOWEST)
-    public void onDamageByEntity(EntityDamageByEntityEvent event) {
-        if (isEscort(event.getDamager()) || isEscort(event.getEntity())) {
-            event.setCancelled(true);
-        }
-    }
-
-    @EventHandler(priority = EventPriority.LOWEST)
-    public void onTarget(EntityTargetEvent event) {
-        if (isEscort(event.getEntity())) {
-            event.setCancelled(true);
-        }
-    }
-
-    static boolean isEscort(Entity entity) {
-        return entity != null && entity.getScoreboardTags().contains(TAG);
-    }
-
-    /**
-     * The End is the one place a live Ender Dragon means something to the server.
-     *
-     * <p>Spawning a costume dragon into a world that runs a dragon battle risks the
-     * battle adopting it, so the wearer keeps the particle formation there instead.
-     */
+    /** The verification lobby is sealed and shows nobody anything they did not come for. */
     private static boolean canHost(Player owner) {
         return owner != null
                 && owner.isOnline()
-                && owner.getWorld().getEnvironment() != World.Environment.THE_END
                 && !VerificationLobbyService.isLobbyWorld(owner.getWorld());
     }
 
-    private EnderDragon resolve(Player owner, List<UUID> ids, int index) {
+    private ItemDisplay resolve(Player owner, List<UUID> ids, int index) {
         while (ids.size() <= index) {
             ids.add(null);
         }
-        EnderDragon existing = resolveById(owner.getWorld(), ids.get(index));
+        ItemDisplay existing = resolveById(owner.getWorld(), ids.get(index));
         if (existing != null) {
             return existing;
         }
-        EnderDragon spawned = spawn(owner);
+        ItemDisplay spawned = spawn(owner);
         ids.set(index, spawned == null ? null : spawned.getUniqueId());
         return spawned;
     }
 
-    private EnderDragon resolveById(World world, UUID id) {
+    private ItemDisplay resolveById(World world, UUID id) {
         if (id == null) {
             return null;
         }
         Entity entity = plugin.getServer().getEntity(id);
-        if (!(entity instanceof EnderDragon dragon) || !dragon.isValid()
+        if (!(entity instanceof ItemDisplay dragon) || !dragon.isValid()
                 || dragon.getWorld() != world) {
             return null;
         }
         return dragon;
     }
 
-    private EnderDragon spawn(Player owner) {
+    private ItemDisplay spawn(Player owner) {
         try {
             return owner.getWorld().spawn(
-                    owner.getLocation().add(0d, 2d, 0d), EnderDragon.class, dragon -> {
+                    owner.getLocation().add(0d, 2d, 0d), ItemDisplay.class, dragon -> {
                         dragon.addScoreboardTag(TAG);
-                        dragon.setPhase(EnderDragon.Phase.HOVER);
-                        dragon.setAI(false);
-                        dragon.setGravity(false);
-                        dragon.setSilent(true);
-                        dragon.setInvulnerable(true);
-                        dragon.setCollidable(false);
+                        dragon.setItemStack(new ItemStack(Material.DRAGON_HEAD));
+                        dragon.setItemDisplayTransform(ItemDisplay.ItemDisplayTransform.HEAD);
+                        dragon.setBillboard(Display.Billboard.FIXED);
+                        dragon.setTransformation(new Transformation(
+                                new Vector3f(0f, 0f, 0f),
+                                new AxisAngle4f(0f, 0f, 0f, 1f),
+                                new Vector3f(MODEL_SCALE, MODEL_SCALE, MODEL_SCALE),
+                                new AxisAngle4f(0f, 0f, 0f, 1f)
+                        ));
+                        // Without this the head jumps between orbit positions once per
+                        // aura frame instead of flying between them.
+                        dragon.setTeleportDuration(TELEPORT_TICKS);
                         dragon.setPersistent(false);
-                        dragon.setRemoveWhenFarAway(true);
-                        // The vanilla dragon bar belongs to the End fight. An aura that
-                        // put one on every nearby screen would read as a live boss.
-                        //
-                        // Outside the End there is no dragon fight to own that bar, and
-                        // getBossBar() is null rather than empty. Dereferencing it threw
-                        // out of the spawn consumer, out of the cosmetic tick, and took
-                        // every remaining effect on the server with it — the wearer heard
-                        // the music and saw nothing, because the music is synced one line
-                        // earlier than the drawing.
-                        BossBar bar = dragon.getBossBar();
-                        if (bar != null) {
-                            bar.setVisible(false);
-                            bar.removeAll();
-                        }
-                        AttributeInstance scale = dragon.getAttribute(Attribute.SCALE);
-                        if (scale != null) {
-                            scale.setBaseValue(SCALE);
-                        }
                     });
         } catch (RuntimeException exception) {
             // An escort is decoration. Whatever a future server build does to entity
