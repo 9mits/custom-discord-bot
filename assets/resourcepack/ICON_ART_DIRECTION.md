@@ -135,6 +135,22 @@ Avoid: flat symbol design, mobile-game gloss, smooth illustration, excessive det
 | `soul_requiem` | Dark iron reliquary lantern containing a cyan spirit flame and soul wisp. |
 | `void_collapse` | Dense black-violet imploding sphere with a broken amethyst rim. |
 | `shard` | Three sharply faceted violet and cyan crystal shards rising from one compact dark-purple base, matching the supplied reference silhouette. |
+| `dragonheart_rupture` | Heavy faceted amethyst dragon-heart split by a white-lilac rupture, with three short angular blast shards. |
+| `crystal_wingfall` | Dark-amethyst dragon core enclosed by two descending pale-lilac crystalline wings. |
+| `endscale_cataclysm` | Dense black-violet dragon scale bursting through a broken ring of large amethyst scales. |
+| `amethyst_dragon_crown` | Heavy royal-amethyst crown shaped from angular dragon horns around a pale-lilac eye gem. |
+| `violet_wyrm_orbit` | Bright amethyst crystal encircled by two opposing serpentine violet wyrms with cyan eyes. |
+| `geode_sovereignty` | Regal dark-shell geode throne opening into tall amethyst spires around a luminous royal core. |
+| `dragonflight_wake` | Compact banking amethyst dragon with broad angular wings and three short stepped ember streaks. |
+| `shardwing_procession` | Diagonal procession of three overlapping pairs of sharp amethyst crystal wings. |
+| `crystalfire_trail` | Swept purple dragonfire plume hardening into angular amethyst facets with two trailing embers. |
+| `amethyst_dragon_ascendant` | Royal-amethyst dragon heart enthroned inside a broken gold crown ring and dark violet wings, with restrained resonance jewels. |
+| `dragon_podium_1` | Heavy royal-gold dragon crown with horn points, folded wing pieces, and an amethyst heart gem; no placement numeral. |
+| `dragon_podium_2` | Cold-silver dragon fang crossing a broken lunar ring with an amethyst socket; no placement numeral. |
+| `dragon_podium_3` | Battle-worn bronze dragon scale with an ember-amethyst fracture and two overlapping scale facets; no placement numeral. |
+| `dragon_clan_1` | Regal amethyst dragon egg guarded by angular wing crests and a restrained gold crown accent. |
+| `dragon_clan_2` | Cold-silver dragon-wing vanguard crest protecting an amethyst core with integrated crystal lances. |
+| `dragon_clan_3` | Three bronze-edged amethyst dragon scales interlocked around one pale-lilac brood heart. |
 
 ## Potion reskin edit prompt
 

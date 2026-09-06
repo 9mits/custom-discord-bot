@@ -145,10 +145,13 @@ class ResourcePackIconTests(unittest.TestCase):
 
         self.assertEqual(len(icons), len(digests), "custom icons must not be duplicate recolour assets")
 
-    def test_dragon_icons_are_drawn_independently_from_older_cosmetics(self):
-        builder = (RESOURCE_PACK / "build_dragon_cosmetic_icons.py").read_text(encoding="utf-8")
-        self.assertNotIn("Image.open(", builder)
-        self.assertNotIn("def tint(", builder)
+    def test_dragon_icons_use_generated_artwork_workflow(self):
+        self.assertFalse(
+            (RESOURCE_PACK / "build_dragon_cosmetic_icons.py").exists(),
+            "Dragon icon geometry must come from image generation, not a drawing script",
+        )
+        direction = (RESOURCE_PACK / "ICON_ART_DIRECTION.md").read_text(encoding="utf-8")
+        expansion = (RESOURCE_PACK / "AMETHYST_EXPANSION_ASSETS.md").read_text(encoding="utf-8")
         for icon in (
             "dragonheart_rupture", "crystal_wingfall", "endscale_cataclysm",
             "amethyst_dragon_crown", "violet_wyrm_orbit", "geode_sovereignty",
@@ -156,7 +159,9 @@ class ResourcePackIconTests(unittest.TestCase):
             "amethyst_dragon_ascendant", "dragon_podium_1", "dragon_podium_2",
             "dragon_podium_3", "dragon_clan_1", "dragon_clan_2", "dragon_clan_3",
         ):
-            self.assertIn(f'def {icon}()', builder)
+            self.assertIn(f"`{icon}`", direction)
+        self.assertIn("built-in image-generation tool", expansion)
+        self.assertIn("No script draws their", expansion)
 
     def test_bedrock_pack_contains_the_canonical_java_icon_bytes(self):
         catalog = json.loads((RESOURCE_PACK / "bedrock" / "catalog.json").read_text(encoding="utf-8"))

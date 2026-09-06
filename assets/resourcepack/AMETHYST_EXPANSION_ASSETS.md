@@ -24,6 +24,8 @@ statistics, abilities, drops, entities, or gameplay code is used by the server.
   <https://github.com/redfox193/Amethyst-Update>
 - **`music.ogg`** (supplied by the server owner): music for the Secret Amethyst
   Dragon Ascendant reveal.
-- The Amethyst Dragon cosmetics and individual/clan podium icons are derived from
-  the existing detailed 32x32 wardrobe icon set. `build_dragon_cosmetic_icons.py`
-  preserves that established vanilla-style pixel density and shading.
+- The Amethyst Dragon cosmetics and individual/clan podium icons are generated as
+  independent artwork with ChatGPT's built-in image-generation tool. Each selected
+  source is processed by `import_generated_icons.py` onto the same 16x16 logical
+  grid and 24-colour limit as the established wardrobe set. No script draws their
+  geometry or derives it from an older cosmetic.
