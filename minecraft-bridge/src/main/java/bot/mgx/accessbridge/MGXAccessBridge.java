@@ -599,7 +599,6 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getCommand("echest").setExecutor(enderChests);
         getServer().getPluginManager().registerEvents(wardrobeService, this);
         getServer().getPluginManager().registerEvents(cosmeticEffects, this);
-        getServer().getPluginManager().registerEvents(cosmeticEffects.miniDragons(), this);
         getServer().getPluginManager().registerEvents(crates, this);
         getServer().getPluginManager().registerEvents(clanBattles, this);
         getServer().getPluginManager().registerEvents(airdrops, this);
