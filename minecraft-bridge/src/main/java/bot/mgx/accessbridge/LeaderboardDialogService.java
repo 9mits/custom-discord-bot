@@ -150,18 +150,25 @@ final class LeaderboardDialogService {
         String name = text(row, "clan");
         int colour = row.has("colour") ? row.get("colour").getAsInt() : 0xFF9900;
         int level = row.has("level") ? row.get("level").getAsInt() : 0;
-        Component tag = Component.text(
-                "[" + name + "]" + (level > 0 ? " " + ClanLevel.badge(level) : ""),
-                net.kyori.adventure.text.format.TextColor.color(colour)
+        Component tag = Component.text("[" + name + "]",
+                net.kyori.adventure.text.format.TextColor.color(colour));
+        if (level > 0) {
+            tag = tag.append(Component.text(" "))
+                    .append(BadgeIcons.glyph(ClanLevel.badge(level)));
+        }
+        ClanBattleStore.Badges badges = new ClanBattleStore.Badges(
+                integer(row, "badge_gold"),
+                integer(row, "badge_silver"),
+                integer(row, "badge_bronze")
         );
-        String badges = text(row, "badges");
         int members = row.has("members") ? row.get("members").getAsInt() : 0;
         Component line = Component.text("#" + rank + " ", MenuText.placeColour(rank))
                 .append(MenuText.sprite(ClanIcon.resolve(text(row, "icon")).sprite()))
                 .append(Component.text(" "))
                 .append(tag)
-                .append(Component.text(badges.isBlank() ? " " : "  " + badges + " ",
-                        MenuText.GOLD))
+                .append(badges.empty()
+                        ? Component.text(" ")
+                        : Component.text("  ").append(ClanTag.medals(badges)))
                 .append(Component.text(" — ", NamedTextColor.DARK_GRAY))
                 .append(Component.text(display, MenuText.VALUE))
                 .append(members > 0
@@ -181,6 +188,10 @@ final class LeaderboardDialogService {
                         openClan(clicker, clanId, back);
                     }
                 }, CALLBACK_OPTIONS));
+    }
+
+    private static int integer(JsonObject row, String key) {
+        return row.has(key) ? row.get(key).getAsInt() : 0;
     }
 
     /** Opens the clan page {@code /claninfo} opens. */

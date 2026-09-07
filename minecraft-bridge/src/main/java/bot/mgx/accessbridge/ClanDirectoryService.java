@@ -98,12 +98,12 @@ final class ClanDirectoryService {
         Component tag = Component.text("[" + clan.name() + "]",
                 TextColor.color(clan.themeColor()));
         if (clan.level() > 0) {
-            tag = tag.append(Component.text(" " + ClanLevel.badge(clan.level()),
-                    TextColor.color(ClanLevel.badgeColor(clan.level()))));
+            tag = tag.append(Component.text(" "))
+                    .append(BadgeIcons.glyph(ClanLevel.badge(clan.level())));
         }
-        String medals = ClanTag.plainMedals(clanBattles.badges(clan.id())).strip();
-        if (!medals.isBlank()) {
-            tag = tag.append(Component.text("  " + medals, MenuText.GOLD));
+        ClanBattleStore.Badges badges = clanBattles.badges(clan.id());
+        if (!badges.empty()) {
+            tag = tag.append(Component.text("  ")).append(ClanTag.medals(badges));
         }
         UUID clanId = clan.id();
         return MenuText.sprite(ClanIcon.resolve(clan.icon()).sprite())

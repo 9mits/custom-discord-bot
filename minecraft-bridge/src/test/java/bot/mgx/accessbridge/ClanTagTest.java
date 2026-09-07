@@ -9,6 +9,7 @@ import java.nio.file.Path;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class ClanTagTest {
@@ -16,7 +17,7 @@ final class ClanTagTest {
     Path directory;
 
     @Test
-    void medalsStackAndRideAlongsideTheLevelStar() throws Exception {
+    void customBattleBadgesStackAlongsideTheClan() throws Exception {
         ClanStore clans = new ClanStore(directory.resolve("clans.json"));
         UUID leader = UUID.randomUUID();
         ClanStore.ClanView clan = clans.create(leader, "Leader", "STARS");
@@ -27,7 +28,23 @@ final class ClanTagTest {
         String stacked = plain(ClanTag.of(clan, new ClanBattleStore.Badges(2, 1, 0)));
         assertTrue(stacked.startsWith("[item/amethyst_shard@items] [STARS] "), stacked);
         assertTrue(stacked.contains("x2"), stacked);
-        assertEquals(2, stacked.chars().filter(point -> point == '◆').count(), stacked);
+        assertEquals(1, stacked.chars()
+                .filter(point -> point == BadgeIcons.CLAN_BATTLE_GOLD.charAt(0)).count(), stacked);
+        assertEquals(1, stacked.chars()
+                .filter(point -> point == BadgeIcons.CLAN_BATTLE_SILVER.charAt(0)).count(), stacked);
+    }
+
+    @Test
+    void overheadTagOmitsTheLevelBadgeButTabTagKeepsIt() throws Exception {
+        ClanStore clans = new ClanStore(directory.resolve("level-clans.json"));
+        UUID leader = UUID.randomUUID();
+        clans.create(leader, "Leader", "LEVEL");
+        clans.donate(leader, ClanLevel.costOf(1).orElseThrow().dollars());
+        ClanStore.ClanView clan = clans.upgrade(leader);
+        ClanBattleStore.Badges none = new ClanBattleStore.Badges(0, 0, 0);
+
+        assertTrue(plain(ClanTag.of(clan, none)).contains(ClanLevel.badge(clan.level())));
+        assertFalse(plain(ClanTag.overhead(clan, none)).contains(ClanLevel.badge(clan.level())));
     }
 
     @Test

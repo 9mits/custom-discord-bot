@@ -15,12 +15,15 @@ import pathlib
 import uuid
 import zipfile
 
+import build_badge_fonts
+
 PACK = pathlib.Path(__file__).resolve().parent
 SOURCE = PACK / "src"
 TARGET = PACK / "MysteriousSMPX.zip"
 
 
 def main():
+    build_badge_fonts.main()
     files = sorted(p for p in SOURCE.rglob("*") if p.is_file())
     directories = sorted({
         str(p.relative_to(SOURCE)).replace("\\", "/") + "/"

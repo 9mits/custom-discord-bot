@@ -1,0 +1,18 @@
+{
+  "pvp_bronze": "E800",
+  "pvp_silver": "E801",
+  "pvp_gold": "E802",
+  "pvp_platinum": "E803",
+  "pvp_diamond": "E804",
+  "pvp_elite": "E805",
+  "pvp_champion": "E806",
+  "pvp_unreal": "E807",
+  "clan_battle_gold": "E808",
+  "clan_battle_silver": "E809",
+  "clan_battle_bronze": "E80A",
+  "clan_level_1": "E80B",
+  "clan_level_2": "E80C",
+  "clan_level_3": "E80D",
+  "clan_level_4": "E80E",
+  "clan_level_5": "E80F"
+}

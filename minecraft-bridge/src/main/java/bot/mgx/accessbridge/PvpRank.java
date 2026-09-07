@@ -65,18 +65,9 @@ enum PvpRank {
         return division.isEmpty() ? tier : tier + " " + division;
     }
 
-    /** The icon for the whole tier: a division is not a different metal. */
-    String sprite() {
-        return switch (tier) {
-            case "Bronze" -> "item/copper_ingot";
-            case "Silver" -> "item/iron_ingot";
-            case "Gold" -> "item/gold_ingot";
-            case "Platinum" -> "item/prismarine_crystals";
-            case "Diamond" -> "item/diamond";
-            case "Elite" -> "item/emerald";
-            case "Champion" -> "item/netherite_ingot";
-            default -> "item/nether_star";
-        };
+    /** The custom badge for the whole tier: a division is not a different metal. */
+    String glyph() {
+        return BadgeIcons.pvp(this);
     }
 
     static PvpRank of(long rating) {

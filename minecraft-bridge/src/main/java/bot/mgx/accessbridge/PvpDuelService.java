@@ -568,7 +568,8 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         Screens.show(player, "PvP", List.of(
                 DialogBody.plainMessage(MenuText.body(hubBody()), 400),
                 DialogBody.plainMessage(Component.empty(), 400),
-                DialogBody.plainMessage(MenuText.stat("Rank", standing.rank().sprite(),
+                DialogBody.plainMessage(MenuText.stat("Rank",
+                        BadgeIcons.glyph(standing.rank().glyph()),
                         rankProgress(standing)), 400),
                 DialogBody.plainMessage(MenuText.muted(record), 400)
         ), buttons, 1, null);
@@ -1806,7 +1807,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         PvpRecordStore.RatingChange rating = result.rating();
         if (rating != null) {
             body.add(DialogBody.plainMessage(MenuText.stat("Rank",
-                    rating.rankAfter().sprite(),
+                    BadgeIcons.glyph(rating.rankAfter().glyph()),
                     rating.rankAfter().display() + "  " + signedRating(rating)), 400));
         }
         body.add(DialogBody.plainMessage(MenuText.stat("Money", "item/gold_ingot",
