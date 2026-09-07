@@ -60,6 +60,8 @@ final class Menu implements InventoryHolder {
         AUCTION_CONFIRM,
         BOUNTY_BOARD,
         ORDER_BOARD,
+        ORDER_CREATE,
+        ORDER_MINE,
         TELEPORT_WARPS,
         TELEPORT_HOMES,
         MAIN_MENU,
