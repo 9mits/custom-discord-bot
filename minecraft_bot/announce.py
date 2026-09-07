@@ -44,6 +44,67 @@ FAILURE_LIMIT = 0.5
 #: A recipient reached this recently is skipped, so a double-click cannot double-send.
 RECIPIENT_COOLDOWN_SECONDS = 6 * 60 * 60
 
+#: The house orange, used when a draft names no colour of its own.
+DEFAULT_COLOUR = 0xF06000
+
+
+def build_announcement_embed(
+    *,
+    title: str = "",
+    description: str = "",
+    colour: str = "",
+    image: str = "",
+    footer: str = "",
+) -> discord.Embed:
+    """Turns one draft into the embed recipients will see.
+
+    Both the owner console and the preview command build through here, so what a
+    preview shows is what a real announcement sends. Raises ValueError with the
+    wording to show the author.
+    """
+    title = str(title or "").strip()
+    description = str(description or "").strip()
+    if not title and not description:
+        raise ValueError("An announcement needs a title or a body.")
+    if len(title) > 256:
+        raise ValueError("The title must be 256 characters or fewer.")
+    if len(description) > 4000:
+        raise ValueError("The body must be 4000 characters or fewer.")
+
+    raw_colour = str(colour or "").strip().lstrip("#")
+    try:
+        parsed = (
+            discord.Colour(int(raw_colour, 16))
+            if raw_colour
+            else discord.Colour(DEFAULT_COLOUR)
+        )
+    except ValueError:
+        raise ValueError("The colour must be a hex value such as F06000.") from None
+
+    embed = discord.Embed(
+        title=title or None, description=description or None, colour=parsed
+    )
+    # Anything else would let a draft point Discord at a plaintext or file URL.
+    if str(image or "").strip().startswith("https://"):
+        embed.set_image(url=str(image).strip())
+    footer = str(footer or "").strip()
+    if footer:
+        embed.set_footer(text=footer[:2048])
+    return embed
+
+
+def announcer_for(bot: Any) -> UpdateAnnouncer:
+    """The one announcer for this bot.
+
+    Shared deliberately: the in-flight guard and the per-recipient cooldown only
+    mean anything if the console and the preview command consult the same object.
+    """
+    existing = getattr(bot, "_update_announcer", None)
+    if existing is None:
+        existing = UpdateAnnouncer(bot)
+        bot._update_announcer = existing
+    return existing
+
 
 @dataclass
 class BroadcastResult:
@@ -103,6 +164,26 @@ class UpdateAnnouncer:
         await self.bot.data.set_config(
             "minecraft_announce_enabled", "1" if enabled else "0"
         )
+
+    async def preview(
+        self,
+        *,
+        embed: discord.Embed,
+        member: discord.abc.Messageable,
+        content: Optional[str] = None,
+    ) -> None:
+        """Sends one copy to whoever is composing it.
+
+        Deliberately outside every guard that protects a real broadcast. It ignores
+        the on/off switch because the point is to read the thing before arming it,
+        and it ignores the per-recipient cooldown because drafting means sending
+        yourself the same notice repeatedly.
+
+        It must never record the send in ``_last_sent``: the author usually holds
+        the member role too, and a recorded preview would make the real
+        announcement skip the one person who knows it went out.
+        """
+        await member.send(content=content or None, embed=embed)
 
     async def send(
         self,

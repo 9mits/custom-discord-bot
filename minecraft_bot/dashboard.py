@@ -794,13 +794,9 @@ class DashboardServer:
         return web.json_response({"presets": sorted(presets)})
 
     def _announcer(self):
-        from .announce import UpdateAnnouncer
+        from .announce import announcer_for
 
-        existing = getattr(self.bot, "_update_announcer", None)
-        if existing is None:
-            existing = UpdateAnnouncer(self.bot)
-            self.bot._update_announcer = existing
-        return existing
+        return announcer_for(self.bot)
 
     async def announce_status(self, request: web.Request) -> web.Response:
         """Who would receive an update notice, and whether sending is switched on."""
@@ -842,30 +838,18 @@ class DashboardServer:
             await announcer.set_enabled(bool(body.get("enabled")))
             return web.json_response({"enabled": await announcer.enabled()})
 
-        title = str(body.get("title", "")).strip()
-        description = str(body.get("description", "")).strip()
-        if not title and not description:
-            raise web.HTTPBadRequest(text="An announcement needs a title or a body.")
-        if len(title) > 256:
-            raise web.HTTPBadRequest(text="The title must be 256 characters or fewer.")
-        if len(description) > 4000:
-            raise web.HTTPBadRequest(text="The body must be 4000 characters or fewer.")
+        from .announce import build_announcement_embed
 
-        colour = str(body.get("colour", "")).strip().lstrip("#")
         try:
-            parsed = discord.Colour(int(colour, 16)) if colour else discord.Colour(0xF06000)
-        except ValueError:
-            raise web.HTTPBadRequest(text="The colour must be a hex value such as F06000.")
-
-        embed = discord.Embed(
-            title=title or None, description=description or None, colour=parsed
-        )
-        image = str(body.get("image", "")).strip()
-        if image.startswith("https://"):
-            embed.set_image(url=image)
-        footer = str(body.get("footer", "")).strip()
-        if footer:
-            embed.set_footer(text=footer[:2048])
+            embed = build_announcement_embed(
+                title=body.get("title", ""),
+                description=body.get("description", ""),
+                colour=body.get("colour", ""),
+                image=body.get("image", ""),
+                footer=body.get("footer", ""),
+            )
+        except ValueError as exc:
+            raise web.HTTPBadRequest(text=str(exc))
 
         result = await announcer.send(embed=embed, actor=str(member), content=None)
         return web.json_response(result.as_dict())

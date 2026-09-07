@@ -3009,6 +3009,108 @@ class MinecraftAccessBot(commands.Bot):
             )
 
         @admin_group.command(
+            name="announce-preview",
+            description="Owner only: DM yourself an update notice to see how it looks.",
+        )
+        @app_commands.describe(
+            title="Headline of the notice.",
+            message="Body text. Use \\n for a line break.",
+            colour="Hex colour such as F06000. Defaults to the house orange.",
+            image="An https:// image URL shown under the text.",
+            footer="Small print under the notice.",
+        )
+        async def announce_preview(
+            interaction: discord.Interaction,
+            title: Optional[str] = None,
+            message: Optional[str] = None,
+            colour: Optional[str] = None,
+            image: Optional[str] = None,
+            footer: Optional[str] = None,
+        ) -> None:
+            if not self.is_owner_member(interaction.user):
+                await interaction.response.send_message(
+                    **branded_send(
+                        info_embed(
+                            "Owner Access Required",
+                            "> Only the server owner may compose update notices.",
+                            error=True,
+                        )
+                    ),
+                    ephemeral=True,
+                )
+                return
+            await interaction.response.defer(ephemeral=True)
+
+            from .announce import (
+                SEND_INTERVAL_SECONDS,
+                announcer_for,
+                build_announcement_embed,
+            )
+
+            try:
+                embed = build_announcement_embed(
+                    title=title or "",
+                    # Slash options cannot carry a real newline; let the author type one.
+                    description=(message or "").replace("\\n", "\n"),
+                    colour=colour or "",
+                    image=image or "",
+                    footer=footer or "",
+                )
+            except ValueError as exc:
+                await interaction.edit_original_response(
+                    **branded_edit(info_embed("Cannot Build That Notice", f"> {exc}", error=True))
+                )
+                return
+
+            announcer = announcer_for(self)
+            try:
+                await announcer.preview(embed=embed, member=interaction.user)
+            except discord.Forbidden:
+                await interaction.edit_original_response(
+                    **branded_edit(
+                        info_embed(
+                            "Your Direct Messages Are Closed",
+                            "> Discord refused the preview. Turn on direct messages "
+                            "from server members and run this again.",
+                            error=True,
+                        )
+                    )
+                )
+                return
+            except discord.HTTPException as exc:
+                await interaction.edit_original_response(
+                    **branded_edit(
+                        info_embed("Preview Not Delivered", f"> Discord refused it: {exc}", error=True)
+                    )
+                )
+                return
+
+            recipients = len(await announcer.recipients())
+            armed = await announcer.enabled()
+            minutes = max(1, round(recipients * SEND_INTERVAL_SECONDS / 60))
+            switch = (
+                "Announcements are **switched on**."
+                if armed
+                else "Announcements are **switched off**, so nothing can go out yet."
+            )
+            await interaction.edit_original_response(
+                **branded_edit(
+                    info_embed(
+                        "Preview Sent",
+                        "> Check your direct messages — that is exactly what a real "
+                        "notice looks like.\n\n"
+                        f"**A real send would reach:** {recipients} member(s)\n"
+                        f"**It would take about:** {minutes} minute(s)\n"
+                        f"{switch}\n\n"
+                        "Nothing was sent to anybody else, and this preview does not "
+                        "use up your place in a later announcement. Send the real one "
+                        "from the owner console.",
+                        success=True,
+                    )
+                )
+            )
+
+        @admin_group.command(
             name="wipe",
             description="Owner only: delete every access and whitelist record, keeping settings.",
         )
@@ -3578,6 +3680,8 @@ class MinecraftAccessBot(commands.Bot):
                         "`/mgxadmin maintenance` — hold the server closed before "
                         "launch, or open it again\n"
                         "`/mgxadmin cleanheads` — remove leaderboard head emoji\n"
+                        "`/mgxadmin announce-preview` — owner only; DM yourself a draft "
+                        "update notice\n"
                         "`/mgxadmin wipe` — owner only; delete all access and whitelist data"
                     ),
                     inline=False,
