@@ -109,7 +109,7 @@ final class LeaderboardDialogService {
                 continue;
             }
             UUID id = uuid(row);
-            String name = text(row, "player");
+            String name = playerName(row);
             Component line = MenuText.rankedRow(
                     rank, id, name, Component.text(display, MenuText.VALUE)
             );
@@ -243,6 +243,11 @@ final class LeaderboardDialogService {
 
     private static String text(JsonObject row, String key) {
         return row.has(key) && !row.get(key).isJsonNull() ? row.get(key).getAsString() : "";
+    }
+
+    /** Snapshot rows consistently call this field username, on every board and client. */
+    static String playerName(JsonObject row) {
+        return text(row, "username");
     }
 
     private DialogAction callback(BiConsumer<DialogResponseView, Player> callback) {

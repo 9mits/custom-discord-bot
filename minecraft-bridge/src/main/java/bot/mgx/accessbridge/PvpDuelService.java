@@ -7,6 +7,9 @@ import io.papermc.paper.registry.data.dialog.body.DialogBody;
 import io.papermc.paper.registry.data.dialog.input.DialogInput;
 import net.kyori.adventure.bossbar.BossBar;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.event.ClickCallback;
+import net.kyori.adventure.text.event.ClickEvent;
+import net.kyori.adventure.text.event.HoverEvent;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextColor;
 import net.kyori.adventure.text.format.TextDecoration;
@@ -128,6 +131,12 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     private static final int HUB_START = 11;
     private static final int HUB_INCOMING = 13;
     private static final int HUB_LIVE = 15;
+    private static final int HUB_RANKS = 4;
+    private static final int RANK_ROWS = 10;
+    private static final ClickCallback.Options RANK_CALLBACK_OPTIONS = ClickCallback.Options.builder()
+            .uses(ClickCallback.UNLIMITED_USES)
+            .lifetime(Duration.ofMinutes(10))
+            .build();
     // Kept off the middle of the bottom row, which every board gives to Back. A
     // Send Challenge tile written to slot 22 of a 27-slot board was drawn over by
     // Back and could never be pressed, so a challenge could not be sent at all.
@@ -168,7 +177,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     private enum Phase { COUNTDOWN, FIGHTING, AFTERMATH, ENDING }
     private enum Board {
         HUB, TARGETS, SETUP, SETUP_ITEMS, SETUP_COSMETICS,
-        INCOMING, ACCEPT, ACCEPT_ITEMS, ACCEPT_COSMETICS, LIVE, RESULT
+        INCOMING, ACCEPT, ACCEPT_ITEMS, ACCEPT_COSMETICS, LIVE, RANK, RESULT
     }
     private enum Prompt { MONEY }
 
@@ -333,6 +342,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     private final CosmeticStore cosmetics;
     private final CosmeticItems cosmeticItems;
     private WardrobeService wardrobe;
+    private StatsDialogService statsDialogs;
     private final PvpDuelStore store;
     private final ArenaRestoreStore arenaRestore;
     private final PvpRecordStore duelRecords;
@@ -452,6 +462,10 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         this.wardrobe = wardrobe;
     }
 
+    void useStatsDialogs(StatsDialogService statsDialogs) {
+        this.statsDialogs = statsDialogs;
+    }
+
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         args = CommandArgs.withoutEchoedSender(sender.getName(), args);
@@ -545,6 +559,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                     new BedrockForms.Button("Start a Fight", () -> openTargets(player)),
                     new BedrockForms.Button("Incoming (" + incoming + ")", () -> openIncoming(player)),
                     new BedrockForms.Button("Watch Live Fights (" + fights.size() + ")", () -> openLive(player)),
+                    new BedrockForms.Button("Rank Leaderboard", () -> openRankLeaderboard(player)),
                     new BedrockForms.Button("How It Works", () -> openRules(player))
             );
             if (!forms.menu(player, "PvP", hubBody() + "\n"
@@ -561,6 +576,8 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                         "View your challenges.", this::openIncoming),
                 Screens.button("item/spyglass", "Watch Live Fights (" + fights.size() + ")",
                         "Watch a fight.", this::openLive),
+                Screens.button("item/nether_star", "Rank Leaderboard",
+                        "See the highest PvP ranks.", this::openRankLeaderboard),
                 Screens.button("item/book", "How It Works",
                         "The rules, in full, before you stake anything.", this::openRules)
         );
@@ -575,11 +592,80 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         ), buttons, 1, null);
     }
 
+    /** The only rank leaderboard surface: it belongs beside the fights that score it. */
+    private void openRankLeaderboard(Player player) {
+        List<PvpRankLeaderboard.Row> rows = PvpRankLeaderboard.top(
+                duelRecords.all(), PvpDuelService::name, RANK_ROWS
+        );
+        if (!clientSupport.supportsDialogs(player)) {
+            List<BedrockForms.Button> buttons = rows.stream()
+                    .map(row -> new BedrockForms.Button(
+                            rankButton(row), () -> openRankProfile(player, row)))
+                    .toList();
+            if (!forms.menu(player, "PvP Rank Leaderboard",
+                    rows.isEmpty()
+                            ? "No ranked fights yet."
+                            : "Tap a player to view their stats.",
+                    buttons, this::openHub)) {
+                openChestRanks(player, rows);
+            }
+            return;
+        }
+        List<DialogBody> body = new ArrayList<>();
+        if (rows.isEmpty()) {
+            body.add(DialogBody.plainMessage(
+                    MenuText.body("No ranked fights yet. Start a fight to enter the board."), 500));
+        }
+        for (PvpRankLeaderboard.Row row : rows) {
+            PvpRecordStore.Record record = row.record();
+            Component value = BadgeIcons.glyph(record.rank().glyph())
+                    .append(Component.text(" " + record.rank().display()
+                            + "  ·  " + record.rating() + " RP", MenuText.VALUE));
+            Component line = MenuText.rankedRow(
+                            row.placement(), row.playerId(), row.username(), value)
+                    .append(Component.newline())
+                    .append(Component.text("     " + rankStats(record), MenuText.MUTED))
+                    .hoverEvent(HoverEvent.showText(
+                            Component.text("View " + row.username() + "'s stats", MenuText.LABEL)))
+                    .clickEvent(ClickEvent.callback(audience -> {
+                        if (audience instanceof Player clicker && clicker.isOnline()) {
+                            openRankProfile(clicker, row);
+                        }
+                    }, RANK_CALLBACK_OPTIONS));
+            body.add(DialogBody.plainMessage(line, 500));
+        }
+        Screens.show(player, "PvP Rank Leaderboard", body, List.of(), 1, this::openHub);
+    }
+
+    private void openRankProfile(Player viewer, PvpRankLeaderboard.Row row) {
+        if (statsDialogs == null) {
+            error(viewer, "Player stats are still loading.");
+            return;
+        }
+        statsDialogs.openCard(
+                viewer, row.playerId(), row.username(), this::openRankLeaderboard
+        );
+    }
+
+    private static String rankButton(PvpRankLeaderboard.Row row) {
+        PvpRecordStore.Record record = row.record();
+        return "#" + row.placement() + " " + row.username() + " — "
+                + record.rank().glyph() + " " + record.rank().display()
+                + " — " + record.rating() + " RP";
+    }
+
+    private static String rankStats(PvpRecordStore.Record record) {
+        return record.wins() + "W  " + record.losses() + "L"
+                + (record.draws() > 0 ? "  " + record.draws() + "D" : "")
+                + "  ·  " + record.kills() + " kills"
+                + "  ·  " + Math.round(record.winRate() * 100d) + "% won";
+    }
+
     /**
      * Your standing, on the screen you open to fight.
      *
-     * <p>The Kills board ranks this number, so it should not take a trip to a
-     * leaderboard to find out what yours is.
+     * <p>The rank board orders this number, so it should not take a second screen
+     * to find out what yours is.
      */
     /** {@code Gold II — 640 RP  (40/100 to Gold III)}, or the top of the ladder. */
     private static String rankProgress(PvpRecordStore.Record record) {
@@ -2218,12 +2304,36 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
 
     private void openChestHub(Player player) {
         DuelBoard holder = board(Board.HUB, null, 27, "PvP");
+        holder.inventory.setItem(HUB_RANKS, MenuItems.button(
+                Material.NETHER_STAR, "Rank Leaderboard", "See the highest PvP ranks."));
         holder.inventory.setItem(HUB_START, MenuItems.button(
                 Material.DIAMOND_SWORD, "Start a Fight", "Choose a player."));
         holder.inventory.setItem(HUB_INCOMING, MenuItems.button(
                 Material.WRITABLE_BOOK, "Incoming", "Review your challenges."));
         holder.inventory.setItem(HUB_LIVE, MenuItems.button(
                 Material.SPYGLASS, "Watch Live Fights", "Watch from the viewing stand."));
+        MenuItems.back(holder.inventory);
+        MenuItems.show(plugin, player, holder.inventory);
+    }
+
+    private void openChestRanks(Player player, List<PvpRankLeaderboard.Row> rows) {
+        DuelBoard holder = board(Board.RANK, null, BOARD_SIZE, "PvP Rank Leaderboard");
+        for (int slot = 0; slot < rows.size() && slot < PAGE_SIZE; slot++) {
+            PvpRankLeaderboard.Row row = rows.get(slot);
+            PvpRecordStore.Record record = row.record();
+            holder.inventory.setItem(slot, MenuItems.head(
+                    row.playerId(), "#" + row.placement() + "  " + row.username(), List.of(
+                            record.rank().glyph() + " " + record.rank().display()
+                                    + "  •  " + record.rating() + " RP",
+                            rankStats(record),
+                            "Click to view stats."
+                    )));
+            holder.choices.put(slot, row.playerId());
+        }
+        if (rows.isEmpty()) {
+            holder.inventory.setItem(22, MenuItems.button(
+                    Material.BARRIER, "No ranked fights yet", "Start a fight to enter the board."));
+        }
         MenuItems.back(holder.inventory);
         MenuItems.show(plugin, player, holder.inventory);
     }
@@ -2405,6 +2515,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         }
         switch (holder.board) {
             case HUB -> {
+                if (slot == HUB_RANKS) runLater(player, this::openRankLeaderboard);
                 if (slot == HUB_START) runLater(player, this::openTargets);
                 if (slot == HUB_INCOMING) runLater(player, this::openIncoming);
                 if (slot == HUB_LIVE) runLater(player, this::openLive);
@@ -2484,6 +2595,18 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                     if (fight == null) error(viewer, "That fight ended.");
                     else joinSpectator(viewer, fight);
                 });
+            }
+            case RANK -> {
+                UUID id = holder.choices.get(slot);
+                if (id != null) {
+                    runLater(player, viewer -> {
+                        PvpRecordStore.Record record = duelRecords.of(id);
+                        if (!record.isEmpty()) {
+                            openRankProfile(viewer,
+                                    new PvpRankLeaderboard.Row(0, id, name(id), record));
+                        }
+                    });
+                }
             }
         }
     }

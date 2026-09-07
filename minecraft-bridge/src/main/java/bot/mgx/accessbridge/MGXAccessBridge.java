@@ -718,6 +718,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         StatsDialogService statsDialogs = new StatsDialogService(
                 this, profileStats, crateItems, dialogSupport, bedrockForms
         );
+        pvpDuels.useStatsDialogs(statsDialogs);
         getCommand("stats").setExecutor(statsDialogs);
         getServer().getPluginManager().registerEvents(statsDialogs, this);
         TeleportDialogService teleportDialogs =
