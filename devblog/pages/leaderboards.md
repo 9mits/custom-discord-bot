@@ -43,7 +43,7 @@ tagline: Every published player and clan leaderboard, directly from the same Pap
       <div class="live-panel-head">
         <div class="live-event-heading">
           <span class="live-board-icon" aria-hidden="true"><img class="live-minecraft-icon" src="/assets/minecraft-items/nether_star.png" alt="Nether Star"></span>
-          <div><p class="live-eyebrow">THE DUELLING LADDER</p><h2>PvP Rank Leaderboard</h2><p class="live-panel-description">Every <code>/pvp</code> fight is rated against the player you beat, so the climb from Bronze to Unreal is won against real opposition. The top three carry a leaderboard Scythe for as long as they hold the place.</p></div>
+          <div><p class="live-eyebrow">THE DUELLING LADDER</p><h2>PvP Rank Leaderboard</h2><p class="live-panel-description">Every <code>/pvp</code> fight is rated against the player you beat, so the climb from Bronze to Unreal is won against real opposition.</p></div>
         </div>
       </div>
       <div id="pvp-board" class="live-board live-loading"></div>
