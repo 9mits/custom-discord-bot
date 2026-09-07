@@ -1142,14 +1142,6 @@ final class GameVariableStore {
         decimal("pvp-rank-rewards.sound-volume", "Scythe effect volume",
                 "PvP Rank Rewards", "Sound volume for Scythe sweeps and kill climaxes.",
                 1.15, 0.0, 4.0, "volume");
-        integer("pvp-rank-rewards.trail-period-ticks", "Scythe trail rate",
-                "PvP Rank Rewards",
-                "Ticks between passes of the idle blade trail on a held Scythe."
-                        + " 0 turns the trail off.",
-                3, 0, 40, "ticks", false);
-        integer("pvp-rank-rewards.trail-particles", "Scythe trail particles",
-                "PvP Rank Rewards", "Points drawn along the blade on each trail pass.",
-                7, 1, 40, "particles", false);
         integer("pvp-rank-rewards.lightning-cooldown-ms", "#1 Scythe lightning cooldown",
                 "PvP Rank Rewards",
                 "Minimum time between the #1 Scythe's closing lightning strikes, so a"
