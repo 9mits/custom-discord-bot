@@ -245,6 +245,13 @@ final class SidebarService {
                     clan.level() > 0 ? clan.name() + " Lv" + clan.level() : clan.name(),
                     clanColor(clan))));
         }
+        if (settings.isEnabled(playerId, PlayerSettingsStore.Setting.SCOREBOARD_PVP_RANK)) {
+            rows.add(Row.important(
+                    "PvP Rank",
+                    pvpRecords.of(playerId).rank().display(),
+                    NamedTextColor.LIGHT_PURPLE
+            ));
+        }
         if (settings.isEnabled(playerId, PlayerSettingsStore.Setting.SCOREBOARD_STATS)) {
             rows.add(Row.heading("STATS"));
             rows.add(Row.essential(

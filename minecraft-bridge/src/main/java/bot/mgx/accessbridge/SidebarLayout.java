@@ -34,7 +34,7 @@ final class SidebarLayout {
         SPACER,
         /** PROFILE and STATS. The rows below them are labelled either way. */
         HEADING,
-        /** Rank, level, hearts, power, clan. */
+        /** Server rank, PvP rank, level, hearts, clan. */
         IMPORTANT,
         /** Title, name, kills, deaths, money, footer. Never dropped. */
         ESSENTIAL
