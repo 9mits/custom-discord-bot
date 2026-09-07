@@ -32,6 +32,7 @@ import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.MainHand;
 import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.BundleMeta;
@@ -58,6 +59,13 @@ final class PvpRankRewardService implements Listener {
     );
     /** How many placements are armed at once, and therefore how many Scythes exist. */
     static final int PODIUM = 3;
+    /** Where a held item sits, measured from the feet rather than from the eyes. */
+    static final double HAND_HEIGHT = 1.15d;
+    /** How far out to the side of the body the hand is, and how far in front of it. */
+    static final double HAND_OUT = 0.36d;
+    static final double HAND_FORWARD = 0.24d;
+    /** How far the blade reaches above the grip. Short: it must hug the model. */
+    static final double BLADE_HEIGHT = 0.5d;
     private static final TextColor CYAN = TextColor.color(0x53E5FF);
     private static final TextColor VIOLET = TextColor.color(0xA66BFF);
     private static final TextColor SILVER = TextColor.color(0xC7CED8);
@@ -428,29 +436,18 @@ final class PvpRankRewardService implements Listener {
     private void drawBladeTrail(Player owner, int placement, int period) {
         List<Player> viewers = viewers(owner);
         if (viewers.isEmpty()) return;
-        Location eye = owner.getEyeLocation();
-        Vector forward = eye.getDirection().normalize();
-        Vector right = forward.clone().crossProduct(new Vector(0d, 1d, 0d));
-        if (right.lengthSquared() < 0.001d) right = new Vector(1d, 0d, 0d);
-        right.normalize();
-        // Where the model's blade actually sits from the holder's point of view:
-        // out to the right of the eye, a little forward and a little below it.
-        Location grip = eye.clone()
-                .add(right.clone().multiply(0.42d))
-                .add(forward.clone().multiply(0.55d))
-                .add(0d, -0.35d, 0d);
-        // The curve of the blade, swept up and away from the grip.
-        Vector blade = forward.clone().multiply(0.34d)
-                .add(right.clone().multiply(0.20d))
-                .add(new Vector(0d, 0.30d, 0d));
-        Particle.DustOptions primary = new Particle.DustOptions(PRIMARY[placement - 1], 0.85f);
-        Particle.DustOptions secondary = new Particle.DustOptions(SECONDARY[placement - 1], 0.65f);
+        Location grip = gripOf(owner);
+        Vector blade = bladeOf(owner);
+        Particle.DustOptions primary = new Particle.DustOptions(PRIMARY[placement - 1], 0.7f);
+        Particle.DustOptions secondary = new Particle.DustOptions(SECONDARY[placement - 1], 0.55f);
         int points = (int) variables.integer("pvp-rank-rewards.trail-particles");
         for (int point = 0; point < points; point++) {
             double along = points == 1 ? 1d : point / (double) (points - 1);
             Location at = grip.clone().add(blade.clone().multiply(along));
             for (Player viewer : viewers) {
-                viewer.spawnParticle(Particle.DUST, at, 1, 0.03d, 0.03d, 0.03d, 0d,
+                // No spread: the points are the edge of the blade, and jitter turns
+                // a line into the cloud this is meant to stop being.
+                viewer.spawnParticle(Particle.DUST, at, 1, 0d, 0d, 0d, 0d,
                         point % 3 == 0 ? secondary : primary);
             }
         }
@@ -460,21 +457,72 @@ final class PvpRankRewardService implements Listener {
         for (Player viewer : viewers) {
             switch (placement) {
                 case 1 -> {
-                    viewer.spawnParticle(Particle.END_ROD, tip, 1, 0.02d, 0.02d, 0.02d, 0.004d);
+                    viewer.spawnParticle(Particle.END_ROD, tip, 1, 0d, 0d, 0d, 0d);
                     // A charged edge, which is what the kill climax finishes with.
                     if (trailPhase % (period * 4) == 0) {
-                        viewer.spawnParticle(Particle.ELECTRIC_SPARK, tip, 3,
-                                0.08d, 0.08d, 0.08d, 0.02d);
+                        viewer.spawnParticle(Particle.ELECTRIC_SPARK, tip, 2,
+                                0.05d, 0.05d, 0.05d, 0.01d);
                     }
                 }
                 case 2 -> viewer.spawnParticle(Particle.PORTAL, tip, 2,
-                        0.05d, 0.05d, 0.05d, 0.02d);
+                        0.04d, 0.04d, 0.04d, 0.01d);
                 default -> {
-                    viewer.spawnParticle(Particle.SOUL, tip, 1, 0.02d, 0.02d, 0.02d, 0.002d);
-                    viewer.spawnParticle(Particle.SMOKE, tip, 1, 0.04d, 0.04d, 0.04d, 0.001d);
+                    viewer.spawnParticle(Particle.SOUL, tip, 1, 0d, 0.02d, 0d, 0.001d);
+                    viewer.spawnParticle(Particle.SMOKE, tip, 1, 0.02d, 0.02d, 0.02d, 0.001d);
                 }
             }
         }
+    }
+
+    /**
+     * Where the held weapon actually is, in the world.
+     *
+     * <p>Built from the body's yaw and never from {@code getEyeLocation().getDirection()}.
+     * A held item hangs off the shoulder, not off the crosshair: anchoring to the look
+     * vector swung the whole effect across the world every time the holder glanced at
+     * their feet, and pitch also tips the derived side vector out of level, which is
+     * what put the trail a metre off the model.
+     *
+     * <p>There is no API for the rendered item's position, and it is drawn in a
+     * different place in first person than in third, so this is the compromise both
+     * views agree on: the hand.
+     */
+    private static Location gripOf(Player owner) {
+        Location body = owner.getLocation();
+        boolean rightHanded = owner.getMainHand() != MainHand.LEFT;
+        Vector forward = forwardOf(body.getYaw());
+        Vector side = sideOf(body.getYaw(), rightHanded);
+        double hand = owner.isSneaking() ? HAND_HEIGHT - 0.25d : HAND_HEIGHT;
+        return body.clone().add(
+                side.getX() * HAND_OUT + forward.getX() * HAND_FORWARD,
+                hand,
+                side.getZ() * HAND_OUT + forward.getZ() * HAND_FORWARD
+        );
+    }
+
+    /** The edge, standing up and slightly out from the grip the way a scythe does. */
+    private static Vector bladeOf(Player owner) {
+        float yaw = owner.getLocation().getYaw();
+        Vector forward = forwardOf(yaw);
+        Vector side = sideOf(yaw, owner.getMainHand() != MainHand.LEFT);
+        return new Vector(
+                forward.getX() * 0.18d + side.getX() * 0.08d,
+                BLADE_HEIGHT,
+                forward.getZ() * 0.18d + side.getZ() * 0.08d
+        );
+    }
+
+    /** Where the body faces, flat. Yaw 0 is south, which is +Z. */
+    static Vector forwardOf(float yaw) {
+        double radians = Math.toRadians(yaw);
+        return new Vector(-Math.sin(radians), 0d, Math.cos(radians));
+    }
+
+    /** Level, and on whichever side this player actually holds things. */
+    static Vector sideOf(float yaw, boolean rightHanded) {
+        Vector forward = forwardOf(yaw);
+        Vector side = new Vector(-forward.getZ(), 0d, forward.getX());
+        return rightHanded ? side : side.multiply(-1d);
     }
 
     private void drawSweep(Player owner, int placement) {
