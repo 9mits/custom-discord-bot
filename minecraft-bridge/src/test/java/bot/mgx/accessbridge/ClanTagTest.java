@@ -27,7 +27,7 @@ final class ClanTagTest {
 
         String stacked = plain(ClanTag.of(clan, new ClanBattleStore.Badges(2, 1, 0)));
         assertTrue(stacked.startsWith("[item/amethyst_shard@items] [STARS] "), stacked);
-        assertTrue(stacked.contains("x2"), stacked);
+        assertFalse(stacked.contains("x2"), stacked);
         assertEquals(1, stacked.chars()
                 .filter(point -> point == BadgeIcons.CLAN_BATTLE_GOLD.charAt(0)).count(), stacked);
         assertEquals(1, stacked.chars()
@@ -57,6 +57,20 @@ final class ClanTagTest {
         // the measurement would push every following column out of line.
         assertTrue(plain(ClanTag.of(clan, badges)).endsWith(ClanTag.plain(clan, badges)));
         assertEquals(12, ClanTag.iconWidth());
+    }
+
+    @Test
+    void battleWinCountsNeverAddTagMultipliers() throws Exception {
+        ClanStore clans = new ClanStore(directory.resolve("multipliers.json"));
+        ClanStore.ClanView clan = clans.create(UUID.randomUUID(), "Leader", "WINS");
+        ClanBattleStore.Badges many = new ClanBattleStore.Badges(12, 8, 4);
+
+        String tab = plain(ClanTag.of(clan, many));
+        String overhead = plain(ClanTag.overhead(clan, many));
+        assertFalse(tab.contains("x12") || tab.contains("x8") || tab.contains("x4"));
+        assertFalse(overhead.contains("x12") || overhead.contains("x8") || overhead.contains("x4"));
+        assertEquals(3, ClanTag.plainMedals(many).codePoints()
+                .filter(point -> point >= 0xE808 && point <= 0xE80A).count());
     }
 
     private static String plain(Component component) {
