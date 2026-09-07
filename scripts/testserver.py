@@ -120,9 +120,23 @@ WORLDEDIT_SHA256 = (
     "e5696a6d064b9969437a8888be91b0941148a28e0c3736de1554a00254a5d142"
 )
 
+#: The plugin's Gradle toolchain, and the JVM Paper is actually run on.
+#:
+#: They are deliberately different. The bridge is built for Java 21 and its
+#: toolchain says so, while GravelHost runs a newer JVM — WorldGuard and
+#: WorldEdit ship Java 25 bytecode there and load fine, which they cannot do on
+#: 21. Running Paper on 21 here meant the two protection plugins production
+#: relies on silently refused to load on the machine meant to reproduce it.
+BUILD_JAVA = 21
+SERVER_JAVA = 25
 JDK_HOME = Path.home() / ".mgx-jdk21"
+JDK_HOMES = {
+    BUILD_JAVA: JDK_HOME,
+    SERVER_JAVA: Path.home() / ".mgx-jdk25",
+}
 JDK_URL = (
-    "https://api.adoptium.net/v3/binary/latest/21/ga/mac/{arch}/jdk/hotspot/normal/eclipse"
+    "https://api.adoptium.net/v3/binary/latest/{feature}/ga/mac/{arch}"
+    "/jdk/hotspot/normal/eclipse"
 )
 
 SERVER_PROPERTIES = """\
@@ -566,36 +580,53 @@ def _home_of(root: Path) -> Path:
     return nested if (nested / "bin" / "java").exists() else root
 
 
-def java_home() -> Path:
+def java_home(feature: int = BUILD_JAVA) -> Path:
     """A JDK that survives a reboot.
 
     The repo's Temurin copies live under /private/tmp, which macOS clears, so a
     test server that depended on those would break at the worst moment.
     """
-    if JDK_HOME.exists():
-        return _home_of(JDK_HOME)
-    for candidate in sorted(Path("/private/tmp").glob("jdk-21*")):
-        home = candidate / "Contents" / "Home"
-        if (home / "bin" / "java").exists():
-            log(f"copying {candidate.name} to {JDK_HOME} so a reboot cannot remove it")
-            shutil.copytree(candidate, JDK_HOME)
-            return _home_of(JDK_HOME)
+    home = JDK_HOMES[feature]
+    if home.exists():
+        return _home_of(home)
+    for candidate in sorted(Path("/private/tmp").glob(f"jdk-{feature}*")):
+        found = candidate / "Contents" / "Home"
+        if (found / "bin" / "java").exists():
+            log(f"copying {candidate.name} to {home} so a reboot cannot remove it")
+            shutil.copytree(candidate, home)
+            return _home_of(home)
     arch = "aarch64" if platform.machine() == "arm64" else "x64"
-    archive = SERVER / "jdk.tar.gz"
-    fetch(JDK_URL.format(arch=arch), archive)
-    staging = SERVER / "jdk-staging"
+    archive = SERVER / f"jdk{feature}.tar.gz"
+    SERVER.mkdir(parents=True, exist_ok=True)
+    fetch(JDK_URL.format(feature=feature, arch=arch), archive)
+    staging = SERVER / f"jdk{feature}-staging"
     staging.mkdir(parents=True, exist_ok=True)
     with tarfile.open(archive) as tar:
         tar.extractall(staging)
     extracted = next(staging.iterdir())
-    shutil.move(str(extracted), str(JDK_HOME))
+    shutil.move(str(extracted), str(home))
     archive.unlink()
     shutil.rmtree(staging, ignore_errors=True)
-    return _home_of(JDK_HOME)
+    return _home_of(home)
 
 
 def java_binary() -> Path:
     return java_home() / "bin" / "java"
+
+
+def server_java_binary() -> Path:
+    """The JVM Paper runs on, which is not the one the plugin is built with.
+
+    Falls back to the build JDK rather than refusing to start: a server without
+    WorldGuard is worth having, and a machine that cannot reach Adoptium should
+    still be able to test everything else.
+    """
+    try:
+        return java_home(SERVER_JAVA) / "bin" / "java"
+    except (OSError, urllib.error.URLError, RuntimeError, TimeoutError) as exc:
+        log(f"WARNING: could not install Java {SERVER_JAVA} ({type(exc).__name__}); "
+            f"running Paper on Java {BUILD_JAVA}, where WorldGuard will not load")
+        return java_binary()
 
 
 def match_production_limits() -> None:
@@ -668,6 +699,7 @@ def setup(_: argparse.Namespace) -> int:
     SERVER.mkdir(parents=True, exist_ok=True)
     PLUGINS.mkdir(parents=True, exist_ok=True)
     java_binary()
+    server_java_binary()
 
     paper = SERVER / "server.jar"
     if not paper.exists():
@@ -850,7 +882,7 @@ def start(args: argparse.Namespace) -> int:
     log("stop it with the 'stop' console command, or ctrl-c")
     process = subprocess.Popen(
         [
-            str(java_binary()),
+            str(server_java_binary()),
             f"-Xms{args.memory}",
             f"-Xmx{args.memory}",
             "-jar",
