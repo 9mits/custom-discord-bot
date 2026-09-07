@@ -542,7 +542,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         try {
             pvpDuels = new PvpDuelService(
                     this, economyStore, playerSettings, clientSupport, bedrockForms,
-                    cosmeticStore, cosmeticItems,
+                    cosmeticStore, cosmeticItems, identityService,
                     getDataFolder().toPath().resolve("pvp-duel-recovery.json"),
                     getDataFolder().toPath().resolve("pvp-arena-restore.json"),
                     pvpRecords
@@ -690,7 +690,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                     getDataFolder().toPath().resolve("holograms.json"),
                     leaderboardService,
                     clanStore,
-                    identityService
+                    identityService,
+                    pvpRecords
             );
             bountyStore = new BountyStore(getDataFolder().toPath().resolve("bounties.json"));
             joinGrants = new JoinGrantStore(getDataFolder().toPath().resolve("join-grants.json"));
@@ -837,9 +838,13 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 this, economyMenus::expireListings, 20L * 60L, 20L * 60L
         );
         // Standing orders repeat no faster than once a second, so checking once per
-        // second avoids turning every hopper-fed farm into a per-tick entity scan.
+        // second avoids turning every hopper-fed farm into a per-tick entity scan. The
+        // period is the service's own constant because its clock advances by exactly
+        // this much per pass; the two drifting apart is what broke /autobuy's interval.
         getServer().getScheduler().runTaskTimer(
-                this, economyMenus::tickAutoOrders, 20L, 20L
+                this, economyMenus::tickAutoOrders,
+                EconomyMenuService.AUTO_ORDER_PERIOD_TICKS,
+                EconomyMenuService.AUTO_ORDER_PERIOD_TICKS
         );
         // The limited shelf's countdown, on the same second the crate screens use.
         getServer().getScheduler().runTaskTimer(

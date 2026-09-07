@@ -155,6 +155,13 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     private static final int RESULT_HALF = 18;
     /** Blocks put back per tick, so a big revert never lands as one stall. */
     private static final int RESTORE_BLOCKS_PER_TICK = 400;
+    /**
+     * Arena chunks asked for at once while both fighters wait.
+     *
+     * <p>Bounded on purpose: every one of them is fresh terrain, and asking for a
+     * whole arena in one go is the stall this is meant to prevent.
+     */
+    private static final int ARENA_CHUNKS_PER_BATCH = 8;
     /** Wide enough that an icon, a heading and its detail stay on one line. */
     private static final int RULE_WIDTH = 560;
     private static final String MONEY_INPUT = "money";
@@ -340,6 +347,8 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     private final BedrockForms forms;
     private final CosmeticStore cosmetics;
     private final CosmeticItems cosmeticItems;
+    /** How the plugin knows a Java and a Bedrock account belong to one person. */
+    private final DiscordIdentityService identities;
     private WardrobeService wardrobe;
     private StatsDialogService statsDialogs;
     private final PvpDuelStore store;
@@ -360,6 +369,17 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     private final Map<UUID, Prompt> prompts = new HashMap<>();
     private final Map<UUID, Long> notices = new HashMap<>();
     private final Map<UUID, Long> lastChallenges = new HashMap<>();
+    /**
+     * Who is currently looking at their own post-fight summary.
+     *
+     * <p>A challenge arrives as a chat line, and a dialog is drawn over the chat box —
+     * so a rematch offer sent to somebody still reading their result screen sat unread
+     * until they closed it, which is exactly what made the Rematch button look broken.
+     */
+    private final Set<UUID> resultViewers = new HashSet<>();
+    /** Chunk tickets held open for each live arena, released when it is put back. */
+    private final Map<UUID, List<Chunk>> arenaChunks = new HashMap<>();
+    private final PvpFarmGuard farmGuard = new PvpFarmGuard();
     private final org.bukkit.NamespacedKey victimKey;
 
     PvpDuelService(
@@ -370,6 +390,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             BedrockForms forms,
             CosmeticStore cosmetics,
             CosmeticItems cosmeticItems,
+            DiscordIdentityService identities,
             java.nio.file.Path recoveryFile,
             java.nio.file.Path arenaRestoreFile,
             PvpRecordStore duelRecords
@@ -381,6 +402,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         this.forms = forms;
         this.cosmetics = cosmetics;
         this.cosmeticItems = cosmeticItems;
+        this.identities = identities;
         this.store = new PvpDuelStore(recoveryFile);
         this.arenaRestore = new ArenaRestoreStore(arenaRestoreFile);
         this.duelRecords = duelRecords;
@@ -447,6 +469,20 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
 
     private int challengeCooldownSeconds() {
         return plugin.gameVariables().integer("pvp-duels.challenge-cooldown-seconds");
+    }
+
+    private int preloadChunkRadius() {
+        return Math.max(0, Math.min(12,
+                plugin.gameVariables().integer("pvp-duels.preload-chunk-radius")));
+    }
+
+    private int repeatOpponentLimit() {
+        return plugin.gameVariables().integer("pvp-duels.repeat-opponent-limit");
+    }
+
+    private long repeatOpponentRestMillis() {
+        return plugin.gameVariables()
+                .integer("pvp-duels.repeat-opponent-rest-seconds") * 1_000L;
     }
 
     boolean isFighter(UUID playerId) {
@@ -550,6 +586,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private void openHub(Player player) {
+        resultViewers.remove(player.getUniqueId());
         expireInvitations();
         int incoming = incoming(player.getUniqueId()).size();
         String record = recordLine(player.getUniqueId());
@@ -732,7 +769,12 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 new String[] {"item/spyglass", "Spectators",
                         "Frozen, silent, and unable to interfere."},
                 new String[] {"item/gold_ingot", "Optional Wager",
-                        "Leave it empty to fight for free, or add money, items, or cosmetics."}
+                        "Leave it empty to fight for free, or add money, items, or cosmetics."},
+                new String[] {"item/name_tag", "Fair Fights",
+                        "Your own linked accounts cannot fight each other, and "
+                                + repeatOpponentLimit() + " fights in a row against the"
+                                + " same player rests that pairing for "
+                                + waitText(repeatOpponentRestMillis() / 1_000L) + "."}
         );
         if (!clientSupport.supportsDialogs(player)) {
             StringBuilder text = new StringBuilder();
@@ -1028,10 +1070,17 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                                 "/pvp accept " + challenger.getName())))
                 .append(Component.text(" or use /pvp.", NamedTextColor.GRAY))
         );
+        // A result screen is drawn over the chat box, so the line above is invisible
+        // to somebody still reading how their last fight went — which is precisely
+        // who a Rematch is sent to. Put the challenge itself in front of them instead.
+        if (resultViewers.contains(targetId)) {
+            runLater(target, viewer -> openInvitation(viewer, invitation));
+        }
         return null;
     }
 
     private void openIncoming(Player player) {
+        resultViewers.remove(player.getUniqueId());
         expireInvitations();
         List<Invitation> incoming = incoming(player.getUniqueId());
         if (!clientSupport.supportsDialogs(player)) {
@@ -1064,6 +1113,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private void openInvitation(Player target, Invitation invitation) {
+        resultViewers.remove(target.getUniqueId());
         if (!validInvitation(target, invitation, true)) {
             return;
         }
@@ -1219,9 +1269,140 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             failStart(challenger, target, "The overworld is unavailable.");
             return;
         }
-        findArena(world, challenger, target, arenaDiameter(), 0, arena -> beginFight(
-                challenger, target, invitation, terms, arena
-        ));
+        findArena(world, challenger, target, arenaDiameter(), 0, arena ->
+                prepareArena(challenger, target, arena, held -> beginFight(
+                        challenger, target, invitation, terms, arena, held
+                )));
+    }
+
+    /**
+     * Generates and holds the ground before anybody stands on it.
+     *
+     * <p>An arena is chosen in terrain that has never been generated — that is what
+     * keeps a duel out of somebody's base — and only the three chunks the fighters
+     * land in were ever loaded. Everything the border allows them to walk to was
+     * therefore still being generated while they fought in it, which is the invisible
+     * world both fighters kept reporting.
+     *
+     * <p>Loaded a few chunks per tick rather than all at once: generating a hundred
+     * fresh chunks in one tick is a stall on the main thread, and this is a wait the
+     * players are being told about anyway.
+     */
+    private void prepareArena(
+            Player first, Player second, Arena arena, Consumer<List<Chunk>> ready
+    ) {
+        World world = arena.center().getWorld();
+        int radius = preloadChunkRadius();
+        if (world == null || radius <= 0) {
+            // Mutable: the caller stores this list and clears it when the arena is
+            // released, and List.of would throw the moment the duel ended.
+            ready.accept(new ArrayList<>());
+            return;
+        }
+        for (Player player : List.of(first, second)) {
+            info(player, "Getting things ready...");
+        }
+        int centerX = arena.center().getBlockX() >> 4;
+        int centerZ = arena.center().getBlockZ() >> 4;
+        List<long[]> wanted = new ArrayList<>();
+        for (int dx = -radius; dx <= radius; dx++) {
+            for (int dz = -radius; dz <= radius; dz++) {
+                wanted.add(new long[]{centerX + dx, centerZ + dz});
+            }
+        }
+        // Nearest first, so the ground the fighters are about to stand on exists
+        // before the far edge of the border does.
+        wanted.sort(Comparator.comparingLong(at ->
+                (at[0] - centerX) * (at[0] - centerX) + (at[1] - centerZ) * (at[1] - centerZ)));
+        loadArenaChunks(first, second, world, wanted, new ArrayList<>(), 0, ready);
+    }
+
+    /** One batch of the preload, then the next tick. */
+    private void loadArenaChunks(
+            Player first, Player second, World world, List<long[]> wanted,
+            List<Chunk> held, int from, Consumer<List<Chunk>> ready
+    ) {
+        if (!starting.contains(first.getUniqueId())
+                || !starting.contains(second.getUniqueId())
+                || !first.isOnline() || !second.isOnline()) {
+            releaseArenaChunks(held);
+            failStart(first, second, "The fight was called off before it started.");
+            return;
+        }
+        if (from >= wanted.size()) {
+            for (Player player : List.of(first, second)) {
+                info(player, "You will be teleported shortly...");
+            }
+            // A beat between the last line and the teleport, so the sentence is read
+            // rather than replaced by an arena appearing around them.
+            plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+                if (!starting.contains(first.getUniqueId())
+                        || !starting.contains(second.getUniqueId())) {
+                    releaseArenaChunks(held);
+                    return;
+                }
+                ready.accept(held);
+            }, 25L);
+            return;
+        }
+        int until = Math.min(wanted.size(), from + ARENA_CHUNKS_PER_BATCH);
+        List<CompletableFuture<Chunk>> batch = new ArrayList<>();
+        for (int index = from; index < until; index++) {
+            long[] at = wanted.get(index);
+            batch.add(world.getChunkAtAsync((int) at[0], (int) at[1], true));
+        }
+        int progress = (int) Math.round(until * 100d / wanted.size());
+        for (Player player : List.of(first, second)) {
+            player.sendActionBar(Component.text("Preparing the arena  ", NamedTextColor.GRAY)
+                    .append(Component.text(progress + "%", ORANGE, TextDecoration.BOLD)));
+        }
+        CompletableFuture.allOf(batch.toArray(CompletableFuture[]::new))
+                .whenComplete((ignored, failure) -> plugin.getServer().getScheduler()
+                        .runTask(plugin, () -> {
+                            for (CompletableFuture<Chunk> loading : batch) {
+                                try {
+                                    Chunk chunk = loading.getNow(null);
+                                    // A ticket rather than a plain load: without one
+                                    // Paper is free to unload the chunk again the
+                                    // moment nobody stands in it, which is the problem.
+                                    if (chunk != null && chunk.addPluginChunkTicket(plugin)) {
+                                        held.add(chunk);
+                                    }
+                                } catch (RuntimeException unloadable) {
+                                    // One chunk that would not generate is a patch of
+                                    // ground nobody may reach, not a reason to cancel
+                                    // a fight both players already agreed to.
+                                    plugin.getLogger().warning("A PvP arena chunk could"
+                                            + " not be prepared: " + unloadable.getMessage());
+                                }
+                            }
+                            loadArenaChunks(first, second, world, wanted, held, until, ready);
+                        }));
+    }
+
+    private void releaseArenaChunks(List<Chunk> held) {
+        for (Chunk chunk : held) {
+            try {
+                chunk.removePluginChunkTicket(plugin);
+            } catch (RuntimeException ignored) {
+                // A world unloaded under us is not worth failing a duel's cleanup for.
+            }
+        }
+        held.clear();
+    }
+
+    private void releaseArenaChunks(UUID fightId) {
+        List<Chunk> held = arenaChunks.remove(fightId);
+        if (held != null) {
+            releaseArenaChunks(held);
+        }
+    }
+
+    private void releaseAllArenaChunks() {
+        for (List<Chunk> held : List.copyOf(arenaChunks.values())) {
+            releaseArenaChunks(held);
+        }
+        arenaChunks.clear();
     }
 
     private void findArena(
@@ -1342,7 +1523,8 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             Player second,
             Invitation invitation,
             AcceptedTerms terms,
-            Arena arena
+            Arena arena,
+            List<Chunk> held
     ) {
         if (!starting.contains(first.getUniqueId()) || !starting.contains(second.getUniqueId())
                 || !readyToStart(first, second)
@@ -1350,17 +1532,20 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 || !hasItems(second, terms.targetItems())
                 || !ownsCosmetics(first, terms.challengerCosmetics())
                 || !ownsCosmetics(second, terms.targetCosmetics())) {
+            releaseArenaChunks(held);
             failStart(first, second, "The fight or a wager changed before teleport.");
             return;
         }
         long wager = invitation.moneyEach();
         if (economy.balance(first.getUniqueId()) < wager
                 || economy.balance(second.getUniqueId()) < wager) {
+            releaseArenaChunks(held);
             failStart(first, second, "Both players must still be able to cover the cash wager.");
             return;
         }
         if (!PvpDuelRules.canReceivePool(economy.balance(first.getUniqueId()), wager)
                 || !PvpDuelRules.canReceivePool(economy.balance(second.getUniqueId()), wager)) {
+            releaseArenaChunks(held);
             failStart(first, second, "This wager is too large for the winner's wallet.");
             return;
         }
@@ -1391,6 +1576,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             restoreStartFailure(second, secondRecovery);
             safeRemoveRecovery(first.getUniqueId());
             safeRemoveRecovery(second.getUniqueId());
+            releaseArenaChunks(held);
             failStart(first, second, failure.getMessage() == null
                     ? "The fight could not lock its wagers." : failure.getMessage());
             return;
@@ -1402,6 +1588,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 fightId, first, second, wager, arena, Map.copyOf(states)
         );
         fights.put(fight.id, fight);
+        arenaChunks.put(fight.id, held);
         fighting.put(fight.first, fight);
         fighting.put(fight.second, fight);
         starting.remove(fight.first);
@@ -1832,6 +2019,9 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         // broken container's spill cannot outlive the container it came from.
         sweepArena(fight);
         restoreArena(fight.id);
+        // The restore reloads whatever it needs block by block, so the arena no
+        // longer has to be pinned once nobody is fighting in it.
+        releaseArenaChunks(fight.id);
     }
 
     private void settleMoney(Fight fight, UUID winnerId) {
@@ -1899,6 +2089,32 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                     gained, lost
             ));
         }
+        noteRepeatOpponent(fight);
+    }
+
+    /**
+     * Counts this fight towards the pairing's run, and rests the pairing when it has
+     * gone on long enough to be a wins tap rather than a rivalry.
+     *
+     * <p>Told to both players rather than saved for the moment they try again: a
+     * refusal out of nowhere the next time they press Rematch reads as a bug.
+     */
+    private void noteRepeatOpponent(Fight fight) {
+        int limit = repeatOpponentLimit();
+        long rest = repeatOpponentRestMillis();
+        boolean tripped = farmGuard.recordFight(
+                fight.first, fight.second, System.currentTimeMillis(), limit, rest);
+        if (!tripped) {
+            return;
+        }
+        String said = "That is " + limit + " fights in a row against each other."
+                + " Fight somebody else for the next " + waitText(rest / 1_000L) + ".";
+        for (UUID playerId : List.of(fight.first, fight.second)) {
+            Player player = Bukkit.getPlayer(playerId);
+            if (player != null) {
+                info(player, said);
+            }
+        }
     }
 
     /**
@@ -1931,11 +2147,22 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
      * have already moved.
      */
     private void openResultScreen(Player player) {
+        openResultScreen(player, null);
+    }
+
+    /**
+     * The same screen, with the answer to whatever the player just pressed.
+     *
+     * <p>A refusal announced in chat is a refusal drawn behind this screen, so a
+     * Rematch that cannot happen has to say why on the screen the button is on.
+     */
+    private void openResultScreen(Player player, String notice) {
         FightResult result = results.get(player.getUniqueId());
         if (result == null) {
             error(player, "You have no recent fight to look at.");
             return;
         }
+        resultViewers.add(player.getUniqueId());
         String headline = result.draw() ? "Draw" : result.won() ? "Victory" : "Defeat";
         String title = headline + " vs " + result.opponentName();
         if (!clientSupport.supportsDialogs(player)) {
@@ -1945,12 +2172,19 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                     new BedrockForms.Button("Rematch", () -> rematch(player,
                             result.opponentId(), Math.abs(result.moneyDelta())))
             );
-            if (!forms.menu(player, title, result.reason(), buttons, null)) {
+            String content = notice == null ? result.reason()
+                    : notice + "\n\n" + result.reason();
+            if (!forms.menu(player, title, content, buttons, null)) {
                 openResultChest(player);
             }
             return;
         }
         List<DialogBody> body = new ArrayList<>();
+        if (notice != null) {
+            body.add(DialogBody.plainMessage(Component.text(notice, NamedTextColor.RED)
+                    .decoration(TextDecoration.ITALIC, false), 400));
+            body.add(DialogBody.plainMessage(Component.empty(), 400));
+        }
         body.add(DialogBody.plainMessage(MenuText.head(result.opponentId()), 400));
         body.add(DialogBody.plainMessage(Component.empty()
                 .append(Component.text(headline.toUpperCase(Locale.ROOT),
@@ -2003,14 +2237,19 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
      */
     private void rematch(Player player, UUID opponentId, long money) {
         Player opponent = Bukkit.getPlayer(opponentId);
-        if (opponent == null) {
-            error(player, "They are not online any more.");
+        String problem = opponent == null
+                ? "They are not online any more."
+                : challengeProblem(player, opponent);
+        if (problem == null) {
+            problem = acceptingProblem(opponent);
+        }
+        if (problem != null) {
+            // Back onto the result screen carrying the reason, rather than a chat
+            // line nobody can see and a button that looks like it did nothing.
+            openResultScreen(player, problem);
             return;
         }
-        if (!canChallenge(player, opponent, true)
-                || !acceptingChallenges(player, opponent, true)) {
-            return;
-        }
+        resultViewers.remove(player.getUniqueId());
         DuelDraft draft = new DuelDraft(opponentId);
         draft.money = economy.balance(player.getUniqueId()) >= money ? money : 0L;
         setupDrafts.put(player.getUniqueId(), draft);
@@ -2141,6 +2380,15 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
 
     private static String clock(long seconds) {
         return String.format(Locale.US, "%d:%02d", seconds / 60L, seconds % 60L);
+    }
+
+    /** A wait, written the way somebody waiting reads it rather than as a stopwatch. */
+    static String waitText(long seconds) {
+        if (seconds < 60L) {
+            return seconds + (seconds == 1L ? " second" : " seconds");
+        }
+        long minutes = (seconds + 59L) / 60L;
+        return minutes + (minutes == 1L ? " minute" : " minutes");
     }
 
     // ------------------------------------------------------------ effects
@@ -3515,6 +3763,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         prompts.remove(player.getUniqueId());
         setupDrafts.remove(player.getUniqueId());
         acceptDrafts.remove(player.getUniqueId());
+        resultViewers.remove(player.getUniqueId());
         starting.remove(player.getUniqueId());
     }
 
@@ -3542,6 +3791,9 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         setupDrafts.clear();
         acceptDrafts.clear();
         lastChallenges.clear();
+        resultViewers.clear();
+        farmGuard.clear();
+        releaseAllArenaChunks();
         starting.clear();
     }
 
@@ -3733,6 +3985,19 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         } else if ((plugin.afkService() != null && plugin.afkService().inCombat(challenger))
                 || (plugin.afkService() != null && plugin.afkService().inCombat(target))) {
             problem = "Finish the current combat tag first.";
+        } else if (identities != null
+                && identities.sameOwner(challenger.getUniqueId(), target.getUniqueId())) {
+            // A Java account and a Bedrock account verified to one Discord user are one
+            // person. Letting them fight is letting somebody hand themselves wins.
+            problem = "Those two accounts are linked to the same Discord account.";
+        } else {
+            long resting = farmGuard.restRemaining(
+                    challenger.getUniqueId(), target.getUniqueId(), System.currentTimeMillis());
+            if (resting > 0L) {
+                problem = "You two have fought each other back to back. Fight somebody"
+                        + " else — you can face " + target.getName() + " again in "
+                        + waitText((resting + 999L) / 1_000L) + ".";
+            }
         }
         return problem;
     }
@@ -3830,6 +4095,12 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 .filter(player -> !VerificationLobbyService.isLobbyWorld(player.getWorld()))
                 .filter(player -> !isParticipant(player.getUniqueId()))
                 .filter(player -> acceptingChallenges(viewer, player, false))
+                // Somebody the challenge would be refused for is not a target. Leaving
+                // them on the list is offering a button whose only outcome is an error.
+                .filter(player -> identities == null
+                        || !identities.sameOwner(viewer.getUniqueId(), player.getUniqueId()))
+                .filter(player -> farmGuard.restRemaining(viewer.getUniqueId(),
+                        player.getUniqueId(), System.currentTimeMillis()) <= 0L)
                 .sorted(Comparator.comparing(Player::getName, String.CASE_INSENSITIVE_ORDER))
                 .toList();
     }

@@ -49,6 +49,25 @@ final class DiscordIdentityService implements CommandExecutor {
         return store.visibleUsername(minecraftUuid);
     }
 
+    /**
+     * Whether two Minecraft accounts belong to the same Discord account.
+     *
+     * <p>This is how a Java account and a Bedrock account owned by one person are
+     * recognised as one person: verification links both to the same Discord user, so
+     * both carry the same linked name. Two accounts with no link, or with only one
+     * link between them, are treated as two different people — an unlinked account is
+     * unknown, not proven separate, but refusing everybody who has not verified would
+     * punish the wrong players.
+     */
+    boolean sameOwner(UUID first, UUID second) {
+        if (first.equals(second)) {
+            return true;
+        }
+        Optional<String> one = store.visibleUsername(first);
+        Optional<String> two = store.visibleUsername(second);
+        return one.isPresent() && two.isPresent() && one.get().equalsIgnoreCase(two.get());
+    }
+
     Component tag(UUID minecraftUuid) {
         return visibleUsername(minecraftUuid)
                 .map(username -> Component.text("(@" + username + ") ", BLURPLE))

@@ -10,6 +10,7 @@ tagline: Every published player and clan leaderboard, directly from the same Pap
   <div class="live-leaderboard-toolbar">
     <div class="live-view-tabs" role="tablist" aria-label="Leaderboard sections">
       <button type="button" role="tab" data-view="leaderboards" aria-selected="true">Leaderboards</button>
+      <button type="button" role="tab" data-view="pvp-ranks" aria-selected="false">PvP Ranks</button>
       <button type="button" role="tab" data-view="events" aria-selected="false">Events</button>
       <button type="button" role="tab" data-view="clan-battle" aria-selected="false">Clan Battle</button>
     </div>
@@ -34,6 +35,18 @@ tagline: Every published player and clan leaderboard, directly from the same Pap
         <div id="clan-tabs" class="live-tabs" role="tablist" aria-label="Clan leaderboard"></div>
       </div>
       <div id="clan-board" class="live-board"></div>
+    </section>
+  </div>
+
+  <div class="live-view-panel" data-view-panel="pvp-ranks" hidden>
+    <section class="live-panel">
+      <div class="live-panel-head">
+        <div class="live-event-heading">
+          <span class="live-board-icon" aria-hidden="true"><img class="live-minecraft-icon" src="/assets/minecraft-items/nether_star.png" alt="Nether Star"></span>
+          <div><p class="live-eyebrow">THE DUELLING LADDER</p><h2>PvP Rank Leaderboard</h2><p class="live-panel-description">Every <code>/pvp</code> fight is rated against the player you beat, so the climb from Bronze to Unreal is won against real opposition. The top three carry a leaderboard Scythe for as long as they hold the place.</p></div>
+        </div>
+      </div>
+      <div id="pvp-board" class="live-board live-loading"></div>
     </section>
   </div>
 

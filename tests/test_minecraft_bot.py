@@ -1520,6 +1520,9 @@ class MinecraftLeaderboardRenderTests(unittest.TestCase):
             (
                 "wealth",
                 "kills",
+                # The duelling ladder is a rating, so summing it across a clan would
+                # rank clan size. It belongs on the player dropdown and nowhere else.
+                "rank",
                 "dragon_damage",
                 "dragon_crystals",
             ),

@@ -109,9 +109,20 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
     /** Standing orders that keep buying on a timer. */
     private final Map<UUID, AutoOrder> autoOrders = new ConcurrentHashMap<>();
     /**
+     * How often {@link #tickAutoOrders()} is scheduled. The scheduler is given this
+     * same figure, so the clock below cannot drift from the pass that advances it.
+     */
+    static final long AUTO_ORDER_PERIOD_TICKS = 20L;
+    /**
      * Counted here rather than read from {@code Server#getCurrentTick()}, so a standing
      * order's schedule depends only on this task actually running. Both the order's
      * start time and the due check then come from the same clock by construction.
+     *
+     * <p>Measured in <em>game ticks</em>, because {@link AutoBuy#due} converts an
+     * interval in seconds to ticks. It used to be incremented by one per pass, and a
+     * pass is a second — so every interval was multiplied by twenty and a "every 1s"
+     * order bought once every twenty seconds. Advancing by the scheduling period keeps
+     * both halves in the same unit.
      */
     private long autoTick;
     /** Players already told their dropping order is waiting, so it is said once. */
@@ -258,9 +269,9 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         auctions.expire(System.currentTimeMillis());
     }
 
-    /** Runs the standing orders that are due. Every tick, and nearly always empty. */
+    /** Runs the standing orders that are due. Once a second, and nearly always empty. */
     void tickAutoOrders() {
-        autoTick++;
+        autoTick += AUTO_ORDER_PERIOD_TICKS;
         runAutoOrders();
     }
 

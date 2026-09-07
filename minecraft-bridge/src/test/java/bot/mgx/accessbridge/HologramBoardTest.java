@@ -21,6 +21,18 @@ final class HologramBoardTest {
                 HologramService.Board.CLAN_BATTLE,
                 HologramService.Board.fromKey("clanbattle")
         );
+        assertEquals(
+                HologramService.Board.PVP_RANKS,
+                HologramService.Board.fromKey("pvp-ranks")
+        );
+        // The name a placement is saved under has to come back as the same board, or
+        // a restart abandons the stands it already put in the world.
+        assertEquals(
+                HologramService.Board.PVP_RANKS,
+                HologramService.Board.fromKey(
+                        HologramService.Board.PVP_RANKS.name()
+                                .toLowerCase(java.util.Locale.ROOT).replace('_', '-'))
+        );
     }
 
     @Test
@@ -33,5 +45,6 @@ final class HologramBoardTest {
         assertTrue(failure.getMessage().contains("dragon-damage"));
         assertTrue(failure.getMessage().contains("dragon-crystals"));
         assertTrue(failure.getMessage().contains("clan-battle"));
+        assertTrue(failure.getMessage().contains("pvp-ranks"));
     }
 }

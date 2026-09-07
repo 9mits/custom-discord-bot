@@ -1062,10 +1062,25 @@ final class GameVariableStore {
                 "Seconds a player must wait before sending another duel challenge.",
                 config.getLong("pvp-duels.challenge-cooldown-seconds", 30),
                 0, 3_600, "seconds", false);
+        // Deliberately not read from config.yml. Paper never rewrites a config a
+        // server already has, so raising the shipped default would have left every
+        // running server on the old five-second countdown for good.
         integer("pvp-duels.countdown-seconds", "Fight countdown", "PvP Duels",
                 "Seconds both fighters are frozen and protected after arriving.",
-                config.getLong("pvp-duels.countdown-seconds", 5),
-                1, 30, "seconds", false);
+                10L, 1, 30, "seconds", false);
+        integer("pvp-duels.preload-chunk-radius", "Arena preload radius", "PvP Duels",
+                "Chunks generated and held around a duel arena before either fighter"
+                        + " is teleported into it.",
+                6L, 0, 12, "chunks", false);
+        integer("pvp-duels.repeat-opponent-limit", "Repeat opponent limit", "PvP Duels",
+                "Fights in a row against the same player before that pairing rests."
+                        + " 0 turns the rest off.",
+                5L, 0, 50, "fights", false);
+        integer("pvp-duels.repeat-opponent-rest-seconds", "Repeat opponent rest",
+                "PvP Duels",
+                "Seconds a pairing waits after fighting each other back to back too"
+                        + " many times. Either player may still fight anybody else.",
+                600L, 0, 86_400, "seconds", false);
         integer("pvp-duels.duration-minutes", "Fight time limit", "PvP Duels",
                 "Minutes before an unfinished duel becomes a draw and returns both stakes.",
                 config.getLong("pvp-duels.duration-minutes", 10),
@@ -1122,6 +1137,14 @@ final class GameVariableStore {
         decimal("pvp-rank-rewards.sound-volume", "Scythe effect volume",
                 "PvP Rank Rewards", "Sound volume for Scythe sweeps and kill climaxes.",
                 1.15, 0.0, 4.0, "volume");
+        integer("pvp-rank-rewards.trail-period-ticks", "Scythe trail rate",
+                "PvP Rank Rewards",
+                "Ticks between passes of the idle blade trail on a held Scythe."
+                        + " 0 turns the trail off.",
+                3, 0, 40, "ticks", false);
+        integer("pvp-rank-rewards.trail-particles", "Scythe trail particles",
+                "PvP Rank Rewards", "Points drawn along the blade on each trail pass.",
+                7, 1, 40, "particles", false);
 
         integer("verification.expiry-seconds", "Verification expiry", "Players",
                 "Seconds a pending verification stays valid before it lapses.",

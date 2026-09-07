@@ -9,6 +9,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class PvpRankLeaderboardTest {
     @Test
@@ -59,9 +60,15 @@ final class PvpRankLeaderboardTest {
     }
 
     @Test
-    void rankIsNotAnInWorldHologramBoard() {
+    void theRankLadderIsAnInWorldHologramBoardUnderEveryNameForIt() {
+        // It used to be menu-only. It is a board people can stand in front of now, so
+        // the names an operator would actually type all have to reach it.
+        for (String typed : List.of("rank", "ranks", "pvp", "pvp-rank", "pvp-ranks")) {
+            assertEquals(HologramService.Board.PVP_RANKS,
+                    HologramService.Board.fromKey(typed), typed);
+        }
         assertThrows(IllegalArgumentException.class,
-                () -> HologramService.Board.fromKey("rank"));
+                () -> HologramService.Board.fromKey("pvp-rating"));
     }
 
     @Test
@@ -76,10 +83,15 @@ final class PvpRankLeaderboardTest {
         records.put(third, record(700, 5, 5, 1));
         records.put(fourth, record(600, 5, 5, 1));
 
-        assertEquals(1, PvpRankRewardService.placementOf(first, records, id -> "Player"));
-        assertEquals(2, PvpRankRewardService.placementOf(second, records, id -> "Player"));
-        assertEquals(3, PvpRankRewardService.placementOf(third, records, id -> "Player"));
-        assertEquals(0, PvpRankRewardService.placementOf(fourth, records, id -> "Player"));
+        List<PvpRankLeaderboard.Row> podium = PvpRankLeaderboard.top(
+                records, id -> "Player", PvpRankRewardService.PODIUM);
+
+        assertEquals(3, podium.size());
+        assertEquals(first, podium.get(0).playerId());
+        assertEquals(second, podium.get(1).playerId());
+        assertEquals(third, podium.get(2).playerId());
+        // Fourth holds no Scythe, whatever their rating: the reward is the placement.
+        assertTrue(podium.stream().noneMatch(row -> row.playerId().equals(fourth)));
     }
 
     private static PvpRecordStore.Record record(

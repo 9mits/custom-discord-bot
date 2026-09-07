@@ -27,9 +27,10 @@ PODIUM = 3
 DISPLAY_ROWS = 10
 #: Head emojis are a reward, so they outlive a single bad week on the board.
 EMOJI_RETENTION_DAYS = 14
-#: Four individual boards, three places each, plus room for the turnover that
-#: retention deliberately holds on to. Clan boards do not mint player heads.
-EMOJI_BUDGET = 32
+#: Five individual boards, three places each, plus room for the turnover that
+#: retention deliberately holds on to. Clan boards do not mint player heads, and
+#: the same few names lead several boards at once, so this is never all of it.
+EMOJI_BUDGET = 40
 EMOJI_PREFIX = "mgx_head_"
 #: Deleting emojis is rate-limited, so a backlog is cleared over several refreshes.
 EMOJI_CLEANUP_PER_PASS = 25
@@ -40,13 +41,14 @@ DEFAULT_TYPE = "wealth"
 TYPE_LABELS: dict[str, str] = {
     "wealth": "Richest",
     "kills": "Most PvP Kills",
+    "rank": "Highest PvP Ranks",
     "dragon_damage": "Most Amethyst Dragon Damage",
     "dragon_crystals": "Most End Crystals Broken",
     "clan_battle": "Current Clan Battle",
 }
 #: Mirrors LeaderboardType.published on the Paper side.
 INDIVIDUAL_TYPES = (
-    "wealth", "kills", "dragon_damage", "dragon_crystals",
+    "wealth", "kills", "rank", "dragon_damage", "dragon_crystals",
 )
 CLAN_TYPES = ("wealth", "kills", "clan_battle")
 
@@ -193,8 +195,8 @@ class HeadEmojiStore:
 
         Restricting this to the default board left the other boards showing bare rows,
         because a player leading an Amethyst Event board is not usually also richest.
-        The ceiling is four boards times three places, and heavy overlap in practice
-        keeps it well under that.
+        The ceiling is one board times three places each, and heavy overlap in
+        practice keeps it well under that.
         """
         players: dict[str, str] = {}
         for board in INDIVIDUAL_TYPES:

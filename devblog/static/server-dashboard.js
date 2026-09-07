@@ -13,9 +13,13 @@
   };
   var defaultBoards = ["wealth", "kills"];
   var eventBoards = ["dragon_damage", "dragon_crystals"];
+  // The duelling ladder gets its own section rather than another tab beside Richest:
+  // it is ranked by rating rather than by a total, and reads as its own thing in game.
+  var pvpBoard = "rank";
   var labels = {
     wealth: "Richest",
     kills: "Most Kills",
+    rank: "PvP Ranks",
     amethyst_crates: "Amethyst Crates",
     amethyst_airdrops: "Airdrops Claimed",
     clan_battle: "Clan Battle"
@@ -136,7 +140,7 @@
       });
     });
   }
-  function renderBoard(scope, board, targetId) {
+  function renderBoard(scope, board, targetId, emptyText) {
     var rows = (state.snapshot && state.snapshot[scope] && state.snapshot[scope][board]) || [];
     var target = byId(targetId || (scope === "individual" ? "player-board" : "clan-board"));
     if (!target) return;
@@ -149,7 +153,7 @@
         }).join("") + '</div><ol class="live-rank-list" start="4">' + ranked.slice(3).map(function (row, index) {
           return rankRow(row, index + 3, clan);
         }).join("") + "</ol>"
-      : '<p class="live-empty">No standings yet.</p>';
+      : '<p class="live-empty">' + escapeHtml(emptyText || "No standings yet.") + "</p>";
     wireImageFallbacks(target);
   }
   function renderBattle() {
@@ -172,6 +176,8 @@
   function renderLeaderboards() {
     renderBoard("individual", state.playerBoard);
     renderBoard("clan", state.clanBoard);
+    renderBoard("individual", pvpBoard, "pvp-board",
+      "No ranked fights yet. The ladder fills up as soon as /pvp duels are fought.");
     renderBoard("individual", state.eventBoard, "event-board");
     if (byId("event-icon")) byId("event-icon").innerHTML = itemIcon(
       eventIcons[state.eventBoard] || "amethyst_shard", "", labels[state.eventBoard] || "Event icon"

@@ -35,7 +35,10 @@ final class LeaderboardStandings {
     static Map<BoardPlayer, Standing> individualByBoard(List<PlayerStats> players) {
         Map<BoardPlayer, Standing> standings = new HashMap<>();
         for (LeaderboardType type : LeaderboardType.values()) {
-            if (!type.published()) {
+            // Rewarded, not merely published: this map is what hands out nameplate
+            // standings and podium cosmetics, and a board can be worth showing
+            // without being worth paying for.
+            if (!type.rewarded()) {
                 continue;
             }
             List<PlayerStats> ranked = new ArrayList<>(players);
