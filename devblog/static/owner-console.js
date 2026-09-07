@@ -44,6 +44,7 @@
 
     {id: "world", label: "World", group: "World & players"},
     {id: "players", label: "Players", group: "World & players"},
+    {id: "pvp_duels", label: "PvP", group: "World & players"},
     {id: "clans", label: "Clans", group: "World & players"},
     {id: "permissions", label: "Permissions", group: "World & players"},
     {id: "launch", label: "Launch", group: "World & players"},
@@ -94,6 +95,7 @@
     event_multipliers: "How much each server-wide event multiplies by. Players are told the figure, and the announcement follows whatever you set.",
     event_schedule: "The gap between world events. Airdrops and Huge Amethyst Blocks share this timer and take turns.",
     players: "Rules that apply to everyone: going AFK, teleporting, verifying, combat.",
+    pvp_duels: "Arranged-fight rules and the temporary weapons held by the top three PvP Rank players. Scythe damage and presentation changes apply live.",
     world: "Spawn, the border, and how much of the world is kept loaded. The distance caps are the main lever on server load.",
     clans: "How large a clan can get and how long its invitations stay open.",
     permissions: "The minimum LuckPerms powers granted to server roles.",
