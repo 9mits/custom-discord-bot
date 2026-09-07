@@ -251,6 +251,28 @@ class WorldProtectionPluginTests(unittest.TestCase):
         # existed installs them on its next restart rather than never.
         self.assertEqual(2, source.count("    ensure_world_protection()"))
 
+    def test_paper_runs_on_the_jvm_production_runs_not_the_build_one(self):
+        source = self._source()
+
+        # WorldGuard ships Java 25 bytecode. Running Paper on the plugin's own
+        # Java 21 toolchain is what made both protection plugins refuse to load
+        # on the machine that exists to reproduce production.
+        self.assertEqual(21, testserver.BUILD_JAVA)
+        self.assertEqual(25, testserver.SERVER_JAVA)
+        self.assertIn("str(server_java_binary())", source)
+        # Gradle keeps the toolchain it was built against.
+        self.assertIn("JAVA_HOME=str(java_home())", source)
+
+    def test_a_missing_server_jvm_falls_back_rather_than_refusing_to_start(self):
+        source = self._source()
+        body = source[
+            source.index("def server_java_binary") : source.index("def _write_atomic")
+            if "def _write_atomic" in source
+            else source.index("def server_java_binary") + 1200
+        ]
+
+        self.assertIn("return java_binary()", body)
+
     def test_a_missing_download_does_not_stop_the_server_starting(self):
         source = self._source()
         body = source[

@@ -296,7 +296,10 @@ same pinned Paper build as production in the git-ignored `runtime/testserver/`,
 with Floodgate (a hard `depend:`), Geyser, LuckPerms and the same WorldGuard and
 WorldEdit builds GravelHost runs — pinned by hash to the live jars, because a
 protection plugin production has and the test server lacks is a rule that can
-behave differently in a test than in the game. It is
+behave differently in a test than in the game. Those two ship Java 25 bytecode,
+so Paper is run on a Java 25 JDK while the plugin keeps its Java 21 Gradle
+toolchain; `scripts/testserver.py` installs both and picks the right one per
+job. It is
 deliberately not a copy of production — offline mode and no whitelist so alt
 accounts can join to test the multiplayer events, `verification-required: false`
 so the production Discord gate cannot lock testers out, locally built Java and
