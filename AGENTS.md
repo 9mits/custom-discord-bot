@@ -68,7 +68,7 @@ python -m py_compile cogs/*.py minecraft_bot/*.py minecraft_main.py
 ruff check core/ cogs/ minecraft_bot/ tests/
 
 # Local Minecraft test server (Paper 1.21.11, same build as production)
-python scripts/testserver.py setup   # once: fetch Paper, Floodgate, Geyser, LuckPerms, Grim
+python scripts/testserver.py setup   # once: Paper, Floodgate, Geyser, LuckPerms, Grim, WorldGuard
 python scripts/testserver.py deploy  # build + install jar without starting Paper
 python scripts/testserver.py run     # build the plugin, install it, start the server
 python scripts/testserver.py restart # build, install, gracefully restart Paper (normal deploy)
@@ -293,7 +293,10 @@ convention does not apply — that rule is about the Discord bot's own output.
 
 `minecraft-bridge/` has its own local stage: `scripts/testserver.py` runs the
 same pinned Paper build as production in the git-ignored `runtime/testserver/`,
-with Floodgate (a hard `depend:`), Geyser and LuckPerms alongside. It is
+with Floodgate (a hard `depend:`), Geyser, LuckPerms and the same WorldGuard and
+WorldEdit builds GravelHost runs — pinned by hash to the live jars, because a
+protection plugin production has and the test server lacks is a rule that can
+behave differently in a test than in the game. It is
 deliberately not a copy of production — offline mode and no whitelist so alt
 accounts can join to test the multiplayer events, `verification-required: false`
 so the production Discord gate cannot lock testers out, locally built Java and

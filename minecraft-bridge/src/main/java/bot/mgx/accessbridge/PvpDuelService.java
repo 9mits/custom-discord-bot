@@ -45,6 +45,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
+import org.bukkit.event.block.BlockBurnEvent;
 import org.bukkit.event.block.BlockExplodeEvent;
 import org.bukkit.event.block.BlockFadeEvent;
 import org.bukkit.event.block.BlockFromToEvent;
@@ -162,12 +163,26 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
      * whole arena in one go is the stall this is meant to prevent.
      */
     private static final int ARENA_CHUNKS_PER_BATCH = 8;
+    /** Past this many recorded blocks the restore file is written far less often. */
+    private static final int LARGE_ARENA_BLOCKS = 2_000;
+    private static final long SMALL_ARENA_FLUSH_MILLIS = 2_000L;
+    private static final long LARGE_ARENA_FLUSH_MILLIS = 15_000L;
     /** Wide enough that an icon, a heading and its detail stay on one line. */
     private static final int RULE_WIDTH = 560;
     private static final String MONEY_INPUT = "money";
     /** No fight may be configured to outlast this, whatever the config says. */
     static final int MAXIMUM_DURATION_MINUTES = 15;
     private static final long NOTICE_COOLDOWN_MILLIS = 2_000L;
+    /**
+     * Marks an entity a fighter put in the ring — a crystal, a boat, an armour stand.
+     *
+     * <p>It is both the blame trail for the explosion an entity causes and the list
+     * of what to clear away when the arena is put back, so that a revert leaves no
+     * more behind than it leaves broken.
+     */
+    private static final org.bukkit.NamespacedKey ARENA_ENTITY_KEY =
+            java.util.Objects.requireNonNull(
+                    org.bukkit.NamespacedKey.fromString("mgx:duel_arena_entity"));
     private static final Set<Material> DANGEROUS = Set.of(
             Material.WATER, Material.LAVA, Material.CACTUS, Material.MAGMA_BLOCK,
             Material.POWDER_SNOW, Material.FIRE, Material.SOUL_FIRE,
@@ -380,6 +395,10 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     /** Chunk tickets held open for each live arena, released when it is put back. */
     private final Map<UUID, List<Chunk>> arenaChunks = new HashMap<>();
     private final PvpFarmGuard farmGuard = new PvpFarmGuard();
+    /** Arenas already told they have taken as much damage as can be undone. */
+    private final Set<UUID> arenaFullWarned = new HashSet<>();
+    /** When the restore file was last written, so a big arena does not thrash it. */
+    private volatile long lastArenaFlush;
     private final org.bukkit.NamespacedKey victimKey;
 
     PvpDuelService(
@@ -424,10 +443,29 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 restoreArena(duelId);
             }
         }, 200L);
-        plugin.getServer().getScheduler().runTaskTimer(plugin, this::flushArenaRestore, 40L, 40L);
+        // Off the main thread: the store is synchronized, and a destructible arena
+        // can hold tens of thousands of blocks whose JSON is not something to build
+        // and write between two ticks of a fight.
+        plugin.getServer().getScheduler().runTaskTimerAsynchronously(
+                plugin, this::flushArenaRestore, 40L, 40L);
     }
 
+    /**
+     * Writes the restore file, no faster than it is worth writing.
+     *
+     * <p>The whole file is rewritten each time, so the pace has to fall as it grows:
+     * a small arena is saved every couple of seconds, and one that has been blown
+     * apart is saved rather less often than that. The cost of the slower pace is at
+     * most a few seconds of damage lost to a crash, against a revert that still runs.
+     */
     private void flushArenaRestore() {
+        long now = System.currentTimeMillis();
+        long interval = arenaRestore.totalBlocks() > LARGE_ARENA_BLOCKS
+                ? LARGE_ARENA_FLUSH_MILLIS : SMALL_ARENA_FLUSH_MILLIS;
+        if (now - lastArenaFlush < interval) {
+            return;
+        }
+        lastArenaFlush = now;
         try {
             arenaRestore.flush();
         } catch (RuntimeException failure) {
@@ -474,6 +512,17 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     private int preloadChunkRadius() {
         return Math.max(0, Math.min(12,
                 plugin.gameVariables().integer("pvp-duels.preload-chunk-radius")));
+    }
+
+    /**
+     * The most blocks one arena may have written down.
+     *
+     * <p>A ceiling rather than a budget: it is what stops a pair with a shulker box
+     * of TNT turning the revert into a file nothing can write and a replay nothing
+     * can finish. Reaching it stops the ground breaking; it never stops the fight.
+     */
+    private int maximumArenaEdits() {
+        return plugin.gameVariables().integer("pvp-duels.maximum-arena-edits");
     }
 
     private int repeatOpponentLimit() {
@@ -754,10 +803,14 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                         "Untouched terrain. You return to the block you left."},
                 new String[] {"item/iron_pickaxe", "Digging",
                         "Break and build freely. Nothing drops; it is all put back."},
+                new String[] {"item/end_crystal", "Explosives",
+                        "TNT, end crystals, anchors and fire all work, and the crater"
+                                + " is put back with everything else."},
                 new String[] {"item/diamond_sword", "Damage",
-                        "Only your opponent can hurt you."},
+                        "Only your opponent can hurt you — and your own explosives."},
                 new String[] {"item/ender_pearl", "No Exit",
-                        "Pearls, teleports, buckets and boats are refused."},
+                        "Pearls and chorus fruit are refused. Nothing you set off"
+                                + " reaches past the border."},
                 new String[] {"item/rotten_flesh", "No Mobs",
                         "Nothing else is alive in there."},
                 new String[] {"item/clock_00", "The Clock",
@@ -1992,6 +2045,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         fighting.remove(fight.first);
         fighting.remove(fight.second);
         fights.remove(fight.id);
+        arenaFullWarned.remove(fight.id);
         for (UUID playerId : List.of(fight.first, fight.second)) {
             Player player = Bukkit.getPlayer(playerId);
             // Owed before the teleport, so the blocks land in their inventory rather
@@ -2017,11 +2071,11 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         // Last, with both fighters already gone: nobody is standing in a block that
         // is about to come back, and the floor is swept before it is put back so a
         // broken container's spill cannot outlive the container it came from.
-        sweepArena(fight);
-        restoreArena(fight.id);
-        // The restore reloads whatever it needs block by block, so the arena no
-        // longer has to be pinned once nobody is fighting in it.
-        releaseArenaChunks(fight.id);
+        sweepArena(fight, true);
+        if (!restoreArena(fight.id)) {
+            // Nothing was touched, so there is nothing to hold the ground open for.
+            releaseArenaChunks(fight.id);
+        }
     }
 
     private void settleMoney(Fight fight, UUID winnerId) {
@@ -3106,11 +3160,14 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             }
             if (event instanceof EntityDamageByEntityEvent byEntity) {
                 UUID opponentId = victimFight.opponent(victim.getUniqueId());
-                boolean opponent = isOpponentAttack(byEntity, opponentId);
-                event.setCancelled(!opponent);
-                if (opponent) {
+                UUID source = fightingSource(byEntity);
+                if (opponentId.equals(source)) {
                     victimFight.damage.merge(opponentId, event.getFinalDamage(), Double::sum);
                     victimFight.hits.merge(opponentId, 1, Integer::sum);
+                } else if (!victim.getUniqueId().equals(source)) {
+                    // Not the opponent and not their own doing, so not part of this
+                    // fight. Somebody's own crystal going off in their face is.
+                    event.setCancelled(true);
                 }
             }
             return;
@@ -3326,14 +3383,22 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     public void onBreak(BlockBreakEvent event) {
         Fight fight = fighting.get(event.getPlayer().getUniqueId());
         if (fight == null) {
-            if (isParticipant(event.getPlayer().getUniqueId())) event.setCancelled(true);
+            // A spectator, or a passer-by who found somebody's ring. Neither one's
+            // digging is recorded against the fight, so neither one may dig.
+            if (isParticipant(event.getPlayer().getUniqueId())
+                    || insideAnyArena(event.getBlock().getLocation())) {
+                event.setCancelled(true);
+            }
             return;
         }
         if (fight.phase != Phase.FIGHTING || !insideArena(fight, event.getBlock().getLocation())) {
             event.setCancelled(true);
             return;
         }
-        remember(fight, event.getBlock());
+        if (!remember(fight, event.getBlock())) {
+            event.setCancelled(true);
+            return;
+        }
         // The arena is fresh world nobody has mined. Letting it drop would make a duel
         // the cheapest diamond in the game.
         event.setDropItems(false);
@@ -3344,7 +3409,10 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     public void onPlace(BlockPlaceEvent event) {
         Fight fight = fighting.get(event.getPlayer().getUniqueId());
         if (fight == null) {
-            if (isParticipant(event.getPlayer().getUniqueId())) event.setCancelled(true);
+            if (isParticipant(event.getPlayer().getUniqueId())
+                    || insideAnyArena(event.getBlockPlaced().getLocation())) {
+                event.setCancelled(true);
+            }
             return;
         }
         if (fight.phase != Phase.FIGHTING
@@ -3360,12 +3428,17 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             maybeNotice(event.getPlayer(), "Containers cannot be placed in a fight.");
             return;
         }
+        boolean recorded = true;
         if (event instanceof BlockMultiPlaceEvent multi) {
             for (BlockState replaced : multi.getReplacedBlockStates()) {
-                remember(fight, replaced.getBlock());
+                recorded &= remember(fight, replaced.getBlock());
             }
         } else {
-            remember(fight, event.getBlockPlaced());
+            recorded = remember(fight, event.getBlockPlaced());
+        }
+        if (!recorded) {
+            event.setCancelled(true);
+            return;
         }
         // Reverting the arena deletes this block, so its owner is owed it back. The
         // item in hand, not the block, because a door and a bed are one item and two
@@ -3387,66 +3460,129 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onEntityChangeBlock(EntityChangeBlockEvent event) {
         Fight fight = fightAt(event.getBlock().getLocation());
-        if (fight != null) {
-            remember(fight, event.getBlock());
+        if (fight != null && !remember(fight, event.getBlock())) {
+            event.setCancelled(true);
         }
     }
 
     /**
-     * The arena holds still for the length of the fight.
+     * The arena is a real piece of world, and it behaves like one.
      *
-     * <p>Everything here changes a block without anybody asking it to — lava finding
-     * a hole a fighter just made, leaves letting go of a felled tree, ice melting.
-     * Refusing the lot is what makes the recorded set of changes the complete set,
-     * and a revert that misses a change is a revert that leaves a scar.
+     * <p>These used to be refused outright — lava frozen, leaves held on, gravity
+     * switched off — because refusing them was the cheapest way to guarantee that
+     * the recorded set of changes was the complete set. It also meant a fight in
+     * which nothing could actually be destroyed.
+     *
+     * <p>They are recorded instead. The guarantee now comes from {@link #remember},
+     * which refuses the change when it cannot write down what was there, so the
+     * revert is still complete — and the arena is a normal piece of world in every
+     * other respect.
+     *
+     * <p>What is still refused is <em>leaving</em>. A fluid, a fire or an explosion
+     * that reaches past the border would change ground nothing is going to put back,
+     * so it stops at the edge.
      */
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onFlow(BlockFromToEvent event) {
-        if (fightAt(event.getBlock().getLocation()) != null
-                || fightAt(event.getToBlock().getLocation()) != null) {
+        Fight into = fightAt(event.getToBlock().getLocation());
+        if (into != null) {
+            if (!remember(into, event.getToBlock())) {
+                event.setCancelled(true);
+            }
+            return;
+        }
+        // Leaving the ring. Nothing outside it is ever put back.
+        if (fightAt(event.getBlock().getLocation()) != null) {
             event.setCancelled(true);
         }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onForm(BlockFormEvent event) {
-        if (fightAt(event.getBlock().getLocation()) != null) event.setCancelled(true);
+        Fight fight = fightAt(event.getBlock().getLocation());
+        if (fight != null && !remember(fight, event.getBlock())) {
+            event.setCancelled(true);
+        }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onSpread(BlockSpreadEvent event) {
-        if (fightAt(event.getBlock().getLocation()) != null) event.setCancelled(true);
+        Fight into = fightAt(event.getBlock().getLocation());
+        if (into != null) {
+            if (!remember(into, event.getBlock())) {
+                event.setCancelled(true);
+            }
+            return;
+        }
+        // Fire crossing the border, which is the one way a duel could burn down
+        // somebody's actual base.
+        if (fightAt(event.getSource().getLocation()) != null) {
+            event.setCancelled(true);
+        }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onFade(BlockFadeEvent event) {
-        if (fightAt(event.getBlock().getLocation()) != null) event.setCancelled(true);
+        Fight fight = fightAt(event.getBlock().getLocation());
+        if (fight != null && !remember(fight, event.getBlock())) {
+            event.setCancelled(true);
+        }
+    }
+
+    /** Fire eating a block is a block change like any other, and it is put back. */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onBurn(BlockBurnEvent event) {
+        Fight fight = fightAt(event.getBlock().getLocation());
+        if (fight != null && !remember(fight, event.getBlock())) {
+            event.setCancelled(true);
+        }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onLeavesDecay(LeavesDecayEvent event) {
-        if (fightAt(event.getBlock().getLocation()) != null) event.setCancelled(true);
+        Fight fight = fightAt(event.getBlock().getLocation());
+        if (fight != null && !remember(fight, event.getBlock())) {
+            event.setCancelled(true);
+        }
     }
 
     /**
-     * The arena has no gravity and nothing pops off a wall for the length of a fight.
+     * Gravity and attachment, both of which the arena now has.
      *
-     * <p>Dig out the block under a torch and vanilla breaks the torch; dig out the
-     * one under sand and the sand falls. Neither is a change anybody asked for, and
-     * neither passes through break or place, so neither would be written down —
-     * a revert would put the support back and leave the torch gone.
+     * <p>Dig out the block under sand and the sand falls; dig out the one under a
+     * torch and the torch pops off. Neither passes through break or place, so
+     * neither would be written down on its own — this is where they are.
      *
-     * <p>This event is one of the hottest Paper fires, so the guard leaves before it
-     * does anything at all unless a fight is actually running.
+     * <p>This event is one of the hottest Paper fires, so it leaves before doing
+     * anything at all unless a fight is actually running, and the recorded-already
+     * check inside {@link #remember} is what keeps the repeat cost down.
      */
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPhysics(BlockPhysicsEvent event) {
         if (fights.isEmpty()) {
             return;
         }
-        if (fightAt(event.getBlock().getLocation()) != null) {
+        if (!physicsCanChange(event.getBlock())) {
+            return;
+        }
+        Fight fight = fightAt(event.getBlock().getLocation());
+        if (fight != null && !remember(fight, event.getBlock())) {
             event.setCancelled(true);
         }
+    }
+
+    /**
+     * Whether physics could actually do anything to this block.
+     *
+     * <p>A single explosion sends a physics update to every neighbour of every block
+     * it took, and recording all of them would fill the arena's budget with
+     * thousands of entries for stone that was never going to move. Gravity blocks
+     * fall and non-solid ones pop off their support; a full cube that does neither is
+     * only ever going to be recorded by whatever actually breaks it.
+     */
+    private static boolean physicsCanChange(Block block) {
+        Material type = block.getType();
+        return !type.isAir() && (type.hasGravity() || !type.isOccluding());
     }
 
     /**
@@ -3464,11 +3600,21 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         if (fight.phase == Phase.ENDING) {
             return;
         }
-        sweepArena(fight);
+        sweepArena(fight, false);
     }
 
-    /** The sweep itself, also run once at teardown when the phase guard is past. */
-    private void sweepArena(Fight fight) {
+    /**
+     * The sweep itself.
+     *
+     * <p>While the fight runs it only clears mobs and spill, because everything else
+     * in the ring is somebody's crystal or boat that they are still using.
+     *
+     * <p>{@code teardown} is the pass that runs once the fight is over, and it takes
+     * out what the fight brought with it as well. Putting the blocks back is only
+     * half of leaving no trace: an undetonated end crystal or an abandoned minecart
+     * standing in restored terrain is exactly the trace this promises not to leave.
+     */
+    private void sweepArena(Fight fight, boolean teardown) {
         Location center = fight.arena.center();
         World world = center.getWorld();
         if (world == null) {
@@ -3489,6 +3635,10 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 entity.remove();
                 continue;
             }
+            if (teardown && leftBehindByTheFight(entity)) {
+                entity.remove();
+                continue;
+            }
             if (!(entity instanceof LivingEntity) || entity instanceof Player
                     || entity instanceof org.bukkit.entity.ArmorStand
                     || (entity instanceof Tameable tameable && tameable.getOwner() != null)) {
@@ -3496,6 +3646,25 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             }
             entity.remove();
         }
+    }
+
+    /**
+     * Whether this is something the fight put here rather than something it found.
+     *
+     * <p>Two ways of knowing. Anything a fighter placed carries the arena tag, and
+     * the rest are entities that cannot pre-exist in freshly generated terrain and
+     * are transient everywhere else — a primed charge, a block in mid-fall, an arrow
+     * in the ground, the experience from something that died in the ring.
+     */
+    private static boolean leftBehindByTheFight(Entity entity) {
+        return arenaEntityOwner(entity) != null
+                || entity instanceof TNTPrimed
+                || entity instanceof org.bukkit.entity.Explosive
+                || entity instanceof org.bukkit.entity.EnderCrystal
+                || entity instanceof org.bukkit.entity.FallingBlock
+                || entity instanceof Projectile
+                || entity instanceof AreaEffectCloud
+                || entity instanceof org.bukkit.entity.ExperienceOrb;
     }
 
     private boolean insideArena(Fight fight, Location location) {
@@ -3519,10 +3688,30 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     }
 
     /** Writes down what a position held, once, before anything changes it. */
-    private void remember(Fight fight, Block block) {
+    /**
+     * Writes down what a block was, and answers whether it may be changed.
+     *
+     * <p>This is the whole safety of a destructible arena: <strong>a change that
+     * could not be recorded is a change that is refused</strong>. Explosions, fire
+     * and falling blocks all ask here first, and every one of them drops the blocks
+     * it cannot get an answer for, so the recorded set is always the complete set and
+     * the revert can never leave a scar.
+     *
+     * @return true when the block's original state is known and the change may stand
+     */
+    private boolean remember(Fight fight, Block block) {
         Location center = fight.arena.center();
         if (center.getWorld() == null) {
-            return;
+            return false;
+        }
+        // Cheapest answer first. The same position is offered many times a second
+        // once physics and fire are recording, and only the first state is kept.
+        if (arenaRestore.contains(fight.id, block.getX(), block.getY(), block.getZ())) {
+            return true;
+        }
+        if (arenaRestore.size(fight.id) >= maximumArenaEdits()) {
+            warnArenaFull(fight);
+            return false;
         }
         String contents = "";
         if (block.getState() instanceof Container container) {
@@ -3533,9 +3722,28 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                     center.getWorld().getName(), new ArenaRestoreStore.Snapshot(
                             block.getX(), block.getY(), block.getZ(),
                             block.getBlockData().getAsString(), contents));
+            return true;
         } catch (RuntimeException failure) {
             plugin.getLogger().warning("Could not record a PvP arena block: "
                     + failure.getMessage());
+            return false;
+        }
+    }
+
+    /** Said once per fight: from here on the ring stops taking damage. */
+    private void warnArenaFull(Fight fight) {
+        if (!arenaFullWarned.add(fight.id)) {
+            return;
+        }
+        plugin.getLogger().warning("A PvP arena reached its recorded-block limit of "
+                + maximumArenaEdits() + "; further terrain damage is being refused so"
+                + " the revert stays complete.");
+        for (UUID playerId : List.of(fight.first, fight.second)) {
+            Player player = Bukkit.getPlayer(playerId);
+            if (player != null) {
+                info(player, "This arena has taken as much damage as can be undone."
+                        + " The ground stops breaking from here — the fight carries on.");
+            }
         }
     }
 
@@ -3546,10 +3754,10 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
      * the sand falling again the moment the block under it lands, which is the same
      * damage this is undoing.
      */
-    private void restoreArena(UUID duelId) {
+    private boolean restoreArena(UUID duelId) {
         ArenaRestoreStore.ArenaEdits edits = arenaRestore.find(duelId).orElse(null);
         if (edits == null) {
-            return;
+            return false;
         }
         World world = Bukkit.getWorld(edits.worldId());
         if (world == null) {
@@ -3560,16 +3768,17 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             // that can still be undone is better than one that cannot.
             plugin.getLogger().warning("A PvP arena cannot be restored yet: world "
                     + edits.worldName() + " is not loaded.");
-            return;
+            return false;
         }
         List<ArenaRestoreStore.Snapshot> pending = List.copyOf(edits.blocks().values());
         if (!plugin.isEnabled()) {
             // Shutting down: there is no next tick to spread the work over.
             restoreRange(world, pending, 0, pending.size());
             completeRestore(duelId, pending.size());
-            return;
+            return true;
         }
         restoreBatch(duelId, world, pending, 0);
+        return true;
     }
 
     /**
@@ -3618,6 +3827,9 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
 
     private void completeRestore(UUID duelId, int restored) {
         arenaRestore.forget(duelId);
+        // Only now: the replay walks the whole crater block by block, and letting it
+        // reload each chunk as it arrives is what the tickets were taken out to stop.
+        releaseArenaChunks(duelId);
         flushArenaRestore();
         if (restored > 0) {
             plugin.getLogger().info("Restored " + restored + " block(s) of a PvP arena.");
@@ -3643,12 +3855,29 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onBucketEmpty(PlayerBucketEmptyEvent event) {
-        if (isParticipant(event.getPlayer().getUniqueId())) event.setCancelled(true);
+        if (!bucketAllowed(event.getPlayer(), event.getBlock())) event.setCancelled(true);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onBucketFill(PlayerBucketFillEvent event) {
-        if (isParticipant(event.getPlayer().getUniqueId())) event.setCancelled(true);
+        if (!bucketAllowed(event.getPlayer(), event.getBlock())) event.setCancelled(true);
+    }
+
+    /**
+     * Water and lava are fighting tools, and both ends of a bucket change a block.
+     *
+     * <p>A spectator never touches anything, and a fighter only touches their own
+     * ring — a lava bucket emptied over the border is somebody else's world.
+     */
+    private boolean bucketAllowed(Player player, Block block) {
+        Fight fight = fighting.get(player.getUniqueId());
+        if (fight == null) {
+            return !isParticipant(player.getUniqueId())
+                    && !insideAnyArena(block.getLocation());
+        }
+        return fight.phase == Phase.FIGHTING
+                && insideArena(fight, block.getLocation())
+                && remember(fight, block);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
@@ -3657,13 +3886,22 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             event.setCancelled(true);
             return;
         }
-        if (isFighter(event.getPlayer().getUniqueId()) && event.getClickedBlock() != null) {
-            // Doors, containers and terrain stay untouched, while a player pointing
-            // at the ground may still eat, shield, draw a bow, or use another item
-            // they actually brought. Placement has its own hard cancellation below.
+        Block clicked = event.getClickedBlock();
+        if (isFighter(event.getPlayer().getUniqueId()) && clicked != null
+                && refusedInFight(clicked)) {
+            // Nearly everything is usable now — buttons, levers, flint and steel, a
+            // respawn anchor being charged. The exceptions both outlive the fight: a
+            // container's items would be eaten by the revert, and a bed would move a
+            // spawn point into ground that is about to be put back.
             event.setUseInteractedBlock(org.bukkit.event.Event.Result.DENY);
             event.setUseItemInHand(org.bukkit.event.Event.Result.ALLOW);
         }
+    }
+
+    /** The two block interactions a duel cannot undo afterwards. */
+    private static boolean refusedInFight(Block block) {
+        return block.getState() instanceof Container
+                || org.bukkit.Tag.BEDS.isTagged(block.getType());
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
@@ -3695,23 +3933,78 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         }
     }
 
+    /**
+     * End crystals, boats and everything else a player puts down as an entity.
+     *
+     * <p>An end crystal is the reason this is allowed at all: it is placed as an
+     * entity rather than a block, so refusing this event refused crystal PvP outright.
+     * Each one is tagged with who put it there, which is how the explosion it causes
+     * is later credited to the right fighter, and every tagged entity is swept up when
+     * the arena is put back.
+     */
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onEntityPlace(EntityPlaceEvent event) {
-        if (event.getPlayer() != null && isParticipant(event.getPlayer().getUniqueId())) {
-            event.setCancelled(true);
+        Player player = event.getPlayer();
+        if (player == null) {
+            return;
         }
+        if (!placingAllowed(player, event.getEntity().getLocation())) {
+            event.setCancelled(true);
+            return;
+        }
+        tagArenaEntity(event.getEntity(), player);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onHangingPlace(HangingPlaceEvent event) {
-        if (event.getPlayer() != null && isParticipant(event.getPlayer().getUniqueId())) {
-            event.setCancelled(true);
+        Player player = event.getPlayer();
+        if (player == null) {
+            return;
         }
+        if (!placingAllowed(player, event.getEntity().getLocation())) {
+            event.setCancelled(true);
+            return;
+        }
+        tagArenaEntity(event.getEntity(), player);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onVehicleCreate(VehicleCreateEvent event) {
-        if (insideAnyArena(event.getVehicle().getLocation())) event.setCancelled(true);
+        // Left to onEntityPlace, which knows who put it there. A vehicle appearing
+        // in an arena with no placer behind it is not something a fight created.
+        if (insideAnyArena(event.getVehicle().getLocation())
+                && !event.getVehicle().getPersistentDataContainer()
+                        .has(ARENA_ENTITY_KEY, PersistentDataType.STRING)) {
+            event.setCancelled(true);
+        }
+    }
+
+    private boolean placingAllowed(Player player, Location at) {
+        Fight fight = fighting.get(player.getUniqueId());
+        if (fight == null) {
+            return !isParticipant(player.getUniqueId()) && !insideAnyArena(at);
+        }
+        return fight.phase == Phase.FIGHTING && insideArena(fight, at);
+    }
+
+    /** Marks an entity as this fight's, for blame and for the tidy-up afterwards. */
+    private static void tagArenaEntity(Entity entity, Player owner) {
+        entity.getPersistentDataContainer().set(
+                ARENA_ENTITY_KEY, PersistentDataType.STRING, owner.getUniqueId().toString());
+    }
+
+    /** Who put this entity in the ring, when anybody did. */
+    private static UUID arenaEntityOwner(Entity entity) {
+        String stored = entity.getPersistentDataContainer()
+                .get(ARENA_ENTITY_KEY, PersistentDataType.STRING);
+        if (stored == null) {
+            return null;
+        }
+        try {
+            return UUID.fromString(stored);
+        } catch (IllegalArgumentException malformed) {
+            return null;
+        }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
@@ -3727,19 +4020,78 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         }
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    /**
+     * Explosives work, and the crater is put back afterwards.
+     *
+     * <p>TNT, end crystals, respawn anchors and beds are half of how people actually
+     * fight, and an arena where they leave the ground untouched is an arena where
+     * none of them mean anything. Every block the blast would take is written down
+     * first; anything that cannot be written down, or that lies outside the ring, is
+     * dropped from the list instead of exploding.
+     *
+     * <p>The yield is zeroed for the same reason mining drops nothing: this is
+     * generated-for-this-fight terrain, and a duel is not a quarry.
+     */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onEntityExplode(EntityExplodeEvent event) {
-        if (insideAnyArena(event.getLocation())) event.blockList().clear();
+        if (containExplosion(event.blockList()) && insideAnyArena(event.getLocation())) {
+            event.setYield(0f);
+        }
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onBlockExplode(BlockExplodeEvent event) {
-        if (insideAnyArena(event.getBlock().getLocation())) event.blockList().clear();
+        if (containExplosion(event.blockList())
+                && insideAnyArena(event.getBlock().getLocation())) {
+            event.setYield(0f);
+        }
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    /**
+     * Keeps a blast inside a ring that can be put back.
+     *
+     * @return whether any of the blast landed in an arena at all
+     */
+    private boolean containExplosion(List<Block> blocks) {
+        if (fights.isEmpty()) {
+            return false;
+        }
+        boolean touchedArena = false;
+        for (java.util.Iterator<Block> blast = blocks.iterator(); blast.hasNext(); ) {
+            Block block = blast.next();
+            Fight fight = fightAt(block.getLocation());
+            if (fight == null) {
+                // Either ordinary world, which is none of this feature's business,
+                // or the far side of a border a blast must not cross.
+                continue;
+            }
+            touchedArena = true;
+            if (!remember(fight, block)) {
+                blast.remove();
+            }
+        }
+        return touchedArena;
+    }
+
+    /**
+     * Fire and TNT can be lit, and the fire is put back with everything else.
+     *
+     * <p>Spreading past the border is refused: the ignited block has to be somewhere
+     * the revert will reach.
+     */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onIgnite(BlockIgniteEvent event) {
-        if (insideAnyArena(event.getBlock().getLocation())) event.setCancelled(true);
+        Fight fight = fightAt(event.getBlock().getLocation());
+        if (fight != null) {
+            if (!remember(fight, event.getBlock())) {
+                event.setCancelled(true);
+            }
+            return;
+        }
+        Block source = event.getIgnitingBlock();
+        if (source != null && fightAt(source.getLocation()) != null) {
+            event.setCancelled(true);
+        }
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -3792,6 +4144,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         acceptDrafts.clear();
         lastChallenges.clear();
         resultViewers.clear();
+        arenaFullWarned.clear();
         farmGuard.clear();
         releaseAllArenaChunks();
         starting.clear();
@@ -4178,7 +4531,18 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         return source instanceof Player player ? player : null;
     }
 
-    private static boolean isOpponentAttack(EntityDamageByEntityEvent event, UUID opponentId) {
+    /**
+     * Which fighter is behind this damage, or null.
+     *
+     * <p>Tamed animals are deliberately excluded: this is the two accepted players
+     * fighting with what is in their inventories, not a pet-assisted ambush.
+     *
+     * <p>An end crystal has no source of its own — Bukkit does not record who placed
+     * one — so the arena's own tag is read instead. Without it every crystal in a
+     * duel would be an anonymous explosion, and anonymous damage to a fighter is
+     * cancelled, which is to say crystal PvP would silently not work.
+     */
+    private static UUID fightingSource(EntityDamageByEntityEvent event) {
         Entity source = event.getDamager();
         if (source instanceof Projectile projectile && projectile.getShooter() instanceof Entity shooter) {
             source = shooter;
@@ -4189,9 +4553,10 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         if (source instanceof TNTPrimed tnt && tnt.getSource() != null) {
             source = tnt.getSource();
         }
-        // Tamed animals are deliberately excluded: this is the two accepted players
-        // fighting with what is in their inventories, not a pet-assisted ambush.
-        return source instanceof Player player && opponentId.equals(player.getUniqueId());
+        if (source instanceof Player player) {
+            return player.getUniqueId();
+        }
+        return arenaEntityOwner(source);
     }
 
     private static boolean samePosition(Location first, Location second) {

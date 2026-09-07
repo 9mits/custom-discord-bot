@@ -97,6 +97,29 @@ GRIM_PRINTER_CHECKS = GRIM_PRINTER_PLACE_CHECKS + GRIM_PRINTER_PACKET_CHECKS
 #: load at all. Geyser and LuckPerms are soft, but the bridge talks to both.
 REQUIRED_PLUGINS = ("floodgate", "geyser")
 
+#: The exact WorldGuard and WorldEdit builds GravelHost runs.
+#:
+#: Production has had both for a long time and this server did not, which is the
+#: worst shape a test server can be in: a region flag or a protection rule that
+#: behaves one way here and another way in the game people actually play. The
+#: hashes were taken from the live jars over SFTP, so these are the same bytes
+#: rather than merely the same version number. WorldEdit is not optional —
+#: WorldGuard hard-depends on it and will not load without it.
+WORLDGUARD_URL = (
+    "https://cdn.modrinth.com/data/DKY9btbd/versions/pI4UHLJL/"
+    "worldguard-bukkit-7.0.17.jar"
+)
+WORLDGUARD_SHA256 = (
+    "3f14562509bf01e7680571b6f56932239157ff938f257c3226df3b4088ae54f2"
+)
+WORLDEDIT_URL = (
+    "https://cdn.modrinth.com/data/1u6JkXh5/versions/F5ea2ov3/"
+    "worldedit-bukkit-7.4.5.jar"
+)
+WORLDEDIT_SHA256 = (
+    "e5696a6d064b9969437a8888be91b0941148a28e0c3736de1554a00254a5d142"
+)
+
 JDK_HOME = Path.home() / ".mgx-jdk21"
 JDK_URL = (
     "https://api.adoptium.net/v3/binary/latest/21/ga/mac/{arch}/jdk/hotspot/normal/eclipse"
@@ -469,6 +492,33 @@ def configure_grim() -> None:
         log("kept Printer placement checks logged but outside Grim's kick group")
 
 
+def ensure_world_protection() -> None:
+    """Install the WorldGuard/WorldEdit pair production runs, if they are missing.
+
+    Called from `deploy` as well as `setup`, because a server that was set up
+    before this existed would otherwise never get them without a manual step —
+    and a test server missing a protection plugin production has is exactly the
+    difference nobody notices until a rule behaves differently in the game.
+    """
+    for name, url, digest in (
+        ("worldedit.jar", WORLDEDIT_URL, WORLDEDIT_SHA256),
+        ("worldguard.jar", WORLDGUARD_URL, WORLDGUARD_SHA256),
+    ):
+        jar = PLUGINS / name
+        existed = jar.is_file()
+        try:
+            fetch_verified(url, jar, digest)
+        except (OSError, urllib.error.URLError, RuntimeError, TimeoutError) as exc:
+            # Not fatal. The bridge does not depend on either of them, and a
+            # server that starts without WorldGuard is better than one that
+            # cannot be started at all because a CDN was down.
+            log(f"WARNING: could not install {name} ({type(exc).__name__}); "
+                "the test server will run without it")
+            continue
+        if not existed:
+            log(f"installed {name}, matching the build GravelHost runs")
+
+
 def read_json(url: str) -> dict:
     request = urllib.request.Request(url, headers={"User-Agent": "mgx-testserver"})
     with urllib.request.urlopen(request, timeout=60) as response:
@@ -637,6 +687,7 @@ def setup(_: argparse.Namespace) -> int:
 
     fetch_verified(GRIM_URL, PLUGINS / "GrimAC.jar", GRIM_SHA256)
     configure_grim()
+    ensure_world_protection()
 
     # Geyser refuses to serve Bedrock clients without it on this Paper version,
     # and Bedrock-on-a-phone is the cheapest way to get a second test player.
@@ -684,6 +735,7 @@ def deploy(_: argparse.Namespace) -> int:
         return 1
     env = dict(os.environ, JAVA_HOME=str(java_home()))
     geyser_build = refresh_geyser()
+    ensure_world_protection()
     log("building the plugin")
     result = subprocess.run(
         ["./gradlew", "clean", "shadowJar", "-q"], cwd=BRIDGE, env=env

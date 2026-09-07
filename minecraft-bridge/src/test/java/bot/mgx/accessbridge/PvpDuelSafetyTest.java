@@ -46,11 +46,78 @@ final class PvpDuelSafetyTest {
         assertTrue(source.contains("world.isChunkGenerated"));
         assertTrue(source.contains("getInhabitedTime() > 0L"));
         assertTrue(source.contains("player.setWorldBorder(personalBorder"));
-        assertTrue(source.contains("event.blockList().clear()"));
         assertTrue(source.contains("onBucketEmpty"));
         assertTrue(source.contains("onIgnite"));
         assertTrue(source.contains("onEntityPlace"));
         assertTrue(source.contains("onCreatureSpawn"));
+    }
+
+    /**
+     * The arena is destructible, and destructible is only safe while every change is
+     * written down first.
+     *
+     * <p>This is the invariant the whole feature rests on: {@code remember} answers
+     * whether a block's original state is known, and <em>every</em> caller refuses
+     * the change when the answer is no. One caller that ignores it is one scar in
+     * somebody's world, 2,000 blocks from spawn, that nothing will ever go and find.
+     */
+    @Test
+    void nothingChangesInTheArenaThatWasNotWrittenDownFirst() throws Exception {
+        String source = source();
+
+        // Every handler that lets a block change asks first and gives up on a no.
+        for (String handler : new String[] {
+                "onBreak", "onPlace", "onEntityChangeBlock", "onFlow", "onForm",
+                "onSpread", "onFade", "onBurn", "onLeavesDecay", "onPhysics", "onIgnite"
+        }) {
+            int at = source.indexOf("public void " + handler + "(");
+            assertTrue(at > 0, handler + " is gone");
+            String body = source.substring(at, source.indexOf("\n    }", at));
+            assertTrue(body.contains("remember("), handler + " stopped recording");
+            assertTrue(body.contains("setCancelled(true)"),
+                    handler + " no longer refuses a change it could not record");
+        }
+
+        // A blast drops the blocks it could not record rather than taking them.
+        String contain = source.substring(
+                source.indexOf("private boolean containExplosion(List<Block> blocks)"),
+                source.indexOf("public void onIgnite("));
+        assertTrue(contain.contains("if (!remember(fight, block)) {"));
+        assertTrue(contain.contains("blast.remove()"));
+        // And a duel is still not a quarry.
+        assertTrue(source.contains("event.setYield(0f)"));
+        assertTrue(source.contains("event.setDropItems(false)"));
+
+        // Nothing a fight sets off reaches ground the revert will not visit.
+        String flow = source.substring(
+                source.indexOf("public void onFlow(BlockFromToEvent event)"),
+                source.indexOf("public void onForm("));
+        assertTrue(flow.contains("fightAt(event.getBlock().getLocation()) != null"));
+
+        // The budget is a ceiling on damage, not on the fight.
+        assertTrue(source.contains("arenaRestore.size(fight.id) >= maximumArenaEdits()"));
+        assertTrue(source.contains("warnArenaFull(fight)"));
+    }
+
+    /** Explosives are the point of a destructible arena, so they have to hurt. */
+    @Test
+    void anExplosionIsCreditedToWhoeverSetItOff() throws Exception {
+        String source = source();
+        String resolver = source.substring(
+                source.indexOf("private static UUID fightingSource("),
+                source.indexOf("private static boolean samePosition"));
+
+        assertTrue(resolver.contains("TNTPrimed tnt"));
+        // Bukkit records no placer for an end crystal, so the arena's own tag is it.
+        assertTrue(resolver.contains("arenaEntityOwner(source)"));
+        assertTrue(source.contains("tagArenaEntity(event.getEntity(), player)"));
+        // And what a fight brought with it does not outlive the fight.
+        String left = source.substring(
+                source.indexOf("private static boolean leftBehindByTheFight(Entity entity)"),
+                source.indexOf("private boolean insideArena"));
+        assertTrue(left.contains("arenaEntityOwner(entity) != null"));
+        assertTrue(left.contains("EnderCrystal"));
+        assertTrue(left.contains("TNTPrimed"));
     }
 
     @Test
@@ -58,9 +125,10 @@ final class PvpDuelSafetyTest {
         String source = source();
         assertTrue(source.contains("PvP is disabled. Use /pvp to fight."));
         assertTrue(source.contains("plugin.openWorldPvpEnabled()"));
-        assertTrue(source.contains("event.setCancelled(!opponent)"));
         assertTrue(source.contains("source instanceof Tameable"));
-        assertTrue(source.contains("isOpponentAttack"));
+        assertTrue(source.contains("fightingSource(byEntity)"));
+        // A third party's arrow is still refused; your own crystal is not.
+        assertTrue(source.contains("!victim.getUniqueId().equals(source)"));
         for (String service : new String[] {
                 "BountyService.java", "TrophyHeadService.java", "WardrobeService.java"
         }) {
@@ -250,7 +318,7 @@ final class PvpDuelSafetyTest {
                 source.indexOf("private void finishReturn"),
                 source.indexOf("private void recordResults"));
         assertTrue(finish.contains("returnPlacedBlocks(playerId)"));
-        assertTrue(finish.contains("sweepArena(fight)"));
+        assertTrue(finish.contains("sweepArena(fight, true)"));
         assertTrue(finish.contains("restoreArena(fight.id)"));
         assertTrue(finish.indexOf("returnPlacedBlocks") < finish.indexOf("restoreAtEnd"));
         assertTrue(finish.indexOf("restoreArena") > finish.indexOf("restoreAtEnd"));
@@ -265,7 +333,7 @@ final class PvpDuelSafetyTest {
         String source = source();
         assertTrue(source.contains("insideAnyArena(event.getLocation())) event.setCancelled(true)"));
         String sweep = source.substring(
-                source.indexOf("private void sweepArena(Fight fight)"),
+                source.indexOf("private void sweepArena(Fight fight, boolean teardown)"),
                 source.indexOf("private boolean insideArena"));
         assertTrue(sweep.contains("entity instanceof org.bukkit.entity.Item"));
         assertTrue(sweep.contains("entity instanceof Player"));

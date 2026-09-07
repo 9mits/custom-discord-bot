@@ -220,5 +220,48 @@ class TestServerRestartTests(unittest.TestCase):
         start.assert_not_called()
 
 
+class WorldProtectionPluginTests(unittest.TestCase):
+    """WorldGuard and WorldEdit, matching the builds GravelHost runs.
+
+    Production has had both for a long time and the test server did not, which
+    is the difference that lets a protection rule behave one way in a test and
+    another way in the game.
+    """
+
+    def _source(self) -> str:
+        return Path(testserver.__file__).read_text(encoding="utf-8")
+
+    def test_both_jars_are_pinned_by_hash_rather_than_merely_downloaded(self):
+        source = self._source()
+        body = source[
+            source.index("def ensure_world_protection") : source.index("def read_json")
+        ]
+
+        self.assertIn("fetch_verified(url, jar, digest)", body)
+        self.assertEqual(64, len(testserver.WORLDGUARD_SHA256))
+        self.assertEqual(64, len(testserver.WORLDEDIT_SHA256))
+        # The version production runs, not merely the newest one published.
+        self.assertIn("worldguard-bukkit-7.0.17.jar", testserver.WORLDGUARD_URL)
+        self.assertIn("worldedit-bukkit-7.4.5.jar", testserver.WORLDEDIT_URL)
+
+    def test_an_existing_server_picks_them_up_without_a_second_setup(self):
+        source = self._source()
+
+        # Once in setup and once in deploy, so a server built before these
+        # existed installs them on its next restart rather than never.
+        self.assertEqual(2, source.count("    ensure_world_protection()"))
+
+    def test_a_missing_download_does_not_stop_the_server_starting(self):
+        source = self._source()
+        body = source[
+            source.index("def ensure_world_protection") : source.index("def read_json")
+        ]
+
+        # The bridge depends on neither, so an unreachable CDN must cost a
+        # warning rather than the ability to test anything at all.
+        self.assertIn("continue", body)
+        self.assertIn("will run without it", body)
+
+
 if __name__ == "__main__":
     unittest.main()
