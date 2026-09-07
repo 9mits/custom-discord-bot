@@ -94,6 +94,28 @@ final class ArenaRestoreStore {
         return row == null ? 0 : row.blocks().size();
     }
 
+    /** Everything waiting to be put back, across every unfinished arena. */
+    synchronized int totalBlocks() {
+        int total = 0;
+        for (ArenaEdits row : edits.values()) {
+            total += row.blocks().size();
+        }
+        return total;
+    }
+
+    /**
+     * Whether this position's original state is already written down.
+     *
+     * <p>Asked before a snapshot is built rather than after. Now that explosions,
+     * fire and physics all record, the same position is offered many times a second,
+     * and {@code getBlockData().getAsString()} on every one of them is the expensive
+     * half of recording something already known.
+     */
+    synchronized boolean contains(UUID duelId, int x, int y, int z) {
+        ArenaEdits row = edits.get(duelId);
+        return row != null && row.blocks().containsKey(key(x, y, z));
+    }
+
     /** Records a position's original state, keeping whatever was seen there first. */
     synchronized void remember(
             UUID duelId, UUID worldId, String worldName, Snapshot snapshot

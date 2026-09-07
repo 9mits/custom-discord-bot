@@ -85,6 +85,15 @@ final class PvpRankRewardService implements Listener {
     private final PlayerSettingsStore settings;
     private final GameVariableStore variables;
     private final Map<UUID, Long> lastSweeps = new HashMap<>();
+    private final Map<UUID, Long> lastBolts = new HashMap<>();
+    /**
+     * The kill animation each owner currently has running.
+     *
+     * <p>One at a time. Killing a stack of mobs used to start an animation per death,
+     * each with its own bolt at the end, which read as continuous lightning that never
+     * stopped rather than as a finish to anything.
+     */
+    private final Map<UUID, BukkitTask> killAnimations = new HashMap<>();
     private final Set<UUID> fullInventoryWarnings = new HashSet<>();
     /**
      * The current top three, as of the last reconciliation.
@@ -136,7 +145,12 @@ final class PvpRankRewardService implements Listener {
         if (bladeTrail != null) bladeTrail.cancel();
         bladeTrail = null;
         podium = Map.of();
+        for (BukkitTask running : killAnimations.values()) {
+            running.cancel();
+        }
+        killAnimations.clear();
         lastSweeps.clear();
+        lastBolts.clear();
         fullInventoryWarnings.clear();
     }
 
@@ -567,12 +581,22 @@ final class PvpRankRewardService implements Listener {
     private void animateKill(Player owner, Location centre, int placement) {
         int frames = (int) variables.integer("pvp-rank-rewards.kill-effect-frames");
         double maximumRadius = variables.decimal("pvp-rank-rewards.kill-effect-radius");
-        new BukkitRunnable() {
+        UUID ownerId = owner.getUniqueId();
+        // One climax at a time. Clearing a crowd of mobs otherwise started an
+        // animation per corpse, and they overlapped into one unending effect.
+        BukkitTask previous = killAnimations.remove(ownerId);
+        if (previous != null) {
+            previous.cancel();
+        }
+        killAnimations.put(ownerId, new BukkitRunnable() {
             private int frame;
 
             @Override
             public void run() {
                 if (frame >= frames || !owner.isOnline()) {
+                    // Safe to clear unconditionally: a replacement cancels this task
+                    // before taking the slot, so a cancelled run never reaches here.
+                    killAnimations.remove(ownerId);
                     cancel();
                     return;
                 }
@@ -582,7 +606,7 @@ final class PvpRankRewardService implements Listener {
                 drawKillFrame(viewers, centre, placement, frame, radius);
                 frame++;
             }
-        }.runTaskTimer(plugin, 0L, 2L);
+        }.runTaskTimer(plugin, 0L, 2L));
     }
 
     private void drawKillFrame(
@@ -643,22 +667,33 @@ final class PvpRankRewardService implements Listener {
      * the kill has already happened. Bukkit has no per-player lightning, so the
      * strike is skipped outright when nobody who can see it has cosmetics turned on,
      * rather than being shown to somebody who asked not to see them.
+     *
+     * <p>Rate limited per world, and deliberately small. A finish that fires on every
+     * death is not a finish: clearing a group of mobs produced a bolt each, their
+     * thunder overlapped, and the effect read as a storm that had started rather than
+     * a kill that had ended. The cooldown is what makes it an event again.
      */
     private void strikeApex(List<Player> viewers, Location centre) {
         World world = centre.getWorld();
         if (world == null || viewers.isEmpty()) return;
+        long now = System.currentTimeMillis();
+        long cooldown = variables.integer("pvp-rank-rewards.lightning-cooldown-ms");
+        UUID worldId = world.getUID();
+        if (now - lastBolts.getOrDefault(worldId, 0L) < cooldown) {
+            return;
+        }
+        lastBolts.put(worldId, now);
         world.strikeLightningEffect(centre);
-        Particle.DustOptions charge = new Particle.DustOptions(PRIMARY[0], 1.3f);
+        // A short charged column, not a pillar to the sky. The bolt is the effect;
+        // this only ties it to the ring that just closed.
+        Particle.DustOptions charge = new Particle.DustOptions(PRIMARY[0], 1.1f);
         for (Player viewer : viewers) {
-            for (int step = 0; step < 24; step++) {
-                Location at = centre.clone().add(0d, step * 0.45d, 0d);
-                viewer.spawnParticle(Particle.DUST, at, 1, 0.12d, 0.05d, 0.12d, 0d, charge);
-                if (step % 3 == 0) {
-                    viewer.spawnParticle(Particle.ELECTRIC_SPARK, at, 2,
-                            0.18d, 0.08d, 0.18d, 0.02d);
-                }
+            for (int step = 0; step < 6; step++) {
+                Location at = centre.clone().add(0d, step * 0.4d, 0d);
+                viewer.spawnParticle(Particle.DUST, at, 1, 0.1d, 0.05d, 0.1d, 0d, charge);
             }
-            viewer.spawnParticle(Particle.FLASH, centre, 1);
+            viewer.spawnParticle(Particle.ELECTRIC_SPARK, centre, 4,
+                    0.25d, 0.35d, 0.25d, 0.02d);
         }
     }
 

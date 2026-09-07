@@ -1105,6 +1105,11 @@ final class GameVariableStore {
                 "Untouched terrain candidates checked before a duel safely gives up.",
                 config.getLong("pvp-duels.location-attempts", 40),
                 1, 100, "attempts", false);
+        integer("pvp-duels.maximum-arena-edits", "Arena damage limit", "PvP Duels",
+                "Most blocks one duel may change before the ground stops breaking."
+                        + " Every change is written down so it can be put back, and a"
+                        + " change that cannot be written down is refused.",
+                60_000L, 1_000, 1_000_000, "blocks", false);
         integer("pvp-duels.maximum-spectators", "Viewing stand capacity", "PvP Duels",
                 "Most anchored spectators who may watch one duel at once.",
                 config.getLong("pvp-duels.maximum-spectators", 8),
@@ -1145,6 +1150,11 @@ final class GameVariableStore {
         integer("pvp-rank-rewards.trail-particles", "Scythe trail particles",
                 "PvP Rank Rewards", "Points drawn along the blade on each trail pass.",
                 7, 1, 40, "particles", false);
+        integer("pvp-rank-rewards.lightning-cooldown-ms", "#1 Scythe lightning cooldown",
+                "PvP Rank Rewards",
+                "Minimum time between the #1 Scythe's closing lightning strikes, so a"
+                        + " run of kills is not one continuous storm.",
+                8_000, 0, 300_000, "milliseconds", false);
 
         integer("verification.expiry-seconds", "Verification expiry", "Players",
                 "Seconds a pending verification stays valid before it lapses.",
