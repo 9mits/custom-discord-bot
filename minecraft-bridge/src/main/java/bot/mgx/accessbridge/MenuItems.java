@@ -113,7 +113,12 @@ final class MenuItems {
      * reads.
      */
     static ItemStack detailed(Material material, String name, List<Component> lore) {
-        ItemStack item = new ItemStack(material);
+        return detailed(new ItemStack(material), name, lore);
+    }
+
+    /** Keeps a custom model while turning a real item into a non-interactive menu tile. */
+    static ItemStack detailed(ItemStack item, String name, List<Component> lore) {
+        item = item.clone();
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
             meta.displayName(title(name));

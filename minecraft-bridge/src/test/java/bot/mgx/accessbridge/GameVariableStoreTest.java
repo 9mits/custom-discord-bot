@@ -218,6 +218,17 @@ final class GameVariableStoreTest {
     }
 
     @Test
+    void incorrectAmethystDeadlineMigratesToSundayMidnightJst() throws Exception {
+        Path file = temporary.resolve("game-variables.json");
+        Files.writeString(file, "{\"amethyst-events.ends-at\":1789192800}");
+
+        GameVariableStore variables = store();
+
+        assertEquals(1_789_225_200L, variables.integer("amethyst-events.ends-at"));
+        assertTrue(Files.readString(file).contains("1789225200"));
+    }
+
+    @Test
     void airdropAndHugeAmethystPayoutsAreFullyVariableDriven() throws Exception {
         GameVariableStore variables = store();
         variables.set("airdrop.rarity.common.minimum-keys", "80");

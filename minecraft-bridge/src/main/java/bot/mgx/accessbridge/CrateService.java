@@ -422,10 +422,11 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         holder.inventory = inventory;
         fillHub(inventory);
         inventory.setItem(HUB_KEYS_SLOT, hubKeys(player, kind, System.currentTimeMillis()));
-        inventory.setItem(HUB_OPEN_SLOT, MenuItems.button(
-                kind.icon(),
-                "Open " + kind.menuName(),
-                "Spends " + keyCost(kind) + " " + kind.currency().shortName(keyCost(kind)) + "."
+        inventory.setItem(HUB_OPEN_SLOT, kindButton(
+                kind, "Open " + kind.menuName(), List.of(
+                        Component.text("Spends " + keyCost(kind) + " "
+                                + kind.currency().shortName(keyCost(kind)) + ".", NamedTextColor.GRAY)
+                )
         ));
         inventory.setItem(HUB_ODDS_SLOT, MenuItems.button(
                 Material.BOOK,
@@ -2069,12 +2070,23 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                 ? "View exact odds."
                 : keyCost(kind) + " " + kind.currency().shortName(keyCost(kind)) + " required.";
         if (!kind.limited()) {
-            return MenuItems.button(kind.icon(), kind.menuName(), "Permanent rewards.", action);
+            return kindButton(kind, kind.menuName(), List.of(
+                    Component.text("Permanent rewards.", NamedTextColor.GRAY),
+                    Component.text(action, NamedTextColor.GRAY)
+            ));
         }
         boolean open = kind.available(now);
         List<Component> lore = new ArrayList<>(kind.countdownLines(now));
         lore.add(Component.text(open ? action : "No longer open.", NamedTextColor.GRAY));
         return MenuItems.detailed(open ? kind.icon() : Material.BARRIER, kind.menuName(), lore);
+    }
+
+    /** The Shard Crate uses the same rainbow custom Shard players actually spend. */
+    private ItemStack kindButton(CrateKind kind, String name, List<Component> lore) {
+        ItemStack icon = kind == CrateKind.SHARD
+                ? items.shard(1)
+                : new ItemStack(kind.icon());
+        return MenuItems.detailed(icon, name, lore);
     }
 
     /** The key tile on a crate's own screen, carrying that crate's countdown. */

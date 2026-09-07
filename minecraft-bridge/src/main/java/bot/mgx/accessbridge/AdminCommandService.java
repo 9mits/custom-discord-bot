@@ -761,7 +761,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             }
             case AMETHYST_REWARDS -> {
                 int count = forEachTarget(targets, this::grantAmethystRewards);
-                String what = "one of every Limited Amethyst Crate reward";
+                String what = "one of every NEW Amethyst Crate reward";
                 success(sender, "Gave " + what + " to " + describeTargets(targets, count) + ".");
                 audit(sender, targets, what, count);
             }
@@ -1533,7 +1533,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     }
 
     /**
-     * With no length given a battle runs to the Limited Amethyst Crate close, so the
+     * With no length given a battle runs to the NEW Amethyst Crate close, so the
      * two events finish together. Once that date is behind us the crate can no longer
      * time anything, and a later battle has to say how long it runs.
      */
@@ -1593,7 +1593,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 .append(Component.text("  grant any permanent or limited crate reward",
                         NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin give <player|everyone> amethyst", ORANGE)
-                .append(Component.text("  grant one of every Limited Amethyst Crate reward",
+                .append(Component.text("  grant one of every NEW Amethyst Crate reward",
                         NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin eco join on|off [amount]", ORANGE)
                 .append(Component.text("  pay everyone who joins", NamedTextColor.GRAY)));

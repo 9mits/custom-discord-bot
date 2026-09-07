@@ -64,6 +64,9 @@ class ResourcePackCatalogTest {
         assertModelResolves("mgx:crate_key");
         assertModelResolves("mgx:fortune_potion");
         assertModelResolves("mgx:crate_luck_potion");
+        for (int placement = 1; placement <= 3; placement++) {
+            assertModelResolves("mgx:pvp_scythe_" + placement);
+        }
         assertNotEquals(
                 resolvedTexture("mgx:fortune_potion"),
                 resolvedTexture("mgx:crate_luck_potion"),
@@ -190,6 +193,9 @@ class ResourcePackCatalogTest {
         icons.add(textures.resolve("fortune_potion.png"));
         icons.add(textures.resolve("crate_luck_potion.png"));
         icons.add(textures.resolve("amethyst_dragon_egg.png"));
+        for (int placement = 1; placement <= 3; placement++) {
+            icons.add(textures.resolve("pvp_scythe_" + placement + ".png"));
+        }
         icons.add(SOURCE.resolve(resolvedTexture(CosmeticCatalog.MASKED_MODEL_KEY)));
         for (CosmeticCatalog.Definition definition : CosmeticCatalog.visualEntries()) {
             icons.add(SOURCE.resolve(resolvedTexture(definition.modelKey())));
@@ -385,6 +391,9 @@ class ResourcePackCatalogTest {
                         "minecraft:" + reward.materialName().toLowerCase(Locale.ROOT)
                 );
             }
+        }
+        for (int placement = 1; placement <= 3; placement++) {
+            expectedBases.put("mgx:pvp_scythe_" + placement, "minecraft:netherite_sword");
         }
 
         Map<String, String> actualBases = new HashMap<>();
