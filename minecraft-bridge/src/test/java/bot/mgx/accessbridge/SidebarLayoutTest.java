@@ -19,11 +19,11 @@ class SidebarLayoutTest {
                 ESSENTIAL,  // name and ping
                 SPACER,
                 HEADING,    // PROFILE
-                IMPORTANT,  // rank
+                IMPORTANT,  // server rank
                 IMPORTANT,  // server level
                 IMPORTANT,  // extra hearts
-                IMPORTANT,  // power
                 IMPORTANT,  // clan
+                IMPORTANT,  // PvP rank
                 SPACER,
                 HEADING,    // STATS
                 ESSENTIAL,  // kills
@@ -75,9 +75,9 @@ class SidebarLayoutTest {
     }
 
     @Test
-    void theWholeProfileSurvivesOnAMaxedBoard() {
-        // Rank, level, hearts, power and clan all fit: blank lines pay for them, which
-        // is the trade the six perk rows used to make impossible.
+    void allImportantRowsSurviveOnAMaxedBoard() {
+        // Server rank, PvP rank, level, hearts and clan all fit: blank lines pay for
+        // them, which is the trade the six perk rows used to make impossible.
         boolean[] keep = SidebarLayout.fit(fullBoard(), SidebarLayout.MAX_LINES);
         SidebarLayout.Priority[] board = fullBoard();
         int importantKept = 0;
