@@ -1145,7 +1145,7 @@ final class AmethystBlockEventService implements Listener {
         if (bossBar != null && PlayerBroadcast.wants(
                 settings, PlayerSettingsStore.Setting.AIRDROP_BAR, player
         )) {
-            player.showBossBar(bossBar);
+            plugin.bossBars().show(player, bossBar);
         }
     }
 
@@ -1184,7 +1184,7 @@ final class AmethystBlockEventService implements Listener {
         }
         if (bossBar != null) {
             for (Player player : plugin.getServer().getOnlinePlayers()) {
-                player.hideBossBar(bossBar);
+                plugin.bossBars().hide(player, bossBar);
             }
             bossBar = null;
         }

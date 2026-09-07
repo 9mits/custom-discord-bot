@@ -365,9 +365,11 @@ final class PvpDuelSafetyTest {
 
     /** A draw is a result worth playing towards, and unplayable without a clock. */
     @Test
-    void aRunningFightShowsHowLongIsLeftAndStopsWhenItIsDecided() throws Exception {
+    void aRunningFightShowsOnlyItsClockAndRestoresOrdinaryBarsAfterward() throws Exception {
         String source = source();
         assertTrue(source.contains("startClock(fight)"));
+        assertTrue(source.contains("plugin.bossBars().suppress(player)"));
+        assertTrue(source.contains("plugin.bossBars().restore(player)"));
         String settle = source.substring(
                 source.indexOf("Fight fight, UUID winnerId, String result, boolean immediate, Ending ending"),
                 source.indexOf("private void beginAftermath"));
@@ -375,9 +377,37 @@ final class PvpDuelSafetyTest {
         String stop = source.substring(
                 source.indexOf("private void stopClock(Fight fight)"),
                 source.indexOf("private void openFightStatus"));
-        assertTrue(stop.contains("hideBossBar"));
+        assertTrue(stop.contains("hideExclusive"));
         // A spectator who leaves early keeps the bar otherwise.
-        assertTrue(source.contains("player.hideBossBar(spectator.fight().clock)"));
+        assertTrue(source.contains("hideExclusive(player, spectator.fight().clock)"));
+
+        String display = Files.readString(SOURCE.getParent().resolve("BossBarDisplay.java"),
+                StandardCharsets.UTF_8);
+        assertTrue(display.contains("if (!suppressed.contains(player.getUniqueId()))"));
+        assertTrue(display.contains("for (BossBar bar : wanted.getOrDefault"));
+
+        // Every plugin-owned bar has to pass through the tracker or a bar created
+        // during the duel could appear over the clock and never be restored.
+        try (var files = Files.list(SOURCE.getParent())) {
+            for (Path file : files.filter(path -> path.toString().endsWith(".java")).toList()) {
+                if (file.getFileName().toString().equals("BossBarDisplay.java")) continue;
+                String candidate = Files.readString(file, StandardCharsets.UTF_8);
+                assertFalse(candidate.contains(".showBossBar("), file + " bypasses the boss-bar gate");
+                assertFalse(candidate.contains(".hideBossBar("), file + " bypasses the boss-bar gate");
+            }
+        }
+    }
+
+    @Test
+    void howItWorksDoesNotPublishAntiFarmingThresholds() throws Exception {
+        String source = source();
+        String rules = source.substring(
+                source.indexOf("private void openRules(Player player)"),
+                source.indexOf("private void openTargets(Player player)"));
+        assertTrue(rules.contains("Anti-farming checks protect the ranked ladder."));
+        assertFalse(rules.contains("linked accounts"));
+        assertFalse(rules.contains("repeatOpponentLimit()"));
+        assertFalse(rules.contains("repeatOpponentRestMillis()"));
     }
 
     @Test

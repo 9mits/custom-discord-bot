@@ -489,7 +489,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                 BossBar.Overlay.NOTCHED_20
         );
         entrants.stream().map(Bukkit::getPlayer).filter(java.util.Objects::nonNull)
-                .forEach(player -> player.showBossBar(dragonBar));
+                .forEach(player -> plugin.bossBars().show(player, dragonBar));
         lastAggressiveAttackAt = 0L;
         lastMinionWaveAt = System.currentTimeMillis();
         lastChaosAt = 0L;
@@ -1495,7 +1495,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         player.teleport(arenaSpawn());
         applyArenaSky(player);
         arrivalEffect(player);
-        if (admissionBar != null) player.showBossBar(admissionBar);
+        if (admissionBar != null) plugin.bossBars().show(player, admissionBar);
         player.sendMessage(prefix().append(Component.text(
                 "Fight together. The entrance seals when the countdown ends.", NamedTextColor.WHITE)));
     }
@@ -1503,8 +1503,8 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     private void leave(Player player) {
         returnGateOccupants.remove(player.getUniqueId());
         departed.add(player.getUniqueId());
-        if (admissionBar != null) player.hideBossBar(admissionBar);
-        if (rewardBar != null) player.hideBossBar(rewardBar);
+        if (admissionBar != null) plugin.bossBars().hide(player, admissionBar);
+        if (rewardBar != null) plugin.bossBars().hide(player, rewardBar);
         showStats(player);
         teleportSpawn(player);
     }
@@ -1592,7 +1592,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                     "The Dragon arena is sealed until the fight ends.", NamedTextColor.RED));
         } else if (phase == Phase.REWARDS) {
             departed.add(playerId);
-            if (rewardBar != null) event.getPlayer().hideBossBar(rewardBar);
+            if (rewardBar != null) plugin.bossBars().hide(event.getPlayer(), rewardBar);
             resetArenaSky(event.getPlayer());
         }
     }
@@ -2309,7 +2309,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         dragonBar.progress((float) Math.clamp(dragonHealth / dragonMaximumHealth, 0d, 1d));
         for (Player player : arena.getPlayers()) {
             if (entrants.contains(player.getUniqueId()) && !departed.contains(player.getUniqueId())) {
-                player.showBossBar(dragonBar);
+                plugin.bossBars().show(player, dragonBar);
             }
         }
     }
@@ -2333,20 +2333,20 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         if (arena == null) return;
         for (Player player : arena.getPlayers()) {
             if (entrants.contains(player.getUniqueId()) && !departed.contains(player.getUniqueId())) {
-                player.showBossBar(admissionBar);
+                plugin.bossBars().show(player, admissionBar);
             }
         }
     }
 
     private void hideAdmissionBar() {
         if (admissionBar == null) return;
-        for (Player player : Bukkit.getOnlinePlayers()) player.hideBossBar(admissionBar);
+        for (Player player : Bukkit.getOnlinePlayers()) plugin.bossBars().hide(player, admissionBar);
         admissionBar = null;
     }
 
     private void hideDragonBar() {
         if (dragonBar == null) return;
-        for (Player player : Bukkit.getOnlinePlayers()) player.hideBossBar(dragonBar);
+        for (Player player : Bukkit.getOnlinePlayers()) plugin.bossBars().hide(player, dragonBar);
         dragonBar = null;
     }
 
@@ -2373,14 +2373,14 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         rewardBar.progress((float) Math.clamp((double) remaining / total, 0d, 1d));
         for (Player player : arena.getPlayers()) {
             if (entrants.contains(player.getUniqueId()) && !departed.contains(player.getUniqueId())) {
-                player.showBossBar(rewardBar);
+                plugin.bossBars().show(player, rewardBar);
             }
         }
     }
 
     private void hideRewardBar() {
         if (rewardBar == null) return;
-        for (Player player : Bukkit.getOnlinePlayers()) player.hideBossBar(rewardBar);
+        for (Player player : Bukkit.getOnlinePlayers()) plugin.bossBars().hide(player, rewardBar);
         rewardBar = null;
     }
 

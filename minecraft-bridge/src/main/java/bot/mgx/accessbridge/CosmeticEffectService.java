@@ -262,7 +262,7 @@ final class CosmeticEffectService implements Listener {
         }
         for (BossBar bar : activeRevealBars) {
             for (Player viewer : plugin.getServer().getOnlinePlayers()) {
-                viewer.hideBossBar(bar);
+                plugin.bossBars().hide(viewer, bar);
             }
         }
         activeRevealBars.clear();
@@ -862,7 +862,7 @@ final class CosmeticEffectService implements Listener {
         );
         activeRevealBars.add(bar);
         for (Player viewer : plugin.getServer().getOnlinePlayers()) {
-            viewer.showBossBar(bar);
+            plugin.bossBars().show(viewer, bar);
             viewer.showTitle(Title.title(
                     Component.text("✦ SECRET ✦", NamedTextColor.LIGHT_PURPLE,
                             TextDecoration.BOLD),
@@ -923,7 +923,7 @@ final class CosmeticEffectService implements Listener {
                 endRevealAtmosphere(player);
                 restoreFloatingPlayer(player.getUniqueId());
                 for (Player viewer : plugin.getServer().getOnlinePlayers()) {
-                    viewer.hideBossBar(bar);
+                    plugin.bossBars().hide(viewer, bar);
                 }
                 activeRevealBars.remove(bar);
             }
@@ -1033,7 +1033,7 @@ final class CosmeticEffectService implements Listener {
         );
         activeRevealBars.add(bar);
         for (Player viewer : plugin.getServer().getOnlinePlayers()) {
-            viewer.showBossBar(bar);
+            plugin.bossBars().show(viewer, bar);
             viewer.showTitle(Title.title(
                     Component.text("✦ SECRET ✦", TextColor.color(0x53E5FF),
                             TextDecoration.BOLD),
@@ -1088,7 +1088,7 @@ final class CosmeticEffectService implements Listener {
             if (step == DragonMusicTimeline.SAMPLE_COUNT - 1) {
                 for (Player viewer : plugin.getServer().getOnlinePlayers()) {
                     viewer.stopSound(DRAGON_MUSIC_AURA_SOUND, SoundCategory.MASTER);
-                    viewer.hideBossBar(bar);
+                    plugin.bossBars().hide(viewer, bar);
                     globalPlayerPulse(viewer, false);
                 }
                 activeRevealBars.remove(bar);

@@ -139,6 +139,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private PvpDuelService pvpDuels;
     private PvpRankRewardService pvpRankRewards;
     private VerificationLobbyService verificationLobby;
+    private final BossBarDisplay bossBars = new BossBarDisplay();
     private final WhitelistDirectory whitelistDirectory = new WhitelistDirectory();
 
     @Override
@@ -439,6 +440,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         amethystProgress.onChange(leaderboardService::refreshSoon);
         clanBattleStore.onChange(leaderboardService::refreshSoon);
         getServer().getPluginManager().registerEvents(verificationLobby, this);
+        getServer().getPluginManager().registerEvents(bossBars, this);
         getServer().getPluginManager().registerEvents(this, this);
         getServer().getPluginManager().registerEvents(
                 new StarterKitService(this, getDataFolder().toPath().resolve("starter-kits.json")),
@@ -1389,6 +1391,10 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     /** True only while this player is one of the two accepted duel fighters. */
     boolean inPvpDuel(Player player) {
         return pvpDuels != null && pvpDuels.isFighter(player.getUniqueId());
+    }
+
+    BossBarDisplay bossBars() {
+        return bossBars;
     }
 
     boolean openWorldPvpEnabled() {

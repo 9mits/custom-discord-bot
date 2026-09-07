@@ -126,7 +126,7 @@ final class BroadcastDisplayService implements Listener {
             if (PlayerBroadcast.wants(
                     settings, PlayerSettingsStore.Setting.BROADCAST_BAR, player
             )) {
-                player.showBossBar(bar);
+                plugin.bossBars().show(player, bar);
             }
         }
         announceBanner(audience, "BROADCAST", Component.text(
@@ -174,7 +174,7 @@ final class BroadcastDisplayService implements Listener {
             task.cancel();
         }
         for (Player player : plugin.getServer().getOnlinePlayers()) {
-            player.hideBossBar(bar);
+            plugin.bossBars().hide(player, bar);
         }
     }
 

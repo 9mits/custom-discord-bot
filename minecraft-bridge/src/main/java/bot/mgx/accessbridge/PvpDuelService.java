@@ -822,10 +822,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 new String[] {"item/gold_ingot", "Optional Wager",
                         "Leave it empty to fight for free, or add money, items, or cosmetics."},
                 new String[] {"item/name_tag", "Fair Fights",
-                        "Your own linked accounts cannot fight each other, and "
-                                + repeatOpponentLimit() + " fights in a row against the"
-                                + " same player rests that pairing for "
-                                + waitText(repeatOpponentRestMillis() / 1_000L) + "."}
+                        "Anti-farming checks protect the ranked ladder."}
         );
         if (!clientSupport.supportsDialogs(player)) {
             StringBuilder text = new StringBuilder();
@@ -1664,6 +1661,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private boolean prepareFighter(Player player, Fight fight, Location start) {
+        plugin.bossBars().suppress(player);
         player.closeInventory();
         player.closeDialog();
         player.setGameMode(GameMode.SURVIVAL);
@@ -1775,7 +1773,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         for (UUID viewerId : clockAudience(fight)) {
             Player viewer = Bukkit.getPlayer(viewerId);
             if (viewer != null) {
-                viewer.showBossBar(fight.clock);
+                plugin.bossBars().showExclusive(viewer, fight.clock);
             }
         }
         fight.clockTask = plugin.getServer().getScheduler().runTaskLater(
@@ -1796,7 +1794,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         for (UUID viewerId : clockAudience(fight)) {
             Player viewer = Bukkit.getPlayer(viewerId);
             if (viewer != null) {
-                viewer.hideBossBar(fight.clock);
+                plugin.bossBars().hideExclusive(viewer, fight.clock);
             }
         }
         fight.clock = null;
@@ -2620,6 +2618,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         SpectatorState spectator = new SpectatorState(fight, state, anchor);
         spectators.put(player.getUniqueId(), spectator);
         fight.spectators.add(player.getUniqueId());
+        plugin.bossBars().suppress(player);
         player.closeDialog();
         player.closeInventory();
         player.getInventory().clear();
@@ -2661,7 +2660,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             }
         }
         if (spectator.fight().clock != null) {
-            player.hideBossBar(spectator.fight().clock);
+            plugin.bossBars().hideExclusive(player, spectator.fight().clock);
         }
         restoreSpectatorInventory(player, spectator.player().recovery());
         restorePlayer(player, spectator.player());
@@ -4238,6 +4237,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         // after the cross-world return has completed. Null resets a crash recovery to
         // that world's own border.
         player.setWorldBorder(state.previousBorder());
+        plugin.bossBars().restore(player);
     }
 
     private Location origin(PvpDuelStore.Recovery recovery) {
