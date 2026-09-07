@@ -605,7 +605,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             if (!forms.menu(player, "PvP Rank Leaderboard",
                     rows.isEmpty()
                             ? "No ranked fights yet."
-                            : "Tap a player to view their stats. The top 3 hold a temporary Scythe reward.",
+                            : "Tap a player to view their stats.",
                     buttons, this::openHub)) {
                 openChestRanks(player, rows);
             }
@@ -625,13 +625,6 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                             row.placement(), row.playerId(), row.username(), value)
                     .append(Component.newline())
                     .append(Component.text("     " + rankStats(record), MenuText.MUTED))
-                    .append(row.placement() <= 3
-                            ? Component.newline().append(Component.text(
-                                    "     Temporary reward: "
-                                            + PvpRankRewardService.rewardName(row.placement())
-                                            + " · held only while #" + row.placement(),
-                                    MenuText.MUTED))
-                            : Component.empty())
                     .hoverEvent(HoverEvent.showText(
                             Component.text("View " + row.username() + "'s stats", MenuText.LABEL)))
                     .clickEvent(ClickEvent.callback(audience -> {
@@ -2347,10 +2340,6 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                         + "  •  " + record.rating() + " RP",
                 rankStats(record)
         ));
-        if (row.placement() <= 3) {
-            lore.add("Temporary reward: " + PvpRankRewardService.rewardName(row.placement())
-                    + " while holding #" + row.placement());
-        }
         lore.add("Click to view stats.");
         return List.copyOf(lore);
     }
