@@ -72,11 +72,10 @@ final class ClanTag {
             return target;
         }
         return target.append(BadgeIcons.glyph(glyph))
-                .append(count == 1 ? Component.empty() : Component.text("x" + count))
                 .append(Component.text(" "));
     }
 
     private static String glyph(int count, String glyph) {
-        return count <= 0 ? "" : glyph + (count == 1 ? "" : "x" + count) + " ";
+        return count <= 0 ? "" : glyph + " ";
     }
 }
