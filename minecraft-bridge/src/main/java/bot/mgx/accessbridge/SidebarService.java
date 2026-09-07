@@ -742,7 +742,7 @@ final class SidebarService {
         Component line = Component.text("$ " + amount, NamedTextColor.GREEN)
                 .decoration(TextDecoration.BOLD, false);
         return line
-                .append(Component.text("  •  ", NamedTextColor.DARK_GRAY)
+                .append(Component.text("  •  ", NamedTextColor.WHITE)
                         .decoration(TextDecoration.BOLD, false))
                 .append(BadgeIcons.glyph(rank.glyph()))
                 .append(Component.text(" " + rank.display(), NamedTextColor.WHITE)

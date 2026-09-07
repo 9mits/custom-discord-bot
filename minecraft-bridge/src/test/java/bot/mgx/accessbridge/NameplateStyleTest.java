@@ -17,6 +17,7 @@ class NameplateStyleTest {
         assertEquals("$ 5M  •  " + BadgeIcons.PVP_DIAMOND + " Diamond II",
                 PlainTextComponentSerializer.plainText().serialize(line));
         assertEquals(NamedTextColor.GREEN, line.color());
+        assertEquals(NamedTextColor.WHITE, line.children().get(0).color());
         assertEquals(NamedTextColor.WHITE, line.children().get(1).color());
         assertNeverBold(line);
     }
