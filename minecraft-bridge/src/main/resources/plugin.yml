@@ -118,6 +118,11 @@ commands:
     description: Send money to an online player.
     usage: /pay <player> <amount>  (amounts accept 2.5k, 200k, 1.4m)
     permission: mgx.shop
+  order:
+    description: Place a standing buy order, or fill somebody else's.
+    usage: /order [create <amount> <price each>|mine|cancel <number>]
+    aliases: [orders]
+    permission: mgx.order
   bounty:
     description: Put money on a player's head, or list active bounties.
     usage: /bounty [set <player> <amount>|clan <player> <amount>|check]  (amounts accept 2.5k, 200k, 1.4m)
@@ -154,6 +159,9 @@ permissions:
     default: true
   mgx.shop:
     description: Allows players to use the shop, sell, balance and pay.
+    default: true
+  mgx.order:
+    description: Allows players to use the order board.
     default: true
   mgx.auction:
     description: Allows players to use the auction house.

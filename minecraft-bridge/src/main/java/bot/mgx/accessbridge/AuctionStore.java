@@ -295,6 +295,20 @@ final class AuctionStore {
         return Optional.of(listing);
     }
 
+    /**
+     * Posts an item to somebody's mailbox.
+     *
+     * <p>Opened up for the order board, which delivers to buyers who are usually not
+     * online — the whole point of a standing order is that it fills while you sleep.
+     * Reusing this mailbox rather than inventing a second one means there is one place
+     * a player collects things from, and one queue an operator has to reason about.
+     */
+    synchronized void mail(UUID owner, String itemData, String reason, long now) {
+        List<Mail> before = List.copyOf(mailbox);
+        mailbox.add(new Mail(owner, itemData, reason, now));
+        persistOrRestore(List.copyOf(listings), before);
+    }
+
     synchronized List<Mail> mailboxOf(UUID owner) {
         List<Mail> own = new ArrayList<>();
         for (Mail mail : mailbox) {

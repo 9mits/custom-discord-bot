@@ -399,7 +399,6 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     private final Set<UUID> arenaFullWarned = new HashSet<>();
     /** When the restore file was last written, so a big arena does not thrash it. */
     private volatile long lastArenaFlush;
-    private final org.bukkit.NamespacedKey victimKey;
 
     PvpDuelService(
             MGXAccessBridge plugin,
@@ -425,7 +424,6 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         this.store = new PvpDuelStore(recoveryFile);
         this.arenaRestore = new ArenaRestoreStore(arenaRestoreFile);
         this.duelRecords = duelRecords;
-        this.victimKey = new org.bukkit.NamespacedKey(plugin, "trophy_victim");
         // Money can be repaired while its owner is offline. Items and locations wait
         // for join, but raising to the pre-duel value is idempotent and never removes
         // anything the player earned before recovery ran.
@@ -1924,9 +1922,9 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         } else if (winner != null) {
             returnStake(winner, fight.states.get(fight.first));
             returnStake(winner, fight.states.get(fight.second));
-            UUID loserId = winnerId.equals(fight.first) ? fight.second : fight.first;
-            String loserName = winnerId.equals(fight.first) ? fight.secondName : fight.firstName;
-            giveSafely(winner, duelHead(loserId, loserName));
+            // Deliberately no trophy head. A duel is meant to cost the loser nothing
+            // but rating and whatever bounty was on them, and a head is a thing they
+            // watched somebody walk away with.
             receivedPhysicalCustody.add(fight.first);
             receivedPhysicalCustody.add(fight.second);
             winner.saveData();
@@ -2128,7 +2126,6 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 // A draw hands every stake back, so only a decided fight moves anything.
                 gained.addAll(decodeStakeItems(
                         fight.states.get(opponentId).recovery().encodedStake()));
-                gained.add(duelHead(opponentId, opponentName));
             } else if (!draw) {
                 lost.addAll(decodeStakeItems(
                         fight.states.get(playerId).recovery().encodedStake()));
@@ -4283,26 +4280,6 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 dropped.setPickupDelay(20);
             }
         }
-    }
-
-    private ItemStack duelHead(UUID victimId, String victimName) {
-        ItemStack head = new ItemStack(Material.PLAYER_HEAD);
-        if (!(head.getItemMeta() instanceof SkullMeta meta)) {
-            return head;
-        }
-        meta.setOwningPlayer(Bukkit.getOfflinePlayer(victimId));
-        meta.displayName(Component.text(victimName + "'s PvP Trophy",
-                ORANGE, TextDecoration.BOLD).decoration(TextDecoration.ITALIC, false));
-        meta.lore(List.of(
-                line("Won through /pvp."),
-                line("KEEP INVENTORY fight."),
-                line("Protected from /sell.")
-        ));
-        meta.getPersistentDataContainer().set(
-                victimKey, PersistentDataType.STRING, victimId.toString()
-        );
-        head.setItemMeta(meta);
-        return head;
     }
 
     private void failStart(Player first, Player second, String reason) {
