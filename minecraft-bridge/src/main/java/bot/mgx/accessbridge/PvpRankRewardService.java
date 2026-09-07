@@ -11,6 +11,7 @@ import org.bukkit.NamespacedKey;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.SoundCategory;
+import org.bukkit.World;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.ItemFrame;
@@ -48,7 +49,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
-import java.util.function.Function;
 import java.util.function.Predicate;
 
 /** Virtual, self-revoking weapons held by the current top three PvP Rank players. */
@@ -56,6 +56,8 @@ final class PvpRankRewardService implements Listener {
     private static final NamespacedKey PLACEMENT_KEY = Objects.requireNonNull(
             NamespacedKey.fromString("mgx:pvp_rank_scythe")
     );
+    /** How many placements are armed at once, and therefore how many Scythes exist. */
+    static final int PODIUM = 3;
     private static final TextColor CYAN = TextColor.color(0x53E5FF);
     private static final TextColor VIOLET = TextColor.color(0xA66BFF);
     private static final TextColor SILVER = TextColor.color(0xC7CED8);
@@ -76,7 +78,19 @@ final class PvpRankRewardService implements Listener {
     private final GameVariableStore variables;
     private final Map<UUID, Long> lastSweeps = new HashMap<>();
     private final Set<UUID> fullInventoryWarnings = new HashSet<>();
+    /**
+     * The current top three, as of the last reconciliation.
+     *
+     * <p>Ranking every record is a copy and a sort of the whole store, which is fine
+     * once every five seconds and not fine several times a second for a trail that
+     * runs while the blade is merely being carried. This is written by exactly the
+     * pass that hands the weapons out, so nothing can read a placement the item's own
+     * owner does not already have.
+     */
+    private volatile Map<UUID, Integer> podium = Map.of();
     private BukkitTask ownershipSweep;
+    private BukkitTask bladeTrail;
+    private int trailPhase;
     private boolean refreshQueued;
     private Predicate<UUID> inventoryBusy = ignored -> false;
 
@@ -97,6 +111,11 @@ final class PvpRankRewardService implements Listener {
         ownershipSweep = plugin.getServer().getScheduler().runTaskTimer(
                 plugin, this::reconcileOnline, 100L, 100L
         );
+        // At most three people on the whole server hold one of these, so the pass
+        // that draws their blade is a walk over the online list and nothing else.
+        bladeTrail = plugin.getServer().getScheduler().runTaskTimer(
+                plugin, this::drawBladeTrails, 20L, 1L
+        );
     }
 
     void useBusyPlayers(Predicate<UUID> inventoryBusy) {
@@ -106,6 +125,9 @@ final class PvpRankRewardService implements Listener {
     void stop() {
         if (ownershipSweep != null) ownershipSweep.cancel();
         ownershipSweep = null;
+        if (bladeTrail != null) bladeTrail.cancel();
+        bladeTrail = null;
+        podium = Map.of();
         lastSweeps.clear();
         fullInventoryWarnings.clear();
     }
@@ -118,17 +140,6 @@ final class PvpRankRewardService implements Listener {
             refreshQueued = false;
             reconcileOnline();
         });
-    }
-
-    static int placementOf(
-            UUID playerId,
-            Map<UUID, PvpRecordStore.Record> records,
-            Function<UUID, String> names
-    ) {
-        return PvpRankLeaderboard.top(records, names, 3).stream()
-                .filter(row -> row.playerId().equals(playerId))
-                .map(PvpRankLeaderboard.Row::placement)
-                .findFirst().orElse(0);
     }
 
     static boolean isRewardScythe(ItemStack item) {
@@ -149,9 +160,10 @@ final class PvpRankRewardService implements Listener {
     private void reconcileOnline() {
         Map<UUID, PvpRecordStore.Record> snapshot = records.all();
         Map<UUID, Integer> placements = new HashMap<>();
-        for (PvpRankLeaderboard.Row row : PvpRankLeaderboard.top(snapshot, this::name, 3)) {
+        for (PvpRankLeaderboard.Row row : PvpRankLeaderboard.top(snapshot, this::name, PODIUM)) {
             placements.put(row.playerId(), row.placement());
         }
+        podium = Map.copyOf(placements);
         for (Player player : plugin.getServer().getOnlinePlayers()) {
             if (inventoryBusy.test(player.getUniqueId())) continue;
             reconcile(player, placements.getOrDefault(player.getUniqueId(), 0));
@@ -244,7 +256,10 @@ final class PvpRankRewardService implements Listener {
                 line("#" + placement + " on the PvP Rank leaderboard", NamedTextColor.WHITE),
                 line("+" + oneDecimal(bonusDamage(placement))
                         + " damage beyond a maxed Netherite Sword", NamedTextColor.GRAY),
-                line("Heavy themed sweep and exclusive kill climax", NamedTextColor.GRAY),
+                line(placement == 1
+                        ? "Living blade trail, heavy sweep and a lightning finish"
+                        : "Living blade trail, heavy sweep and an exclusive kill climax",
+                        NamedTextColor.GRAY),
                 Component.empty(),
                 line("Available only while you hold this placement", NamedTextColor.YELLOW),
                 line("Cannot be dropped, stored, traded, or listed", NamedTextColor.RED)
@@ -360,7 +375,7 @@ final class PvpRankRewardService implements Listener {
     private int validPlacement(Player player, ItemStack item) {
         int itemPlacement = placement(item);
         if (itemPlacement <= 0) return 0;
-        int current = placementOf(player.getUniqueId(), records.all(), this::name);
+        int current = podium.getOrDefault(player.getUniqueId(), 0);
         if (current != itemPlacement) {
             refreshSoon();
             return 0;
@@ -386,6 +401,80 @@ final class PvpRankRewardService implements Listener {
             default -> "third";
         };
         return variables.decimal("pvp-rank-rewards." + tier + "-bonus-damage");
+    }
+
+    /**
+     * The blade's own effect, drawn while it is simply being carried.
+     *
+     * <p>A weapon that only does something on a swing looks like an ordinary sword
+     * until it hits somebody. Each placement leaks its own colour off the edge of the
+     * blade, using the same palette its sweep and kill climax do, so the three are
+     * recognisable as one weapon rather than three unrelated effects.
+     */
+    private void drawBladeTrails() {
+        int period = (int) variables.integer("pvp-rank-rewards.trail-period-ticks");
+        if (period <= 0) return;
+        trailPhase++;
+        if (trailPhase % period != 0) return;
+        for (Player player : plugin.getServer().getOnlinePlayers()) {
+            ItemStack held = player.getInventory().getItemInMainHand();
+            // Cheapest check first: almost nobody is holding one of these.
+            if (!isRewardScythe(held) || inventoryBusy.test(player.getUniqueId())) continue;
+            int placement = validPlacement(player, held);
+            if (placement > 0) drawBladeTrail(player, placement, period);
+        }
+    }
+
+    private void drawBladeTrail(Player owner, int placement, int period) {
+        List<Player> viewers = viewers(owner);
+        if (viewers.isEmpty()) return;
+        Location eye = owner.getEyeLocation();
+        Vector forward = eye.getDirection().normalize();
+        Vector right = forward.clone().crossProduct(new Vector(0d, 1d, 0d));
+        if (right.lengthSquared() < 0.001d) right = new Vector(1d, 0d, 0d);
+        right.normalize();
+        // Where the model's blade actually sits from the holder's point of view:
+        // out to the right of the eye, a little forward and a little below it.
+        Location grip = eye.clone()
+                .add(right.clone().multiply(0.42d))
+                .add(forward.clone().multiply(0.55d))
+                .add(0d, -0.35d, 0d);
+        // The curve of the blade, swept up and away from the grip.
+        Vector blade = forward.clone().multiply(0.34d)
+                .add(right.clone().multiply(0.20d))
+                .add(new Vector(0d, 0.30d, 0d));
+        Particle.DustOptions primary = new Particle.DustOptions(PRIMARY[placement - 1], 0.85f);
+        Particle.DustOptions secondary = new Particle.DustOptions(SECONDARY[placement - 1], 0.65f);
+        int points = (int) variables.integer("pvp-rank-rewards.trail-particles");
+        for (int point = 0; point < points; point++) {
+            double along = points == 1 ? 1d : point / (double) (points - 1);
+            Location at = grip.clone().add(blade.clone().multiply(along));
+            for (Player viewer : viewers) {
+                viewer.spawnParticle(Particle.DUST, at, 1, 0.03d, 0.03d, 0.03d, 0d,
+                        point % 3 == 0 ? secondary : primary);
+            }
+        }
+        // One accent per pass at the tip, so the trail reads as a weapon shedding
+        // its own element rather than a cloud of coloured dots.
+        Location tip = grip.clone().add(blade);
+        for (Player viewer : viewers) {
+            switch (placement) {
+                case 1 -> {
+                    viewer.spawnParticle(Particle.END_ROD, tip, 1, 0.02d, 0.02d, 0.02d, 0.004d);
+                    // A charged edge, which is what the kill climax finishes with.
+                    if (trailPhase % (period * 4) == 0) {
+                        viewer.spawnParticle(Particle.ELECTRIC_SPARK, tip, 3,
+                                0.08d, 0.08d, 0.08d, 0.02d);
+                    }
+                }
+                case 2 -> viewer.spawnParticle(Particle.PORTAL, tip, 2,
+                        0.05d, 0.05d, 0.05d, 0.02d);
+                default -> {
+                    viewer.spawnParticle(Particle.SOUL, tip, 1, 0.02d, 0.02d, 0.02d, 0.002d);
+                    viewer.spawnParticle(Particle.SMOKE, tip, 1, 0.04d, 0.04d, 0.04d, 0.001d);
+                }
+            }
+        }
     }
 
     private void drawSweep(Player owner, int placement) {
@@ -495,6 +584,33 @@ final class PvpRankRewardService implements Listener {
         if (frame == framesForEffects() - 1) {
             play(viewers, centre, Sound.BLOCK_AMETHYST_BLOCK_CHIME, 0.6f,
                     placement == 1 ? 1.8f : placement == 2 ? 1.15f : 0.72f);
+            if (placement == 1) strikeApex(viewers, centre);
+        }
+    }
+
+    /**
+     * The #1 Scythe's last word: the ring closes in and the sky answers it.
+     *
+     * <p>An effect-only bolt, so nothing burns and nobody takes damage from it —
+     * the kill has already happened. Bukkit has no per-player lightning, so the
+     * strike is skipped outright when nobody who can see it has cosmetics turned on,
+     * rather than being shown to somebody who asked not to see them.
+     */
+    private void strikeApex(List<Player> viewers, Location centre) {
+        World world = centre.getWorld();
+        if (world == null || viewers.isEmpty()) return;
+        world.strikeLightningEffect(centre);
+        Particle.DustOptions charge = new Particle.DustOptions(PRIMARY[0], 1.3f);
+        for (Player viewer : viewers) {
+            for (int step = 0; step < 24; step++) {
+                Location at = centre.clone().add(0d, step * 0.45d, 0d);
+                viewer.spawnParticle(Particle.DUST, at, 1, 0.12d, 0.05d, 0.12d, 0d, charge);
+                if (step % 3 == 0) {
+                    viewer.spawnParticle(Particle.ELECTRIC_SPARK, at, 2,
+                            0.18d, 0.08d, 0.18d, 0.02d);
+                }
+            }
+            viewer.spawnParticle(Particle.FLASH, centre, 1);
         }
     }
 

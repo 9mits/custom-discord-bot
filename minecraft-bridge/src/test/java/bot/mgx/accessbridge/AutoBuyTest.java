@@ -45,6 +45,21 @@ class AutoBuyTest {
     }
 
     @Test
+    void theSweepClockAndTheIntervalUseTheSameUnit() {
+        // The sweep advances its clock by its own scheduling period, so one pass is
+        // one second of ticks. Counting passes instead multiplied every interval by
+        // twenty, which is why "every 1s" bought once every twenty seconds.
+        long pass = EconomyMenuService.AUTO_ORDER_PERIOD_TICKS;
+
+        assertTrue(AutoBuy.due(pass, 0, 1));
+        assertFalse(AutoBuy.due(pass - 1, 0, 1));
+        assertTrue(AutoBuy.due(pass * 5, 0, 5));
+        assertFalse(AutoBuy.due(pass * 4, 0, 5));
+        assertTrue(AutoBuy.due(pass * 30, 0, 30));
+        assertFalse(AutoBuy.due(pass * 29, 0, 30));
+    }
+
+    @Test
     void affordabilityCountsTheWholeRepeatNotOneItem() {
         assertTrue(AutoBuy.affordable(300, 3, 100));
         assertFalse(AutoBuy.affordable(299, 3, 100));

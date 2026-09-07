@@ -43,6 +43,7 @@ final class HologramService {
     enum Board {
         PLAYERS_WEALTH("individual", "wealth", "TOP WEALTH"),
         PLAYERS_KILLS("individual", "kills", "TOP KILLS"),
+        PVP_RANKS("individual", "rank", "TOP PVP RANKS"),
         DRAGON_DAMAGE("individual", "dragon_damage", "MOST AMETHYST DRAGON DAMAGE"),
         DRAGON_CRYSTALS("individual", "dragon_crystals", "MOST END CRYSTALS BROKEN"),
         CLANS_WEALTH("clan", "wealth", "TOP CLAN WEALTH"),
@@ -67,6 +68,7 @@ final class HologramService {
             return switch (token) {
                 case "wealth", "players-wealth", "richest" -> PLAYERS_WEALTH;
                 case "kills", "players-kills" -> PLAYERS_KILLS;
+                case "pvp-ranks", "pvp-rank", "pvp", "ranks", "rank" -> PVP_RANKS;
                 case "dragon-damage", "amethyst-dragon-damage" -> DRAGON_DAMAGE;
                 case "dragon-crystals", "crystals-broken" -> DRAGON_CRYSTALS;
                 case "clans-wealth", "clan-wealth", "clans" -> CLANS_WEALTH;
@@ -81,7 +83,7 @@ final class HologramService {
         }
 
         static String usage() {
-            return "Usage: /mgxadmin hologram <wealth|kills|dragon-damage|"
+            return "Usage: /mgxadmin hologram <wealth|kills|pvp-ranks|dragon-damage|"
                     + "dragon-crystals|clans-wealth|clans-kills|clan-battle|remove>";
         }
     }
@@ -120,6 +122,15 @@ final class HologramService {
     private final LeaderboardService boards;
     private final ClanStore clans;
     private final DiscordIdentityService identities;
+    /**
+     * Read straight rather than through the published snapshot.
+     *
+     * <p>The PvP Rank board wants the same badge, division and win/loss line the
+     * {@code /pvp} screen draws, and the snapshot only carries a rating. Both surfaces
+     * therefore order the same records with {@link PvpRankLeaderboard}, so the
+     * hologram cannot disagree with the menu standing beside it.
+     */
+    private final PvpRecordStore duelRecords;
     private final Gson gson = new GsonBuilder().disableHtmlEscaping().create();
     private final List<Placement> placements = new ArrayList<>();
     private boolean migratedRetiredBoards;
@@ -128,12 +139,14 @@ final class HologramService {
             Path file,
             LeaderboardService boards,
             ClanStore clans,
-            DiscordIdentityService identities
+            DiscordIdentityService identities,
+            PvpRecordStore duelRecords
     ) throws IOException {
         this.file = file;
         this.boards = boards;
         this.clans = clans;
         this.identities = identities;
+        this.duelRecords = duelRecords;
         load();
         if (migratedRetiredBoards) {
             // Written before anything acts on the migration, so a failure here leaves
@@ -262,15 +275,62 @@ final class HologramService {
         List<Component> lines = new ArrayList<>();
         lines.add(Component.text(title(board), ORANGE, TextDecoration.BOLD));
         lines.add(subtitle(board));
+        if (board == Board.PVP_RANKS) {
+            List<PvpRankLeaderboard.Row> ranked = PvpRankLeaderboard.top(
+                    duelRecords == null ? Map.of() : duelRecords.all(),
+                    HologramService::playerName, ROWS
+            );
+            for (int index = 0; index < ROWS; index++) {
+                lines.add(index < ranked.size()
+                        ? pvpRankLine(ranked.get(index), colours)
+                        : emptyRow(index + 1));
+            }
+            return lines;
+        }
         JsonArray rows = rows(board);
         for (int index = 0; index < ROWS; index++) {
             if (index < rows.size()) {
                 lines.add(rowLine(board, index + 1, rows.get(index).getAsJsonObject(), colours));
             } else {
-                lines.add(Component.text("#" + (index + 1) + " | ---", NamedTextColor.DARK_GRAY));
+                lines.add(emptyRow(index + 1));
             }
         }
         return lines;
+    }
+
+    private static Component emptyRow(int place) {
+        return Component.text("#" + place + " | ---", NamedTextColor.DARK_GRAY);
+    }
+
+    /**
+     * One rank row, laid out like the row the {@code /pvp} board draws.
+     *
+     * <p>Badge, division and rating are what the ladder is; the win/loss tail is what
+     * makes a rating mean something at a glance. Both fit on one stand.
+     */
+    private Component pvpRankLine(PvpRankLeaderboard.Row row, Map<String, Integer> colours) {
+        PvpRecordStore.Record record = row.record();
+        Component line = Component.text("#" + row.placement() + " | ", NamedTextColor.WHITE);
+        String clanName = clans.clanOf(row.playerId())
+                .map(ClanStore.ClanView::name).orElse("");
+        if (!clanName.isBlank()) {
+            int colour = colours.getOrDefault(clanName.toLowerCase(Locale.ROOT), 0xFF9900);
+            line = line.append(Component.text("[" + clanName + "] ",
+                    TextColor.color(colour), TextDecoration.BOLD));
+        }
+        return line
+                .append(BadgeIcons.glyph(record.rank().glyph()))
+                .append(Component.text(" " + row.username() + ": ", NamedTextColor.WHITE))
+                .append(Component.text(record.rank().display(), ORANGE))
+                .append(Component.text("  " + record.rating() + " RP", NamedTextColor.WHITE))
+                .append(Component.text("  " + record.wins() + "W " + record.losses() + "L",
+                        NamedTextColor.GRAY));
+    }
+
+    private static String playerName(UUID playerId) {
+        String name = Bukkit.getOfflinePlayer(playerId).getName();
+        return name == null || name.isBlank()
+                ? playerId.toString().substring(0, 8) : name;
     }
 
     private String title(Board board) {
@@ -286,6 +346,9 @@ final class HologramService {
     }
 
     private Component subtitle(Board board) {
+        if (board == Board.PVP_RANKS) {
+            return Component.text("RANKED /pvp STANDINGS", NamedTextColor.GRAY);
+        }
         if (board != Board.CLAN_BATTLE) {
             return Component.empty();
         }

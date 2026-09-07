@@ -45,7 +45,7 @@ final class RetiredEventBoardMigrationTest {
     void retiredEventBoardsBecomeThisEventsAndKeepTheirPlaces(@TempDir Path dir) throws Exception {
         Path file = dir.resolve("holograms.json");
         Files.writeString(file, LIVE);
-        HologramService service = new HologramService(file, null, null, null);
+        HologramService service = new HologramService(file, null, null, null, null);
 
         assertTrue(service.migratedRetiredBoards(), "the retired boards were not migrated");
         String rewritten = Files.readString(file);
@@ -60,7 +60,7 @@ final class RetiredEventBoardMigrationTest {
         assertEquals("clan-battle", boardAt(file, 0.48));
 
         // The trigger is the stale key, so rewriting it is what stops this repeating.
-        assertFalse(new HologramService(file, null, null, null).migratedRetiredBoards(),
+        assertFalse(new HologramService(file, null, null, null, null).migratedRetiredBoards(),
                 "the migration would run again on the next restart");
     }
 

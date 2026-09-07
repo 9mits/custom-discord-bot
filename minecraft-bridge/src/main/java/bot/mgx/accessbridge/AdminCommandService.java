@@ -72,8 +72,11 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     private static final List<String> BOUNTY_ACTIONS = List.of("set", "join");
     private static final List<String> JOIN_ACTIONS = List.of("on", "off");
     private static final List<String> EVERYONE = List.of("everyone", "*", "all");
+    // Every key Board.fromKey accepts, plus remove. The retired Amethyst boards were
+    // still offered here long after fromKey stopped accepting them, so completing one
+    // produced the usage error instead of a hologram.
     private static final List<String> HOLOGRAM_BOARDS = List.of(
-            "wealth", "kills", "amethyst-crates", "amethyst-airdrops",
+            "wealth", "kills", "pvp-ranks", "dragon-damage", "dragon-crystals",
             "clans-wealth", "clans-kills", "clan-battle", "remove"
     );
     private static final List<String> CLAN_BATTLE_ACTIONS = List.of(

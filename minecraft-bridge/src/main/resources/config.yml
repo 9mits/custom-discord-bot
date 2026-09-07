@@ -122,7 +122,10 @@ pvp-duels:
   enabled: true
   invite-seconds: 120
   challenge-cooldown-seconds: 30
-  countdown-seconds: 5
+  # countdown-seconds, the arena preload radius and the repeat-opponent rest are
+  # deliberately not here: Paper never rewrites a config a server already has, so a
+  # value only this file could set can never be changed for a running server. They
+  # live in the game-variable registry instead, under "PvP Duels".
   # Hard-capped at 15 in code, whatever is written here.
   duration-minutes: 10
   # How long the fighters stay in the ring after it is decided, before the

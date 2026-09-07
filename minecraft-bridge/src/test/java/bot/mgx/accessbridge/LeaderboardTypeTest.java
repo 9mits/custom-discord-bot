@@ -40,13 +40,27 @@ class LeaderboardTypeTest {
         assertFalse(LeaderboardType.AMETHYST_AIRDROPS.clanEligible());
         assertTrue(LeaderboardType.WEALTH.published());
         assertTrue(LeaderboardType.KILLS.published());
-        assertFalse(LeaderboardType.RANK.published());
+        // The rank ladder is published: the website, the Discord board and the in-world
+        // hologram all draw it, and only published boards reach the snapshot.
+        assertTrue(LeaderboardType.RANK.published());
         assertFalse(LeaderboardType.AMETHYST_CRATES.published());
         assertFalse(LeaderboardType.AMETHYST_AIRDROPS.published());
         assertTrue(LeaderboardType.DRAGON_DAMAGE.published());
         assertTrue(LeaderboardType.DRAGON_CRYSTALS.published());
         assertFalse(LeaderboardType.PLAYTIME.published());
         assertFalse(LeaderboardType.BLOCKS_MINED.published());
+    }
+
+    @Test
+    void theRankLadderIsShownButNotPaidForTwice() {
+        // Its top three already hold the leaderboard Scythes. Handing them the
+        // standard podium cosmetics as well would pay twice for the same places.
+        assertTrue(LeaderboardType.RANK.published());
+        assertFalse(LeaderboardType.RANK.rewarded());
+        assertTrue(LeaderboardType.WEALTH.rewarded());
+        assertTrue(LeaderboardType.KILLS.rewarded());
+        assertTrue(LeaderboardType.DRAGON_DAMAGE.rewarded());
+        assertFalse(LeaderboardType.PLAYTIME.rewarded());
     }
 
     @Test

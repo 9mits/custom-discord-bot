@@ -318,10 +318,80 @@ final class PvpDuelSafetyTest {
         String rematch = source.substring(
                 source.indexOf("private void rematch(Player player, UUID opponentId, long money)"),
                 source.indexOf("/** The same numbers as chat lines"));
-        assertTrue(rematch.contains("canChallenge(player, opponent, true)"));
+        // Every reason the challenge could be turned down, asked before a screen is
+        // drawn rather than by the screen itself.
+        assertTrue(rematch.contains("challengeProblem(player, opponent)"));
+        assertTrue(rematch.contains("acceptingProblem(opponent)"));
+        // And answered on the screen the button lives on. A dialog covers the chat
+        // box, so a refusal sent to chat is a Rematch button that did nothing.
+        assertTrue(rematch.contains("openResultScreen(player, problem)"));
         // Carrying a stake they can no longer cover would open a screen that refuses.
         assertTrue(rematch.contains(
                 "economy.balance(player.getUniqueId()) >= money ? money : 0L"));
+    }
+
+    /**
+     * The rematch itself has to reach the other player, who is looking at a screen
+     * drawn over their chat box at the exact moment the challenge is sent.
+     */
+    @Test
+    void aChallengeSentToSomebodyReadingTheirResultIsPutInFrontOfThem() throws Exception {
+        String source = source();
+        String send = source.substring(
+                source.indexOf("private String sendChallenge("),
+                source.indexOf("private void openIncoming(Player player)"));
+
+        assertTrue(send.contains("resultViewers.contains(targetId)"));
+        assertTrue(send.contains("openInvitation(viewer, invitation)"));
+        // And the screen stops counting as open the moment they leave it, so an
+        // ordinary challenge never yanks somebody out of what they are doing.
+        assertTrue(source.contains("resultViewers.add(player.getUniqueId())"));
+        assertTrue(source.contains("resultViewers.remove(target.getUniqueId())"));
+    }
+
+    /**
+     * Two accounts owned by one person cannot hand each other wins, and two people
+     * cannot spend an evening taking turns to die.
+     */
+    @Test
+    void farmingTheSameOpponentIsRefusedRatherThanRated() throws Exception {
+        String source = source();
+        String problem = source.substring(
+                source.indexOf("private String challengeProblem(Player challenger, Player target)"),
+                source.indexOf("private boolean acceptingChallenges("));
+
+        assertTrue(problem.contains(
+                "identities.sameOwner(challenger.getUniqueId(), target.getUniqueId())"));
+        assertTrue(problem.contains("farmGuard.restRemaining("));
+        // Recorded once per finished fight, whoever won it.
+        assertTrue(source.contains("noteRepeatOpponent(fight)"));
+        // Somebody who cannot be challenged is not offered as a target either.
+        String targets = source.substring(
+                source.indexOf("private List<Player> targets(Player viewer)"),
+                source.indexOf("private boolean insideAnyArena("));
+        assertTrue(targets.contains("identities.sameOwner("));
+        assertTrue(targets.contains("farmGuard.restRemaining("));
+    }
+
+    /**
+     * An arena is chosen in terrain nothing has generated yet, so it has to be built
+     * before anybody is standing in it rather than around them while they fight.
+     */
+    @Test
+    void theArenaIsGeneratedAndPinnedBeforeEitherFighterArrives() throws Exception {
+        String source = source();
+        String prepare = source.substring(
+                source.indexOf("private void loadArenaChunks("),
+                source.indexOf("private void releaseArenaChunks(List<Chunk> held)"));
+
+        assertTrue(prepare.contains("getChunkAtAsync"));
+        // A plain load is undone the moment nobody stands in the chunk.
+        assertTrue(prepare.contains("addPluginChunkTicket(plugin)"));
+        // The wait is told, not endured in silence.
+        assertTrue(source.contains("\"Getting things ready...\""));
+        assertTrue(prepare.contains("\"You will be teleported shortly...\""));
+        // And it is all given back when the arena is.
+        assertTrue(source.contains("releaseArenaChunks(fight.id)"));
     }
 
     /**

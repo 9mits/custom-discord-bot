@@ -79,7 +79,7 @@ final class MgxCommandRouter implements CommandExecutor, TabCompleter {
     private static final List<String> RARITIES =
             List.of("common", "rare", "legendary", "mythic");
     private static final List<String> BOARDS = List.of(
-            "wealth", "kills", "amethyst-crates", "amethyst-airdrops",
+            "wealth", "kills", "pvp-ranks", "dragon-damage", "dragon-crystals",
             "clans-wealth", "clans-kills", "clan-battle",
             "crate:default", "crate:amethyst", "crate:shard"
     );

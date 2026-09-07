@@ -31,12 +31,26 @@ enum LeaderboardType {
         return clanEligible;
     }
 
-    /** The boards Discord and {@code /leaderboard} actually show. */
+    /** The boards Discord, the website and {@code /leaderboard} actually show. */
     boolean published() {
         return this == WEALTH
                 || this == KILLS
+                || this == RANK
                 || this == DRAGON_DAMAGE
                 || this == DRAGON_CRYSTALS;
+    }
+
+    /**
+     * Whether reaching the top of this board is itself a prize.
+     *
+     * <p>A published board is one people can look at; a rewarded board is one that
+     * mints a nameplate standing and the podium cosmetics. They are not the same set.
+     * The PvP Rank ladder is deliberately published but not rewarded — its podium
+     * already pays out the top-three Scythes, and adding the standard podium on top
+     * would be paying twice for the same three places.
+     */
+    boolean rewarded() {
+        return published() && this != RANK;
     }
 
     /** Renders a raw figure the way players read it, not the way the game stores it. */
