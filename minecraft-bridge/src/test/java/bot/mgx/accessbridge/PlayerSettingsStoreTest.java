@@ -119,9 +119,23 @@ class PlayerSettingsStoreTest {
      * than a preference, so listing the exceptions keeps that guard on the rest.
      */
     private static final java.util.Set<PlayerSettingsStore.Setting> OPT_IN = java.util.Set.of(
-            PlayerSettingsStore.Setting.NIGHT_VISION,
             PlayerSettingsStore.Setting.PRIVATE_TRANSACTIONS
     );
+
+    @Test
+    void nightVisionStartsOnAndTheOldOptInKeyCannotInvertIt(@TempDir Path directory)
+            throws IOException {
+        Path file = directory.resolve("settings.json");
+        UUID player = UUID.randomUUID();
+        Files.writeString(file, "{\"" + player + "\":[\"night_vision\"]}");
+
+        PlayerSettingsStore store = new PlayerSettingsStore(file);
+
+        assertTrue(store.isEnabled(player, PlayerSettingsStore.Setting.NIGHT_VISION));
+        assertFalse(store.toggle(player, PlayerSettingsStore.Setting.NIGHT_VISION));
+        assertFalse(new PlayerSettingsStore(file).isEnabled(
+                player, PlayerSettingsStore.Setting.NIGHT_VISION));
+    }
 
     @Test
     void newPresentationSettingsHaveSafeVisibleDefaults(@TempDir Path directory) throws IOException {

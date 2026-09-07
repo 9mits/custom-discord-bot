@@ -168,8 +168,12 @@ final class PlayerSettingsStore {
                 "Show health or time remaining for active Amethyst events.", true, Category.HUD),
         ACTION_BAR_TIPS("action_bar_tips", "Action bar tips",
                 "Show teleport warmups and short notices above your hotbar.", true, Category.HUD),
-        NIGHT_VISION("night_vision", "Night vision",
-                "See in the dark without a torch or a potion.", false, Category.VISUALS),
+        // The old night_vision key meant an opt-in deviation. Reusing it after making
+        // night vision default-on would invert existing players, so the off state gets
+        // its own key and the old opt-in rows safely fall back to the new default.
+        NIGHT_VISION("night_vision_off", "Night vision",
+                "See in the dark automatically. Turn this off to use normal lighting.",
+                true, Category.VISUALS),
         CRATE_REVEAL_EFFECTS("crate_reveal_effects", "Rare crate effects",
                 "Show the fireworks and visual reveal for a rare crate reward.", true,
                 Category.VISUALS),
