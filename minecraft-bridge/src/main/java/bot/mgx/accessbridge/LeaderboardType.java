@@ -11,6 +11,7 @@ import java.util.Optional;
 enum LeaderboardType {
     WEALTH(true),
     KILLS(true),
+    RANK(false),
     PLAYTIME(true),
     BLOCKS_MINED(false),
     BLOCKS_WALKED(false),
@@ -34,6 +35,7 @@ enum LeaderboardType {
     boolean published() {
         return this == WEALTH
                 || this == KILLS
+                || this == RANK
                 || this == DRAGON_DAMAGE
                 || this == DRAGON_CRYSTALS;
     }
@@ -44,6 +46,8 @@ enum LeaderboardType {
             case PLAYTIME -> String.format(Locale.ROOT, "%,dh %dm", value / 72_000, (value / 1_200) % 60);
             case BLOCKS_WALKED -> String.format(Locale.ROOT, "%,d blocks", value / 100);
             case WEALTH -> EconomyFormat.dollars(value);
+            case RANK -> PvpRank.of(value).display()
+                    + String.format(Locale.ROOT, "  (%,d RP)", value);
             default -> String.format(Locale.ROOT, "%,d", value);
         };
     }
@@ -56,6 +60,7 @@ enum LeaderboardType {
         return switch (this) {
             case WEALTH -> "$";
             case KILLS -> "⚔";
+            case RANK -> "★";
             case PLAYTIME -> "◷";
             case BLOCKS_MINED -> "⛏";
             case BLOCKS_WALKED -> "»";

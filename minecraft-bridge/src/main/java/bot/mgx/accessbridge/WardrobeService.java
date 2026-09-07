@@ -533,6 +533,7 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
         return switch (type) {
             case WEALTH -> "Money $";
             case KILLS -> "PvP Kills " + type.icon();
+            case RANK -> "PvP Rank " + type.icon();
             case PLAYTIME -> "Playtime";
             case BLOCKS_MINED -> "Blocks mined";
             case BLOCKS_WALKED -> "Blocks walked";

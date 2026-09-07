@@ -356,6 +356,7 @@ final class LeaderboardService {
         return switch (type) {
             case WEALTH -> "Money $";
             case KILLS -> "PvP Kills " + type.icon();
+            case RANK -> "PvP Rank " + type.icon();
             case PLAYTIME -> "Playtime";
             case BLOCKS_MINED -> "Blocks Mined";
             case BLOCKS_WALKED -> "Blocks Walked";

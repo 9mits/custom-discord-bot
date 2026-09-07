@@ -148,7 +148,7 @@ final class PlayerStatsService {
                     snapshot.blocksMined(),
                     snapshot.walkedCm(),
                     money.balance(uuid)
-            ).withDuelKills(duels.of(uuid).kills()));
+            ).withDuelRecord(duels.of(uuid)));
         } catch (IOException | RuntimeException exception) {
             plugin.getLogger().warning(
                     "Could not read statistics for " + uuid + ": " + exception.getMessage()

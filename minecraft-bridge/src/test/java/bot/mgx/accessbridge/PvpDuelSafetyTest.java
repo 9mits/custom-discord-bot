@@ -337,7 +337,7 @@ final class PvpDuelSafetyTest {
 
         String service = Files.readString(SOURCE.getParent().resolve("PlayerStatsService.java"),
                 StandardCharsets.UTF_8);
-        assertTrue(service.contains("withDuelKills(duels.of(uuid).kills())"));
+        assertTrue(service.contains("withDuelRecord(duels.of(uuid))"));
 
         // The board used to refresh off a vanilla statistic that no longer feeds it.
         String board = Files.readString(SOURCE.getParent().resolve("LeaderboardService.java"),
@@ -351,6 +351,31 @@ final class PvpDuelSafetyTest {
         // A surrender is a win, not a kill.
         assertTrue(source.contains("ending == Ending.KILL"));
         assertTrue(source.contains("player.getName() + \" gave up\", Ending.SURRENDER"));
+    }
+
+    /**
+     * A ladder you climb by duelling the worst player online is a ladder whose top
+     * means nothing, so what a win is worth depends on who it was against.
+     */
+    @Test
+    void theRankLadderIsRatedAgainstTheOpponent() throws Exception {
+        String rank = Files.readString(SOURCE.getParent().resolve("PvpRank.java"),
+                StandardCharsets.UTF_8);
+        assertTrue(rank.contains("Math.pow(10d, (opponentRating - rating) / 400d)"));
+
+        String store = Files.readString(SOURCE.getParent().resolve("PvpRecordStore.java"),
+                StandardCharsets.UTF_8);
+        String settle = store.substring(
+                store.indexOf("synchronized Map<UUID, RatingChange> settle("),
+                store.indexOf("synchronized Map<UUID, RatingChange> drew("));
+        // Both ratings are read before either is written, or every result inflates.
+        assertTrue(settle.indexOf("Record loser = of(loserId)")
+                < settle.indexOf("records.put(winnerId"));
+
+        String source = source();
+        assertTrue(source.contains("rankChangeEffect(player, result.rating())"));
+        assertTrue(source.contains("rating.promoted()"));
+        assertTrue(source.contains("rating.demoted()"));
     }
 
     @Test
