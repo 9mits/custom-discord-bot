@@ -77,6 +77,9 @@ LOCKED_SOURCE_IDS = {
     "amethyst_shield",
     "amethyst_shield_icon",
     "amethyst_shovel",
+    "pvp_scythe_1",
+    "pvp_scythe_2",
+    "pvp_scythe_3",
 }
 
 

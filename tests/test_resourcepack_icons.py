@@ -30,6 +30,9 @@ LINKED_ICON_SIZES = {
     "amethyst_shield_icon": (590, 876),
     "amethyst_totem": (360, 360),
     "amethyst_sword": (16, 16),
+    "pvp_scythe_1": (64, 64),
+    "pvp_scythe_2": (64, 64),
+    "pvp_scythe_3": (64, 64),
 }
 IMPORTED_MOD_HASHES = {
     "amethyst_pickaxe": "65630e43cdb2634ae0fa77d9ac1d9bc2a2b657a59fb4ea32932d057f5afdb2d9",
@@ -37,6 +40,9 @@ IMPORTED_MOD_HASHES = {
     "amethyst_axe": "5c43672b2716bcb2fd4f5e0c06c66080eb1cf00b60d8c72cc4d8f581bbbec030",
     "amethyst_shield": "79c0eaaf8939888df6b0e28e1a080db648cd56a5a9622d74f51596a1e385ee01",
     "amethyst_sword": "4e1b69e98d1bed76f5f40ecc26fea99afe77a1da82eca352301299aa5aef9488",
+    "pvp_scythe_1": "56370a28a8d51fc7c690d67037775afa9454503a459615bbc418d62e3aa5eb85",
+    "pvp_scythe_2": "b2e19dc185794f5c1c17b11cd03acd5cebdeec82b63ffff1ccc9c948909f6491",
+    "pvp_scythe_3": "5e9666926bde7064b582399ec08addae6529de7396a7e987ebb2cea7f70df2ca",
 }
 # Every generated icon is designed on an 18x18 logical grid and exported at 72x72 as
 # exact 4x4 blocks. The 4x export rather than 2x is about the item atlas: 36 divides

@@ -109,12 +109,11 @@ final class PvpDuelSafetyTest {
     void chestBoardsKeepEveryActionOffTheSlotBackOwns() {
         int back = MenuPaging.backSlot(PvpDuelService.SETUP_BOARD_SIZE);
         for (int slot : new int[] {
-                PvpDuelService.SETUP_MONEY_SLOT, PvpDuelService.SETUP_ITEMS_SLOT,
-                PvpDuelService.SETUP_COSMETICS_SLOT, PvpDuelService.SETUP_CLEAR_SLOT,
-                PvpDuelService.SETUP_SEND_SLOT, PvpDuelService.ACCEPT_OFFER_SLOT,
-                PvpDuelService.ACCEPT_MONEY_SLOT, PvpDuelService.ACCEPT_ITEMS_SLOT,
-                PvpDuelService.ACCEPT_COSMETICS_SLOT, PvpDuelService.ACCEPT_DECLINE_SLOT,
-                PvpDuelService.ACCEPT_CONFIRM_SLOT
+                PvpDuelService.SETUP_SEND_SLOT, PvpDuelService.SETUP_WAGER_SLOT,
+                PvpDuelService.WAGER_MONEY_SLOT, PvpDuelService.WAGER_ITEMS_SLOT,
+                PvpDuelService.WAGER_COSMETICS_SLOT, PvpDuelService.WAGER_CLEAR_SLOT,
+                PvpDuelService.WAGER_DONE_SLOT, PvpDuelService.ACCEPT_CONFIRM_SLOT,
+                PvpDuelService.ACCEPT_WAGER_SLOT, PvpDuelService.ACCEPT_DECLINE_SLOT
         }) {
             assertNotEquals(back, slot);
         }
