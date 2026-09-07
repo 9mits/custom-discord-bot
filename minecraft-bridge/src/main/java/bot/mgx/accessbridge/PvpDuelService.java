@@ -228,6 +228,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             String reason,
             long moneyDelta,
             long seconds,
+            PvpRecordStore.RatingChange rating,
             double damageDealt,
             double damageTaken,
             int hitsLanded,
@@ -546,7 +547,9 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                     new BedrockForms.Button("Watch Live Fights (" + fights.size() + ")", () -> openLive(player)),
                     new BedrockForms.Button("How It Works", () -> openRules(player))
             );
-            if (!forms.menu(player, "PvP", hubBody() + "\n" + record, buttons)) {
+            if (!forms.menu(player, "PvP", hubBody() + "\n"
+                    + rankProgress(duelRecords.of(player.getUniqueId()))
+                    + "\n" + record, buttons)) {
                 openChestHub(player);
             }
             return;
@@ -561,9 +564,12 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 Screens.button("item/book", "How It Works",
                         "The rules, in full, before you stake anything.", this::openRules)
         );
+        PvpRecordStore.Record standing = duelRecords.of(player.getUniqueId());
         Screens.show(player, "PvP", List.of(
                 DialogBody.plainMessage(MenuText.body(hubBody()), 400),
                 DialogBody.plainMessage(Component.empty(), 400),
+                DialogBody.plainMessage(MenuText.stat("Rank", standing.rank().sprite(),
+                        rankProgress(standing)), 400),
                 DialogBody.plainMessage(MenuText.muted(record), 400)
         ), buttons, 1, null);
     }
@@ -574,10 +580,26 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
      * <p>The Kills board ranks this number, so it should not take a trip to a
      * leaderboard to find out what yours is.
      */
+    /** {@code Gold II — 640 RP  (40/100 to Gold III)}, or the top of the ladder. */
+    private static String rankProgress(PvpRecordStore.Record record) {
+        PvpRank rank = record.rank();
+        if (rank == PvpRank.UNREAL) {
+            return rank.display() + " — " + record.rating() + " RP";
+        }
+        long into = record.rating() - rank.floor();
+        long span = rank.nextFloor() - rank.floor();
+        return rank.display() + " — " + record.rating() + " RP  ("
+                + into + "/" + span + " to " + PvpRank.of(rank.nextFloor()).display() + ")";
+    }
+
     private String recordLine(UUID playerId) {
+        return recordLine(playerId, "You have not fought yet.");
+    }
+
+    private String recordLine(UUID playerId, String whenUnfought) {
         PvpRecordStore.Record record = duelRecords.of(playerId);
         if (record.isEmpty()) {
-            return "You have not fought yet.";
+            return whenUnfought;
         }
         String line = record.wins() + "W  " + record.losses() + "L"
                 + (record.draws() > 0 ? "  " + record.draws() + "D" : "")
@@ -667,7 +689,8 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         List<ActionButton> buttons = new ArrayList<>();
         for (Player target : targets) {
             buttons.add(Screens.playerButton(target.getUniqueId(), target.getName(),
-                    "Set a wager and challenge them.", viewer -> {
+                    duelRecords.of(target.getUniqueId()).rank().display() + "  •  "
+                            + recordLine(target.getUniqueId(), "No fights yet."), viewer -> {
                         Player current = Bukkit.getPlayer(target.getUniqueId());
                         if (current == null) {
                             error(viewer, "They went offline.");
@@ -767,9 +790,11 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private String setupBody(Player player, DuelDraft draft, String problem) {
+        PvpRecordStore.Record theirs = duelRecords.of(draft.subject);
         return (problem == null ? "" : problem + "\n")
-                + "KEEP INVENTORY is always on. The winner takes both stakes.\n"
-                + "Your wallet: " + EconomyFormat.dollars(economy.balance(player.getUniqueId()))
+                + "They are " + theirs.rank().display() + " on " + theirs.rating() + " RP."
+                + "\nKEEP INVENTORY is always on. The winner takes both stakes."
+                + "\nYour wallet: " + EconomyFormat.dollars(economy.balance(player.getUniqueId()))
                 + "\nStaked now: " + stakeSummary(
                         draft.money, draft.items.size(), draft.cosmetics.size());
     }
@@ -985,7 +1010,9 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private String acceptBody(Invitation invitation, DuelDraft draft) {
-        return "They stake " + stakeSummary(
+        PvpRecordStore.Record theirs = duelRecords.of(invitation.challenger());
+        return theirs.rank().display() + " on " + theirs.rating() + " RP.\n"
+                + "They stake " + stakeSummary(
                         invitation.moneyEach(), invitation.challengerItems().size(),
                         invitation.challengerCosmetics().size())
                 + "\nYou stake " + stakeSummary(
@@ -1527,8 +1554,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             }
             fight.settled.add(playerId);
         }
-        recordResults(fight, winnerId, result);
-        rememberRecord(fight, winnerId, ending);
+        recordResults(fight, winnerId, result, rememberRecord(fight, winnerId, ending));
         announceFightEnd(fight, winner, result);
         if (winner != null) {
             record("duel_finished", winner, winner.getName() + " won a PvP fight")
@@ -1571,6 +1597,16 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             }
             outcomeEffect(player, winnerId == null ? null : playerId.equals(winnerId));
         }
+        // A tick behind the result title, so the two do not fight for the screen.
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+            for (UUID playerId : List.of(fight.first, fight.second)) {
+                Player player = Bukkit.getPlayer(playerId);
+                FightResult result = results.get(playerId);
+                if (player != null && result != null) {
+                    rankChangeEffect(player, result.rating());
+                }
+            }
+        }, 60L);
         tickReturn(fight, returnSeconds());
     }
 
@@ -1673,7 +1709,10 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         restorePlayer(player, state);
     }
 
-    private void recordResults(Fight fight, UUID winnerId, String reason) {
+    private void recordResults(
+            Fight fight, UUID winnerId, String reason,
+            Map<UUID, PvpRecordStore.RatingChange> ratings
+    ) {
         long seconds = fight.fightingSince <= 0L ? 0L
                 : Math.max(0L, (System.currentTimeMillis() - fight.fightingSince) / 1000L);
         for (UUID playerId : List.of(fight.first, fight.second)) {
@@ -1696,6 +1735,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             results.put(playerId, new FightResult(
                     opponentId, opponentName, won, draw, reason,
                     draw ? 0L : (won ? fight.moneyEach : -fight.moneyEach), seconds,
+                    ratings.get(playerId),
                     fight.damage.getOrDefault(playerId, 0d),
                     fight.damage.getOrDefault(opponentId, 0d),
                     fight.hits.getOrDefault(playerId, 0),
@@ -1711,16 +1751,18 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
      * moved by the time this runs — so a broken record file is logged and the fight
      * still finishes.
      */
-    private void rememberRecord(Fight fight, UUID winnerId, Ending ending) {
+    private Map<UUID, PvpRecordStore.RatingChange> rememberRecord(
+            Fight fight, UUID winnerId, Ending ending
+    ) {
         try {
-            if (winnerId == null) {
-                duelRecords.drew(fight.first, fight.second);
-                return;
-            }
-            duelRecords.settle(winnerId, fight.opponent(winnerId), ending == Ending.KILL);
+            return winnerId == null
+                    ? duelRecords.drew(fight.first, fight.second)
+                    : duelRecords.settle(winnerId, fight.opponent(winnerId),
+                            ending == Ending.KILL);
         } catch (RuntimeException failure) {
             plugin.getLogger().warning(
                     "Could not save a PvP record: " + failure.getMessage());
+            return Map.of();
         }
     }
 
@@ -1761,6 +1803,12 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 .decoration(TextDecoration.ITALIC, false), 400));
         body.add(DialogBody.plainMessage(MenuText.muted(result.reason()), 400));
         body.add(DialogBody.plainMessage(Component.empty(), 400));
+        PvpRecordStore.RatingChange rating = result.rating();
+        if (rating != null) {
+            body.add(DialogBody.plainMessage(MenuText.stat("Rank",
+                    rating.rankAfter().sprite(),
+                    rating.rankAfter().display() + "  " + signedRating(rating)), 400));
+        }
         body.add(DialogBody.plainMessage(MenuText.stat("Money", "item/gold_ingot",
                 signedMoney(result.moneyDelta())), 400));
         // A line reading "lost: 0 stack(s)" is a line nobody needed to read.
@@ -1820,6 +1868,10 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                         + " vs " + result.opponentName(), NamedTextColor.WHITE,
                 TextDecoration.BOLD)));
         player.sendMessage(line(result.reason()));
+        if (result.rating() != null) {
+            player.sendMessage(line("Rank: " + result.rating().rankAfter().display()
+                    + "  " + signedRating(result.rating())));
+        }
         player.sendMessage(line("Money: " + signedMoney(result.moneyDelta())));
         player.sendMessage(line("Items won: " + result.gained().size()
                 + " • lost: " + result.lost().size()));
@@ -1914,6 +1966,11 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         return bar;
     }
 
+    private static String signedRating(PvpRecordStore.RatingChange rating) {
+        int delta = rating.delta();
+        return (delta >= 0 ? "+" : "") + delta + " RP";
+    }
+
     private static String signedMoney(long delta) {
         if (delta == 0L) {
             return "no cash staked";
@@ -1977,6 +2034,38 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         player.playSound(player, Sound.ENTITY_ELDER_GUARDIAN_CURSE, 0.5f, 1.4f);
         player.playSound(player, Sound.BLOCK_ANVIL_LAND, 0.4f, 0.6f);
         player.getWorld().spawnParticle(Particle.LARGE_SMOKE, where, 50, 0.5d, 0.8d, 0.5d, 0.02d);
+    }
+
+    /**
+     * The promotion moment.
+     *
+     * <p>Crossing a division is the thing a ladder exists for, and it is invisible
+     * unless somebody says so. A demotion is stated too — quietly, and only when it
+     * actually happened, because a rank that can only go up is not a rank.
+     */
+    private static void rankChangeEffect(Player player, PvpRecordStore.RatingChange rating) {
+        if (rating == null || (!rating.promoted() && !rating.demoted())) {
+            return;
+        }
+        Title.Times times = Title.Times.times(
+                Duration.ofMillis(200), Duration.ofSeconds(2), Duration.ofMillis(600));
+        Location where = player.getLocation().add(0d, 1d, 0d);
+        if (rating.promoted()) {
+            player.showTitle(Title.title(
+                    Component.text(rating.rankAfter().display(), ORANGE, TextDecoration.BOLD),
+                    Component.text("RANK UP", NamedTextColor.GREEN, TextDecoration.BOLD),
+                    times));
+            player.playSound(player, Sound.BLOCK_BEACON_POWER_SELECT, 1f, 1.2f);
+            player.playSound(player, Sound.ENTITY_PLAYER_LEVELUP, 0.8f, 1.6f);
+            player.getWorld().spawnParticle(
+                    Particle.END_ROD, where, 70, 0.4d, 1d, 0.4d, 0.12d);
+            return;
+        }
+        player.showTitle(Title.title(
+                Component.text(rating.rankAfter().display(), NamedTextColor.GRAY,
+                        TextDecoration.BOLD),
+                Component.text("RANK DOWN", NamedTextColor.RED), times));
+        player.playSound(player, Sound.BLOCK_BEACON_DEACTIVATE, 0.7f, 0.8f);
     }
 
     private static void arrivalSound(Player player) {

@@ -773,6 +773,7 @@ final class SidebarService {
         return switch (type) {
             case WEALTH -> NamedTextColor.GREEN;
             case KILLS -> NamedTextColor.RED;
+            case RANK -> MenuText.GOLD;
             case PLAYTIME -> NamedTextColor.AQUA;
             case BLOCKS_MINED -> NamedTextColor.GOLD;
             case BLOCKS_WALKED -> NamedTextColor.WHITE;

@@ -52,11 +52,13 @@ class LeaderboardTypeTest {
     void statsReportTheValueForEachType() {
         PlayerStats stats = new PlayerStats(
                 UUID.randomUUID(), "mits", 7, 2, 72_000, 500, 12_345, 999, 14, 3
-        ).withDuelKills(4);
+        ).withDuelRecord(new PvpRecordStore.Record(
+                4L, 1L, 5L, 2L, 0L, 1L, 3L, 640L, PvpRank.GOLD_I));
 
         // The board ranks duels, not whoever was caught out in the open, so the
         // vanilla kill count deliberately does not reach it.
         assertEquals(4, stats.value(LeaderboardType.KILLS));
+        assertEquals(640, stats.value(LeaderboardType.RANK));
         assertEquals(7, stats.kills());
         assertEquals(999, stats.value(LeaderboardType.WEALTH));
         assertEquals(72_000, stats.value(LeaderboardType.PLAYTIME));

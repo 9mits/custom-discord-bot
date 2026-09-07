@@ -1520,6 +1520,7 @@ class MinecraftLeaderboardRenderTests(unittest.TestCase):
             (
                 "wealth",
                 "kills",
+                "rank",
                 "dragon_damage",
                 "dragon_crystals",
             ),

@@ -40,13 +40,14 @@ DEFAULT_TYPE = "wealth"
 TYPE_LABELS: dict[str, str] = {
     "wealth": "Richest",
     "kills": "Most PvP Kills",
+    "rank": "Highest PvP Rank",
     "dragon_damage": "Most Amethyst Dragon Damage",
     "dragon_crystals": "Most End Crystals Broken",
     "clan_battle": "Current Clan Battle",
 }
 #: Mirrors LeaderboardType.published on the Paper side.
 INDIVIDUAL_TYPES = (
-    "wealth", "kills", "dragon_damage", "dragon_crystals",
+    "wealth", "kills", "rank", "dragon_damage", "dragon_crystals",
 )
 CLAN_TYPES = ("wealth", "kills", "clan_battle")
 

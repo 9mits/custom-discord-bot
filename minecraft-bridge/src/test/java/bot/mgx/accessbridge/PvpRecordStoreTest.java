@@ -58,12 +58,53 @@ final class PvpRecordStoreTest {
         PvpRecordStore store = new PvpRecordStore(file);
         store.settle(WINNER, LOSER, true);
         store.drew(WINNER, LOSER);
+        long rating = store.of(WINNER).rating();
 
         PvpRecordStore reopened = new PvpRecordStore(file);
         assertEquals(1, reopened.of(WINNER).kills());
         assertEquals(1, reopened.of(WINNER).draws());
         assertEquals(1, reopened.of(WINNER).bestStreak());
         assertEquals(1, reopened.of(LOSER).losses());
+        // A rank that resets on restart is not a rank.
+        assertEquals(rating, reopened.of(WINNER).rating());
+        assertEquals(store.of(WINNER).bestRank(), reopened.of(WINNER).bestRank());
+    }
+
+    /**
+     * Both ratings are read before either is written. Scoring the winner against an
+     * opponent who has already lost points to them inflates every result.
+     */
+    @Test
+    void oneFightIsScoredOnTheRatingsBothPlayersBroughtToIt(@TempDir Path folder)
+            throws Exception {
+        PvpRecordStore store = new PvpRecordStore(folder.resolve("records.json"));
+        java.util.Map<UUID, PvpRecordStore.RatingChange> changes =
+                store.settle(WINNER, LOSER, true);
+
+        PvpRecordStore.RatingChange won = changes.get(WINNER);
+        PvpRecordStore.RatingChange lost = changes.get(LOSER);
+        assertEquals(0, won.before());
+        assertEquals(0, lost.before());
+        // Evenly matched at 0 RP each, so the pair is symmetrical.
+        assertEquals(PvpRank.K_FACTOR / 2, won.delta());
+        assertEquals(0, lost.after(), "a rating cannot fall below the bottom rung");
+        assertEquals(won.after(), store.of(WINNER).rating());
+    }
+
+    @Test
+    void reachingATierIsNotUndoneByLosing(@TempDir Path folder) throws Exception {
+        PvpRecordStore store = new PvpRecordStore(folder.resolve("records.json"));
+        for (int fight = 0; fight < 40; fight++) {
+            store.settle(WINNER, LOSER, true);
+        }
+        PvpRank reached = store.of(WINNER).rank();
+        assertTrue(reached.ordinal() > PvpRank.BRONZE_I.ordinal(), "should have climbed");
+
+        for (int fight = 0; fight < 60; fight++) {
+            store.settle(LOSER, WINNER, true);
+        }
+        assertEquals(reached.tier(), store.of(WINNER).rank().tier());
+        assertEquals(store.of(WINNER).bestRank().tierFloor(), store.of(WINNER).rating());
     }
 
     /** Both halves of a fight land together, so a board never sees half of one. */

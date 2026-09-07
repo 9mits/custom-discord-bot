@@ -84,6 +84,7 @@ class LeaderboardStandingsTest {
     }
 
     private static PlayerStats stats(UUID id, String name, long kills, long wealth) {
-        return new PlayerStats(id, name, kills, 0, 0, 0, 0, wealth).withDuelKills(kills);
+        return new PlayerStats(id, name, kills, 0, 0, 0, 0, wealth).withDuelRecord(
+                new PvpRecordStore.Record(kills, 0, 0, 0, 0, 0, 0, 0, PvpRank.BRONZE_I));
     }
 }
