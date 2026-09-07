@@ -107,7 +107,7 @@ final class CrateItems {
                     .decoration(TextDecoration.ITALIC, false));
             meta.lore(List.of(
                     line("Opens the Default Crate: 1 key"),
-                    line("Opens the Limited Amethyst Crate: 2 keys"),
+                    line("Opens the NEW Amethyst Crate: 2 keys"),
                     line("Use /crate to open or inspect rewards.")
             ));
             meta.getPersistentDataContainer().set(keyMarker, PersistentDataType.BYTE, (byte) 1);
@@ -641,7 +641,7 @@ final class CrateItems {
             return;
         }
         Component provenance = Component.text(
-                "Part of the Limited-Time Amethyst Crate", AMETHYST
+                "Part of the NEW Amethyst Crate", AMETHYST
         ).decoration(TextDecoration.ITALIC, false);
         if (lore.contains(provenance)) {
             return;

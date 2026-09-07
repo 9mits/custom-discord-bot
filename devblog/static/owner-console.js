@@ -60,7 +60,7 @@
 
   var TABLE_TITLES = {
     "crate.default": "Default Crate",
-    "crate.amethyst": "Limited Amethyst Crate",
+    "crate.amethyst": "NEW Amethyst Crate",
     "crate.shard": "Shard Crate",
     "airdrop.rarity": "Which rarity an Airdrop is",
     "airdrop.loot.common": "Common Airdrop contents",

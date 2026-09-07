@@ -204,7 +204,7 @@ final class AmethystCrateCatalogTest {
 
     @Test
     void eventDeadlineIsExtendedExactlyOneWeekToSeptemberTwelfth() {
-        assertEquals(1_789_192_800_000L, CrateKind.AMETHYST.closesAt());
+        assertEquals(1_789_225_200_000L, CrateKind.AMETHYST.closesAt());
         assertEquals(1, CrateKind.DEFAULT.keyCost());
         assertEquals(2, CrateKind.AMETHYST.keyCost());
         assertTrue(CrateKind.AMETHYST.available(CrateKind.AMETHYST.closesAt() - 1));
@@ -429,20 +429,12 @@ final class AmethystCrateCatalogTest {
                 )
         );
     }
-    /**
-     * "Opening 3x Limited Amethyst Crate" spends a title bar on a qualifier before it
-     * reaches the crate. The screens use the short name; chat, the hologram and the key
-     * lore keep the full one, which is where "Limited" tells somebody something.
-     */
     @Test
-    void crateScreensUseAShorterNameThanAnnouncementsDo() {
-        assertTrue(CrateKind.AMETHYST.displayName().contains("Limited"));
-        assertFalse(CrateKind.AMETHYST.menuName().contains("Limited"));
-        assertTrue(CrateKind.AMETHYST.menuName().contains("Amethyst"));
-        assertTrue(CrateKind.AMETHYST.menuName().length()
-                < CrateKind.AMETHYST.displayName().length());
+    void crateScreensAndAnnouncementsLeadWithNew() {
+        assertEquals("NEW Amethyst Crate", CrateKind.AMETHYST.displayName());
+        assertEquals("NEW Amethyst Crate", CrateKind.AMETHYST.menuName());
 
-        // The default crate has nothing to shorten, so both names stay identical.
+        // The default crate remains unchanged.
         assertEquals(CrateKind.DEFAULT.displayName(), CrateKind.DEFAULT.menuName());
     }
 }

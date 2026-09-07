@@ -137,6 +137,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private BroadcastDisplayService broadcastDisplayService;
     private TeleportWarmupService teleportWarmups;
     private PvpDuelService pvpDuels;
+    private PvpRankRewardService pvpRankRewards;
     private VerificationLobbyService verificationLobby;
     private final WhitelistDirectory whitelistDirectory = new WhitelistDirectory();
 
@@ -427,8 +428,14 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 gameVariables,
                 bridgeConfig.leaderboardRefreshTicks()
         );
+        pvpRankRewards = new PvpRankRewardService(
+                this, pvpRecords, playerSettings, gameVariables
+        );
         economyStore.onChange(leaderboardService::refreshSoon);
-        pvpRecords.onChange(leaderboardService::refreshSoon);
+        pvpRecords.onChange(() -> {
+            leaderboardService.refreshSoon();
+            pvpRankRewards.refreshSoon();
+        });
         amethystProgress.onChange(leaderboardService::refreshSoon);
         clanBattleStore.onChange(leaderboardService::refreshSoon);
         getServer().getPluginManager().registerEvents(verificationLobby, this);
@@ -441,6 +448,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(clanService, this);
         getServer().getPluginManager().registerEvents(clanMenuService, this);
         getServer().getPluginManager().registerEvents(playerMenuService, this);
+        getServer().getPluginManager().registerEvents(pvpRankRewards, this);
         getServer().getPluginManager().registerEvents(chatRelayService, this);
         getServer().getPluginManager().registerEvents(teleportWarmups, this);
         teleportMenus = new TeleportMenuService(this);
@@ -547,6 +555,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         }
         getCommand("pvp").setExecutor(pvpDuels);
         getCommand("pvp").setTabCompleter(pvpDuels);
+        pvpRankRewards.useBusyPlayers(pvpDuels::isParticipant);
         getServer().getPluginManager().registerEvents(pvpDuels, this);
         gameVariables.onChange(key -> {
             if (key.equals("pvp-duels.enabled") && !gameVariables.bool(key)) {
@@ -586,6 +595,14 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 System.currentTimeMillis(),
                 (long) gameVariables.decimal("amethyst-events.ends-at") * 1000L
         );
+        gameVariables.onChange(key -> {
+            if (key.equals("amethyst-events.ends-at")) {
+                clanBattleStore.ensureDragonEggBattle(
+                        System.currentTimeMillis(),
+                        (long) gameVariables.decimal(key) * 1000L
+                );
+            }
+        });
         crates = new CrateService(
                 this,
                 crateStore,
@@ -929,6 +946,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         }
         sidebarService.start();
         leaderboardService.start();
+        pvpRankRewards.start();
         capabilityService.start();
         bridgeClient.start();
         if (maintenanceHeld()) {
@@ -962,6 +980,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         }
         if (serverEventService != null) {
             serverEventService.stop();
+        }
+        if (pvpRankRewards != null) {
+            pvpRankRewards.stop();
         }
         // Settle both ordinary online keys and completed AFK intervals while the
         // AFK service still knows which uninterrupted sessions are live.

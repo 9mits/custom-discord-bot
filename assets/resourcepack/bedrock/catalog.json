@@ -85,6 +85,9 @@
     {"java_item": "minecraft:copper_ingot", "model": "mgx:cosmetic/dragon_podium_3", "bedrock_identifier": "mgx:cosmetic_dragon_podium_3", "display_name": "Dragon's Bronze Scale"},
     {"java_item": "minecraft:dragon_egg", "model": "mgx:cosmetic/dragon_clan_1", "bedrock_identifier": "mgx:cosmetic_dragon_clan_1", "display_name": "Sovereign Brood"},
     {"java_item": "minecraft:amethyst_cluster", "model": "mgx:cosmetic/dragon_clan_2", "bedrock_identifier": "mgx:cosmetic_dragon_clan_2", "display_name": "Crystal Vanguard"},
-    {"java_item": "minecraft:amethyst_shard", "model": "mgx:cosmetic/dragon_clan_3", "bedrock_identifier": "mgx:cosmetic_dragon_clan_3", "display_name": "Violet Kin"}
+    {"java_item": "minecraft:amethyst_shard", "model": "mgx:cosmetic/dragon_clan_3", "bedrock_identifier": "mgx:cosmetic_dragon_clan_3", "display_name": "Violet Kin"},
+    {"java_item": "minecraft:netherite_sword", "model": "mgx:pvp_scythe_1", "bedrock_identifier": "mgx:pvp_scythe_1", "display_name": "Apex Scythe"},
+    {"java_item": "minecraft:netherite_sword", "model": "mgx:pvp_scythe_2", "bedrock_identifier": "mgx:pvp_scythe_2", "display_name": "Void Scythe"},
+    {"java_item": "minecraft:netherite_sword", "model": "mgx:pvp_scythe_3", "bedrock_identifier": "mgx:pvp_scythe_3", "display_name": "Shadow Scythe"}
   ]
 }

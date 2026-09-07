@@ -19,14 +19,14 @@ enum CrateKind {
             Currency.KEY, 1, Long.MAX_VALUE, CrateCatalog.all()
     ),
     AMETHYST(
-            "amethyst", "Limited Amethyst Crate", "Amethyst Crate", Material.AMETHYST_BLOCK,
+            "amethyst", "NEW Amethyst Crate", "NEW Amethyst Crate", Material.AMETHYST_BLOCK,
             TextColor.color(0xB56CFF),
             Currency.KEY, 2,
-            // Saturday after next at 3:00 PM JST, resolved when the event was requested.
-            1_789_192_800_000L, CrateCatalog.amethyst()
+            // Sunday, September 13, 2026 at 12:00 AM JST.
+            1_789_225_200_000L, CrateCatalog.amethyst()
     ),
     SHARD(
-            "shard", "Shard Crate", "Shard Crate", Material.ECHO_SHARD,
+            "shard", "Shard Crate", "Shard Crate", Material.AMETHYST_SHARD,
             TextColor.color(0x53E5FF),
             Currency.SHARD, 1, Long.MAX_VALUE, CrateCatalog.shard()
     ),
@@ -98,7 +98,7 @@ enum CrateKind {
         this.rewards = rewards;
     }
 
-    private static volatile java.util.function.LongSupplier eventEnd = () -> 1_789_192_800_000L;
+    private static volatile java.util.function.LongSupplier eventEnd = () -> 1_789_225_200_000L;
     private static volatile java.util.function.BooleanSupplier dragonAvailable = () -> false;
     private static volatile java.util.function.LongSupplier dragonEnd = () -> 0L;
 
@@ -125,10 +125,7 @@ enum CrateKind {
     /**
      * The name the crate screens use.
      *
-     * <p>Shorter on purpose: "Opening 3x Limited Amethyst Crate" is a title bar's worth
-     * of qualifier before it reaches the crate. Chat announcements, the hologram and the
-     * key lore keep the full name, which is where "Limited" is actually telling somebody
-     * something they did not already know.
+     * <p>This may be shorter than the announcement name when a crate needs a compact title.
      */
     String menuName() {
         return menuName;

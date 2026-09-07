@@ -101,7 +101,7 @@ final class CosmeticItems {
         if (CosmeticCatalog.isLimitedAmethyst(definition.id())) {
             lore.add(Component.empty());
             lore.add(Component.text(
-                    "Part of the Limited-Time Amethyst Crate", AMETHYST
+                    "Part of the NEW Amethyst Crate", AMETHYST
             ).decoration(TextDecoration.ITALIC, false));
         }
         if (CosmeticCatalog.isAmethystAirdrop(definition.id())) {

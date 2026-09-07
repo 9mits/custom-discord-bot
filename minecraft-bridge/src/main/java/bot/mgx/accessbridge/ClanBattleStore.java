@@ -240,7 +240,14 @@ final class ClanBattleStore {
 
     /** Retires the previous crate race and starts the Dragon Egg battle with a clean score. */
     synchronized boolean ensureDragonEggBattle(long now, long endsAt) {
-        if (endsAt <= now || (state.active != null && kindOf(state.active) == Kind.DRAGON_EGGS)) return false;
+        if (endsAt <= now) return false;
+        if (state.active != null && kindOf(state.active) == Kind.DRAGON_EGGS) {
+            if (state.active.endsAt == endsAt) return false;
+            SavedState before = copyState();
+            state.active.endsAt = endsAt;
+            persistOrRestore(before);
+            return true;
+        }
         if (state.active != null && kindOf(state.active) != Kind.CRATES) return false;
         SavedState before = copyState();
         SavedActive replacement = new SavedActive();

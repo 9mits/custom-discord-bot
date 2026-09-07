@@ -159,7 +159,7 @@ final class GameVariableStore {
     private void defineAmethystExpansion() {
         integer("amethyst-events.ends-at", "Amethyst event deadline", "Amethyst Events",
                 "Unix seconds for the shared event and limited crate deadline.",
-                1_789_192_800L, 0, 4_102_444_800L, "epoch seconds", false);
+                1_789_225_200L, 0, 4_102_444_800L, "epoch seconds", false);
         String[] tiers = {"huge", "giant", "humongous"};
         int[] sizes = {12, 16, 20};
         int[] health = {2750, 8250, 16500};
@@ -1094,6 +1094,34 @@ final class GameVariableStore {
                 "Most anchored spectators who may watch one duel at once.",
                 config.getLong("pvp-duels.maximum-spectators", 8),
                 0, 64, "players", false);
+
+        decimal("pvp-rank-rewards.first-bonus-damage", "#1 Scythe bonus damage",
+                "PvP Rank Rewards", "Damage added beyond a Sharpness V Netherite Sword.",
+                1.5, 0.0, 10.0, "damage");
+        decimal("pvp-rank-rewards.second-bonus-damage", "#2 Scythe bonus damage",
+                "PvP Rank Rewards", "Damage added beyond a Sharpness V Netherite Sword.",
+                1.0, 0.0, 10.0, "damage");
+        decimal("pvp-rank-rewards.third-bonus-damage", "#3 Scythe bonus damage",
+                "PvP Rank Rewards", "Damage added beyond a Sharpness V Netherite Sword.",
+                0.5, 0.0, 10.0, "damage");
+        decimal("pvp-rank-rewards.sweep-radius", "Scythe sweep radius",
+                "PvP Rank Rewards", "Visual radius of a leaderboard Scythe swing.",
+                3.25, 0.5, 12.0, "blocks");
+        integer("pvp-rank-rewards.sweep-particles", "Scythe sweep particles",
+                "PvP Rank Rewards", "Colored particles drawn across each Scythe swing.",
+                25, 3, 100, "particles", false);
+        integer("pvp-rank-rewards.sweep-cooldown-ms", "Scythe sweep effect cooldown",
+                "PvP Rank Rewards", "Minimum time between visual swing effects.",
+                225, 0, 5_000, "milliseconds", false);
+        integer("pvp-rank-rewards.kill-effect-frames", "Scythe kill effect length",
+                "PvP Rank Rewards", "Two-tick animation frames in each Scythe kill climax.",
+                24, 4, 100, "frames", false);
+        decimal("pvp-rank-rewards.kill-effect-radius", "Scythe kill effect radius",
+                "PvP Rank Rewards", "Maximum radius of a Scythe kill climax.",
+                4.5, 1.0, 16.0, "blocks");
+        decimal("pvp-rank-rewards.sound-volume", "Scythe effect volume",
+                "PvP Rank Rewards", "Sound volume for Scythe sweeps and kill climaxes.",
+                1.15, 0.0, 4.0, "volume");
 
         integer("verification.expiry-seconds", "Verification expiry", "Players",
                 "Seconds a pending verification stays valid before it lapses.",
@@ -2631,6 +2659,15 @@ final class GameVariableStore {
                     case DECIMAL -> entry.getValue().getAsDouble();
                     case INTEGER -> entry.getValue().getAsLong();
                 };
+                // The first Amethyst expansion deadline was accidentally encoded as
+                // 3:00 PM JST. Move only that shipped value to the requested Sunday
+                // midnight; any owner-custom deadline remains untouched.
+                if (canonical.equals("amethyst-events.ends-at")
+                        && value instanceof Number number
+                        && number.longValue() == 1_789_192_800L) {
+                    value = 1_789_225_200L;
+                    migrated = true;
+                }
                 parse(definition, String.valueOf(value));
                 if (canonical.equals(entry.getKey())) {
                     overrides.put(canonical, value);

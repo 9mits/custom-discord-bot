@@ -605,7 +605,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             if (!forms.menu(player, "PvP Rank Leaderboard",
                     rows.isEmpty()
                             ? "No ranked fights yet."
-                            : "Tap a player to view their stats.",
+                            : "Tap a player to view their stats. The top 3 hold a temporary Scythe reward.",
                     buttons, this::openHub)) {
                 openChestRanks(player, rows);
             }
@@ -625,6 +625,13 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                             row.placement(), row.playerId(), row.username(), value)
                     .append(Component.newline())
                     .append(Component.text("     " + rankStats(record), MenuText.MUTED))
+                    .append(row.placement() <= 3
+                            ? Component.newline().append(Component.text(
+                                    "     Temporary reward: "
+                                            + PvpRankRewardService.rewardName(row.placement())
+                                            + " · held only while #" + row.placement(),
+                                    MenuText.MUTED))
+                            : Component.empty())
                     .hoverEvent(HoverEvent.showText(
                             Component.text("View " + row.username() + "'s stats", MenuText.LABEL)))
                     .clickEvent(ClickEvent.callback(audience -> {
@@ -2320,14 +2327,9 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         DuelBoard holder = board(Board.RANK, null, BOARD_SIZE, "PvP Rank Leaderboard");
         for (int slot = 0; slot < rows.size() && slot < PAGE_SIZE; slot++) {
             PvpRankLeaderboard.Row row = rows.get(slot);
-            PvpRecordStore.Record record = row.record();
             holder.inventory.setItem(slot, MenuItems.head(
-                    row.playerId(), "#" + row.placement() + "  " + row.username(), List.of(
-                            record.rank().glyph() + " " + record.rank().display()
-                                    + "  •  " + record.rating() + " RP",
-                            rankStats(record),
-                            "Click to view stats."
-                    )));
+                    row.playerId(), "#" + row.placement() + "  " + row.username(),
+                    chestRankLore(row)));
             holder.choices.put(slot, row.playerId());
         }
         if (rows.isEmpty()) {
@@ -2336,6 +2338,21 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         }
         MenuItems.back(holder.inventory);
         MenuItems.show(plugin, player, holder.inventory);
+    }
+
+    private static List<String> chestRankLore(PvpRankLeaderboard.Row row) {
+        PvpRecordStore.Record record = row.record();
+        List<String> lore = new ArrayList<>(List.of(
+                record.rank().glyph() + " " + record.rank().display()
+                        + "  •  " + record.rating() + " RP",
+                rankStats(record)
+        ));
+        if (row.placement() <= 3) {
+            lore.add("Temporary reward: " + PvpRankRewardService.rewardName(row.placement())
+                    + " while holding #" + row.placement());
+        }
+        lore.add("Click to view stats.");
+        return List.copyOf(lore);
     }
 
     private void openChestList(Player player, Board kind, List<Player> choices, String title) {
@@ -2477,6 +2494,13 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 return;
             }
             if (raw >= event.getInventory().getSize()) {
+                if (PvpRankRewardService.isRewardScythe(event.getCurrentItem())) {
+                    event.setCancelled(true);
+                    if (event.getWhoClicked() instanceof Player clicker) {
+                        error(clicker, "PvP leaderboard Scythes cannot be wagered.");
+                    }
+                    return;
+                }
                 if (!event.isShiftClick()) {
                     event.setCancelled(false);
                     return;

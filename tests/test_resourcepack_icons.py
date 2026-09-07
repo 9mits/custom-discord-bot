@@ -116,7 +116,7 @@ class ResourcePackIconTests(unittest.TestCase):
 
     def test_custom_icons_are_valid_distinct_minecraft_sprites(self):
         icons = self.icon_paths()
-        self.assertEqual(91, len(icons))
+        self.assertEqual(94, len(icons))
 
         digests = set()
         for path in icons:

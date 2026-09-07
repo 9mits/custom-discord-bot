@@ -892,6 +892,35 @@
           "icon": "mgx:cosmetic_dragon_podium_2"
         }
       }
+    ],
+    "minecraft:netherite_sword": [
+      {
+        "type": "definition",
+        "model": "mgx:pvp_scythe_1",
+        "bedrock_identifier": "mgx:pvp_scythe_1",
+        "display_name": "Apex Scythe",
+        "bedrock_options": {
+          "icon": "mgx:pvp_scythe_1"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:pvp_scythe_2",
+        "bedrock_identifier": "mgx:pvp_scythe_2",
+        "display_name": "Void Scythe",
+        "bedrock_options": {
+          "icon": "mgx:pvp_scythe_2"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:pvp_scythe_3",
+        "bedrock_identifier": "mgx:pvp_scythe_3",
+        "display_name": "Shadow Scythe",
+        "bedrock_options": {
+          "icon": "mgx:pvp_scythe_3"
+        }
+      }
     ]
   }
 }

@@ -37,6 +37,22 @@ final class ClanBattleStoreTest {
     }
 
     @Test
+    void sharedEventDeadlineUpdatesAnActiveDragonEggRaceWithoutLosingScores() throws Exception {
+        ClanStore clans = new ClanStore(directory.resolve("clans.json"));
+        ClanBattleStore battles = new ClanBattleStore(directory.resolve("battles.json"));
+        UUID player = UUID.randomUUID();
+        clans.create(player, "Leader", "ALPHA");
+        battles.ensureDragonEggBattle(1_000L, 50_000L);
+        battles.recordDragonEgg(player, 2_000L, clans);
+
+        assertTrue(battles.ensureDragonEggBattle(3_000L, 80_000L));
+        ClanBattleStore.ActiveView active = battles.active(clans).orElseThrow();
+        assertEquals(80_000L, active.endsAt());
+        assertEquals(1L, active.standings().getFirst().score());
+        assertFalse(battles.ensureDragonEggBattle(4_000L, 80_000L));
+    }
+
+    @Test
     void crateScoresFollowOnlyTheCurrentUnbrokenClanMembership() throws Exception {
         ClanStore clans = new ClanStore(directory.resolve("clans.json"));
         ClanBattleStore battles = new ClanBattleStore(directory.resolve("battles.json"));

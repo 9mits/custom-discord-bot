@@ -253,7 +253,7 @@ record SettingMetadata(
         if (key.startsWith("events.")) {
             return Group.EVENT_MULTIPLIERS;
         }
-        if (key.startsWith("pvp-duels.")) {
+        if (key.startsWith("pvp-duels.") || key.startsWith("pvp-rank-rewards.")) {
             return Group.PVP_DUELS;
         }
         if (key.startsWith("afk.") || key.startsWith("rtp.")

@@ -64,6 +64,24 @@ final class PvpRankLeaderboardTest {
                 () -> HologramService.Board.fromKey("rank"));
     }
 
+    @Test
+    void onlyTheCurrentTopThreeReceivePlacementRewards() {
+        Map<UUID, PvpRecordStore.Record> records = new LinkedHashMap<>();
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        UUID third = UUID.randomUUID();
+        UUID fourth = UUID.randomUUID();
+        records.put(first, record(900, 5, 5, 1));
+        records.put(second, record(800, 5, 5, 1));
+        records.put(third, record(700, 5, 5, 1));
+        records.put(fourth, record(600, 5, 5, 1));
+
+        assertEquals(1, PvpRankRewardService.placementOf(first, records, id -> "Player"));
+        assertEquals(2, PvpRankRewardService.placementOf(second, records, id -> "Player"));
+        assertEquals(3, PvpRankRewardService.placementOf(third, records, id -> "Player"));
+        assertEquals(0, PvpRankRewardService.placementOf(fourth, records, id -> "Player"));
+    }
+
     private static PvpRecordStore.Record record(
             long rating, long wins, long kills, long losses
     ) {

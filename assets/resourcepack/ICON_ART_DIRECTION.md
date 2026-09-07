@@ -253,3 +253,13 @@ framing, palette reduction, and the standard shading pass.
 Java assigns these images to private-use glyphs U+E800 through U+E80F through
 `build_badge_fonts.py`. The same script places the identical pixels into Bedrock's
 `font/glyph_E8.png`; never substitute a text symbol on one edition.
+
+## PvP Rank leaderboard Scythes
+
+`pvp_scythe_1`, `pvp_scythe_2`, and `pvp_scythe_3` preserve the silhouettes and
+colour themes from the three transparent item images supplied for this reward.
+They are source assets rather than generated substitutes. Always pass them through
+`import_generated_icons.py`: it trims transparent padding, fits the long axis to the
+16-cell content box, applies the shared upper-left lighting pass, caps the palette,
+and exports the 18x18 logical grid at 72x72. The placement order is cyan, violet,
+then dark silver. Java and Bedrock resolve the same three canonical PNG files.

@@ -140,7 +140,10 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         this.amethystItems = amethystItems;
         this.notifications = notifications;
         int returnedKeys = auctions.returnRestrictedListings(
-                itemData -> crateItems.isKey(decodeItem(itemData)),
+                itemData -> {
+                    ItemStack item = decodeItem(itemData);
+                    return crateItems.isKey(item) || PvpRankRewardService.isRewardScythe(item);
+                },
                 System.currentTimeMillis()
         );
         if (returnedKeys > 0) {
@@ -1621,6 +1624,11 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         if (crateItems.isKey(held)) {
             throw new IllegalArgumentException(
                     "Crate keys cannot be sold."
+            );
+        }
+        if (PvpRankRewardService.isRewardScythe(held)) {
+            throw new IllegalArgumentException(
+                    "PvP leaderboard Scythes cannot be listed in the auction house."
             );
         }
         Sold sold = sellStacks(player, List.of(held));
