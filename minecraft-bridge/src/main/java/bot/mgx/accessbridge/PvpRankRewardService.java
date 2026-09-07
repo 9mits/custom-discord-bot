@@ -244,7 +244,7 @@ final class PvpRankRewardService implements Listener {
                 line("#" + placement + " on the PvP Rank leaderboard", NamedTextColor.WHITE),
                 line("+" + oneDecimal(bonusDamage(placement))
                         + " damage beyond a maxed Netherite Sword", NamedTextColor.GRAY),
-                line("Wide themed sweep and exclusive kill climax", NamedTextColor.GRAY),
+                line("Heavy themed sweep and exclusive kill climax", NamedTextColor.GRAY),
                 Component.empty(),
                 line("Available only while you hold this placement", NamedTextColor.YELLOW),
                 line("Cannot be dropped, stored, traded, or listed", NamedTextColor.RED)
@@ -400,21 +400,31 @@ final class PvpRankRewardService implements Listener {
         List<Player> viewers = viewers(owner);
         for (int point = 0; point < count; point++) {
             double progress = count == 1 ? 0.5d : point / (double) (count - 1);
-            double angle = Math.toRadians(-105d + progress * 210d);
+            double angle = Math.toRadians(-120d + progress * 240d);
             Vector ray = forward.clone().rotateAroundY(angle);
-            Location at = eye.clone().add(ray.multiply(radius * (0.72d + 0.28d * Math.sin(progress * Math.PI))))
-                    .add(0d, -0.42d + Math.sin(progress * Math.PI) * 0.35d, 0d);
+            double curve = Math.sin(progress * Math.PI);
+            Location at = eye.clone().add(ray.clone().multiply(radius * (0.70d + 0.30d * curve)))
+                    .add(0d, -0.52d + curve * 0.48d, 0d);
+            Location inner = eye.clone().add(ray.multiply(radius * (0.48d + 0.20d * curve)))
+                    .add(0d, -0.43d + curve * 0.33d, 0d);
             for (Player viewer : viewers) {
                 viewer.spawnParticle(Particle.DUST, at, 1, 0d, 0d, 0d, 0d,
                         point % 3 == 0 ? secondary : primary);
-                if (point % 7 == 0) viewer.spawnParticle(Particle.SWEEP_ATTACK, at, 1);
+                if (point % 2 == 0) {
+                    viewer.spawnParticle(Particle.DUST, inner, 1, 0d, 0d, 0d, 0d, secondary);
+                }
+                if (point % 4 == 0) viewer.spawnParticle(Particle.CRIT, at, 1,
+                        0.03d, 0.03d, 0.03d, 0.01d);
+                if (point % 5 == 0) viewer.spawnParticle(Particle.SWEEP_ATTACK, at, 1);
             }
         }
-        play(viewers, eye, Sound.ENTITY_PLAYER_ATTACK_SWEEP, 1.0f, switch (placement) {
+        float pitch = switch (placement) {
             case 1 -> 1.35f;
             case 2 -> 0.85f;
             default -> 0.62f;
-        });
+        };
+        play(viewers, eye, Sound.ENTITY_PLAYER_ATTACK_SWEEP, 1.0f, pitch);
+        play(viewers, eye, Sound.ENTITY_PLAYER_ATTACK_STRONG, 0.42f, pitch * 0.9f);
     }
 
     private void animateKill(Player owner, Location centre, int placement) {

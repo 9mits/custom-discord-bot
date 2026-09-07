@@ -140,17 +140,16 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     // Kept off the middle of the bottom row, which every board gives to Back. A
     // Send Challenge tile written to slot 22 of a 27-slot board was drawn over by
     // Back and could never be pressed, so a challenge could not be sent at all.
-    static final int SETUP_MONEY_SLOT = 11;
-    static final int SETUP_ITEMS_SLOT = 13;
-    static final int SETUP_COSMETICS_SLOT = 15;
-    static final int SETUP_CLEAR_SLOT = 21;
-    static final int SETUP_SEND_SLOT = 23;
-    static final int ACCEPT_OFFER_SLOT = 10;
-    static final int ACCEPT_MONEY_SLOT = 12;
-    static final int ACCEPT_ITEMS_SLOT = 14;
-    static final int ACCEPT_COSMETICS_SLOT = 16;
-    static final int ACCEPT_DECLINE_SLOT = 21;
-    static final int ACCEPT_CONFIRM_SLOT = 23;
+    static final int SETUP_SEND_SLOT = 11;
+    static final int SETUP_WAGER_SLOT = 15;
+    static final int WAGER_MONEY_SLOT = 10;
+    static final int WAGER_ITEMS_SLOT = 12;
+    static final int WAGER_COSMETICS_SLOT = 14;
+    static final int WAGER_CLEAR_SLOT = 16;
+    static final int WAGER_DONE_SLOT = 23;
+    static final int ACCEPT_CONFIRM_SLOT = 11;
+    static final int ACCEPT_WAGER_SLOT = 13;
+    static final int ACCEPT_DECLINE_SLOT = 15;
     static final int SETUP_BOARD_SIZE = 27;
     /** Where the result board stops showing gains and starts showing losses. */
     private static final int RESULT_HALF = 18;
@@ -176,8 +175,8 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
      */
     private enum Phase { COUNTDOWN, FIGHTING, AFTERMATH, ENDING }
     private enum Board {
-        HUB, TARGETS, SETUP, SETUP_ITEMS, SETUP_COSMETICS,
-        INCOMING, ACCEPT, ACCEPT_ITEMS, ACCEPT_COSMETICS, LIVE, RANK, RESULT
+        HUB, TARGETS, SETUP, SETUP_WAGER, SETUP_ITEMS, SETUP_COSMETICS,
+        INCOMING, ACCEPT, ACCEPT_WAGER, ACCEPT_ITEMS, ACCEPT_COSMETICS, LIVE, RANK, RESULT
     }
     private enum Prompt { MONEY }
 
@@ -579,7 +578,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 Screens.button("item/nether_star", "Rank Leaderboard",
                         "See the highest PvP ranks.", this::openRankLeaderboard),
                 Screens.button("item/book", "How It Works",
-                        "The rules, in full, before you stake anything.", this::openRules)
+                        "See the fight rules.", this::openRules)
         );
         PvpRecordStore.Record standing = duelRecords.of(player.getUniqueId());
         Screens.show(player, "PvP", List.of(
@@ -699,8 +698,8 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private String hubBody() {
-        return "Fight anywhere. KEEP INVENTORY is always on, so you never drop a thing.\n"
-                + "The winner takes both stakes and a trophy head.";
+        return "Challenge another player in a private ranked fight.\n"
+                + "KEEP INVENTORY is always on, and you return when it ends.";
     }
 
     /**
@@ -712,10 +711,6 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
      */
     private void openRules(Player player) {
         List<String[]> rules = List.of(
-                new String[] {"item/gold_ingot", "Stakes",
-                        "Both fighters put up the same cash."},
-                new String[] {"item/shulker_shell", "Extras",
-                        "Items and cosmetics are yours alone to add."},
                 new String[] {"item/totem_of_undying", "Keep Inventory",
                         "You drop nothing. Your levels stay."},
                 new String[] {"item/map", "The Ring",
@@ -731,11 +726,13 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 new String[] {"item/clock_00", "The Clock",
                         durationMinutes() + " minutes, then it is a draw."},
                 new String[] {"item/golden_apple", "Winning",
-                        "Both stakes, plus a trophy head."},
+                        "Wins raise your PvP rating and award a trophy head."},
                 new String[] {"item/barrier", "Giving Up",
-                        "/pvp, or logging out. They take everything."},
+                        "/pvp, or logging out. Your opponent wins."},
                 new String[] {"item/spyglass", "Spectators",
-                        "Frozen, silent, and unable to interfere."}
+                        "Frozen, silent, and unable to interfere."},
+                new String[] {"item/gold_ingot", "Optional Wager",
+                        "Leave it empty to fight for free, or add money, items, or cosmetics."}
         );
         if (!clientSupport.supportsDialogs(player)) {
             StringBuilder text = new StringBuilder();
@@ -806,17 +803,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         openSetupScreen(challenger, target, draft);
     }
 
-    /**
-     * The challenge screen: cash is a field on it, and only items and cosmetics
-     * open a chest.
-     *
-     * <p>Money is a number, not a stack, so making the player leave the menu and type
-     * it into chat was asking a container to do a text box's job. A dialog has the box,
-     * and reads it back on whichever button the player presses — including the two that
-     * navigate away — so an amount typed before "Items" is still staked afterwards.
-     * Bedrock cannot draw a dialog and gets the same field as its own form; only a
-     * client with neither falls back to the chest and the chat prompt.
-     */
+    /** The normal path is one click; wagering stays behind its own optional screen. */
     private void openSetupScreen(Player player, Player target, DuelDraft draft) {
         openSetupScreen(player, target, draft, null);
     }
@@ -825,7 +812,53 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             Player player, Player target, DuelDraft draft, String problem
     ) {
         UUID targetId = target.getUniqueId();
-        String body = setupBody(player, draft, problem);
+        String body = setupBody(draft, problem);
+        if (!clientSupport.supportsDialogs(player)) {
+            List<BedrockForms.Button> buttons = List.of(
+                    new BedrockForms.Button("Send Challenge", () -> reopenSetup(
+                            player, targetId, sendChallenge(player, targetId, draft))),
+                    new BedrockForms.Button("Optional Wager", () ->
+                            openWagerSetupScreen(player, target, draft, null))
+            );
+            if (!forms.menu(player, "Fight " + target.getName(), body, buttons,
+                    this::openTargets)) {
+                openChestSetup(player, target, draft);
+            }
+            return;
+        }
+        List<ActionButton> buttons = List.of(
+                Screens.button("item/diamond_sword", "Send Challenge",
+                        "Start a ranked fight. No wager is required.",
+                        viewer -> reopenSetup(viewer, targetId,
+                                sendChallenge(viewer, targetId, draft))),
+                Screens.button("item/gold_ingot", "Optional Wager",
+                        "Add money, items, or cosmetics if you want.",
+                        viewer -> openWagerSetupScreen(viewer, target, draft, null))
+        );
+        Screens.show(player, "Fight " + target.getName(), Screens.body(body), buttons, 2,
+                this::openTargets);
+    }
+
+    private String setupBody(DuelDraft draft, String problem) {
+        PvpRecordStore.Record theirs = duelRecords.of(draft.subject);
+        return (problem == null ? "" : problem + "\n")
+                + "They are " + theirs.rank().display() + " on " + theirs.rating() + " RP."
+                + "\nKEEP INVENTORY is always on."
+                + (hasWager(draft)
+                        ? "\nOptional wager: " + stakeSummary(
+                                draft.money, draft.items.size(), draft.cosmetics.size())
+                        : "\nNo wager is required.");
+    }
+
+    /** Money and prize controls only appear after the player asks for them. */
+    private void openWagerSetupScreen(
+            Player player, Player target, DuelDraft draft, String problem
+    ) {
+        String body = (problem == null ? "" : problem + "\n")
+                + "Optional wager — leave every field empty to fight for free."
+                + "\nYour wallet: " + EconomyFormat.dollars(economy.balance(player.getUniqueId()))
+                + "\nCurrently: " + stakeSummary(
+                        draft.money, draft.items.size(), draft.cosmetics.size());
         if (!clientSupport.supportsDialogs(player)) {
             List<BedrockForms.Button> buttons = List.of(
                     new BedrockForms.Button("Money: " + EconomyFormat.dollars(draft.money),
@@ -836,54 +869,51 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                             () -> openCosmeticWager(player, draft, false)),
                     new BedrockForms.Button("Clear Wager", () -> {
                         clearWager(draft);
-                        reopenSetup(player, targetId, null);
+                        openWagerSetupScreen(player, target, draft, null);
                     }),
-                    new BedrockForms.Button("Send Challenge", () -> reopenSetup(
-                            player, targetId, sendChallenge(player, targetId, draft)))
+                    new BedrockForms.Button("Done", () -> openSetupScreen(player, target, draft))
             );
-            if (!forms.menu(player, "Fight " + target.getName(), body, buttons,
-                    this::openTargets)) {
-                openChestSetup(player, target, draft);
+            if (!forms.menu(player, "Optional Wager", body, buttons,
+                    viewer -> openSetupScreen(viewer, target, draft))) {
+                openChestWager(player, target, draft);
             }
             return;
         }
         List<ActionButton> buttons = List.of(
-                Screens.button("item/shulker_shell", "Items: " + itemCount(draft.items),
-                        "Stake real items. Opens a chest to put them in.",
+                Screens.button("item/shulker_shell", "Optional Items: " + itemCount(draft.items),
+                        "Add real items if you want.",
                         (response, viewer) -> withTypedMoney(viewer, draft, response,
                                 () -> openItemWager(viewer, draft, false))),
-                Screens.button("item/nether_star", "Cosmetics: " + draft.cosmetics.size(),
-                        "Stake cosmetics from your wardrobe.",
+                Screens.button("item/nether_star", "Optional Cosmetics: " + draft.cosmetics.size(),
+                        "Add cosmetics from your wardrobe if you want.",
                         (response, viewer) -> withTypedMoney(viewer, draft, response,
                                 () -> openCosmeticWager(viewer, draft, false))),
-                Screens.button("item/barrier", "Clear Wager", "Remove every stake.",
+                Screens.button("item/barrier", "Clear Wager", "Remove every optional stake.",
                         (response, viewer) -> {
                             clearWager(draft);
-                            reopenSetup(viewer, targetId, null);
+                            openWagerSetupScreen(viewer, target, draft, null);
                         }),
-                Screens.button("item/diamond_sword", "Send Challenge",
-                        "They see your stake and answer with their own.",
+                Screens.button("item/diamond_sword", "Done",
+                        "Return to the challenge.",
                         (response, viewer) -> withTypedMoney(viewer, draft, response,
-                                () -> reopenSetup(viewer, targetId,
-                                        sendChallenge(viewer, targetId, draft))))
+                                () -> openSetupScreen(viewer, target, draft)))
         );
-        Screens.show(player, "Fight " + target.getName(), Screens.body(body),
+        Screens.show(player, "Optional Wager", Screens.body(body),
                 List.of(DialogInput.text(MONEY_INPUT, Component.text(
-                                "Money each  (0, 500, 2.5k, 1.4m)", MenuText.LABEL))
+                                "Optional money each  (500, 2.5k, 1.4m)", MenuText.LABEL))
                         .initial(draft.money <= 0L ? "" : String.valueOf(draft.money))
                         .maxLength(20)
                         .build()),
-                buttons, 2, this::openTargets);
+                buttons, 2, viewer -> openSetupScreen(viewer, target, draft));
     }
 
-    private String setupBody(Player player, DuelDraft draft, String problem) {
-        PvpRecordStore.Record theirs = duelRecords.of(draft.subject);
-        return (problem == null ? "" : problem + "\n")
-                + "They are " + theirs.rank().display() + " on " + theirs.rating() + " RP."
-                + "\nKEEP INVENTORY is always on. The winner takes both stakes."
-                + "\nYour wallet: " + EconomyFormat.dollars(economy.balance(player.getUniqueId()))
-                + "\nStaked now: " + stakeSummary(
-                        draft.money, draft.items.size(), draft.cosmetics.size());
+    private static boolean hasWager(DuelDraft draft) {
+        return draft.money > 0L || !draft.items.isEmpty() || !draft.cosmetics.isEmpty();
+    }
+
+    private static boolean hasInvitationWager(Invitation invitation) {
+        return invitation.moneyEach() > 0L || !invitation.challengerItems().isEmpty()
+                || !invitation.challengerCosmetics().isEmpty();
     }
 
     private static void clearWager(DuelDraft draft) {
@@ -900,7 +930,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         if (problem == null) {
             next.run();
         } else {
-            reopenSetup(player, draft.subject, problem);
+            reopenWager(player, draft.subject, problem);
         }
     }
 
@@ -929,8 +959,8 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     private void openMoneyPrompt(Player player, DuelDraft draft) {
         if (forms.prompt(player, "Money Wager", "Amount each (0 for none)",
                 draft.money <= 0L ? "" : String.valueOf(draft.money),
-                typed -> reopenSetup(player, draft.subject, applyMoney(draft, typed)),
-                () -> reopenSetup(player, draft.subject, null))) {
+                typed -> reopenWager(player, draft.subject, applyMoney(draft, typed)),
+                () -> reopenWager(player, draft.subject, null))) {
             return;
         }
         prompts.put(player.getUniqueId(), Prompt.MONEY);
@@ -1019,10 +1049,12 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         }
         List<ActionButton> buttons = new ArrayList<>();
         for (Invitation invitation : incoming) {
+            boolean wager = hasInvitationWager(invitation);
             buttons.add(Screens.playerButton(invitation.challenger(),
                     name(invitation.challenger()),
-                    stakeSummary(invitation.moneyEach(), invitation.challengerItems().size(),
-                            invitation.challengerCosmetics().size()),
+                    wager ? "Optional wager: " + stakeSummary(
+                            invitation.moneyEach(), invitation.challengerItems().size(),
+                            invitation.challengerCosmetics().size()) : "Ranked fight",
                     viewer -> openInvitation(viewer, invitation)));
         }
         Screens.show(player, "Challenges", Screens.body(incoming.isEmpty()
@@ -1059,12 +1091,10 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         UUID invitationId = invitation.id();
         if (!clientSupport.supportsDialogs(player)) {
             List<BedrockForms.Button> buttons = List.of(
-                    new BedrockForms.Button("Your Items: " + itemCount(draft.items),
-                            () -> openItemWager(player, draft, true)),
-                    new BedrockForms.Button("Your Cosmetics: " + draft.cosmetics.size(),
-                            () -> openCosmeticWager(player, draft, true)),
                     new BedrockForms.Button("Accept & Fight",
                             () -> acceptWith(player, invitationId, draft)),
+                    new BedrockForms.Button("Optional Wager",
+                            () -> openAcceptWagerScreen(player, invitation, draft)),
                     new BedrockForms.Button("Decline", () -> {
                         declineByName(player, name(invitation.challenger()));
                         openIncoming(player);
@@ -1077,15 +1107,12 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             return;
         }
         List<ActionButton> buttons = List.of(
-                Screens.button("item/shulker_shell", "Your Items: " + itemCount(draft.items),
-                        "Stake real items. Opens a chest to put them in.",
-                        viewer -> openItemWager(viewer, draft, true)),
-                Screens.button("item/nether_star", "Your Cosmetics: " + draft.cosmetics.size(),
-                        "Stake cosmetics from your wardrobe.",
-                        viewer -> openCosmeticWager(viewer, draft, true)),
                 Screens.button("item/diamond_sword", "Accept & Fight",
                         "Both of you are moved to an empty part of the world.",
                         viewer -> acceptWith(viewer, invitationId, draft)),
+                Screens.button("item/gold_ingot", "Optional Wager",
+                        "Review their wager or add your own items and cosmetics.",
+                        viewer -> openAcceptWagerScreen(viewer, invitation, draft)),
                 Screens.button("item/barrier", "Decline", "Turn this challenge down.",
                         viewer -> {
                             declineByName(viewer, name(invitation.challenger()));
@@ -1096,15 +1123,58 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 Screens.body(acceptBody(invitation, draft)), buttons, 2, this::openIncoming);
     }
 
-    private String acceptBody(Invitation invitation, DuelDraft draft) {
-        PvpRecordStore.Record theirs = duelRecords.of(invitation.challenger());
-        return theirs.rank().display() + " on " + theirs.rating() + " RP.\n"
-                + "They stake " + stakeSummary(
+    private void openAcceptWagerScreen(
+            Player player, Invitation invitation, DuelDraft draft
+    ) {
+        String body = "Wagering is optional. Accepting agrees to anything the challenger added."
+                + "\nThey add: " + stakeSummary(
                         invitation.moneyEach(), invitation.challengerItems().size(),
                         invitation.challengerCosmetics().size())
-                + "\nYou stake " + stakeSummary(
+                + "\nYou add: " + stakeSummary(
+                        invitation.moneyEach(), draft.items.size(), draft.cosmetics.size());
+        if (!clientSupport.supportsDialogs(player)) {
+            List<BedrockForms.Button> buttons = List.of(
+                    new BedrockForms.Button("Optional Items: " + itemCount(draft.items),
+                            () -> openItemWager(player, draft, true)),
+                    new BedrockForms.Button("Optional Cosmetics: " + draft.cosmetics.size(),
+                            () -> openCosmeticWager(player, draft, true)),
+                    new BedrockForms.Button("Done",
+                            () -> openAcceptScreen(player, invitation, draft))
+            );
+            if (!forms.menu(player, "Optional Wager", body, buttons,
+                    viewer -> openAcceptScreen(viewer, invitation, draft))) {
+                openChestAcceptWager(player, invitation, draft);
+            }
+            return;
+        }
+        List<ActionButton> buttons = List.of(
+                Screens.button("item/shulker_shell", "Optional Items: " + itemCount(draft.items),
+                        "Add real items if you want.",
+                        viewer -> openItemWager(viewer, draft, true)),
+                Screens.button("item/nether_star", "Optional Cosmetics: " + draft.cosmetics.size(),
+                        "Add cosmetics from your wardrobe if you want.",
+                        viewer -> openCosmeticWager(viewer, draft, true)),
+                Screens.button("item/diamond_sword", "Done", "Return to the challenge.",
+                        viewer -> openAcceptScreen(viewer, invitation, draft))
+        );
+        Screens.show(player, "Optional Wager", Screens.body(body), buttons, 2,
+                viewer -> openAcceptScreen(viewer, invitation, draft));
+    }
+
+    private String acceptBody(Invitation invitation, DuelDraft draft) {
+        PvpRecordStore.Record theirs = duelRecords.of(invitation.challenger());
+        String heading = theirs.rank().display() + " on " + theirs.rating() + " RP.";
+        if (invitation.moneyEach() <= 0L && invitation.challengerItems().isEmpty()
+                && invitation.challengerCosmetics().isEmpty() && !hasWager(draft)) {
+            return heading + "\nNo wager was added. This is a normal ranked fight.";
+        }
+        return heading + "\nOptional wager:"
+                + "\nThey add " + stakeSummary(
+                        invitation.moneyEach(), invitation.challengerItems().size(),
+                        invitation.challengerCosmetics().size())
+                + "\nYou add " + stakeSummary(
                         invitation.moneyEach(), draft.items.size(), draft.cosmetics.size())
-                + "\nThe cash is matched. The winner takes both stakes.";
+                + "\nThe winner receives what both players chose to add.";
     }
 
     /** Accepts the invitation as it stands right now, not as it looked when drawn. */
@@ -2359,16 +2429,31 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     private void openChestSetup(Player player, Player target, DuelDraft draft) {
         DuelBoard holder = board(Board.SETUP, target.getUniqueId(), SETUP_BOARD_SIZE,
                 "Fight " + target.getName());
-        holder.inventory.setItem(SETUP_MONEY_SLOT, MenuItems.button(Material.GOLD_INGOT,
-                "Money: " + EconomyFormat.dollars(draft.money), "Staked by each player."));
-        holder.inventory.setItem(SETUP_ITEMS_SLOT, MenuItems.button(Material.CHEST,
-                "Items: " + itemCount(draft.items), "Add any items."));
-        holder.inventory.setItem(SETUP_COSMETICS_SLOT, MenuItems.button(Material.NETHER_STAR,
-                "Cosmetics: " + draft.cosmetics.size(), "Choose from your wardrobe."));
-        holder.inventory.setItem(SETUP_CLEAR_SLOT, MenuItems.button(Material.BARRIER,
-                "Clear Wager", "Remove all stakes."));
         holder.inventory.setItem(SETUP_SEND_SLOT, MenuItems.button(Material.DIAMOND_SWORD,
-                "Send Challenge", "KEEP INVENTORY"));
+                "Send Challenge", "KEEP INVENTORY", "No wager is required."));
+        holder.inventory.setItem(SETUP_WAGER_SLOT, MenuItems.button(Material.GOLD_INGOT,
+                "Optional Wager", hasWager(draft)
+                        ? stakeSummary(draft.money, draft.items.size(), draft.cosmetics.size())
+                        : "Add money, items, or cosmetics if you want."));
+        MenuItems.back(holder.inventory);
+        MenuItems.show(plugin, player, holder.inventory);
+    }
+
+    private void openChestWager(Player player, Player target, DuelDraft draft) {
+        DuelBoard holder = board(Board.SETUP_WAGER, target.getUniqueId(), SETUP_BOARD_SIZE,
+                "Optional Wager");
+        holder.inventory.setItem(WAGER_MONEY_SLOT, MenuItems.button(Material.GOLD_INGOT,
+                "Optional Money: " + EconomyFormat.dollars(draft.money),
+                "Amount staked by each player."));
+        holder.inventory.setItem(WAGER_ITEMS_SLOT, MenuItems.button(Material.CHEST,
+                "Optional Items: " + itemCount(draft.items), "Add any items if you want."));
+        holder.inventory.setItem(WAGER_COSMETICS_SLOT, MenuItems.button(Material.NETHER_STAR,
+                "Optional Cosmetics: " + draft.cosmetics.size(),
+                "Choose from your wardrobe if you want."));
+        holder.inventory.setItem(WAGER_CLEAR_SLOT, MenuItems.button(Material.BARRIER,
+                "Clear Wager", "Remove all optional stakes."));
+        holder.inventory.setItem(WAGER_DONE_SLOT, MenuItems.button(Material.DIAMOND_SWORD,
+                "Done", "Return to the challenge."));
         MenuItems.back(holder.inventory);
         MenuItems.show(plugin, player, holder.inventory);
     }
@@ -2422,8 +2507,11 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             Invitation invite = incoming.get(slot);
             holder.inventory.setItem(slot, MenuItems.head(
                     invite.challenger(), name(invite.challenger()), List.of(
-                            stakeSummary(invite.moneyEach(), invite.challengerItems().size(),
-                                    invite.challengerCosmetics().size()))));
+                            hasInvitationWager(invite)
+                                    ? "Optional wager: " + stakeSummary(
+                                            invite.moneyEach(), invite.challengerItems().size(),
+                                            invite.challengerCosmetics().size())
+                                    : "Ranked fight")));
             holder.choices.put(slot, invite.id());
         }
         MenuItems.back(holder.inventory);
@@ -2433,20 +2521,32 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     private void openChestAccept(Player player, Invitation invitation, DuelDraft draft) {
         DuelBoard holder = board(Board.ACCEPT, invitation.id(), SETUP_BOARD_SIZE,
                 "Fight " + name(invitation.challenger()) + "?");
-        holder.inventory.setItem(ACCEPT_OFFER_SLOT, MenuItems.button(Material.PLAYER_HEAD,
-                name(invitation.challenger()) + " Offers",
-                stakeLines(invitation.moneyEach(), invitation.challengerItems(),
-                        invitation.challengerCosmetics())));
-        holder.inventory.setItem(ACCEPT_MONEY_SLOT, MenuItems.button(Material.GOLD_INGOT,
-                "Money: " + EconomyFormat.dollars(invitation.moneyEach()), "Staked by each player."));
-        holder.inventory.setItem(ACCEPT_ITEMS_SLOT, MenuItems.button(Material.CHEST,
-                "Your Items: " + itemCount(draft.items), "Add any items."));
-        holder.inventory.setItem(ACCEPT_COSMETICS_SLOT, MenuItems.button(Material.NETHER_STAR,
-                "Your Cosmetics: " + draft.cosmetics.size(), "Choose from your wardrobe."));
-        holder.inventory.setItem(ACCEPT_DECLINE_SLOT, MenuItems.button(
-                Material.RED_CONCRETE, "Decline"));
         holder.inventory.setItem(ACCEPT_CONFIRM_SLOT, MenuItems.button(Material.LIME_CONCRETE,
                 "Accept & Fight", "KEEP INVENTORY"));
+        holder.inventory.setItem(ACCEPT_WAGER_SLOT, MenuItems.button(Material.GOLD_INGOT,
+                "Optional Wager", hasInvitationWager(invitation) || hasWager(draft)
+                        ? "Review what either player chose to add."
+                        : "Add items or cosmetics if you want."));
+        holder.inventory.setItem(ACCEPT_DECLINE_SLOT, MenuItems.button(
+                Material.RED_CONCRETE, "Decline"));
+        MenuItems.back(holder.inventory);
+        MenuItems.show(plugin, player, holder.inventory);
+    }
+
+    private void openChestAcceptWager(Player player, Invitation invitation, DuelDraft draft) {
+        DuelBoard holder = board(Board.ACCEPT_WAGER, invitation.id(), SETUP_BOARD_SIZE,
+                "Optional Wager");
+        holder.inventory.setItem(WAGER_MONEY_SLOT, MenuItems.button(Material.PLAYER_HEAD,
+                name(invitation.challenger()) + " Adds",
+                stakeLines(invitation.moneyEach(), invitation.challengerItems(),
+                        invitation.challengerCosmetics())));
+        holder.inventory.setItem(WAGER_ITEMS_SLOT, MenuItems.button(Material.CHEST,
+                "Optional Items: " + itemCount(draft.items), "Add any items if you want."));
+        holder.inventory.setItem(WAGER_COSMETICS_SLOT, MenuItems.button(Material.NETHER_STAR,
+                "Optional Cosmetics: " + draft.cosmetics.size(),
+                "Choose from your wardrobe if you want."));
+        holder.inventory.setItem(WAGER_DONE_SLOT, MenuItems.button(Material.DIAMOND_SWORD,
+                "Done", "Return to the challenge."));
         MenuItems.back(holder.inventory);
         MenuItems.show(plugin, player, holder.inventory);
     }
@@ -2518,9 +2618,11 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             Consumer<Player> destination = switch (holder.board) {
                 case HUB -> Screens::home;
                 case SETUP -> this::openTargets;
+                case SETUP_WAGER -> viewer -> reopenSetup(viewer, holder.subject);
                 case ACCEPT -> this::openIncoming;
-                case SETUP_ITEMS, SETUP_COSMETICS -> viewer -> reopenSetup(viewer, holder.subject);
-                case ACCEPT_ITEMS, ACCEPT_COSMETICS -> viewer -> reopenAccept(viewer, holder.subject);
+                case ACCEPT_WAGER -> viewer -> reopenAccept(viewer, holder.subject);
+                case SETUP_ITEMS, SETUP_COSMETICS -> viewer -> reopenWager(viewer, holder.subject, null);
+                case ACCEPT_ITEMS, ACCEPT_COSMETICS -> viewer -> reopenAcceptWager(viewer, holder.subject);
                 default -> this::openHub;
             };
             runLater(player, destination);
@@ -2542,6 +2644,10 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 });
             }
             case SETUP -> runLater(player, viewer -> chestSetupClick(viewer, holder.subject, slot));
+            case SETUP_WAGER -> runLater(player,
+                    viewer -> chestWagerClick(viewer, holder.subject, slot));
+            case ACCEPT_WAGER -> runLater(player,
+                    viewer -> chestAcceptWagerClick(viewer, holder.subject, slot));
             case SETUP_ITEMS, ACCEPT_ITEMS -> {
                 DuelDraft draft = holder.board == Board.SETUP_ITEMS
                         ? setupDrafts.get(player.getUniqueId())
@@ -2552,8 +2658,8 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                     draft.items = depositedItems(holder.inventory);
                     returnDeposits(player, holder);
                     runLater(player, viewer -> {
-                        if (accepting) reopenAccept(viewer, draft.subject);
-                        else reopenSetup(viewer, draft.subject);
+                        if (accepting) reopenAcceptWager(viewer, draft.subject);
+                        else reopenWager(viewer, draft.subject, null);
                     });
                 } else if (slot == 50) {
                     draft.items = new ArrayList<>();
@@ -2591,12 +2697,10 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                     draft = new DuelDraft(invite.id());
                     acceptDrafts.put(viewer.getUniqueId(), draft);
                 }
-                if (slot == ACCEPT_ITEMS_SLOT) {
-                    openItemWager(viewer, draft, true);
-                } else if (slot == ACCEPT_COSMETICS_SLOT) {
-                    openCosmeticWager(viewer, draft, true);
-                } else if (slot == ACCEPT_CONFIRM_SLOT) {
+                if (slot == ACCEPT_CONFIRM_SLOT) {
                     acceptWith(viewer, invite.id(), draft);
+                } else if (slot == ACCEPT_WAGER_SLOT) {
+                    openChestAcceptWager(viewer, invite, draft);
                 } else if (slot == ACCEPT_DECLINE_SLOT) {
                     declineByName(viewer, name(invite.challenger()));
                 }
@@ -2648,17 +2752,49 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         }
         DuelDraft draft = setupDrafts.computeIfAbsent(
                 player.getUniqueId(), ignored -> new DuelDraft(targetId));
-        if (slot == SETUP_MONEY_SLOT) {
-            openMoneyPrompt(player, draft);
-        } else if (slot == SETUP_ITEMS_SLOT) {
-            openItemWager(player, draft, false);
-        } else if (slot == SETUP_COSMETICS_SLOT) {
-            openCosmeticWager(player, draft, false);
-        } else if (slot == SETUP_CLEAR_SLOT) {
-            clearWager(draft);
-            openChestSetup(player, target, draft);
-        } else if (slot == SETUP_SEND_SLOT) {
+        if (slot == SETUP_SEND_SLOT) {
             reopenSetup(player, targetId, sendChallenge(player, targetId, draft));
+        } else if (slot == SETUP_WAGER_SLOT) {
+            openChestWager(player, target, draft);
+        }
+    }
+
+    private void chestWagerClick(Player player, UUID targetId, int slot) {
+        Player target = Bukkit.getPlayer(targetId);
+        if (target == null) {
+            error(player, "They went offline.");
+            return;
+        }
+        DuelDraft draft = setupDrafts.computeIfAbsent(
+                player.getUniqueId(), ignored -> new DuelDraft(targetId));
+        if (slot == WAGER_MONEY_SLOT) {
+            openMoneyPrompt(player, draft);
+        } else if (slot == WAGER_ITEMS_SLOT) {
+            openItemWager(player, draft, false);
+        } else if (slot == WAGER_COSMETICS_SLOT) {
+            openCosmeticWager(player, draft, false);
+        } else if (slot == WAGER_CLEAR_SLOT) {
+            clearWager(draft);
+            openChestWager(player, target, draft);
+        } else if (slot == WAGER_DONE_SLOT) {
+            openChestSetup(player, target, draft);
+        }
+    }
+
+    private void chestAcceptWagerClick(Player player, UUID invitationId, int slot) {
+        Invitation invitation = invitations.get(invitationId);
+        DuelDraft draft = acceptDrafts.get(player.getUniqueId());
+        if (invitation == null || draft == null || !draft.subject.equals(invitationId)) {
+            error(player, "That challenge expired.");
+            openIncoming(player);
+            return;
+        }
+        if (slot == WAGER_ITEMS_SLOT) {
+            openItemWager(player, draft, true);
+        } else if (slot == WAGER_COSMETICS_SLOT) {
+            openCosmeticWager(player, draft, true);
+        } else if (slot == WAGER_DONE_SLOT) {
+            openChestAccept(player, invitation, draft);
         }
     }
 
@@ -2685,7 +2821,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         DuelDraft draft = setupDrafts.get(player.getUniqueId());
         if (draft == null || typed.equalsIgnoreCase("cancel")) {
             prompts.remove(player.getUniqueId());
-            if (draft != null) reopenSetup(player, draft.subject);
+            if (draft != null) reopenWager(player, draft.subject, null);
             return;
         }
         String problem = applyMoney(draft, typed);
@@ -2695,7 +2831,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             return;
         }
         prompts.remove(player.getUniqueId());
-        reopenSetup(player, draft.subject);
+        reopenWager(player, draft.subject, null);
     }
 
     /** Keeps arranged fights isolated while ordinary PvP follows the server toggle. */
@@ -3979,6 +4115,19 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         openSetupScreen(player, target, draft, problem);
     }
 
+    private void reopenWager(Player player, UUID targetId, String problem) {
+        Player target = Bukkit.getPlayer(targetId);
+        DuelDraft draft = setupDrafts.get(player.getUniqueId());
+        if (draft == null) return;
+        if (problem != null) error(player, problem);
+        if (target == null || !draft.subject.equals(targetId)) {
+            error(player, "That player is no longer available.");
+            openTargets(player);
+            return;
+        }
+        openWagerSetupScreen(player, target, draft, problem);
+    }
+
     private void reopenAccept(Player player, UUID invitationId) {
         Invitation invitation = invitations.get(invitationId);
         if (invitation == null) {
@@ -3987,6 +4136,17 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             return;
         }
         openInvitation(player, invitation);
+    }
+
+    private void reopenAcceptWager(Player player, UUID invitationId) {
+        Invitation invitation = invitations.get(invitationId);
+        DuelDraft draft = acceptDrafts.get(player.getUniqueId());
+        if (invitation == null || draft == null || !draft.subject.equals(invitationId)) {
+            error(player, "That challenge expired.");
+            openIncoming(player);
+            return;
+        }
+        openAcceptWagerScreen(player, invitation, draft);
     }
 
     private static String itemName(ItemStack item) {

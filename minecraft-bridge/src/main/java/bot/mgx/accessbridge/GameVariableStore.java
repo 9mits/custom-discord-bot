@@ -1105,14 +1105,14 @@ final class GameVariableStore {
                 "PvP Rank Rewards", "Damage added beyond a Sharpness V Netherite Sword.",
                 0.5, 0.0, 10.0, "damage");
         decimal("pvp-rank-rewards.sweep-radius", "Scythe sweep radius",
-                "PvP Rank Rewards", "Visual radius of a leaderboard Scythe swing.",
-                3.25, 0.5, 12.0, "blocks");
+                "PvP Rank Rewards", "Visual radius of the two-layer leaderboard Scythe swing.",
+                3.75, 0.5, 12.0, "blocks");
         integer("pvp-rank-rewards.sweep-particles", "Scythe sweep particles",
-                "PvP Rank Rewards", "Colored particles drawn across each Scythe swing.",
+                "PvP Rank Rewards", "Points drawn across each layer of a Scythe swing.",
                 25, 3, 100, "particles", false);
         integer("pvp-rank-rewards.sweep-cooldown-ms", "Scythe sweep effect cooldown",
-                "PvP Rank Rewards", "Minimum time between visual swing effects.",
-                225, 0, 5_000, "milliseconds", false);
+                "PvP Rank Rewards", "Minimum time between visual swing effects to limit spam.",
+                300, 0, 5_000, "milliseconds", false);
         integer("pvp-rank-rewards.kill-effect-frames", "Scythe kill effect length",
                 "PvP Rank Rewards", "Two-tick animation frames in each Scythe kill climax.",
                 24, 4, 100, "frames", false);
