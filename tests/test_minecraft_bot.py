@@ -2446,16 +2446,11 @@ class MinecraftInformationPanelTests(unittest.TestCase):
             with self.subTest(level=level):
                 self.assertEqual(expected, clans.cost_of(level))
 
-        badges = re.search(r"BADGES = Map\.of\((.*?)\n    \);", source, re.S)
-        self.assertIsNotNone(badges, "BADGES vanished from ClanLevel")
-        drawn = {
-            int(level): glyph
-            for level, glyph in re.findall(r'\n\s+(\d+), "(.*?)"', badges.group(1))
-        }
-        self.assertEqual(clans.MAX_PUBLIC_LEVEL + 1, len(drawn), "the badge table changed shape")
-        for level, glyph in drawn.items():
-            with self.subTest(badge=level):
-                self.assertEqual(glyph, clans.badge(level))
+        self.assertIn(
+            "return BadgeIcons.clanLevel(clamp(level));",
+            source,
+            "ClanLevel no longer routes its in-game badge through the custom font catalog",
+        )
 
         starting = re.search(r"STARTING_MEMBER_SLOTS = (\d+);", source)
         self.assertIsNotNone(starting, "STARTING_MEMBER_SLOTS vanished from ClanLevel")

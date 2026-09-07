@@ -723,7 +723,8 @@ final class ClanDialogService {
                 .filter(id -> Bukkit.getPlayer(id) != null).count();
         String allies = clan.allyNames().isEmpty()
                 ? "None" : String.join(", ", clan.allyNames());
-        String medals = ClanTag.plainMedals(clanBattles.badges(clan.id())).strip();
+        ClanBattleStore.Badges battleBadges = clanBattles.badges(clan.id());
+        String medals = ClanTag.plainMedals(battleBadges).strip();
 
         if (!clientSupport.supportsDialogs(player)) {
             List<BedrockForms.Button> buttons = new ArrayList<>();
@@ -764,10 +765,15 @@ final class ClanDialogService {
                 DialogBody.plainMessage(MenuText.stat("Clan icon",
                         ClanIcon.resolve(clan.icon()).sprite(),
                         ClanIcon.resolve(clan.icon()).label()), 400),
-                DialogBody.plainMessage(MenuText.stat("Level", "item/nether_star",
-                        clan.level() == 0 ? "Unranked" : String.valueOf(clan.level())), 400),
-                DialogBody.plainMessage(MenuText.stat("Battle medals", "item/gold_ingot",
-                        medals.isBlank() ? "none" : medals), 400),
+                DialogBody.plainMessage(clan.level() == 0
+                        ? MenuText.stat("Level", "Unranked")
+                        : MenuText.stat("Level",
+                                BadgeIcons.glyph(ClanLevel.badge(clan.level())),
+                                String.valueOf(clan.level())), 400),
+                DialogBody.plainMessage(battleBadges.empty()
+                        ? MenuText.stat("Battle badges", "none")
+                        : Component.text("Battle badges: ", MenuText.MUTED)
+                                .append(ClanTag.medals(battleBadges)), 400),
                 DialogBody.plainMessage(MenuText.stat("Treasury", "block/gold_block",
                         EconomyFormat.dollars(clan.balance())), 400),
                 DialogBody.plainMessage(MenuText.stat("Members", "item/iron_chestplate",

@@ -375,23 +375,6 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 clanBattleStore
         );
         GuideService guideService = new GuideService(playerMenuService);
-        sidebarService = new SidebarService(
-                this,
-                perkService,
-                clanStore,
-                identityService,
-                playerSettings,
-                economyStore,
-                clanBattleStore,
-                bridgeConfig.scoreboardFooter(),
-                bridgeConfig.scoreboardUpdateTicks()
-        );
-        bridgeClient = new BridgeClient(
-                this, bridgeConfig, pending, processed, verificationEvents, verifiedAccounts, networkExecutor
-        );
-        gameVariables.onChange(this::scheduleGameVariableBroadcast);
-        verificationLobby = new VerificationLobbyService(this, bridgeClient);
-        chatRelayService = new ChatRelayService(bridgeClient, playerSettings);
         try {
             pvpRecords = new PvpRecordStore(
                     getDataFolder().toPath().resolve("pvp-records.json"));
@@ -401,6 +384,24 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
+        sidebarService = new SidebarService(
+                this,
+                perkService,
+                clanStore,
+                identityService,
+                playerSettings,
+                economyStore,
+                clanBattleStore,
+                pvpRecords,
+                bridgeConfig.scoreboardFooter(),
+                bridgeConfig.scoreboardUpdateTicks()
+        );
+        bridgeClient = new BridgeClient(
+                this, bridgeConfig, pending, processed, verificationEvents, verifiedAccounts, networkExecutor
+        );
+        gameVariables.onChange(this::scheduleGameVariableBroadcast);
+        verificationLobby = new VerificationLobbyService(this, bridgeClient);
+        chatRelayService = new ChatRelayService(bridgeClient, playerSettings);
         // Statistics live beside the main world, which is where the server writes them.
         PlayerStatsService statsService = new PlayerStatsService(
                 this,
@@ -430,7 +431,6 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         pvpRecords.onChange(leaderboardService::refreshSoon);
         amethystProgress.onChange(leaderboardService::refreshSoon);
         clanBattleStore.onChange(leaderboardService::refreshSoon);
-        sidebarService.useLeaderboardService(leaderboardService);
         getServer().getPluginManager().registerEvents(verificationLobby, this);
         getServer().getPluginManager().registerEvents(this, this);
         getServer().getPluginManager().registerEvents(

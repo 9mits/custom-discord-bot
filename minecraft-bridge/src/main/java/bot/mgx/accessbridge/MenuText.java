@@ -81,6 +81,13 @@ final class MenuText {
                 .append(Component.text(" " + value, VALUE, TextDecoration.BOLD)));
     }
 
+    /** {@code Label: [custom glyph] value}, preserving the glyph's own texture colours. */
+    static Component stat(String label, Component icon, String value) {
+        return upright(Component.text(label + ": ", MUTED)
+                .append(icon)
+                .append(Component.text(" " + value, VALUE, TextDecoration.BOLD)));
+    }
+
     /**
      * One scannable line: icon, a heading that carries the point, then the detail.
      *

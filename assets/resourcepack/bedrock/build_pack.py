@@ -7,10 +7,13 @@ import hashlib
 import json
 import pathlib
 import zipfile
+import sys
 
 
 BEDROCK = pathlib.Path(__file__).resolve().parent
 RESOURCE_PACK = BEDROCK.parent
+sys.path.insert(0, str(RESOURCE_PACK))
+import build_badge_fonts  # noqa: E402
 JAVA_SOURCE = RESOURCE_PACK / "src"
 CATALOG = BEDROCK / "catalog.json"
 MAPPINGS = BEDROCK / "mgx_items.json"
@@ -62,6 +65,10 @@ def source_version(items: list[dict]) -> list[int]:
     for music in MUSIC_FILES.values():
         digest.update(music.read_bytes())
     digest.update(JAVA_SOUNDS.read_bytes())
+    digest.update(build_badge_fonts.CATALOG.read_bytes())
+    for name, data in sorted(build_badge_fonts.bedrock_files().items()):
+        digest.update(name.encode("utf-8"))
+        digest.update(data)
     raw = digest.digest()
     return [int.from_bytes(raw[index:index + 2], "big") or 1 for index in (0, 2, 4)]
 
@@ -85,7 +92,7 @@ def main() -> None:
     identifiers: set[str] = set()
     mappings: dict[str, list[dict]] = {}
     texture_data: dict[str, dict] = {}
-    pack_files: dict[str, bytes] = {}
+    pack_files: dict[str, bytes] = build_badge_fonts.bedrock_files()
 
     for item in items:
         model = item["model"]

@@ -92,24 +92,6 @@ final class ClanLevel {
     record MemberTier(int slots, Cost cost) {
     }
 
-    private static final Map<Integer, String> BADGES = Map.of(
-            0, "",
-            1, "★",
-            2, "★",
-            3, "★",
-            4, "★",
-            5, "★"
-    );
-
-    private static final Map<Integer, Integer> BADGE_COLORS = Map.of(
-            0, 0xFFFFFF,
-            1, 0xAAAAAA,
-            2, 0x55FF55,
-            3, 0x55FFFF,
-            4, 0xFFAA00,
-            5, 0xFF55FF
-    );
-
     private ClanLevel() {
     }
 
@@ -122,11 +104,7 @@ final class ClanLevel {
     }
 
     static String badge(int level) {
-        return BADGES.getOrDefault(clamp(level), "");
-    }
-
-    static int badgeColor(int level) {
-        return BADGE_COLORS.getOrDefault(clamp(level), 0xFFFFFF);
+        return BadgeIcons.clanLevel(clamp(level));
     }
 
     static boolean isValid(int level) {

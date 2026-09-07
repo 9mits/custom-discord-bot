@@ -491,7 +491,11 @@ final class LeaderboardService {
             row.addProperty("level", standing.level());
             row.addProperty("value", standing.score());
             row.addProperty("display", String.format("%,d openings", standing.score()));
-            row.addProperty("badges", clanBattles.badges(standing.clanId()).compact());
+            ClanBattleStore.Badges badges = clanBattles.badges(standing.clanId());
+            row.addProperty("badges", badges.compact());
+            row.addProperty("badge_gold", badges.gold());
+            row.addProperty("badge_silver", badges.silver());
+            row.addProperty("badge_bronze", badges.bronze());
             rows.add(row);
         }
         return rows;

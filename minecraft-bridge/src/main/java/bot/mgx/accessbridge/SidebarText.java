@@ -17,6 +17,9 @@ final class SidebarText {
     }
 
     static int glyphWidth(char character) {
+        if (character >= '\uE800' && character <= '\uE80F') {
+            return 10;
+        }
         return switch (character) {
             case '!', ',', '.', ':', ';', 'i', '|', '\'' -> 2;
             case 'l', '`' -> 3;

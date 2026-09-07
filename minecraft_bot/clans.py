@@ -65,9 +65,9 @@ COSTS: dict[int, int] = {
     5: 500_000_000,
 }
 
-#: One glyph the whole way up, recoloured in game rather than repeated — a growing
-#: row of stars sits in front of every chat line. Discord embed text cannot carry
-#: that colour, which is why :func:`tag` writes the level as a number instead.
+#: Discord-safe fallback for copy that still asks for a badge. Minecraft uses five
+#: custom resource-pack glyphs; Discord cannot render that private font, so its
+#: normal :func:`tag` writes the level as a number instead.
 BADGES: dict[int, str] = {
     0: "",
     1: "★",
@@ -144,9 +144,8 @@ def describe(level: int) -> str:
 def tag(name: str, level: int) -> str:
     """A clan's name and level, as shown on Discord surfaces.
 
-    In game the badge is one star recoloured per level. Embed text cannot carry that
-    colour, so a colourless star here would say nothing — the level is written out
-    instead, and the two surfaces deliberately read differently.
+    In game the badge is a custom image for that level. Discord cannot carry the
+    resource-pack font, so the level is written out here instead.
     """
     return f"[{name}] Lv{level}" if level > 0 else f"[{name}]"
 

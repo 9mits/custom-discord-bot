@@ -10,6 +10,7 @@ from PIL import Image
 REPO = Path(__file__).resolve().parents[1]
 RESOURCE_PACK = REPO / "assets" / "resourcepack"
 ITEM_TEXTURES = RESOURCE_PACK / "src" / "assets" / "mgx" / "textures" / "item"
+BADGE_TEXTURES = RESOURCE_PACK / "src" / "assets" / "mgx" / "textures" / "badge"
 NATIVE_POTION_ICONS = {"crate_luck_potion", "fortune_potion"}
 LINKED_ICON_SIZES = {
     "amethyst_apple": (32, 32),
@@ -197,6 +198,57 @@ class ResourcePackIconTests(unittest.TestCase):
                 digests.add(hashlib.sha256(path.read_bytes()).digest())
 
         self.assertEqual(len(icons), len(digests), "custom icons must not be duplicate recolour assets")
+
+    def test_badge_catalog_has_one_crisp_generated_texture_per_glyph(self):
+        catalog = json.loads((RESOURCE_PACK / "badges.json").read_text(encoding="utf-8"))
+        self.assertEqual(16, len(catalog))
+        self.assertEqual(
+            list(range(0xE800, 0xE810)),
+            [int(code, 16) for code in catalog.values()],
+        )
+        digests = set()
+        for name in catalog:
+            path = BADGE_TEXTURES / f"{name}.png"
+            with self.subTest(badge=name), Image.open(path) as image:
+                self.assertEqual("RGBA", image.mode)
+                self.assertEqual((72, 72), image.size)
+                self.assertEqual({0, 255}, set(image.getchannel("A").getdata()))
+                self.assertLessEqual(len(image.getcolors(maxcolors=257)), 32)
+                pixels = image.load()
+                for y in range(0, 72, 4):
+                    for x in range(0, 72, 4):
+                        self.assertEqual(1, len({
+                            pixels[x + dx, y + dy]
+                            for dx in range(4) for dy in range(4)
+                        }))
+            digests.add(hashlib.sha256(path.read_bytes()).digest())
+        self.assertEqual(16, len(digests))
+
+    def test_badges_ship_as_java_and_bedrock_font_glyphs(self):
+        catalog = json.loads((RESOURCE_PACK / "badges.json").read_text(encoding="utf-8"))
+        font = json.loads((
+            RESOURCE_PACK / "src" / "assets" / "mgx" / "font" / "badges.json"
+        ).read_text(encoding="utf-8"))
+        self.assertEqual(16, len(font["providers"]))
+        self.assertEqual(
+            {chr(int(code, 16)) for code in catalog.values()},
+            {provider["chars"][0] for provider in font["providers"]},
+        )
+        default_font = json.loads((
+            RESOURCE_PACK / "src" / "assets" / "minecraft" / "font" / "default.json"
+        ).read_text(encoding="utf-8"))
+        self.assertIn({"type": "reference", "id": "mgx:badges"}, default_font["providers"])
+
+        with zipfile.ZipFile(
+            RESOURCE_PACK / "bedrock" / "MysteriousSMPX-Bedrock.mcpack"
+        ) as pack, Image.open(pack.open("font/glyph_E8.png")) as sheet:
+            self.assertEqual((1152, 1152), sheet.size)
+            for name, raw_code in catalog.items():
+                index = int(raw_code, 16) - 0xE800
+                cell = sheet.crop((index % 16 * 72, index // 16 * 72,
+                                   index % 16 * 72 + 72, index // 16 * 72 + 72))
+                with Image.open(BADGE_TEXTURES / f"{name}.png") as expected:
+                    self.assertEqual(expected.convert("RGBA").tobytes(), cell.convert("RGBA").tobytes())
 
     def test_generated_icons_have_enough_light_to_read_as_solid(self):
         """A sprite with no light-to-dark range looks flat and lifeless in the slot.

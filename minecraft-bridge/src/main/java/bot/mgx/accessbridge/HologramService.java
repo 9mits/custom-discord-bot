@@ -318,16 +318,23 @@ final class HologramService {
             String name = text(row, "clan");
             int colour = row.has("colour") ? row.get("colour").getAsInt() : 0xFF9900;
             int level = row.has("level") ? row.get("level").getAsInt() : 0;
-            String tag = level > 0 ? "[" + name + "] Lv" + level : "[" + name + "]";
-            String badges = text(row, "badges");
-            if (!badges.isBlank()) {
-                tag += " " + badges;
+            Component tag = Component.text("[" + name + "]",
+                    TextColor.color(colour), TextDecoration.BOLD);
+            if (level > 0) {
+                tag = tag.append(Component.text(" "))
+                        .append(BadgeIcons.glyph(ClanLevel.badge(level)));
+            }
+            ClanBattleStore.Badges badges = new ClanBattleStore.Badges(
+                    integer(row, "badge_gold"), integer(row, "badge_silver"),
+                    integer(row, "badge_bronze"));
+            if (!badges.empty()) {
+                tag = tag.append(Component.text(" ")).append(ClanTag.medals(badges));
             }
             String display = text(row, "display");
             return prefix
                     .append(MenuText.sprite(ClanIcon.resolve(text(row, "icon")).sprite()))
                     .append(Component.text(" "))
-                    .append(Component.text(tag, TextColor.color(colour), TextDecoration.BOLD))
+                    .append(tag)
                     .append(Component.text(": " + display, NamedTextColor.WHITE));
         }
         UUID uuid = parseUuid(text(row, "minecraft_uuid"));
@@ -448,6 +455,10 @@ final class HologramService {
 
     private static String text(JsonObject row, String key) {
         return row.has(key) ? row.get(key).getAsString() : "";
+    }
+
+    private static int integer(JsonObject row, String key) {
+        return row.has(key) ? row.get(key).getAsInt() : 0;
     }
 
     private static UUID parseUuid(String raw) {

@@ -6,42 +6,27 @@ import net.kyori.adventure.text.format.TextDecoration;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.junit.jupiter.api.Test;
 
-import java.util.Optional;
-
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 
 class NameplateStyleTest {
     @Test
-    void usesTheCompactMoneyIconThenPlacementLayout() {
-        LeaderboardStandings.Standing standing = new LeaderboardStandings.Standing(
-                LeaderboardType.KILLS, 1, 42
-        );
+    void keepsCompactMoneyAndAddsThePvpRank() {
+        Component line = SidebarService.nameplateLine(5_000_000L, PvpRank.DIAMOND_II);
 
-        Component line = SidebarService.nameplateLine(5_000_000L, Optional.of(standing));
-
-        assertEquals("$ 5M  •  ⚔ #1", PlainTextComponentSerializer.plainText().serialize(line));
+        assertEquals("$ 5M  •  " + BadgeIcons.PVP_DIAMOND + " Diamond II",
+                PlainTextComponentSerializer.plainText().serialize(line));
         assertEquals(NamedTextColor.GREEN, line.color());
-        assertEquals(NamedTextColor.RED, line.children().get(1).color());
-        assertEquals(SidebarService.placementColour(1), line.children().get(2).color());
+        assertEquals(NamedTextColor.WHITE, line.children().get(1).color());
         assertNeverBold(line);
     }
 
     @Test
-    void moneyStaysCompactWithoutALeaderboardPlacement() {
-        Component line = SidebarService.nameplateLine(92_230L, Optional.empty());
+    void everyPlayerStillShowsMoneyAtTheBottomRank() {
+        Component line = SidebarService.nameplateLine(92_230L, PvpRank.BRONZE_I);
 
-        assertEquals("$ 92.2K", PlainTextComponentSerializer.plainText().serialize(line));
-    }
-
-    @Test
-    void boardIconAndPodiumPlacementUseDifferentColours() {
-        assertEquals(NamedTextColor.RED, SidebarService.leaderboardIconColour(LeaderboardType.KILLS));
-        assertEquals(NamedTextColor.GREEN, SidebarService.leaderboardIconColour(LeaderboardType.WEALTH));
-        assertEquals(
-                net.kyori.adventure.text.format.TextColor.color(0xFFD700),
-                SidebarService.placementColour(1)
-        );
+        assertEquals("$ 92.2K  •  " + BadgeIcons.PVP_BRONZE + " Bronze I",
+                PlainTextComponentSerializer.plainText().serialize(line));
     }
 
     @Test

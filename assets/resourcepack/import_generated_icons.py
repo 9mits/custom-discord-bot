@@ -458,6 +458,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--manifest", type=Path, required=True, help="JSON map of icon ID to generated PNG")
     parser.add_argument("--output", type=Path, required=True, help="Destination item-texture directory")
     parser.add_argument("--contact-sheet", type=Path, help="Optional labeled review sheet")
+    parser.add_argument("--badges", action="store_true", help="Use the text-badge catalog")
     parser.add_argument(
         "--partial",
         action="store_true",
@@ -469,7 +470,11 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     sources = json.loads(args.manifest.read_text(encoding="utf-8"))
-    targets = catalog_targets()
+    targets = (
+        {name: Path(f"{name}.png") for name in json.loads(
+            (PACK_ROOT / "badges.json").read_text(encoding="utf-8"))}
+        if args.badges else catalog_targets()
+    )
     missing = [] if args.partial else sorted(set(targets) - set(sources))
     unexpected = sorted(set(sources) - set(targets))
     if missing or unexpected:

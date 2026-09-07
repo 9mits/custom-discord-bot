@@ -51,7 +51,7 @@ class ClanLevelTest {
     }
 
     @Test
-    void theBadgeIsOneGlyphRecolouredRatherThanAGrowingRow() {
+    void everyLevelHasOneDistinctCustomGlyph() {
         for (int level = 1; level <= ClanLevel.MAX_PUBLIC_LEVEL; level++) {
             String badge = ClanLevel.badge(level);
             assertEquals(1, badge.codePointCount(0, badge.length()),
@@ -59,8 +59,8 @@ class ClanLevelTest {
         }
         for (int level = 1; level <= ClanLevel.MAX_PUBLIC_LEVEL; level++) {
             for (int other = level + 1; other <= ClanLevel.MAX_PUBLIC_LEVEL; other++) {
-                assertNotEquals(ClanLevel.badgeColor(level), ClanLevel.badgeColor(other),
-                        "levels " + level + " and " + other + " are the same colour");
+                assertNotEquals(ClanLevel.badge(level), ClanLevel.badge(other),
+                        "levels " + level + " and " + other + " share one texture");
             }
         }
     }

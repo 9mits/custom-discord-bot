@@ -59,6 +59,7 @@ final class SidebarService {
     private final PlayerSettingsStore settings;
     private final EconomyStore money;
     private final ClanBattleStore clanBattles;
+    private final PvpRecordStore pvpRecords;
     private final String footer;
     private final int updateTicks;
     private final Map<UUID, PlayerBoard> boards = new HashMap<>();
@@ -75,7 +76,6 @@ final class SidebarService {
     private String lastTeamKey = "";
     private int taskId = -1;
     private AfkService afkService;
-    private LeaderboardService leaderboard;
 
     SidebarService(
             MGXAccessBridge plugin,
@@ -85,6 +85,7 @@ final class SidebarService {
             PlayerSettingsStore settings,
             EconomyStore money,
             ClanBattleStore clanBattles,
+            PvpRecordStore pvpRecords,
             String footer,
             int updateTicks
     ) {
@@ -95,6 +96,7 @@ final class SidebarService {
         this.settings = settings;
         this.money = money;
         this.clanBattles = clanBattles;
+        this.pvpRecords = pvpRecords;
         this.footer = footer;
         this.updateTicks = updateTicks;
     }
@@ -110,10 +112,6 @@ final class SidebarService {
 
     void useAfkService(AfkService service) {
         this.afkService = service;
-    }
-
-    void useLeaderboardService(LeaderboardService service) {
-        this.leaderboard = service;
     }
 
     void stop() {
@@ -613,7 +611,7 @@ final class SidebarService {
             );
             Component prefix = rankTag(profile)
                     .append(showClan
-                            ? clan.map(this::clanTag).orElse(Component.empty())
+                            ? clan.map(this::overheadClanTag).orElse(Component.empty())
                             : Component.empty());
             expected.put(teamName, prefix);
             if (afkService != null && afkService.isAfk(online.getUniqueId())) {
@@ -711,11 +709,9 @@ final class SidebarService {
                 current.add(entry);
                 Score score = balanceObjective.getScore(entry);
                 score.setScore(0);
-                Optional<LeaderboardStandings.Standing> standing = leaderboard == null
-                        ? Optional.empty()
-                        : leaderboard.standing(shown.getUniqueId());
                 score.numberFormat(NumberFormat.fixed(nameplateLine(
-                        money.balance(shown.getUniqueId()), standing
+                        money.balance(shown.getUniqueId()),
+                        pvpRecords.of(shown.getUniqueId()).rank()
                 )));
             }
             for (String old : new LinkedHashSet<>(balanceEntries)) {
@@ -740,46 +736,17 @@ final class SidebarService {
         }
     }
 
-    static TextColor placementColour(int placement) {
-        return switch (placement) {
-            case 1 -> TextColor.color(0xFFD700);
-            case 2 -> TextColor.color(0xC0C0C0);
-            case 3 -> TextColor.color(0xCD7F32);
-            default -> NamedTextColor.GRAY;
-        };
-    }
-
-    static Component nameplateLine(
-            long balance, Optional<LeaderboardStandings.Standing> standing
-    ) {
+    static Component nameplateLine(long balance, PvpRank rank) {
         String compact = EconomyFormat.compactDollars(balance);
         String amount = compact.startsWith("$") ? compact.substring(1) : compact;
         Component line = Component.text("$ " + amount, NamedTextColor.GREEN)
                 .decoration(TextDecoration.BOLD, false);
-        if (standing.isEmpty()) {
-            return line;
-        }
-        LeaderboardStandings.Standing row = standing.get();
         return line
                 .append(Component.text("  •  ", NamedTextColor.DARK_GRAY)
                         .decoration(TextDecoration.BOLD, false))
-                .append(Component.text(row.type().icon() + " ", leaderboardIconColour(row.type()))
-                        .decoration(TextDecoration.BOLD, false))
-                .append(Component.text("#" + row.placement(), placementColour(row.placement()))
+                .append(BadgeIcons.glyph(rank.glyph()))
+                .append(Component.text(" " + rank.display(), NamedTextColor.WHITE)
                         .decoration(TextDecoration.BOLD, false));
-    }
-
-    static TextColor leaderboardIconColour(LeaderboardType type) {
-        return switch (type) {
-            case WEALTH -> NamedTextColor.GREEN;
-            case KILLS -> NamedTextColor.RED;
-            case RANK -> MenuText.GOLD;
-            case PLAYTIME -> NamedTextColor.AQUA;
-            case BLOCKS_MINED -> NamedTextColor.GOLD;
-            case BLOCKS_WALKED -> NamedTextColor.WHITE;
-            case AMETHYST_CRATES, AMETHYST_AIRDROPS, DRAGON_DAMAGE,
-                    DRAGON_CRYSTALS, DRAGON_CRATES -> NamedTextColor.LIGHT_PURPLE;
-        };
     }
 
     private static TextColor clanColor(ClanStore.ClanView clan) {
@@ -788,6 +755,10 @@ final class SidebarService {
 
     private Component clanTag(ClanStore.ClanView clan) {
         return ClanTag.of(clan, clanBattles.badges(clan.id()));
+    }
+
+    private Component overheadClanTag(ClanStore.ClanView clan) {
+        return ClanTag.overhead(clan, clanBattles.badges(clan.id()));
     }
 
     private static Component divider() {

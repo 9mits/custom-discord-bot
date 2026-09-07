@@ -224,3 +224,32 @@ the complete alpha mask and every non-liquid RGBA pixel must match the canonical
 reference, the two item models must resolve to different texture files, Fortune
 must remain green, and Crate Luck must remain violet. A failing invariant means the
 asset is wrong; do not weaken the test to accept a redesigned bottle.
+
+## Competitive badge family
+
+The PvP, Clan Battle, and clan-level badges are generated as original MGX artwork.
+The supplied game screenshots establish only the broad idea of colourful competitive
+progression. They are not shape references: do not trace their silhouettes, internal
+geometry, wings, crowns, shields, crystals, or placement plates.
+
+All sixteen sources follow the same 18x18 logical grid, square notches, upper-left
+light, lower-right edge, 72x72 nearest-neighbour export, and 32-colour ceiling used
+above. `import_generated_icons.py --badges` performs only background removal,
+framing, palette reduction, and the standard shading pass.
+
+| Family | Original MGX silhouette |
+|---|---|
+| `pvp_bronze` | Wide clipped buckler with a recessed stepped cross. |
+| `pvp_silver` | Tall six-sided tower mark with paired violet chevrons. |
+| `pvp_gold` | Tabbed octagonal token cut by asymmetric negative space. |
+| `pvp_platinum` | Open teal horseshoe crest with squared ends. |
+| `pvp_diamond` | Two interlocking square brackets around a split crystal tile. |
+| `pvp_elite` | Three-bar mechanical mask with antenna blocks and a mint core. |
+| `pvp_champion` | Heavy arena arch surrounding a stepped amber flame. |
+| `pvp_unreal` | Four-piece ultraviolet portal with loose square fragments. |
+| `clan_battle_gold`, `clan_battle_silver`, `clan_battle_bronze` | Metal tournament pennants with a square-ended crossbar, rivets, fortress flag, and V-cut tail. |
+| `clan_level_1` through `clan_level_5` | One uneven eight-ray block spark with a hollow square centre, recoloured silver, emerald, cyan, gold, and magenta. |
+
+Java assigns these images to private-use glyphs U+E800 through U+E80F through
+`build_badge_fonts.py`. The same script places the identical pixels into Bedrock's
+`font/glyph_E8.png`; never substitute a text symbol on one edition.

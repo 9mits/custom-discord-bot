@@ -95,7 +95,7 @@ final class PvpRankTest {
 
     @Test
     void everyTierKeepsOneIcon() {
-        assertEquals(PvpRank.GOLD_I.sprite(), PvpRank.GOLD_III.sprite());
+        assertEquals(PvpRank.GOLD_I.glyph(), PvpRank.GOLD_III.glyph());
         assertEquals(PvpRank.GOLD_I.tierFloor(), PvpRank.GOLD_III.tierFloor());
     }
 }

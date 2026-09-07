@@ -1,0 +1,148 @@
+{
+  "providers": [
+    {
+      "type": "bitmap",
+      "file": "mgx:badge/pvp_bronze.png",
+      "ascent": 8,
+      "height": 9,
+      "chars": [
+        "\ue800"
+      ]
+    },
+    {
+      "type": "bitmap",
+      "file": "mgx:badge/pvp_silver.png",
+      "ascent": 8,
+      "height": 9,
+      "chars": [
+        "\ue801"
+      ]
+    },
+    {
+      "type": "bitmap",
+      "file": "mgx:badge/pvp_gold.png",
+      "ascent": 8,
+      "height": 9,
+      "chars": [
+        "\ue802"
+      ]
+    },
+    {
+      "type": "bitmap",
+      "file": "mgx:badge/pvp_platinum.png",
+      "ascent": 8,
+      "height": 9,
+      "chars": [
+        "\ue803"
+      ]
+    },
+    {
+      "type": "bitmap",
+      "file": "mgx:badge/pvp_diamond.png",
+      "ascent": 8,
+      "height": 9,
+      "chars": [
+        "\ue804"
+      ]
+    },
+    {
+      "type": "bitmap",
+      "file": "mgx:badge/pvp_elite.png",
+      "ascent": 8,
+      "height": 9,
+      "chars": [
+        "\ue805"
+      ]
+    },
+    {
+      "type": "bitmap",
+      "file": "mgx:badge/pvp_champion.png",
+      "ascent": 8,
+      "height": 9,
+      "chars": [
+        "\ue806"
+      ]
+    },
+    {
+      "type": "bitmap",
+      "file": "mgx:badge/pvp_unreal.png",
+      "ascent": 8,
+      "height": 9,
+      "chars": [
+        "\ue807"
+      ]
+    },
+    {
+      "type": "bitmap",
+      "file": "mgx:badge/clan_battle_gold.png",
+      "ascent": 8,
+      "height": 9,
+      "chars": [
+        "\ue808"
+      ]
+    },
+    {
+      "type": "bitmap",
+      "file": "mgx:badge/clan_battle_silver.png",
+      "ascent": 8,
+      "height": 9,
+      "chars": [
+        "\ue809"
+      ]
+    },
+    {
+      "type": "bitmap",
+      "file": "mgx:badge/clan_battle_bronze.png",
+      "ascent": 8,
+      "height": 9,
+      "chars": [
+        "\ue80a"
+      ]
+    },
+    {
+      "type": "bitmap",
+      "file": "mgx:badge/clan_level_1.png",
+      "ascent": 8,
+      "height": 9,
+      "chars": [
+        "\ue80b"
+      ]
+    },
+    {
+      "type": "bitmap",
+      "file": "mgx:badge/clan_level_2.png",
+      "ascent": 8,
+      "height": 9,
+      "chars": [
+        "\ue80c"
+      ]
+    },
+    {
+      "type": "bitmap",
+      "file": "mgx:badge/clan_level_3.png",
+      "ascent": 8,
+      "height": 9,
+      "chars": [
+        "\ue80d"
+      ]
+    },
+    {
+      "type": "bitmap",
+      "file": "mgx:badge/clan_level_4.png",
+      "ascent": 8,
+      "height": 9,
+      "chars": [
+        "\ue80e"
+      ]
+    },
+    {
+      "type": "bitmap",
+      "file": "mgx:badge/clan_level_5.png",
+      "ascent": 8,
+      "height": 9,
+      "chars": [
+        "\ue80f"
+      ]
+    }
+  ]
+}
