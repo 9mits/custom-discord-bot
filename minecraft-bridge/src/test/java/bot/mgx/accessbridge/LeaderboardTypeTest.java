@@ -40,6 +40,7 @@ class LeaderboardTypeTest {
         assertFalse(LeaderboardType.AMETHYST_AIRDROPS.clanEligible());
         assertTrue(LeaderboardType.WEALTH.published());
         assertTrue(LeaderboardType.KILLS.published());
+        assertFalse(LeaderboardType.RANK.published());
         assertFalse(LeaderboardType.AMETHYST_CRATES.published());
         assertFalse(LeaderboardType.AMETHYST_AIRDROPS.published());
         assertTrue(LeaderboardType.DRAGON_DAMAGE.published());

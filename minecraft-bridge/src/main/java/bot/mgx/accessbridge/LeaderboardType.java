@@ -35,7 +35,6 @@ enum LeaderboardType {
     boolean published() {
         return this == WEALTH
                 || this == KILLS
-                || this == RANK
                 || this == DRAGON_DAMAGE
                 || this == DRAGON_CRYSTALS;
     }
