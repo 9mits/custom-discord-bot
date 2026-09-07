@@ -505,6 +505,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 || getCommand("bal") == null
                 || getCommand("pay") == null
                 || getCommand("bounty") == null
+                || getCommand("order") == null
                 || getCommand("afk") == null
                 || getCommand("pvp") == null
                 || getCommand("verify") == null
@@ -778,9 +779,11 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         playerMenuService.useRecordDialogs(recordDialogs);
         clanService.useDirectory(clanDirectory);
         teleportMenus.useHomesDialog(homesDialogs);
+        OrderStore orderStore;
         try {
             auctionStore = new AuctionStore(getDataFolder().toPath().resolve("auctions.json"));
             auctionStore.limitSource(key -> gameVariables.integer(key));
+            orderStore = new OrderStore(getDataFolder().toPath().resolve("orders.json"));
         } catch (IOException exception) {
             getLogger().severe("MGXAccessBridge could not open the auction house: " + exception.getMessage());
             getServer().getPluginManager().disablePlugin(this);
@@ -825,6 +828,17 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         bountyService.useRecordDialogs(recordDialogs);
         getCommand("bounty").setExecutor(bountyService);
         getCommand("bounty").setTabCompleter(bountyService);
+        OrderService orderService = new OrderService(
+                this, orderStore, economyStore, auctionStore, personalNotifications
+        );
+        getCommand("order").setExecutor(orderService);
+        getCommand("order").setTabCompleter(orderService);
+        getServer().getPluginManager().registerEvents(orderService, this);
+        // Hourly: an order that nobody filled has to hand its money back on its own,
+        // or a week-old typo holds a fortune out of the economy for good.
+        getServer().getScheduler().runTaskTimer(
+                this, orderService::expireOrders, 20L * 60L, 20L * 60L * 60L
+        );
         getCommand("afk").setExecutor(afkService);
         getServer().getPluginManager().registerEvents(bountyService, this);
         getServer().getPluginManager().registerEvents(
