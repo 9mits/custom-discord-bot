@@ -1647,7 +1647,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                         title, progress, colour, BossBar.Overlay.PROGRESS
                 );
                 keyBars.put(playerId, bar);
-                player.showBossBar(bar);
+                plugin.bossBars().show(player, bar);
             } else {
                 bar.name(title);
                 bar.progress(progress);
@@ -1709,7 +1709,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         }
         Player player = plugin.getServer().getPlayer(playerId);
         if (player != null) {
-            player.hideBossBar(bar);
+            plugin.bossBars().hide(player, bar);
         }
     }
 

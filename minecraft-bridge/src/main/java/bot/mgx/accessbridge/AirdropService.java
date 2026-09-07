@@ -851,7 +851,7 @@ final class AirdropService implements Listener {
             if (PlayerBroadcast.wants(
                     settings, PlayerSettingsStore.Setting.AIRDROP_BAR, player
             )) {
-                player.showBossBar(drop.bar);
+                plugin.bossBars().show(player, drop.bar);
             }
             playSpawnCue(player);
         }
@@ -863,7 +863,7 @@ final class AirdropService implements Listener {
             return;
         }
         for (Player player : plugin.getServer().getOnlinePlayers()) {
-            player.hideBossBar(drop.bar);
+            plugin.bossBars().hide(player, drop.bar);
         }
         drop.bar = null;
     }
@@ -893,7 +893,7 @@ final class AirdropService implements Listener {
         }
         for (ActiveAirdrop drop : active.values()) {
             if (drop.bar != null) {
-                event.getPlayer().showBossBar(drop.bar);
+                plugin.bossBars().show(event.getPlayer(), drop.bar);
             }
         }
     }

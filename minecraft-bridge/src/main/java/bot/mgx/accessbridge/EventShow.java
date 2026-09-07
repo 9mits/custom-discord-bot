@@ -102,11 +102,11 @@ final class EventShow {
 
     void showBar(BossBar bar, List<Player> audience, float progress) {
         bar.progress(Math.max(0f, Math.min(1f, progress)));
-        audience.forEach(player -> player.showBossBar(bar));
+        audience.forEach(player -> plugin.bossBars().show(player, bar));
     }
 
     void hideBar(BossBar bar, List<Player> audience) {
-        audience.forEach(player -> player.hideBossBar(bar));
+        audience.forEach(player -> plugin.bossBars().hide(player, bar));
     }
 
     /** Starts a record under the event. Records are their own volume slider. */

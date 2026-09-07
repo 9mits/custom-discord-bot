@@ -1,6 +1,5 @@
 package bot.mgx.accessbridge;
 
-import net.kyori.adventure.bossbar.BossBar;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
@@ -28,17 +27,6 @@ final class PlayerBroadcast {
         for (Player player : Bukkit.getOnlinePlayers()) {
             if (settings.isEnabled(player.getUniqueId(), setting)) {
                 player.sendMessage(message);
-            }
-        }
-    }
-
-    /** Shows a bar to everyone who still wants that kind of bar. */
-    static void showBar(
-            PlayerSettingsStore settings, PlayerSettingsStore.Setting setting, BossBar bar
-    ) {
-        for (Player player : Bukkit.getOnlinePlayers()) {
-            if (settings.isEnabled(player.getUniqueId(), setting)) {
-                player.showBossBar(bar);
             }
         }
     }

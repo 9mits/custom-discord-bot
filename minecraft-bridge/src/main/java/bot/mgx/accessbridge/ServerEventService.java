@@ -64,7 +64,8 @@ final class ServerEventService implements Listener {
             task = null;
         }
         if (bar != null) {
-            plugin.getServer().getOnlinePlayers().forEach(player -> player.hideBossBar(bar));
+            plugin.getServer().getOnlinePlayers()
+                    .forEach(player -> plugin.bossBars().hide(player, bar));
             bar = null;
         }
         visible.clear();
@@ -160,7 +161,7 @@ final class ServerEventService implements Listener {
             BossBar current = barFor();
             current.name(Component.text(stackedTitle(running), NamedTextColor.WHITE,
                     TextDecoration.BOLD));
-            player.showBossBar(current);
+            plugin.bossBars().show(player, current);
             plugin.broadcasts().announceBanner(List.of(player), "EVENT LIVE", bannerBody(running));
             notifications.actionBar(player, eventActionBar(running));
         }, JOIN_DELAY_TICKS);
@@ -224,7 +225,8 @@ final class ServerEventService implements Listener {
         if (running.isEmpty()) {
             if (bar != null) {
                 BossBar empty = bar;
-                plugin.getServer().getOnlinePlayers().forEach(player -> player.hideBossBar(empty));
+                plugin.getServer().getOnlinePlayers()
+                        .forEach(player -> plugin.bossBars().hide(player, empty));
                 bar = null;
             }
             visible.clear();
@@ -234,7 +236,8 @@ final class ServerEventService implements Listener {
         BossBar current = barFor();
         current.name(Component.text(stackedTitle(running), NamedTextColor.WHITE,
                 TextDecoration.BOLD));
-        plugin.getServer().getOnlinePlayers().forEach(player -> player.showBossBar(current));
+        plugin.getServer().getOnlinePlayers()
+                .forEach(player -> plugin.bossBars().show(player, current));
     }
 
     static String stackedTitle(List<ServerEventType> running) {
