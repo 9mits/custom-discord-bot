@@ -318,7 +318,7 @@
     schedule: null,
     announce: null,
     announceResult: null,
-    announceDraft: {title: "", description: "", colour: "f06000", footer: "", image: ""},
+    announceDraft: {template: "", title: "", description: "", colour: "f06000", footer: "", image: ""},
     actions: [],
     online: [],
     materials: [],
@@ -2097,6 +2097,173 @@
   }
 
   /**
+   * The update notice: what goes out, and to whom.
+   *
+   * <p>Two ways to compose one. A <em>template</em> is derived from a published
+   * dev-blog post, so the announcement can only describe an update that is actually
+   * written up and the link is guaranteed to resolve. Writing one by hand is still
+   * there for anything that is not a release.
+   *
+   * <p>The preview is drawn the way Discord draws an embed. It is the only thing
+   * standing between a draft and a few hundred direct messages that cannot be recalled.
+   */
+  function renderAnnounce() {
+    var info = state.announce;
+    if (!info) return '<p class="con-empty">Loading&hellip;</p>';
+    if (info.error) {
+      return '<p class="con-empty">The update notice is unavailable: ' +
+        escapeHtml(info.error) + "</p>";
+    }
+
+    var templates = info.templates || [];
+    var chosen = announceTemplate();
+    var options = ['<option value="">Write it myself</option>'].concat(
+      templates.map(function (item) {
+        return '<option value="' + escapeHtml(item.slug) + '"' +
+          (state.announceDraft.template === item.slug ? " selected" : "") + ">" +
+          escapeHtml(item.label) + "</option>";
+      })
+    ).join("");
+
+    var minutes = Math.max(1, Math.round((info.recipients || 0) * 1.2 / 60));
+    var blocked = chosen && chosen.draft;
+
+    var form = '<div class="con-announce-form">' +
+      '<label class="con-field"><span>What to send</span>' +
+      '<select class="con-search-field" data-announce="template">' + options +
+      "</select></label>";
+
+    if (chosen) {
+      form += '<p class="con-table-note">Built from the <strong>' +
+        escapeHtml(chosen.title) + "</strong> post. Edit the post, not this page." +
+        (chosen.draft
+          ? " <strong>It is still a draft</strong>, so it can be previewed but not sent " +
+            "— the link would go nowhere."
+          : "") + "</p>";
+    } else {
+      form += '<label class="con-field"><span>Title</span>' +
+        '<input class="con-search-field" data-announce="title" maxlength="256" ' +
+        'placeholder="Update 7 is live" value="' +
+        escapeHtml(state.announceDraft.title) + '"></label>' +
+        '<label class="con-field"><span>Message</span>' +
+        '<textarea class="con-textarea" data-announce="description" maxlength="4000">' +
+        escapeHtml(state.announceDraft.description) + "</textarea></label>" +
+        '<div class="con-field-row">' +
+        '<label class="con-field"><span>Colour</span>' +
+        '<input class="con-search-field" data-announce="colour" maxlength="7" ' +
+        'value="' + escapeHtml(state.announceDraft.colour) + '"></label>' +
+        '<label class="con-field"><span>Image URL</span>' +
+        '<input class="con-search-field" data-announce="image" ' +
+        'placeholder="https://" value="' + escapeHtml(state.announceDraft.image) +
+        '"></label></div>' +
+        '<label class="con-field"><span>Footer</span>' +
+        '<input class="con-search-field" data-announce="footer" maxlength="200" ' +
+        'value="' + escapeHtml(state.announceDraft.footer) + '"></label>';
+    }
+
+    form += '<div class="con-table-actions">' +
+      '<button type="button" class="con-primary" id="con-announce-send"' +
+      (info.enabled && !info.sending && !blocked ? "" : " disabled") + ">" +
+      (info.sending ? "Sending&hellip;" : "Send to " + (info.recipients || 0) + " members") +
+      "</button></div>";
+
+    if (!info.enabled) {
+      form += '<p class="con-table-note">Announcements are switched off, so nothing ' +
+        "can go out. Turn them on above once the notice reads the way you want.</p>";
+    }
+    form += "</div>";
+
+    var result = "";
+    if (state.announceResult) {
+      var r = state.announceResult;
+      result = '<section class="con-section"><h3>Last send</h3>' +
+        '<p class="con-table-note"><strong>' + r.delivered + "</strong> delivered, " +
+        "<strong>" + r.refused + "</strong> refused, <strong>" + r.skipped +
+        "</strong> skipped." + (r.reason ? " " + escapeHtml(r.reason) : "") + "</p>" +
+        ((r.failures || []).length
+          ? '<p class="con-table-note">' +
+            r.failures.map(escapeHtml).join("<br>") + "</p>"
+          : "") + "</section>";
+    }
+
+    return '<p class="con-intro">One direct message to everyone holding the ' +
+      "approved-member role. Sending is paced at roughly a second and a half each, so " +
+      "this takes about <strong>" + minutes + " minute(s)</strong> and " +
+      "<strong>cannot be recalled</strong> once it starts.</p>" +
+      '<section class="con-section"><h3>Announcements' +
+      '<span class="con-section-count">' + (info.recipients || 0) + " recipients</span></h3>" +
+      '<label class="con-switch"><input type="checkbox" data-announce-toggle' +
+      (info.enabled ? " checked" : "") +
+      '><span class="con-track" aria-hidden="true"></span>' +
+      '<span class="con-switch-text">' +
+      (info.enabled ? "Update notices allowed" : "Update notices switched off") +
+      "</span></label>" +
+      '<p class="con-table-note">' + (info.recipients || 0) + " member(s) would be " +
+      "reached. <strong>" + (info.opted_out || 0) + "</strong> have turned update DMs " +
+      "off and are never counted." +
+      ((info.sample || []).length
+        ? " For example: " + info.sample.map(escapeHtml).join(", ") + "."
+        : "") + "</p></section>" +
+      '<section class="con-section"><h3>Compose</h3>' +
+      '<div class="con-announce">' + form +
+      announcePreview(state.announceDraft) + "</div></section>" + result;
+  }
+
+  /** The currently selected template object, or null when writing by hand. */
+  function announceTemplate() {
+    var info = state.announce;
+    if (!info || !state.announceDraft.template) return null;
+    return (info.templates || []).filter(function (item) {
+      return item.slug === state.announceDraft.template;
+    })[0] || null;
+  }
+
+  /**
+   * The notice as Discord would draw it.
+   *
+   * <p>A template renders from the post's own fields, matching what the bot builds
+   * server-side, so the two cannot drift without this looking wrong first.
+   */
+  function announcePreview(draft) {
+    var chosen = announceTemplate();
+    var title;
+    var body;
+    var colour = "#f06000";
+    var footer = "";
+    var buttons = "";
+
+    if (chosen) {
+      title = chosen.title + " is live!";
+      body = (chosen.tagline || "");
+      if ((chosen.highlights || []).length) {
+        body += (body ? "\n\n" : "") + "What landed\n" +
+          chosen.highlights.map(function (item) { return "> " + item; }).join("\n");
+      }
+      body += "\n\nRead the full update for the numbers, the odds and the screenshots.";
+      footer = "You get this because you are a verified Mysterious SMP X player.";
+      buttons = '<div class="con-table-actions">' +
+        '<button type="button" class="con-secondary" disabled>Read the full update</button>' +
+        '<button type="button" class="con-danger" disabled>Stop update DMs</button></div>';
+    } else {
+      title = draft.title || "Untitled";
+      body = draft.description || "";
+      colour = "#" + String(draft.colour || "f06000").replace(/^#/, "");
+      footer = draft.footer || "";
+    }
+
+    return '<div class="con-announce-preview">' +
+      '<p class="con-preview-label">Preview</p>' +
+      '<div class="con-embed" style="--embed: ' + escapeHtml(colour) + '">' +
+      "<h4>" + escapeHtml(title) + "</h4>" +
+      "<p>" + escapeHtml(body) + "</p>" +
+      (!chosen && draft.image && /^https:\/\//.test(draft.image)
+        ? '<img src="' + escapeHtml(draft.image) + '" alt="">'
+        : "") +
+      (footer ? "<footer>" + escapeHtml(footer) + "</footer>" : "") +
+      "</div>" + buttons + "</div>";
+  }
+
+  /**
    * Named setting sets, and a file you can keep.
    *
    * <p>Publish history undoes one mistake; it does not put everything back the way it
@@ -2824,6 +2991,11 @@
       var field = event.target.dataset ? event.target.dataset.announce : null;
       if (!field) return;
       state.announceDraft[field] = event.target.value;
+      if (field === "template") {
+        // A template replaces the whole form, not just the preview.
+        render();
+        return;
+      }
       var preview = document.querySelector(".con-announce-preview");
       if (preview) {
         preview.outerHTML = announcePreview(state.announceDraft);
@@ -3359,7 +3531,12 @@
 
   async function sendAnnouncement() {
     var draft = state.announceDraft;
-    if (!draft.title.trim() && !draft.description.trim()) {
+    var chosen = announceTemplate();
+    if (chosen && chosen.draft) {
+      toast("That post is still a draft. Publish it before announcing it.", true);
+      return;
+    }
+    if (!chosen && !draft.title.trim() && !draft.description.trim()) {
       toast("Write a title or a message first.", true);
       return;
     }

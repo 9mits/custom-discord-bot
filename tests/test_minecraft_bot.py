@@ -2111,7 +2111,7 @@ class MinecraftApplicationPanelTests(unittest.TestCase):
             "levels",
             "leaderboards",
             "griefing",
-            "raiding",
+            "/pvp",
         ):
             with self.subTest(feature=feature):
                 self.assertIn(feature, described)
@@ -2161,15 +2161,24 @@ class MinecraftApplicationPanelTests(unittest.TestCase):
                 return field.value
         raise AssertionError(f"no rule named {heading!r}")
 
-    def test_griefing_is_allowed_and_says_so_first(self):
-        # The policy people most need to know before they build anything, and the
-        # one most servers have the other way round.
+    def test_griefing_is_banned_and_says_so_first(self):
+        # The policy people most need to know before they build anything. It was
+        # the other way round until update 7, so returning players read this first.
         from minecraft_bot.presentation import rules_embed
 
-        self.assertEqual(rules_embed().fields[0].name, "1. Griefing is allowed")
+        self.assertEqual(rules_embed().fields[0].name, "1. Do not grief or steal")
+
+    def test_fighting_is_routed_through_the_pvp_command(self):
+        rule = self._rule("2. Settle fights with /pvp")
+
+        self.assertIn("`/pvp`", rule)
+        # "He had it coming" is the defence this rule has to answer either way:
+        # real history is tolerated, a stranger on sight is not.
+        self.assertIn("a war, a betrayal, a standing rivalry", rule)
+        self.assertIn("no idea who you are", rule)
 
     def test_server_builds_are_the_stated_exception(self):
-        rule = self._rule("3. Server builds are the exception")
+        rule = self._rule("3. Spawn and server builds")
 
         self.assertIn("server-coordinated", rule)
         # A build staff forgot to region is still off limits; the plugin refusing
@@ -2232,7 +2241,7 @@ class MinecraftApplicationPanelTests(unittest.TestCase):
     def test_in_game_conflict_is_walled_off_from_discord(self):
         # A rivalry that follows someone into Discord stops being a game, and
         # that is the moderation problem most likely to arrive with a crowd.
-        rule = self._rule("7. Keep it in character")
+        rule = self._rule("6. Keep it in character")
 
         self.assertIn("What happens in Minecraft stays in Minecraft", rule)
         self.assertIn("Discord", rule)
@@ -2241,10 +2250,10 @@ class MinecraftApplicationPanelTests(unittest.TestCase):
         # Conditions buried in a sentence get skimmed past. Where a rule draws a
         # line between two things, or lists several, it should show them.
         for heading, bullets in (
-            ("1. Griefing is allowed", ("**Fair game** —", "**Off limits** —")),
-            ("4. Keep PvP fair", ("**Allowed** —", "**Not allowed** —")),
-            ("7. Keep it in character", ("**In character** —", "**Not** —")),
-            ("9. Permitted mods and launchers", ("- Minimaps must", "- A launcher")),
+            ("1. Do not grief or steal", ("**Off limits** —",)),
+            ("2. Settle fights with /pvp", ("**Fine** —", "**Not fine** —")),
+            ("6. Keep it in character", ("**In character** —", "**Not** —")),
+            ("8. Permitted mods and launchers", ("- Minimaps must", "- A launcher")),
         ):
             rule = self._rule(heading)
             for bullet in bullets:
@@ -2274,9 +2283,9 @@ class MinecraftApplicationPanelTests(unittest.TestCase):
         described = self._rules_text()
 
         for clause in (
-            "looks abandoned",           # "it was abandoned, so it was not really griefing"
-            "not an oversight",          # "the chest was unlocked"
-            "being offline is not protection",
+            "is not abandoned",          # "nobody was using it"
+            "not an invitation",         # "the chest was unlocked"
+            "being offline is not permission",
             "oversight rather than permission",  # "WorldGuard let me break it"
             "regardless of who started it",
             "the death you avoided",     # combat logging

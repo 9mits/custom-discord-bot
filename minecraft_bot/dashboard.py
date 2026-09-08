@@ -28,6 +28,12 @@ from .audit import (
 )
 from .perks import RANK_ROLES
 from .presentation import head_url, skin_url
+from .updatenotice import (
+    UpdateNoticeView,
+    build_notice_embed,
+    find_template,
+    load_update_templates,
+)
 
 
 logger = logging.getLogger("MinecraftAccessBot.dashboard")
@@ -810,6 +816,8 @@ class DashboardServer:
                 "recipients": len(recipients),
                 "role_id": str(getattr(self.bot.settings, "member_role_id", 0) or 0),
                 "sample": [str(member) for member in recipients[:8]],
+                "opted_out": len(await self.bot.data.update_optout_ids()),
+                "templates": [item.as_dict() for item in load_update_templates()],
             },
             headers={"Cache-Control": "no-store"},
         )
@@ -840,18 +848,35 @@ class DashboardServer:
 
         from .announce import build_announcement_embed
 
-        try:
-            embed = build_announcement_embed(
-                title=body.get("title", ""),
-                description=body.get("description", ""),
-                colour=body.get("colour", ""),
-                image=body.get("image", ""),
-                footer=body.get("footer", ""),
-            )
-        except ValueError as exc:
-            raise web.HTTPBadRequest(text=str(exc))
+        view = None
+        slug = str(body.get("template", "")).strip()
+        if slug:
+            template = find_template(slug)
+            if template is None:
+                raise web.HTTPBadRequest(text="No update post matches %r." % slug)
+            if template.draft:
+                # The notice exists to hand people a link. A draft is not on the site.
+                raise web.HTTPBadRequest(
+                    text="%s is still a draft. Publish the post before announcing it."
+                    % template.title
+                )
+            embed = build_notice_embed(template)
+            view = UpdateNoticeView(self.bot, template.url)
+        else:
+            try:
+                embed = build_announcement_embed(
+                    title=body.get("title", ""),
+                    description=body.get("description", ""),
+                    colour=body.get("colour", ""),
+                    image=body.get("image", ""),
+                    footer=body.get("footer", ""),
+                )
+            except ValueError as exc:
+                raise web.HTTPBadRequest(text=str(exc))
 
-        result = await announcer.send(embed=embed, actor=str(member), content=None)
+        result = await announcer.send(
+            embed=embed, actor=str(member), content=None, view=view
+        )
         return web.json_response(result.as_dict())
 
     async def run_action(self, request: web.Request) -> web.Response:

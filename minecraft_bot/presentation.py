@@ -278,7 +278,7 @@ def application_welcome_embed() -> discord.Embed:
         "Welcome to Mysterious SMP X",
         "**Mysterious Girlfriend X Discord, in partnership with r/MysteriousGirlfriendX.**\n\n"
         "> Crossplay survival where you can build, compete, fight or play peacefully.\n"
-        "> Griefing and raiding are allowed outside protected server builds.\n"
+        "> Griefing and stealing are not allowed. Settle fights with `/pvp`.\n"
         f"> **Java:** {JAVA_SUPPORTED_RANGE}  •  **Bedrock:** current versions",
     )
     for name, line in SERVER_FEATURES:
@@ -310,29 +310,36 @@ def application_apply_embed(settings) -> discord.Embed:
 #: them without parsing prose.
 SERVER_RULES: tuple[tuple[str, str], ...] = (
     (
-        "1. Griefing is allowed",
-        "- **Fair game** — player bases, farms, animals, clan builds, anything "
-        "you find out there\n"
-        "- **Off limits** — spawn, and any build marked as server-coordinated\n\n"
-        "Raid it, burn it, flood it, take it apart. Claimed or not, occupied or "
-        "not, and a build that looks abandoned is as fair a target as one that "
-        "does not.\n\n"
-        "This is deliberate. A world where anything can be lost is a world worth "
-        "defending: it gives clans a reason to fortify, alliances a reason to "
-        "mean something, and everyone a reason to log in and find out what "
-        "changed overnight. The best stories this server has came from somebody "
-        "losing something. Build accordingly.",
+        "1. Do not grief or steal",
+        "- **Off limits** — player bases, farms, animals, clan builds, and "
+        "anything anyone else made\n"
+        "- **Off limits** — chests, barrels, shulkers and storage that are not "
+        "yours\n\n"
+        "Do not break it, burn it, flood it, build over it or take from it. An "
+        "unlocked chest is not an invitation, an unclaimed build is not "
+        "abandoned, and somebody being offline is not permission.\n\n"
+        "This server used to allow all of it. It does not any more. What people "
+        "build here should still be standing when they log back in.",
     ),
     (
-        "2. Raiding and theft are fair game",
-        "Chests, barrels, shulkers, storage rooms — if you can reach it, you can "
-        "take it. An unlocked chest is an opportunity, not an oversight, and "
-        "being offline is not protection.\n\n"
-        "Hidden bases, decoys, traps and distance are your defence. Use them, and "
-        "assume your rivals are using them too.",
+        "2. Settle fights with /pvp",
+        "**`/pvp`** is how you fight somebody. Challenge them, they accept, and "
+        "the duel runs in its own arena — keep-inventory is on, nothing is "
+        "dropped, and the ground is put back afterwards.\n\n"
+        "- **Fine** — any duel both players agreed to\n"
+        "- **Fine** — a fight with real history behind it: a war, a betrayal, a "
+        "standing rivalry\n"
+        "- **Not fine** — killing somebody who has no idea who you are\n\n"
+        "Attacking a player who never agreed and never wronged you is punished "
+        "whatever the excuse. If you genuinely have a reason, you will be able to "
+        "say what it is.\n\n"
+        "Spawn-killing, corpse camping, killing the same player on sight "
+        "repeatedly, and chasing somebody who has clearly disengaged are never "
+        "allowed, reason or no reason.\n\n"
+        "Logging out to escape a fight is treated as the death you avoided.",
     ),
     (
-        "3. Server builds are the exception",
+        "3. Spawn and server builds",
         "Spawn and anything officially marked as a server build — the hub, public "
         "roads and portals, event arenas, staff-run community projects — are "
         "never valid targets. Do not break, burn, flood, build over or trap "
@@ -344,23 +351,14 @@ SERVER_RULES: tuple[tuple[str, str], ...] = (
         "started it.",
     ),
     (
-        "4. Keep PvP fair",
-        "- **Allowed** — fighting, ambushes and declared wars\n"
-        "- **Not allowed** — spawn-killing, corpse camping, killing the same "
-        "player on sight repeatedly, or pursuing someone who has clearly "
-        "disengaged\n\n"
-        "Logging out to escape a fight is treated as the death you avoided.",
+        "4. Fight players, not people",
+        "A rivalry is part of the story. Driving somebody off the server is not. "
+        "Singling out one player until they stop logging in is harassment however "
+        "it is dressed up, and is judged on its effect rather than on what you "
+        "meant by it.",
     ),
     (
-        "5. Fight players, not people",
-        "Griefing is aimed at builds and loot, because those can be rebuilt and "
-        "retaken. It is not a way to drive somebody off the server. Singling out "
-        "one player until they stop logging in is harassment however it is "
-        "dressed up, and is judged on its effect rather than on what you meant "
-        "by it.",
-    ),
-    (
-        "6. Respect other players",
+        "5. Respect other players",
         "Harassment, slurs, discrimination, sexual content, threats and sharing "
         "someone's personal information are prohibited everywhere — chat, signs, "
         "books, item names and builds included. These are acted on immediately, "
@@ -368,7 +366,7 @@ SERVER_RULES: tuple[tuple[str, str], ...] = (
         "first.",
     ),
     (
-        "7. Keep it in character",
+        "6. Keep it in character",
         "What happens in Minecraft stays in Minecraft. Conflict belongs to the "
         "story rather than to the people playing, and never follows anyone into "
         "Discord or anywhere else.\n"
@@ -377,7 +375,7 @@ SERVER_RULES: tuple[tuple[str, str], ...] = (
         "attacks",
     ),
     (
-        "8. Do not cheat",
+        "7. Do not cheat",
         "Hacked clients, duping and exploits are banned on sight. Whatever it is "
         "called, a modification is cheating if it does any of the following:\n"
         "- **Shows what you could not see** — X-ray, ore and cave finders, "
@@ -389,22 +387,22 @@ SERVER_RULES: tuple[tuple[str, str], ...] = (
         "Not knowing what your client bundles is not a defence.",
     ),
     (
-        "9. Permitted mods and launchers",
+        "8. Permitted mods and launchers",
         "Performance, shader, mapping, building and quality-of-life mods are "
         "welcome, as are custom launchers such as Lunar Client and Feather. Two "
         "conditions apply:\n"
         "- Minimaps must have cave mapping and player radar turned off\n"
-        "- A launcher bundling anything from rule 8 does not make it permitted",
+        "- A launcher bundling anything from rule 7 does not make it permitted",
     ),
     (
-        "10. Report exploits rather than using them",
+        "9. Report exploits rather than using them",
         "If you find a duplication bug, a way through a protection, or anything "
         "the server clearly did not intend, tell staff. Using it, profiting from "
         "it before reporting it, or passing it to anyone else is treated as "
         "cheating.",
     ),
     (
-        "11. Link as many accounts as you want",
+        "10. Link as many accounts as you want",
         "You may link as many Java and Bedrock accounts as you like. Use "
         "**Link Other Accounts** in Discord, pick the edition, and verify each "
         "one the same way.\n\n"
@@ -412,14 +410,14 @@ SERVER_RULES: tuple[tuple[str, str], ...] = (
         "share an account: anything done on it is your responsibility.",
     ),
     (
-        "12. Protect the server",
+        "11. Protect the server",
         "Ordinary farms are fine. Lag machines, crash exploits, chunk bans and "
         "anything else built or run to strain server stability are prohibited, "
         "including work you did not realise would cause it once staff have asked "
         "you to stop.",
     ),
     (
-        "13. Staff decisions are final",
+        "12. Staff decisions are final",
         "A loophole is not permission, and not having read a rule is not a "
         "defence. If you are unsure whether something is allowed, ask before "
         "doing it rather than afterwards. Staff may intervene in any conflict "

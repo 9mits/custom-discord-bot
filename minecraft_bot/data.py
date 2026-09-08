@@ -34,7 +34,7 @@ from .models import (
 
 JAVA_USERNAME = re.compile(r"^[A-Za-z0-9_]{3,16}$")
 BEDROCK_USERNAME = re.compile(r"^[\w -]{1,16}$", re.UNICODE)
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 COMMAND_LOG_RETENTION_DAYS = 30
 COMMAND_LOG_RETENTION_ROWS = 20_000
 
@@ -269,6 +269,14 @@ CREATE INDEX IF NOT EXISTS idx_minecraft_delivery_due
 CREATE TABLE IF NOT EXISTS minecraft_notification_receipts (
     dedupe_key TEXT PRIMARY KEY,
     sent_at INTEGER NOT NULL
+);
+
+-- Members who pressed "Stop update DMs" on an update notice. Presence is the whole
+-- record: this silences update announcements only, and never the account, access or
+-- moderation DMs the bot must still be able to send.
+CREATE TABLE IF NOT EXISTS minecraft_update_optout (
+    user_id TEXT PRIMARY KEY,
+    opted_out_at INTEGER NOT NULL
 );
 """
 
@@ -1942,6 +1950,46 @@ class MinecraftDataManager:
             "SELECT status, COUNT(*) AS count FROM minecraft_bridge_outbox GROUP BY status"
         )
         return {row["status"]: int(row["count"]) for row in rows}
+
+    async def set_update_optout(self, user_id: int | str, opted_out: bool = True) -> None:
+        """Records that somebody does not want update announcements.
+
+        Scoped to update notices on purpose. Access, verification and moderation DMs
+        are how the bot does its job and are never covered by this.
+        """
+        async with self._write_lock:
+            db = self._connection()
+            try:
+                await self._begin(db)
+                if opted_out:
+                    await db.execute(
+                        "INSERT INTO minecraft_update_optout(user_id, opted_out_at) "
+                        "VALUES (?, ?) ON CONFLICT(user_id) DO NOTHING",
+                        (str(user_id), int(time.time())),
+                    )
+                else:
+                    await db.execute(
+                        "DELETE FROM minecraft_update_optout WHERE user_id=?",
+                        (str(user_id),),
+                    )
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
+
+    async def is_update_opted_out(self, user_id: int | str) -> bool:
+        rows = await self._connection().execute_fetchall(
+            "SELECT 1 FROM minecraft_update_optout WHERE user_id=?",
+            (str(user_id),),
+        )
+        return bool(rows)
+
+    async def update_optout_ids(self) -> set[str]:
+        """Every opted-out id at once, so a broadcast filters without a query per member."""
+        rows = await self._connection().execute_fetchall(
+            "SELECT user_id FROM minecraft_update_optout"
+        )
+        return {str(row["user_id"]) for row in rows}
 
     async def set_config(self, key: str, value: Any) -> None:
         await self.set_configs({key: value})

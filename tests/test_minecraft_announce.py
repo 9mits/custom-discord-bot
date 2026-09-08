@@ -1,5 +1,7 @@
 import time
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -12,6 +14,12 @@ from minecraft_bot.announce import (
     announcer_for,
     build_announcement_embed,
 )
+from minecraft_bot.updatenotice import (
+    UpdateNoticeView,
+    build_notice_embed,
+    find_template,
+    load_update_templates,
+)
 
 
 class Recipient:
@@ -21,9 +29,11 @@ class Recipient:
         self.id = member_id
         self.bot = False
         self.received: list[discord.Embed] = []
+        self.views: list[object] = []
 
-    async def send(self, content=None, embed=None):
+    async def send(self, content=None, embed=None, view=None):
         self.received.append(embed)
+        self.views.append(view)
 
 
 class BuildAnnouncementEmbedTests(unittest.TestCase):
@@ -57,8 +67,13 @@ class BuildAnnouncementEmbedTests(unittest.TestCase):
 
 class PreviewTests(unittest.IsolatedAsyncioTestCase):
     def _announcer(self, *, enabled: str = "0") -> UpdateAnnouncer:
+        async def no_optouts():
+            return set()
+
         bot = SimpleNamespace(
-            data=SimpleNamespace(get_config=self._config(enabled)),
+            data=SimpleNamespace(
+                get_config=self._config(enabled), update_optout_ids=no_optouts
+            ),
             settings=SimpleNamespace(member_role_id=0),
         )
         return UpdateAnnouncer(bot)
@@ -206,6 +221,149 @@ class AnnouncePreviewCommandTests(unittest.IsolatedAsyncioTestCase):
         reply = interaction.edit_original_response.await_args.kwargs["embed"]
         self.assertEqual("Your Direct Messages Are Closed", reply.title)
 
+
+
+class UpdateTemplateTests(unittest.TestCase):
+    """The notice is derived from the post, so it can only describe a real update."""
+
+    def _posts(self, **files):
+        holder = TemporaryDirectory()
+        self.addCleanup(holder.cleanup)
+        directory = Path(holder.name)
+        for name, text in files.items():
+            (directory / name).write_text(text, encoding="utf-8")
+        return directory
+
+    POST = (
+        "---\n"
+        "title: The Amethyst Dragon Update\n"
+        "tagline: The Dragon has awakened!\n"
+        "date: 2026-09-08\n"
+        "category: Update\n"
+        "draft: true\n"
+        "---\n\n"
+        "## Something Stirred At Spawn\n\nBody.\n\n"
+        "### A Feature\n\nMore body.\n\n"
+        "## Ranked PvP\n\nBody.\n"
+    )
+
+    def test_only_update_posts_become_templates(self):
+        directory = self._posts(**{
+            "2026-09-08-update-7.md": self.POST,
+            "2026-09-01-an-event.md": (
+                "---\ntitle: Event\ndate: 2026-09-01\ncategory: Event\n---\n\n## Beat\n"
+            ),
+        })
+        templates = load_update_templates(directory)
+        self.assertEqual(["The Amethyst Dragon Update"], [t.title for t in templates])
+
+    def test_sections_are_the_beats_not_every_feature_heading(self):
+        # A long post has far too many '###' features to be a summary.
+        directory = self._posts(**{"2026-09-08-update-7.md": self.POST})
+        template = load_update_templates(directory)[0]
+        self.assertEqual(
+            ("Something Stirred At Spawn", "Ranked PvP"), template.highlights
+        )
+
+    def test_a_post_with_no_sections_falls_back_to_features(self):
+        directory = self._posts(**{
+            "2026-09-08-x.md": (
+                "---\ntitle: X\ndate: 2026-09-08\ncategory: Update\n---\n\n"
+                "### Only A Feature\n\nBody.\n"
+            )
+        })
+        self.assertEqual(
+            ("Only A Feature",), load_update_templates(directory)[0].highlights
+        )
+
+    def test_the_slug_comes_from_the_dated_filename(self):
+        directory = self._posts(**{"2026-09-08-update-7.md": self.POST})
+        template = load_update_templates(directory)[0]
+        self.assertEqual("update-7", template.slug)
+        self.assertEqual("https://mysterioussmpx.blog/update-7/", template.url)
+
+    def test_a_draft_is_carried_through_and_labelled(self):
+        directory = self._posts(**{"2026-09-08-update-7.md": self.POST})
+        template = load_update_templates(directory)[0]
+        self.assertTrue(template.draft)
+        self.assertIn("(draft)", template.label)
+
+    def test_the_notice_carries_the_tagline_beats_and_link(self):
+        directory = self._posts(**{"2026-09-08-update-7.md": self.POST})
+        embed = build_notice_embed(load_update_templates(directory)[0])
+        self.assertEqual("The Amethyst Dragon Update is live!", embed.title)
+        self.assertEqual("https://mysterioussmpx.blog/update-7/", embed.url)
+        self.assertIn("The Dragon has awakened!", embed.description)
+        self.assertIn("> Ranked PvP", embed.description)
+
+    def test_the_real_update_7_post_makes_a_usable_notice(self):
+        # Guards the parser against the repo's own front matter, not just a fixture.
+        template = find_template("update-7")
+        if template is None:
+            self.skipTest("update-7 is not in this checkout")
+        self.assertTrue(template.highlights)
+        self.assertIn("Amethyst", build_notice_embed(template).title)
+
+
+class UpdateNoticeViewTests(unittest.IsolatedAsyncioTestCase):
+    def test_the_view_is_persistent_so_old_buttons_keep_working(self):
+        # A notice outlives the process that sent it. A non-persistent view would
+        # leave every previously sent opt-out button dead after a restart.
+        view = UpdateNoticeView(SimpleNamespace(), "https://mysterioussmpx.blog/update-7/")
+        self.assertTrue(view.is_persistent())
+        self.assertIsNone(view.timeout)
+
+    def test_it_offers_a_link_out_and_a_red_opt_out(self):
+        view = UpdateNoticeView(SimpleNamespace(), "https://mysterioussmpx.blog/update-7/")
+        styles = {item.style for item in view.children}
+        self.assertIn(discord.ButtonStyle.link, styles)
+        self.assertIn(discord.ButtonStyle.danger, styles)
+        link = [item for item in view.children if item.style is discord.ButtonStyle.link][0]
+        self.assertEqual("https://mysterioussmpx.blog/update-7/", link.url)
+
+    async def test_pressing_stop_records_the_opt_out(self):
+        recorded = {}
+
+        async def set_update_optout(user_id, opted_out=True):
+            recorded["user_id"] = user_id
+            recorded["opted_out"] = opted_out
+
+        bot = SimpleNamespace(data=SimpleNamespace(set_update_optout=set_update_optout))
+        view = UpdateNoticeView(bot)
+        interaction = SimpleNamespace(
+            user=SimpleNamespace(id=77),
+            response=SimpleNamespace(send_message=AsyncMock()),
+        )
+        button = [
+            item for item in view.children if item.style is discord.ButtonStyle.danger
+        ][0]
+
+        await button.callback(interaction)
+
+        self.assertEqual({"user_id": 77, "opted_out": True}, recorded)
+        reply = interaction.response.send_message.await_args.kwargs["embed"]
+        # The promise that matters: this silences updates, not the bot.
+        self.assertIn("update notices only", reply.description)
+        self.assertTrue(interaction.response.send_message.await_args.kwargs["ephemeral"])
+
+
+class OptOutFilteringTests(unittest.IsolatedAsyncioTestCase):
+    async def test_opted_out_members_are_removed_before_the_send(self):
+        """A refusal the person asked for must not count towards the abort rate."""
+        staying, leaving = Recipient(1), Recipient(2)
+        role = SimpleNamespace(members=[staying, leaving])
+
+        async def optouts():
+            return {"2"}
+
+        bot = SimpleNamespace(
+            data=SimpleNamespace(update_optout_ids=optouts),
+            settings=SimpleNamespace(member_role_id=5),
+            _configured_guild=AsyncMock(
+                return_value=SimpleNamespace(get_role=lambda _id: role)
+            ),
+        )
+        self.assertEqual([staying], await UpdateAnnouncer(bot).recipients())
 
 if __name__ == "__main__":
     unittest.main()
