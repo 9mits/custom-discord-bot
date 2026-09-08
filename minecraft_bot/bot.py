@@ -236,6 +236,12 @@ class MinecraftAccessBot(commands.Bot):
         await self.data.delete_configs(LEGACY_SETTING_KEYS)
         self.add_view(application_panel())
         self.add_view(LiveApplicationView())
+        # An update notice outlives the process that sent it, so its opt-out button has
+        # to keep working after a restart. The link button carries no custom_id and is
+        # handled by the client, so registering the default URL here costs nothing.
+        from .updatenotice import UpdateNoticeView
+
+        self.add_view(UpdateNoticeView(self))
         # Without this the leaderboard dropdowns have no handler, so Discord reports
         # that the bot did not respond in time.
         from .information import InformationButton, LinkEditionButton, SectionButton
@@ -2492,6 +2498,23 @@ class MinecraftAccessBot(commands.Bot):
             )
         )
 
+    async def _update_template_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        """Dev-blog updates, newest first. Drafts are offered and labelled as such —
+        they can be previewed, just not broadcast."""
+        from .updatenotice import load_update_templates
+
+        typed = str(current or "").lower()
+        choices: list[app_commands.Choice[str]] = []
+        for item in load_update_templates():
+            if typed and typed not in item.title.lower() and typed not in item.slug.lower():
+                continue
+            choices.append(app_commands.Choice(name=item.label[:100], value=item.slug))
+            if len(choices) == 25:
+                break
+        return choices
+
     def _build_command_groups(self) -> tuple[app_commands.Group, ...]:
         """Builds the member, staff, and admin command groups, split by audience.
 
@@ -3013,14 +3036,17 @@ class MinecraftAccessBot(commands.Bot):
             description="Owner only: DM yourself an update notice to see how it looks.",
         )
         @app_commands.describe(
-            title="Headline of the notice.",
+            template="A dev-blog update to announce. Leave empty to write it yourself.",
+            title="Headline of the notice. Ignored when a template is chosen.",
             message="Body text. Use \\n for a line break.",
             colour="Hex colour such as F06000. Defaults to the house orange.",
             image="An https:// image URL shown under the text.",
             footer="Small print under the notice.",
         )
+        @app_commands.autocomplete(template=self._update_template_autocomplete)
         async def announce_preview(
             interaction: discord.Interaction,
+            template: Optional[str] = None,
             title: Optional[str] = None,
             message: Optional[str] = None,
             colour: Optional[str] = None,
@@ -3046,25 +3072,51 @@ class MinecraftAccessBot(commands.Bot):
                 announcer_for,
                 build_announcement_embed,
             )
+            from .updatenotice import (
+                UpdateNoticeView,
+                build_notice_embed,
+                find_template,
+            )
 
-            try:
-                embed = build_announcement_embed(
-                    title=title or "",
-                    # Slash options cannot carry a real newline; let the author type one.
-                    description=(message or "").replace("\\n", "\n"),
-                    colour=colour or "",
-                    image=image or "",
-                    footer=footer or "",
-                )
-            except ValueError as exc:
-                await interaction.edit_original_response(
-                    **branded_edit(info_embed("Cannot Build That Notice", f"> {exc}", error=True))
-                )
-                return
+            view = None
+            if template:
+                chosen = find_template(template)
+                if chosen is None:
+                    await interaction.edit_original_response(
+                        **branded_edit(
+                            info_embed(
+                                "No Such Update",
+                                f"> No dev-blog update post matches `{template}`.",
+                                error=True,
+                            )
+                        )
+                    )
+                    return
+                embed = build_notice_embed(chosen)
+                view = UpdateNoticeView(self, chosen.url)
+            else:
+                try:
+                    embed = build_announcement_embed(
+                        title=title or "",
+                        # Slash options cannot carry a real newline; let the author type one.
+                        description=(message or "").replace("\\n", "\n"),
+                        colour=colour or "",
+                        image=image or "",
+                        footer=footer or "",
+                    )
+                except ValueError as exc:
+                    await interaction.edit_original_response(
+                        **branded_edit(
+                            info_embed("Cannot Build That Notice", f"> {exc}", error=True)
+                        )
+                    )
+                    return
 
             announcer = announcer_for(self)
             try:
-                await announcer.preview(embed=embed, member=interaction.user)
+                await announcer.preview(
+                    embed=embed, member=interaction.user, view=view
+                )
             except discord.Forbidden:
                 await interaction.edit_original_response(
                     **branded_edit(
@@ -3093,6 +3145,11 @@ class MinecraftAccessBot(commands.Bot):
                 if armed
                 else "Announcements are **switched off**, so nothing can go out yet."
             )
+            if template and chosen.draft:
+                switch = (
+                    f"**{chosen.title}** is still a draft, so it cannot be sent yet — "
+                    "the link would go nowhere. Publish the post first."
+                )
             await interaction.edit_original_response(
                 **branded_edit(
                     info_embed(

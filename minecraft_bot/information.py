@@ -162,7 +162,17 @@ def commands_embed() -> discord.Embed:
                 "> `/bal` · `/pay <player> <amount>` — your wallet\n"
                 "> `/sethome` · `/home` — save a spot and return to it\n"
                 "> `/tpa <player>` — ask to teleport to someone\n"
-                "> `/crate` — open crates and read their exact odds",
+                "> `/crate` — open crates and read their exact odds\n"
+                "> `/pvp challenge <player>` — the only way to fight somebody",
+            ),
+            (
+                "Fighting",
+                "> Griefing and stealing are **not allowed** here.\n"
+                "> Settle it with `/pvp challenge <player>` — they accept, "
+                "keep-inventory is on, nothing is dropped, and the arena is "
+                "restored afterwards.\n"
+                "> Attacking somebody who never agreed and never wronged you is "
+                "punished. See `/guide`, or the rules panel in Discord.",
             ),
             (
                 "Full list",
@@ -361,7 +371,6 @@ def commands_account_embed(settings=None) -> discord.Embed:
                 "> `/ping` — your connection latency\n"
                 "> `/whitelisted [page]` — everyone with access\n"
                 "> `/realname <name>` — look up a display name\n"
-                "> `/rules` · `/motd` — rules and welcome text\n"
                 "> `/guide` — the in-game guide\n"
                 "> `/discord` — the community invite",
             ),

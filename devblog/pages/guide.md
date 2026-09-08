@@ -18,6 +18,13 @@ Everything available to you in game.
 `/sethome` · `/home` — save a spot and return to it
 `/tpa <player>` — ask to teleport to someone
 `/crate` — open crates and read their exact odds
+`/pvp challenge <player>` — the only way to fight somebody
+
+### Fighting
+
+Griefing and stealing are **not allowed** here.
+Settle it with `/pvp challenge <player>` — they accept, keep-inventory is on, nothing is dropped, and the arena is restored afterwards.
+Attacking somebody who never agreed and never wronged you is punished. See `/guide`, or the rules panel in Discord.
 
 ### Full list
 
@@ -179,7 +186,6 @@ Your perks and preferences, plus details about the server.
 `/ping` — your connection latency
 `/whitelisted [page]` — everyone with access
 `/realname <name>` — look up a display name
-`/rules` · `/motd` — rules and welcome text
 `/guide` — the in-game guide
 `/discord` — the community invite
 

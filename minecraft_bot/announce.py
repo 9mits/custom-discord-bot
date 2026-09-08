@@ -144,7 +144,9 @@ class UpdateAnnouncer:
         """Everyone who would receive a notice right now.
 
         Membership of the role is the entire opt-in. Bots are excluded because a DM to
-        one is refused and counts against the refusal rate for no reason.
+        one is refused and counts against the refusal rate for no reason, and anyone who
+        pressed "Stop update DMs" is removed here rather than at the send: a refusal the
+        person already asked for should never count towards the abort rate.
         """
         guild = await self.bot._configured_guild()
         role_id = int(getattr(self.bot.settings, "member_role_id", 0) or 0)
@@ -153,7 +155,12 @@ class UpdateAnnouncer:
         role = guild.get_role(role_id)
         if role is None:
             return []
-        return [member for member in role.members if not member.bot]
+        opted_out = await self.bot.data.update_optout_ids()
+        return [
+            member
+            for member in role.members
+            if not member.bot and str(member.id) not in opted_out
+        ]
 
     async def enabled(self) -> bool:
         """Whether announcements are switched on. Off is the safe default."""
@@ -171,6 +178,7 @@ class UpdateAnnouncer:
         embed: discord.Embed,
         member: discord.abc.Messageable,
         content: Optional[str] = None,
+        view: Optional[discord.ui.View] = None,
     ) -> None:
         """Sends one copy to whoever is composing it.
 
@@ -183,7 +191,7 @@ class UpdateAnnouncer:
         the member role too, and a recorded preview would make the real
         announcement skip the one person who knows it went out.
         """
-        await member.send(content=content or None, embed=embed)
+        await member.send(content=content or None, embed=embed, view=view)
 
     async def send(
         self,
@@ -192,6 +200,7 @@ class UpdateAnnouncer:
         content: Optional[str] = None,
         actor: str = "owner",
         targets: Optional[Iterable[discord.Member]] = None,
+        view: Optional[discord.ui.View] = None,
     ) -> BroadcastResult:
         result = BroadcastResult()
         if self._running:
@@ -218,7 +227,7 @@ class UpdateAnnouncer:
                     result.skipped += 1
                     continue
                 try:
-                    await member.send(content=content or None, embed=embed)
+                    await member.send(content=content or None, embed=embed, view=view)
                     result.delivered += 1
                     self._last_sent[member.id] = now
                 except discord.Forbidden:

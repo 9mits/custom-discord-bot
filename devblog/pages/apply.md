@@ -21,8 +21,9 @@ they actually play. Bedrock and console players need their **Xbox gamertag**,
 spelled exactly as Xbox shows it — including spaces and capitals.
 
 **Read the rules.** You accept them when you verify, and they are what staff
-enforce on the server. Griefing and raiding being allowed surprises people, so
-it is worth knowing that going in.
+enforce on the server. Griefing and stealing are not allowed, and fights are
+arranged with `/pvp` rather than started on sight — worth knowing going in,
+especially if you have played here before, because both used to be allowed.
 
 ## The four steps
 
