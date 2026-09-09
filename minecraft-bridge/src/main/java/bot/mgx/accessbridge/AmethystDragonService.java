@@ -2665,8 +2665,8 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         long remaining = Math.max(0L, scheduledAt.toEpochMilli() - System.currentTimeMillis());
         long total = Math.max(1L, variables.integer("dragon-event.portal-open-minutes") * 60_000L);
         portalBar.name(Component.text("AMETHYST DRAGON PORTAL", AMETHYST, TextDecoration.BOLD)
-                .append(Component.text("  SEALS IN ", NamedTextColor.GRAY))
-                .append(Component.text(duration(remaining), NamedTextColor.WHITE,
+                .append(Component.text("  OPEN UNTIL ", NamedTextColor.GRAY))
+                .append(Component.text(portalCloseClock(scheduledAt), NamedTextColor.WHITE,
                         TextDecoration.BOLD)));
         portalBar.progress((float) Math.clamp((double) remaining / total, 0d, 1d));
     }
@@ -2902,8 +2902,14 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                         : render(variables.string("dragon-event.portal-next-event-status"),
                         "time", duration(until));
             }
-            case PORTAL_OPEN -> render(variables.string("dragon-event.portal-open-status"), "time",
-                    duration(scheduledAt.toEpochMilli() - System.currentTimeMillis()));
+            case PORTAL_OPEN -> {
+                long remaining = scheduledAt == null ? 0L
+                        : scheduledAt.toEpochMilli() - System.currentTimeMillis();
+                String line = render(variables.string("dragon-event.portal-open-status"),
+                        "time", duration(remaining));
+                yield render(line, "until", scheduledAt == null
+                        ? "--:-- UTC" : portalCloseClock(scheduledAt));
+            }
             case SUMMONING -> variables.string("dragon-event.portal-summoning-status");
             case FIGHT, VICTORY, REWARDS -> render(variables.string("dragon-event.portal-next-event-status"),
                     "time", duration(scheduledAt == null ? 0L
@@ -3489,6 +3495,10 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         long rest = seconds % 60L;
         if (hours > 0) return hours + "h " + minutes + "m";
         return minutes > 0 ? minutes + "m " + rest + "s" : rest + "s";
+    }
+
+    static String portalCloseClock(Instant closesAt) {
+        return CLOCK.format(closesAt.atZone(ZoneOffset.UTC)) + " UTC";
     }
 
     private static String render(String source, String key, String value) {

@@ -385,7 +385,8 @@ final class GameVariableStore {
         text("dragon-event.portal-waiting-status", "Portal waiting status", "Dragon Presentation",
                 "Portal line before admission opens. Supports <time>.", "Portal opens in <time>", 100);
         text("dragon-event.portal-open-status", "Portal open status", "Dragon Presentation",
-                "Portal line while players may enter. Supports <time>.", "PORTAL OPEN • <time>", 100);
+                "Portal line while players may enter. Supports <until> and <time>.",
+                "OPEN UNTIL <until>", 100);
         text("dragon-event.portal-summoning-status", "Portal summoning status", "Dragon Presentation",
                 "Portal line while pillars and the Dragon appear.", "ENTRY CLOSED • THE DRAGON AWAKENS", 100);
         text("dragon-event.portal-next-event-status", "Next Dragon event status", "Dragon Presentation",
