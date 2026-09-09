@@ -813,6 +813,12 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         if (arena == null) throw new IllegalStateException("Could not create the Amethyst Dragon world.");
         hideDragonBar();
         hideVanillaDragonBar();
+        // The island is 144 blocks across and sealed. Whatever the server default is, it
+        // is loading and ticking chunks of empty void around a small arena, which is the
+        // one place a fight with a dragon, minions and heavy particle work can least
+        // afford it. Eight chunks still shows the whole island from its centre.
+        arena.setViewDistance(variables.integer("dragon-event.arena-view-distance"));
+        arena.setSimulationDistance(variables.integer("dragon-event.arena-simulation-distance"));
         arena.setGameRule(GameRule.DO_MOB_SPAWNING, false);
         arena.setGameRule(GameRule.KEEP_INVENTORY, true);
         arena.setGameRule(GameRule.DO_DAYLIGHT_CYCLE, false);
@@ -873,18 +879,27 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         int radius = Math.min(variables.integer("dragon-event.arena-radius"),
                 variables.integer("dragon-event.border-size") / 2 - 8);
         SimplexNoiseGenerator noise = new SimplexNoiseGenerator(0xA6E7_4157L);
+        // Only the columns that hold island, and within them only the solid band.
+        //
+        // This used to walk every y from 35 to 125 in all 153x153 columns — 2.13 million
+        // block reads to build an island that occupies about a ninth of that. Most of
+        // the work was reading already-air blocks to decide not to change them, and
+        // prepareArena only ever runs immediately after recreateArenaForRun has replaced
+        // the world with a fresh void one, so there was never anything there to clear.
         for (int x = -radius - 4; x <= radius + 4; x++) {
             for (int z = -radius - 4; z <= radius + 4; z++) {
                 double distance = Math.sqrt(x * x + z * z);
                 double edge = radius + noise.noise(x * 0.045, z * 0.045) * 7d;
+                if (distance > edge) {
+                    continue;
+                }
                 int surface = 72 + (int) Math.round(noise.noise(x * 0.032, z * 0.032) * 5d)
                         + (distance < 18 ? 2 : 0);
-                for (int y = 35; y <= 125; y++) {
+                int depth = Math.max(5, (int) ((edge - distance) * .55));
+                int lowest = Math.max(35, surface - depth);
+                int highest = Math.min(125, surface);
+                for (int y = lowest; y <= highest; y++) {
                     Block block = arena.getBlockAt(x, y, z);
-                    if (distance > edge || y > surface || y < surface - Math.max(5, (int) ((edge - distance) * .55))) {
-                        if (block.getType() != Material.AIR) block.setType(Material.AIR, false);
-                        continue;
-                    }
                     Material material;
                     if (y == surface) {
                         double detail = noise.noise(x * .14, z * .14);
@@ -1196,6 +1211,31 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         }, 10L);
     }
 
+    /**
+     * One beat of the summoning.
+     *
+     * <p>Every emission here is forced and every sound is played to the player rather
+     * than to the world. This is why the sequence used to be invisible: players land at
+     * the arena entry and the summoning happens at y 86 over the centre, which is far
+     * enough away that the client never received the particles at all — the server
+     * drops particle packets past 32 blocks unless they are forced — and the positional
+     * sound had faded to nothing over the same distance. The animation was running
+     * perfectly and nobody could see or hear it.
+     */
+    /**
+     * A cue everybody in the arena hears, wherever they are standing.
+     *
+     * <p>World-positional audio fades over roughly sixteen blocks. For an event beat the
+     * whole arena is meant to react to, that means the people furthest from it — the
+     * ones most in need of the cue — are the ones who never get it.
+     */
+    private void playToArena(Sound sound, float volume, float pitch) {
+        if (arena == null) return;
+        for (Player player : arena.getPlayers()) {
+            player.playSound(player.getLocation(), sound, volume, pitch);
+        }
+    }
+
     private void dragonSummonPulse(int pulse, int pulses) {
         Location centre = new Location(arena, .5, 86, .5);
         double progress = (pulse + 1d) / Math.max(1, pulses);
@@ -1205,21 +1245,21 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         int particles = variables.integer("dragon-event.dragon-summon-particle-count");
         if (variables.bool("dragon-event.effects-enabled")) {
             arena.spawnParticle(Particle.DRAGON_BREATH, centre, particles,
-                    radius, 4d + progress * 8d, radius, .08, 1.0f);
+                    radius, 4d + progress * 8d, radius, .08, null, true);
             arena.spawnParticle(Particle.REVERSE_PORTAL, centre, particles,
-                    radius, 6d + progress * 10d, radius, .16);
+                    radius, 6d + progress * 10d, radius, .16, null, true);
             arena.spawnParticle(Particle.DUST, centre, particles,
-                    radius, 5d + progress * 9d, radius, .04, BRIGHT);
+                    radius, 5d + progress * 9d, radius, .04, BRIGHT, true);
             if (pulse % variables.integer("dragon-event.dragon-summon-lightning-every-pulses") == 0) {
                 double angle = Math.PI * 2d * pulse / Math.max(1, pulses);
                 Location burst = centre.clone().add(Math.cos(angle) * radius, -10,
                         Math.sin(angle) * radius);
-                arena.spawnParticle(Particle.EXPLOSION_EMITTER, burst, 1);
+                arena.spawnParticle(Particle.EXPLOSION_EMITTER, burst, 1, 0, 0, 0, 0, null, true);
                 arena.spawnParticle(Particle.END_ROD, burst, Math.max(12, particles / 5),
-                        1.2, 4, 1.2, .08);
+                        1.2, 4, 1.2, .08, null, true);
             }
         }
-        arena.playSound(centre,
+        playToArena(
                 configuredSound("dragon-event.dragon-summon-sound", Sound.ENTITY_WITHER_SPAWN),
                 (float) variables.decimal("dragon-event.effect-sound-volume"),
                 // Rising pitch is the single strongest "something is coming" cue there
@@ -2446,8 +2486,13 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
             CrateDisplayService.drawAmethyst(centre, effectFrame * .3d, effectFrame);
             drawRewardBeacon(centre);
         }
-        if (arena != null && (phase == Phase.SUMMONING || phase == Phase.FIGHT
-                || phase == Phase.VICTORY || phase == Phase.REWARDS)) {
+        // Vanilla only places its exit portal when a dragon dies, and the death itself is
+        // already covered by scheduleVanillaExitPortalCleanup. Sweeping 17x17x33 blocks
+        // every second from the moment the pillars start rising was ~9,500 block reads a
+        // second, for the whole event, to find nothing. Every five seconds, and only
+        // once a death can have happened, keeps the safety net at a twentieth of the cost.
+        if (arena != null && (phase == Phase.VICTORY || phase == Phase.REWARDS)
+                && effectFrame % 5 == 0) {
             clearVanillaExitPortal();
         }
         effectFrame++;

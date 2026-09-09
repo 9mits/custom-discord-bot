@@ -270,7 +270,7 @@ final class SettingMetadataTest {
                         Map.entry("airdrops", 119),
                         Map.entry("online_rewards", 67),
                         Map.entry("amethyst_blocks", 49),
-                        Map.entry("dragon_event", 241),
+                        Map.entry("dragon_event", 243),
                         Map.entry("permissions", 4),
                         Map.entry("shop", 21),
                         Map.entry("admin_events", 17),
@@ -298,7 +298,7 @@ final class SettingMetadataTest {
                 perGroup,
                 "the catalogue moved between panel pages"
         );
-        assertEquals(948, perGroup.values().stream().mapToInt(Integer::intValue).sum(),
+        assertEquals(950, perGroup.values().stream().mapToInt(Integer::intValue).sum(),
                 "group counts no longer add up to the catalogue");
     }
 
