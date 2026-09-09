@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock
 from unittest.mock import patch
 
 from aiohttp.test_utils import TestClient, TestServer
+from aiohttp.test_utils import make_mocked_request
 
 from minecraft_bot.dashboard import DashboardServer, OWNER_ROLE_ID
 from minecraft_bot.perks import RANK_ROLES
@@ -50,6 +51,45 @@ class MinecraftDashboardSecurityTests(unittest.IsolatedAsyncioTestCase):
         ))
         expired = dashboard._sign({"user_id": 1, "exp": int(time.time()) - 1})
         self.assertIsNone(dashboard._unsign(expired))
+
+    async def test_oauth_login_moves_to_the_public_host_before_setting_state(self):
+        dashboard = self._dashboard()
+        dashboard.bot.user = SimpleNamespace(id=123)
+        request = make_mocked_request(
+            "GET",
+            "/auth/login",
+            headers={"Host": "mgx-bridge.bh-games.com:9086"},
+        )
+
+        response = await dashboard.login(request)
+
+        self.assertEqual(response.status, 302)
+        self.assertEqual(response.headers["Location"], "http://127.0.0.1:8090/auth/login")
+        self.assertNotIn("Set-Cookie", response.headers)
+
+    async def test_oauth_login_sets_state_on_the_public_host(self):
+        dashboard = self._dashboard()
+        dashboard.bot.user = SimpleNamespace(id=123)
+        request = make_mocked_request(
+            "GET",
+            "/auth/login",
+            headers={"Host": "127.0.0.1:8090"},
+        )
+
+        response = await dashboard.login(request)
+
+        self.assertEqual(response.status, 302)
+        self.assertTrue(response.headers["Location"].startswith(
+            "https://discord.com/oauth2/authorize?"
+        ))
+        self.assertIn("mgx_oauth_state", response.cookies)
+
+    def test_oauth_urls_ignore_a_trailing_public_url_slash(self):
+        dashboard = self._dashboard()
+        dashboard.config.dashboard_public_url += "/"
+
+        self.assertEqual(dashboard.login_uri, "http://127.0.0.1:8090/auth/login")
+        self.assertEqual(dashboard.redirect_uri, "http://127.0.0.1:8090/auth/callback")
 
     async def test_role_is_rechecked_in_the_guild(self):
         dashboard = self._dashboard()

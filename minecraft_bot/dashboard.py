@@ -12,7 +12,7 @@ import time
 from types import SimpleNamespace
 from pathlib import Path
 from typing import Any, Optional
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import aiohttp
 import discord
@@ -84,7 +84,11 @@ class DashboardServer:
 
     @property
     def redirect_uri(self) -> str:
-        return f"{self.config.dashboard_public_url}/auth/callback"
+        return f"{self.config.dashboard_public_url.rstrip('/')}/auth/callback"
+
+    @property
+    def login_uri(self) -> str:
+        return f"{self.config.dashboard_public_url.rstrip('/')}/auth/login"
 
     @web.middleware
     async def _security_headers(self, request: web.Request, handler):
@@ -153,7 +157,15 @@ class DashboardServer:
             return web.FileResponse(not_found, status=404)
         raise web.HTTPNotFound()
 
-    async def login(self, _request: web.Request) -> web.StreamResponse:
+    async def login(self, request: web.Request) -> web.StreamResponse:
+        # OAuth state lives in a host-only cookie. If somebody opens the dashboard
+        # through a panel alias while Discord's registered callback uses the public
+        # URL, setting that cookie on the alias makes the callback look forged. Move
+        # to the configured host before minting either the state or its cookie.
+        public_host = urlsplit(self.config.dashboard_public_url).netloc.casefold()
+        request_host = request.headers.get("Host", "").casefold()
+        if public_host and request_host != public_host:
+            return web.HTTPFound(self.login_uri)
         if not self.config.dashboard_client_secret or self.bot.user is None:
             raise web.HTTPServiceUnavailable(
                 text=(
