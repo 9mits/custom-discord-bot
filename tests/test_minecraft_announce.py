@@ -17,6 +17,7 @@ from minecraft_bot.announce import (
 from minecraft_bot.updatenotice import (
     UpdateNoticeView,
     build_notice_embed,
+    build_notice_embeds,
     find_template,
     load_update_templates,
 )
@@ -31,8 +32,8 @@ class Recipient:
         self.received: list[discord.Embed] = []
         self.views: list[object] = []
 
-    async def send(self, content=None, embed=None, view=None):
-        self.received.append(embed)
+    async def send(self, content=None, embed=None, embeds=None, view=None):
+        self.received.extend(list(embeds) if embeds is not None else [embed])
         self.views.append(view)
 
 
@@ -118,6 +119,30 @@ class PreviewTests(unittest.IsolatedAsyncioTestCase):
         for _ in range(3):
             await announcer.preview(embed=build_announcement_embed(title="a"), member=member)
         self.assertEqual(3, len(member.received))
+
+    async def test_a_multi_embed_story_is_still_one_dm(self):
+        announcer = self._announcer(enabled="1")
+        member = Recipient(7)
+        story = [
+            build_announcement_embed(title="Hook"),
+            build_announcement_embed(title="Feature"),
+            build_announcement_embed(title="Come Back"),
+        ]
+
+        result = await announcer.send(embeds=story, targets=[member])
+
+        self.assertEqual(1, result.delivered)
+        self.assertEqual(["Hook", "Feature", "Come Back"], [item.title for item in member.received])
+
+    async def test_discords_ten_embed_limit_is_enforced_before_a_preview(self):
+        announcer = self._announcer()
+        member = Recipient(7)
+        with self.assertRaisesRegex(ValueError, "no more than 10 embeds"):
+            await announcer.preview(
+                embeds=[build_announcement_embed(title=str(index)) for index in range(11)],
+                member=member,
+            )
+        self.assertEqual([], member.received)
 
     async def test_a_real_send_still_honours_the_cooldown(self):
         # Guards the invariant the preview exemption sits next to.
@@ -240,11 +265,17 @@ class UpdateTemplateTests(unittest.TestCase):
         "tagline: The Dragon has awakened!\n"
         "date: 2026-09-08\n"
         "category: Update\n"
+        "cover: cover.png\n"
+        "notice_spotlight_title: Amethyst Dragon\n"
+        "notice_spotlight: A Feature\n"
+        "notice_group_1: Reasons To Return | Ranked Wins | Safe Bases\n"
         "draft: true\n"
         "---\n\n"
         "## Something Stirred At Spawn\n\nBody.\n\n"
-        "### A Feature\n\nMore body.\n\n"
-        "## Ranked PvP\n\nBody.\n"
+        "### A Feature\n\nMore body. Another sentence.\n\n![](dragon.png)\n\n"
+        "## Ranked PvP\n\nBody.\n\n"
+        "### Ranked Wins\n\nFight people. Climb the ranks.\n\n![](ranked.png)\n\n"
+        "### Safe Bases\n\nGriefing is over. Build safely.\n"
     )
 
     def test_only_update_posts_become_templates(self):
@@ -296,6 +327,29 @@ class UpdateTemplateTests(unittest.TestCase):
         self.assertIn("The Dragon has awakened!", embed.description)
         self.assertIn("> Ranked PvP", embed.description)
 
+    def test_an_editorial_notice_becomes_one_message_with_a_short_embed_story(self):
+        directory = self._posts(**{"2026-09-08-update-7.md": self.POST})
+        embeds = build_notice_embeds(load_update_templates(directory)[0])
+
+        self.assertEqual(3, len(embeds))
+        self.assertEqual("New Mysterious SMP X update! — Amethyst Dragon", embeds[0].title)
+        self.assertEqual(
+            "https://mysterioussmpx.blog/media/update-7/cover.png",
+            embeds[0].image.url,
+        )
+        self.assertEqual("Amethyst Dragon", embeds[1].title)
+        self.assertEqual("A Feature", embeds[1].fields[0].name)
+        self.assertEqual("Reasons To Return", embeds[2].title)
+        self.assertEqual(["Ranked Wins", "Safe Bases"], [field.name for field in embeds[2].fields])
+        self.assertIn("stop future update DMs", embeds[-1].footer.text)
+
+    def test_posts_without_notice_metadata_keep_the_single_embed_summary(self):
+        post = self.POST.replace("notice_spotlight: A Feature\n", "").replace(
+            "notice_group_1: Reasons To Return | Ranked Wins | Safe Bases\n", ""
+        )
+        directory = self._posts(**{"2026-09-08-update-7.md": post})
+        self.assertEqual(1, len(build_notice_embeds(load_update_templates(directory)[0])))
+
     def test_the_real_update_7_post_makes_a_usable_notice(self):
         # Guards the parser against the repo's own front matter, not just a fixture.
         template = find_template("update-7")
@@ -313,13 +367,18 @@ class UpdateNoticeViewTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(view.is_persistent())
         self.assertIsNone(view.timeout)
 
-    def test_it_offers_a_link_out_and_a_red_opt_out(self):
+    def test_it_offers_update_join_and_opt_out_actions(self):
         view = UpdateNoticeView(SimpleNamespace(), "https://mysterioussmpx.blog/update-7/")
         styles = {item.style for item in view.children}
         self.assertIn(discord.ButtonStyle.link, styles)
         self.assertIn(discord.ButtonStyle.danger, styles)
-        link = [item for item in view.children if item.style is discord.ButtonStyle.link][0]
-        self.assertEqual("https://mysterioussmpx.blog/update-7/", link.url)
+        links = {
+            item.label: item.url
+            for item in view.children
+            if item.style is discord.ButtonStyle.link
+        }
+        self.assertEqual("https://mysterioussmpx.blog/update-7/", links["Read the full update"])
+        self.assertEqual("https://mysterioussmpx.blog/apply/", links["Play again"])
 
     async def test_pressing_stop_records_the_opt_out(self):
         recorded = {}

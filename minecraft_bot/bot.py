@@ -3074,11 +3074,12 @@ class MinecraftAccessBot(commands.Bot):
             )
             from .updatenotice import (
                 UpdateNoticeView,
-                build_notice_embed,
+                build_notice_embeds,
                 find_template,
             )
 
             view = None
+            embeds = None
             if template:
                 chosen = find_template(template)
                 if chosen is None:
@@ -3092,7 +3093,7 @@ class MinecraftAccessBot(commands.Bot):
                         )
                     )
                     return
-                embed = build_notice_embed(chosen)
+                embeds = build_notice_embeds(chosen)
                 view = UpdateNoticeView(self, chosen.url)
             else:
                 try:
@@ -3115,7 +3116,10 @@ class MinecraftAccessBot(commands.Bot):
             announcer = announcer_for(self)
             try:
                 await announcer.preview(
-                    embed=embed, member=interaction.user, view=view
+                    embed=embed if embeds is None else None,
+                    embeds=embeds,
+                    member=interaction.user,
+                    view=view,
                 )
             except discord.Forbidden:
                 await interaction.edit_original_response(

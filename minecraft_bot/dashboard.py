@@ -30,7 +30,7 @@ from .perks import RANK_ROLES
 from .presentation import head_url, skin_url
 from .updatenotice import (
     UpdateNoticeView,
-    build_notice_embed,
+    build_notice_embeds,
     find_template,
     load_update_templates,
 )
@@ -849,6 +849,8 @@ class DashboardServer:
         from .announce import build_announcement_embed
 
         view = None
+        embed = None
+        embeds = None
         slug = str(body.get("template", "")).strip()
         if slug:
             template = find_template(slug)
@@ -860,7 +862,7 @@ class DashboardServer:
                     text="%s is still a draft. Publish the post before announcing it."
                     % template.title
                 )
-            embed = build_notice_embed(template)
+            embeds = build_notice_embeds(template)
             view = UpdateNoticeView(self.bot, template.url)
         else:
             try:
@@ -875,7 +877,11 @@ class DashboardServer:
                 raise web.HTTPBadRequest(text=str(exc))
 
         result = await announcer.send(
-            embed=embed, actor=str(member), content=None, view=view
+            embed=embed,
+            embeds=embeds,
+            actor=str(member),
+            content=None,
+            view=view,
         )
         return web.json_response(result.as_dict())
 

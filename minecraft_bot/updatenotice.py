@@ -17,6 +17,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import quote
 
 import discord
 
@@ -25,6 +26,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 POSTS_DIR = REPO_ROOT / "devblog" / "posts"
 
 SITE_URL = "https://mysterioussmpx.blog"
+JOIN_URL = f"{SITE_URL}/apply/"
 
 #: Only these get announced. An event post is its own thing and a page is not news.
 UPDATE_CATEGORY = "update"
@@ -40,8 +42,33 @@ OPTOUT_CUSTOM_ID = "mgx:update-notice:optout"
 
 _SECTION = re.compile(r"^##\s+(?!#)(.+?)\s*$", re.MULTILINE)
 _FEATURE = re.compile(r"^###\s+(.+?)\s*$", re.MULTILINE)
+_HEADING = re.compile(r"^(#{2,3})\s+(.+?)\s*$", re.MULTILINE)
+_IMAGE = re.compile(r"!\[[^\]]*\]\(([^)\s]+)(?:\s+[^)]*)?\)")
+_ITEM = re.compile(r":item\[[^\]]+\]\s*")
+_SENTENCE = re.compile(r".*?[.!?](?:[*_]+)?(?=\s|$)|.+$")
 #: Markdown that carries no meaning once the heading is a bullet.
 _MARKUP = re.compile(r"[*_`]")
+
+MAX_NOTICE_EMBEDS = 4
+MAX_NOTICE_IMAGES = 3
+NOTICE_SUMMARY_CHARACTERS = 330
+
+
+@dataclass(frozen=True)
+class NoticeFeature:
+    """A real feature excerpt selected from the update post."""
+
+    title: str
+    summary: str
+    image: str = ""
+
+
+@dataclass(frozen=True)
+class NoticeGroup:
+    """A compact Discord card made from feature excerpts in the post."""
+
+    title: str
+    features: tuple[NoticeFeature, ...]
 
 
 @dataclass(frozen=True)
@@ -54,6 +81,10 @@ class UpdateTemplate:
     date: str
     highlights: tuple[str, ...]
     draft: bool
+    cover: str = ""
+    spotlight_title: str = ""
+    spotlight: Optional[NoticeFeature] = None
+    notice_groups: tuple[NoticeGroup, ...] = ()
 
     @property
     def url(self) -> str:
@@ -73,6 +104,7 @@ class UpdateTemplate:
             "highlights": list(self.highlights),
             "draft": self.draft,
             "url": self.url,
+            "notice_embeds": 1 + int(self.spotlight is not None) + len(self.notice_groups),
         }
 
 
@@ -108,6 +140,78 @@ def _highlights(body: str) -> tuple[str, ...]:
     return tuple(item for item in cleaned if item)[:MAX_HIGHLIGHTS]
 
 
+def _clean_heading(value: str) -> str:
+    return _MARKUP.sub("", str(value or "")).strip()
+
+
+def _feature_excerpts(body: str) -> dict[str, NoticeFeature]:
+    """Index feature headings and concise excerpts from the post itself.
+
+    Notice metadata only chooses which features deserve room in the DM. The words
+    and screenshots remain sourced from the published post, so the announcement
+    cannot quietly promise something the update page does not.
+    """
+    headings = list(_HEADING.finditer(body))
+    features: dict[str, NoticeFeature] = {}
+    for index, match in enumerate(headings):
+        if match.group(1) != "###":
+            continue
+        end = headings[index + 1].start() if index + 1 < len(headings) else len(body)
+        block = body[match.end():end]
+        title = _clean_heading(match.group(2))
+        image_match = _IMAGE.search(block)
+        image = image_match.group(1).strip() if image_match else ""
+        copy = _IMAGE.sub("", block)
+        copy = _ITEM.sub("", copy)
+        copy = re.sub(r"^\s*[-*]\s+", "", copy, flags=re.MULTILINE)
+        copy = re.sub(r"\s+", " ", copy).strip()
+        sentences = _SENTENCE.findall(copy)
+        chosen: list[str] = []
+        length = 0
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if not sentence:
+                continue
+            projected = length + (1 if chosen else 0) + len(sentence)
+            if chosen and (len(chosen) >= 3 or projected > NOTICE_SUMMARY_CHARACTERS):
+                break
+            if not chosen and projected > NOTICE_SUMMARY_CHARACTERS:
+                sentence = sentence[: NOTICE_SUMMARY_CHARACTERS - 1].rstrip() + "…"
+            chosen.append(sentence)
+            length += (1 if length else 0) + len(sentence)
+        if chosen:
+            features[title.casefold()] = NoticeFeature(
+                title=title,
+                summary=" ".join(chosen),
+                image=image,
+            )
+    return features
+
+
+def _selected_notice(meta: dict[str, str], body: str) -> tuple[
+    Optional[NoticeFeature], tuple[NoticeGroup, ...]
+]:
+    features = _feature_excerpts(body)
+
+    def choose(name: str) -> Optional[NoticeFeature]:
+        return features.get(_clean_heading(name).casefold())
+
+    spotlight = choose(meta.get("notice_spotlight", ""))
+    groups: list[NoticeGroup] = []
+    for key in sorted(meta):
+        if not re.fullmatch(r"notice_group_\d+", key):
+            continue
+        pieces = [part.strip() for part in meta[key].split("|") if part.strip()]
+        if len(pieces) < 2:
+            continue
+        selected = tuple(feature for name in pieces[1:] if (feature := choose(name)))
+        if selected:
+            groups.append(NoticeGroup(title=pieces[0], features=selected[:3]))
+        if len(groups) >= MAX_NOTICE_EMBEDS - 2:
+            break
+    return spotlight, tuple(groups)
+
+
 def load_update_templates(posts_dir: Optional[Path] = None) -> list[UpdateTemplate]:
     """Every update post, newest first. Drafts included and flagged as such."""
     directory = posts_dir or POSTS_DIR
@@ -129,6 +233,7 @@ def load_update_templates(posts_dir: Optional[Path] = None) -> list[UpdateTempla
             match = re.match(r"^\d{4}-\d{2}-\d{2}-(.+)$", path.stem)
             slug = match.group(1) if match else path.stem
         date = str(meta.get("date", "")).strip() or path.stem[:10]
+        spotlight, notice_groups = _selected_notice(meta, body)
         templates.append(
             UpdateTemplate(
                 slug=slug,
@@ -137,6 +242,10 @@ def load_update_templates(posts_dir: Optional[Path] = None) -> list[UpdateTempla
                 date=date,
                 highlights=_highlights(body),
                 draft=str(meta.get("draft", "")).strip().lower() in {"1", "true", "yes"},
+                cover=str(meta.get("cover", "")).strip(),
+                spotlight_title=str(meta.get("notice_spotlight_title", "")).strip(),
+                spotlight=spotlight,
+                notice_groups=notice_groups,
             )
         )
     templates.sort(key=lambda item: (item.date, item.slug), reverse=True)
@@ -175,6 +284,81 @@ def build_notice_embed(template: UpdateTemplate) -> discord.Embed:
     return embed
 
 
+def _media_url(template: UpdateTemplate, image: str) -> str:
+    source = str(image or "").strip()
+    if source.startswith("https://"):
+        return source
+    filename = Path(source).name
+    if not filename:
+        return ""
+    return f"{SITE_URL}/media/{quote(template.slug)}/{quote(filename)}"
+
+
+def _short_update_name(title: str) -> str:
+    name = re.sub(r"\s+update\s*$", "", str(title or "").strip(), flags=re.IGNORECASE)
+    return re.sub(r"^the\s+", "", name, flags=re.IGNORECASE)
+
+
+def build_notice_embeds(template: UpdateTemplate) -> list[discord.Embed]:
+    """Build a restrained visual story when a post selects notice features.
+
+    Posts without editorial notice metadata retain the established single-embed
+    summary. A configured notice is capped at four embeds and three large images:
+    enough to feel substantial, but not a second copy of the full article.
+    """
+    if template.spotlight is None and not template.notice_groups:
+        return [build_notice_embed(template)]
+
+    update_name = _short_update_name(template.title)
+    lead = discord.Embed(
+        title=f"New Mysterious SMP X update! — {update_name}",
+        description=template.tagline or "A new Mysterious SMP X update is live.",
+        colour=discord.Colour(0xB532FF),
+        url=template.url,
+    )
+    lead.set_author(name="Mysterious SMP X")
+    cover = _media_url(template, template.cover)
+    if cover:
+        lead.set_image(url=cover)
+    embeds = [lead]
+    image_count = int(bool(cover))
+
+    if template.spotlight is not None and len(embeds) < MAX_NOTICE_EMBEDS:
+        feature = template.spotlight
+        spotlight = discord.Embed(
+            title=template.spotlight_title or update_name,
+            colour=discord.Colour(0xF06000),
+            url=template.url,
+        )
+        spotlight.add_field(name=feature.title, value=f">>> {feature.summary}", inline=False)
+        image = _media_url(template, feature.image)
+        if image and image_count < MAX_NOTICE_IMAGES:
+            spotlight.set_image(url=image)
+            image_count += 1
+        embeds.append(spotlight)
+
+    for group in template.notice_groups:
+        if len(embeds) >= MAX_NOTICE_EMBEDS:
+            break
+        card = discord.Embed(
+            title=group.title,
+            colour=discord.Colour(0x9B59FF),
+            url=template.url,
+        )
+        for feature in group.features:
+            card.add_field(name=feature.title, value=f"> {feature.summary}", inline=False)
+        image = next((_media_url(template, item.image) for item in group.features if item.image), "")
+        if image and image_count < MAX_NOTICE_IMAGES:
+            card.set_image(url=image)
+            image_count += 1
+        embeds.append(card)
+
+    embeds[-1].set_footer(
+        text="Sent once for this update. Read everything or stop future update DMs below."
+    )
+    return embeds
+
+
 class UpdateNoticeView(discord.ui.View):
     """The two buttons under an update notice.
 
@@ -191,6 +375,13 @@ class UpdateNoticeView(discord.ui.View):
                 label="Read the full update",
                 style=discord.ButtonStyle.link,
                 url=url or SITE_URL,
+            )
+        )
+        self.add_item(
+            discord.ui.Button(
+                label="Play again",
+                style=discord.ButtonStyle.link,
+                url=JOIN_URL,
             )
         )
 

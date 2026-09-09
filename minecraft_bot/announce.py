@@ -22,7 +22,7 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Optional, Sequence
 
 import discord
 
@@ -175,7 +175,8 @@ class UpdateAnnouncer:
     async def preview(
         self,
         *,
-        embed: discord.Embed,
+        embed: Optional[discord.Embed] = None,
+        embeds: Optional[Sequence[discord.Embed]] = None,
         member: discord.abc.Messageable,
         content: Optional[str] = None,
         view: Optional[discord.ui.View] = None,
@@ -191,12 +192,14 @@ class UpdateAnnouncer:
         the member role too, and a recorded preview would make the real
         announcement skip the one person who knows it went out.
         """
-        await member.send(content=content or None, embed=embed, view=view)
+        payload = self._embed_payload(embed=embed, embeds=embeds)
+        await member.send(content=content or None, view=view, **payload)
 
     async def send(
         self,
         *,
-        embed: discord.Embed,
+        embed: Optional[discord.Embed] = None,
+        embeds: Optional[Sequence[discord.Embed]] = None,
         content: Optional[str] = None,
         actor: str = "owner",
         targets: Optional[Iterable[discord.Member]] = None,
@@ -227,7 +230,8 @@ class UpdateAnnouncer:
                     result.skipped += 1
                     continue
                 try:
-                    await member.send(content=content or None, embed=embed, view=view)
+                    payload = self._embed_payload(embed=embed, embeds=embeds)
+                    await member.send(content=content or None, view=view, **payload)
                     result.delivered += 1
                     self._last_sent[member.id] = now
                 except discord.Forbidden:
@@ -260,3 +264,20 @@ class UpdateAnnouncer:
             actor, result.delivered, result.refused, result.skipped,
         )
         return result
+
+    @staticmethod
+    def _embed_payload(
+        *,
+        embed: Optional[discord.Embed],
+        embeds: Optional[Sequence[discord.Embed]],
+    ) -> dict[str, Any]:
+        if embed is not None and embeds:
+            raise ValueError("Send either embed or embeds, not both.")
+        if embeds:
+            selected = list(embeds)
+            if len(selected) > 10:
+                raise ValueError("Discord allows no more than 10 embeds in one message.")
+            return {"embeds": selected}
+        if embed is None:
+            raise ValueError("An announcement needs at least one embed.")
+        return {"embed": embed}
