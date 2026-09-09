@@ -57,6 +57,8 @@ import java.util.concurrent.ThreadLocalRandom;
 final class AmethystItemService implements Listener {
     static final long ACTIVE_MILLIS = Duration.ofHours(24).toMillis();
     private static final TextColor AMETHYST = TextColor.color(0xB56CFF);
+    /** Warmer than the amethyst purple, so an Eternal name reads apart in a chest. */
+    private static final TextColor ETERNAL = TextColor.color(0xFFB347);
     private static final Set<String> TIMED_KINDS = Set.of(
             "pickaxe", "shovel", "axe", "shield", "sword", "hoe", "bow",
             "helmet", "chestplate", "leggings", "boots", "elytra"
@@ -97,6 +99,7 @@ final class AmethystItemService implements Listener {
     private final NamespacedKey activatedKey;
     private final NamespacedKey expiresKey;
     private final NamespacedKey arrowKey;
+    private final NamespacedKey eternalKey;
     private final Set<UUID> multiBreaking = new HashSet<>();
     private final Map<UUID, Integer> blockedHits = new HashMap<>();
     private Runnable auctionSweep = () -> { };
@@ -109,6 +112,7 @@ final class AmethystItemService implements Listener {
         activatedKey = new NamespacedKey(plugin, "amethyst_activated_at");
         expiresKey = new NamespacedKey(plugin, "amethyst_expires_at");
         arrowKey = new NamespacedKey(plugin, "amethyst_arrow");
+        eternalKey = new NamespacedKey(plugin, "amethyst_eternal");
     }
 
     void useAuctionSweep(Runnable auctionSweep) {
@@ -167,6 +171,13 @@ final class AmethystItemService implements Listener {
             case "amethyst_leggings" -> Optional.of(armor(Material.DIAMOND_LEGGINGS, "leggings", "Amethyst Leggings"));
             case "amethyst_boots" -> Optional.of(armor(Material.DIAMOND_BOOTS, "boots", "Amethyst Boots"));
             case "amethyst_elytra" -> Optional.of(elytra());
+            case "eternal_amethyst_sword", "eternal_amethyst_pickaxe",
+                 "eternal_amethyst_shovel", "eternal_amethyst_axe",
+                 "eternal_amethyst_hoe", "eternal_amethyst_bow",
+                 "eternal_amethyst_elytra" ->
+                    create(CrateCatalog.find(id.substring("eternal_".length()))
+                            .orElseThrow(() -> new IllegalStateException("Missing " + id)))
+                            .map(this::makeEternal);
             case "amethyst_arrows" -> Optional.of(amethystArrows(reward.amount()));
             case "amethyst_apple" -> Optional.of(amethystApple(reward.amount()));
             default -> Optional.empty();
@@ -293,6 +304,45 @@ final class AmethystItemService implements Listener {
         return item;
     }
 
+    /**
+     * Turns a 24-hour item into its permanent twin.
+     *
+     * <p>Takes the finished timed item rather than rebuilding one, so the two can never
+     * drift: an Eternal Sword is exactly an Amethyst Sword that does not expire. The
+     * icon has to differ — a hotbar full of purple tools is unreadable otherwise, and
+     * Minecraft's glint is one global texture, so a distinct model is the only route.
+     */
+    private ItemStack makeEternal(ItemStack timed) {
+        ItemStack item = timed.clone();
+        ItemMeta meta = item.getItemMeta();
+        String kind = meta.getPersistentDataContainer()
+                .get(kindKey, PersistentDataType.STRING);
+        meta.getPersistentDataContainer().set(eternalKey, PersistentDataType.BYTE, (byte) 1);
+        String name = PlainTextComponentSerializer.plainText().serialize(meta.displayName());
+        meta.displayName(Component.text("Eternal " + name, ETERNAL, TextDecoration.BOLD)
+                .decoration(TextDecoration.ITALIC, false));
+        NamespacedKey model = NamespacedKey.fromString("mgx:eternal_amethyst_" + kind);
+        if (model != null) {
+            meta.setItemModel(model);
+        }
+        List<Component> lore = new ArrayList<>();
+        for (Component existing : meta.lore() == null ? List.<Component>of() : meta.lore()) {
+            String text = PlainTextComponentSerializer.plainText().serialize(existing);
+            // Every clock line goes; what the item does is unchanged.
+            if (text.contains("Timer begins") || text.contains("after activation")) {
+                continue;
+            }
+            lore.add(existing);
+        }
+        lore.add(Component.empty());
+        lore.add(Component.text("Never expires.", ETERNAL)
+                .decoration(TextDecoration.ITALIC, false));
+        lore.add(line("No timer. No activation. Yours."));
+        meta.lore(lore);
+        item.setItemMeta(meta);
+        return item;
+    }
+
     private ItemStack createTotem() {
         ItemStack item = new ItemStack(Material.TOTEM_OF_UNDYING);
         ItemMeta meta = item.getItemMeta();
@@ -334,7 +384,24 @@ final class AmethystItemService implements Listener {
     }
 
     boolean isTimed(ItemStack item) {
-        return kind(item).map(TIMED_KINDS::contains).orElse(false);
+        return !isEternal(item) && kind(item).map(TIMED_KINDS::contains).orElse(false);
+    }
+
+    /**
+     * Whether this is a permanent twin of a 24-hour item.
+     *
+     * <p>Deliberately a separate flag rather than a different kind: every ability,
+     * listener and multi-break handler switches on the kind, so an Eternal Sword has to
+     * still be a "sword". Only {@link #isTimed} consults this, which is enough — the
+     * activation path returns early for anything untimed, so the clock never starts and
+     * {@code expiresKey} is never written.
+     */
+    boolean isEternal(ItemStack item) {
+        if (item == null || !item.hasItemMeta()) {
+            return false;
+        }
+        return item.getItemMeta().getPersistentDataContainer()
+                .has(eternalKey, PersistentDataType.BYTE);
     }
 
     boolean canList(ItemStack item) {
