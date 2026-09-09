@@ -270,6 +270,37 @@ def load_pages(include_private: bool = False) -> List[Page]:
     return pages
 
 
+#: `:item[amethyst_elytra]` puts that item's sprite inline in the sentence that
+#: names it. The icons are real files under static/minecraft-items/, so a typo is
+#: a missing image and `blog.py check` says so rather than the page rendering a
+#: silent gap.
+ITEM_ICON_DIR = STATIC_DIR / "minecraft-items"
+ITEM_TOKEN = re.compile(r":item\[([a-z0-9_]+)\]")
+
+
+def item_icon_names(text: str) -> List[str]:
+    """Every item an author asked for, in order, duplicates included."""
+    return ITEM_TOKEN.findall(text or "")
+
+
+def item_icon_missing(names: Sequence[str]) -> List[str]:
+    return [name for name in dict.fromkeys(names)
+            if not (ITEM_ICON_DIR / ("%s.png" % name)).exists()]
+
+
+def render_item_icons(html: str) -> str:
+    """Swap the tokens for sprites. Runs after Markdown so bold and lists work."""
+    def repl(match: "re.Match[str]") -> str:
+        name = match.group(1)
+        label = name.replace("_", " ").title()
+        return (
+            '<img class="item-icon" src="/assets/minecraft-items/%s.png" '
+            'alt="%s" loading="lazy">' % (name, label)
+        )
+
+    return ITEM_TOKEN.sub(repl, html)
+
+
 def rewrite_media_urls(html_body: str, post: Post, prefix: str) -> str:
     """Point bare image/link filenames at the post's own media folder.
 
@@ -295,7 +326,9 @@ def render_body(post: Post, prefix: str) -> str:
         lambda m: '<figure class="shot">%s</figure>' % m.group(1).strip(),
         body,
     )
-    return body
+    # After the figure pass on purpose: a line holding nothing but an item icon is
+    # still a sentence's worth of text, never a full-bleed screenshot.
+    return render_item_icons(body)
 
 
 def excerpt(post: Post, limit: int = 190) -> str:
@@ -421,7 +454,7 @@ def build(
         md = markdown.Markdown(extensions=MD_EXTENSIONS)
         out = DIST_DIR / page.slug / "index.html"
         out.parent.mkdir(parents=True, exist_ok=True)
-        body_html = md.convert(page.body_md)
+        body_html = render_item_icons(md.convert(page.body_md))
         # The console is an application, not a page of the site, so it gets its own
         # document shell rather than the shared topbar-article-footer one.
         if page.layout == "console":

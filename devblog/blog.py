@@ -311,8 +311,20 @@ def cmd_check(_args: argparse.Namespace) -> int:
                     "%s: references %r but media/%s/%s does not exist"
                     % (post.path.name, name, post.slug, name)
                 )
+        for name in build.item_icon_missing(build.item_icon_names(post.body_md)):
+            problems.append(
+                "%s: references :item[%s] but static/minecraft-items/%s.png "
+                "does not exist" % (post.path.name, name, name)
+            )
         if "Open with the hook" in post.body_md:
             problems.append("%s: still contains the template text" % post.path.name)
+
+    for page in pages:
+        for name in build.item_icon_missing(build.item_icon_names(page.body_md)):
+            problems.append(
+                "%s: references :item[%s] but static/minecraft-items/%s.png "
+                "does not exist" % (page.path.name, name, name)
+            )
 
     if problems:
         print("Problems found:\n")
