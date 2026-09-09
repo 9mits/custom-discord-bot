@@ -140,10 +140,14 @@ final class AmethystCrateCatalogTest {
         for (CrateCatalog.Reward reward : CrateCatalog.amethyst()) {
             byTier.merge(reward.rarityDisplay(), reward.weight(), Integer::sum);
         }
-        assertEquals(62_562, byTier.get("Common"));
+        // 278 points moved off the shard filler to pay for the shared potion ladder:
+        // Fortune I is Epic at 138, the other eight tiers sit below Epic. The curve's
+        // shape is unchanged and commons still carry the pool, which is what the
+        // assertion below actually protects.
+        assertEquals(62_284, byTier.get("Common"));
         assertEquals(22_000, byTier.get("Uncommon"));
         assertEquals(11_000, byTier.get("Rare"));
-        assertEquals(3_752, byTier.get("Epic"));
+        assertEquals(3_890, byTier.get("Epic"));
         assertTrue(
                 byTier.get("Common") > byTier.get("Uncommon") + byTier.get("Rare")
                         + byTier.get("Epic"),
@@ -316,7 +320,9 @@ final class AmethystCrateCatalogTest {
                         "amethyst_(shards|blocks|purpur|purple_glass|purple_concrete|clusters|golden_carrots|experience_bottles|glowstone)"
                 ))
                 .mapToInt(CrateCatalog.Reward::weight).sum();
-        assertEquals(99_181, commonWeight);
+        // Was 99,181 before the top potion tiers were added; the 47 points they cost
+        // come off the shard filler rather than off any chase item.
+        assertEquals(99_134, commonWeight);
         assertEquals(CrateCatalog.TOTAL_WEIGHT,
                 CrateCatalog.dragon().stream().mapToInt(CrateCatalog.Reward::weight).sum());
         assertTrue(CrateCatalog.dragon().stream()
