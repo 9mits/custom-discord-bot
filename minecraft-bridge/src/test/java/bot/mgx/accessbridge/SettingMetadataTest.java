@@ -110,7 +110,7 @@ final class SettingMetadataTest {
         Map<String, Integer> expected = new LinkedHashMap<>();
         expected.put("crate.default", 64);
         expected.put("crate.amethyst", 60);
-        expected.put("crate.shard", 55);
+        expected.put("crate.shard", 66);
         expected.put("crate.dragon", 54);
         expected.put("amethyst-block.tier", 3);
         expected.put("airdrop.rarity", 4);
@@ -156,7 +156,7 @@ final class SettingMetadataTest {
         Map<String, Integer> expected = new TreeMap<>();
         expected.put("crate.default", 64);
         expected.put("crate.amethyst", 60);
-        expected.put("crate.shard", 55);
+        expected.put("crate.shard", 66);
         expected.put("crate.dragon", 54);
         expected.put("amethyst-block.tier", 3);
         expected.put("airdrop.rarity", 4);
@@ -266,11 +266,11 @@ final class SettingMetadataTest {
         }
         assertEquals(
                 Map.ofEntries(
-                        Map.entry("crates", 245),
+                        Map.entry("crates", 256),
                         Map.entry("airdrops", 119),
                         Map.entry("online_rewards", 67),
                         Map.entry("amethyst_blocks", 49),
-                        Map.entry("dragon_event", 239),
+                        Map.entry("dragon_event", 241),
                         Map.entry("permissions", 4),
                         Map.entry("shop", 21),
                         Map.entry("admin_events", 17),
@@ -298,7 +298,7 @@ final class SettingMetadataTest {
                 perGroup,
                 "the catalogue moved between panel pages"
         );
-        assertEquals(935, perGroup.values().stream().mapToInt(Integer::intValue).sum(),
+        assertEquals(948, perGroup.values().stream().mapToInt(Integer::intValue).sum(),
                 "group counts no longer add up to the catalogue");
     }
 

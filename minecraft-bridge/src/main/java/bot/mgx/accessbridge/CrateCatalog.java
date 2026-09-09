@@ -1022,7 +1022,7 @@ final class CrateCatalog {
         rewards.add(shardCopy("amethyst_shovel", 6_500));
         rewards.add(shardCopy("amethyst_axe", 6_500));
         rewards.add(shardCopy("amethyst_shield", 6_000));
-        rewards.add(shardCopy("amethyst_totem", 4_530));
+        rewards.add(shardCopy("amethyst_totem", 4_420));
         rewards.add(shardCopy("amethyst_sword", 1_000));
         rewards.add(shardCopy("amethyst_hoe", 1_200));
         rewards.add(shardCopy("amethyst_bow", 600));
@@ -1031,6 +1031,19 @@ final class CrateCatalog {
         rewards.add(shardCopy("amethyst_leggings", 300));
         rewards.add(shardCopy("amethyst_boots", 300));
         rewards.add(shardCopy("amethyst_elytra", 50));
+        // The Eternal twins: ten each, so the premium pool's rarest item is still
+        // rarer than its Elytra at fifty. Shards are earned rather than bought with
+        // keys, which is what makes this the right second home for them.
+        for (String eternalId : List.of(
+                "eternal_amethyst_sword", "eternal_amethyst_pickaxe",
+                "eternal_amethyst_shovel", "eternal_amethyst_axe",
+                "eternal_amethyst_hoe", "eternal_amethyst_bow",
+                "eternal_amethyst_elytra", "eternal_amethyst_helmet",
+                "eternal_amethyst_chestplate", "eternal_amethyst_leggings",
+                "eternal_amethyst_boots"
+        )) {
+            rewards.add(shardCopy(eternalId, 10));
+        }
         rewards.add(shardCopy("amethyst_arrows", 3_300));
         rewards.add(shardCopy("amethyst_apple", 1_000));
 
