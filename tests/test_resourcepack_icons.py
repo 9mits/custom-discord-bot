@@ -30,6 +30,15 @@ LINKED_ICON_SIZES = {
     "amethyst_shield_icon": (590, 876),
     "amethyst_totem": (360, 360),
     "amethyst_sword": (16, 16),
+    # The Eternal twins are re-hued copies of the 16x16 imported gear above, so they
+    # share its grid exactly rather than the 72x72 generated-icon one.
+    "eternal_amethyst_sword": (16, 16),
+    "eternal_amethyst_pickaxe": (16, 16),
+    "eternal_amethyst_shovel": (16, 16),
+    "eternal_amethyst_axe": (16, 16),
+    "eternal_amethyst_hoe": (16, 16),
+    "eternal_amethyst_bow": (16, 16),
+    "eternal_amethyst_elytra": (16, 16),
     "pvp_scythe_1": (64, 64),
     "pvp_scythe_2": (64, 64),
     "pvp_scythe_3": (64, 64),
@@ -122,7 +131,8 @@ class ResourcePackIconTests(unittest.TestCase):
 
     def test_custom_icons_are_valid_distinct_minecraft_sprites(self):
         icons = self.icon_paths()
-        self.assertEqual(94, len(icons))
+        # 94, plus the seven Eternal twins of the timed Amethyst gear.
+        self.assertEqual(101, len(icons))
 
         digests = set()
         for path in icons:

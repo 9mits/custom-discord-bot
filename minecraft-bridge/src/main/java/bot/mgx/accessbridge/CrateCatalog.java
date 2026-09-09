@@ -224,6 +224,30 @@ final class CrateCatalog {
                     "Lightning Speed flies 50% faster for 24 hours.")
     );
 
+    /**
+     * The permanent twins of the 24-hour gear, and the rarest things in the game.
+     *
+     * <p>Only the Dragon Crate pays these out. The weight here is what the Dragon pool's
+     * copies are measured against; nothing is ever rolled from this list itself.
+     */
+    private static final List<Reward> ETERNAL_REWARDS = List.of(
+            eternal("amethyst_sword", "Eternal Amethyst Sword", "DIAMOND_SWORD"),
+            eternal("amethyst_pickaxe", "Eternal Amethyst Pickaxe", "DIAMOND_PICKAXE"),
+            eternal("amethyst_shovel", "Eternal Amethyst Shovel", "DIAMOND_SHOVEL"),
+            eternal("amethyst_axe", "Eternal Amethyst Axe", "DIAMOND_AXE"),
+            eternal("amethyst_hoe", "Eternal Amethyst Hoe", "DIAMOND_HOE"),
+            eternal("amethyst_bow", "Eternal Amethyst Bow", "BOW"),
+            eternal("amethyst_elytra", "Eternal Amethyst Elytra", "ELYTRA")
+    );
+
+    private static Reward eternal(String base, String displayName, String material) {
+        return amethystItem(
+                "eternal_" + base, displayName, Category.TREASURE, 1,
+                material, "mgx:eternal_" + base,
+                "Permanent. It never expires and never needs activating."
+        );
+    }
+
     private static final List<Reward> REWARDS = buildRewards();
     private static final List<Reward> AMETHYST_REWARDS = buildAmethystRewards();
     private static final List<Reward> DRAGON_REWARDS = buildDragonRewards();
@@ -272,7 +296,7 @@ final class CrateCatalog {
     static List<Reward> amethystAdminRewards() {
         return java.util.stream.Stream.of(
                 AMETHYST_REWARDS.stream(), SOURCE_ONLY_REWARDS.stream(),
-                HIDDEN_AMETHYST_REWARDS.stream()
+                ETERNAL_REWARDS.stream(), HIDDEN_AMETHYST_REWARDS.stream()
         ).flatMap(stream -> stream).toList();
     }
 
@@ -344,7 +368,7 @@ final class CrateCatalog {
     static List<Reward> everyReward() {
         return java.util.stream.Stream.of(
                         REWARDS.stream(), AMETHYST_REWARDS.stream(),
-                        SOURCE_ONLY_REWARDS.stream(),
+                        SOURCE_ONLY_REWARDS.stream(), ETERNAL_REWARDS.stream(),
                         HIDDEN_AMETHYST_REWARDS.stream(), SHARD_REWARDS.stream(),
                         DRAGON_REWARDS.stream(), CosmeticCatalog.hiddenDragonRewards().stream()
                                 .map(CrateCatalog::cosmetic)
@@ -871,7 +895,7 @@ final class CrateCatalog {
         // therefore 99.181% modest purple building, food and enchanting supplies.
         // Each chase item remains slightly easier than in the ordinary Amethyst Crate,
         // while the volume can no longer flood the server with temporary equipment.
-        weights.put("amethyst_shards", new int[]{16_580, 8});
+        weights.put("amethyst_shards", new int[]{16_566, 8});
         weights.put("amethyst_blocks", new int[]{15_000, 4});
         weights.put("amethyst_purpur", new int[]{14_000, 8});
         weights.put("amethyst_purple_glass", new int[]{12_000, 8});
@@ -900,6 +924,15 @@ final class CrateCatalog {
         // the potions and the rest of the strong loot, so the ladder lives here rather
         // than in the ordinary Amethyst Crate. Weights are 1.5x the Default crate's,
         // inside the rule that a Dragon chase item is easier here but never twice as easy.
+        // The permanent twins. Two in 100,000 each: rarer than the Elytra, and the
+        // reason to keep opening after you have everything else.
+        weights.put("eternal_amethyst_sword", new int[]{2, 0});
+        weights.put("eternal_amethyst_pickaxe", new int[]{2, 0});
+        weights.put("eternal_amethyst_shovel", new int[]{2, 0});
+        weights.put("eternal_amethyst_axe", new int[]{2, 0});
+        weights.put("eternal_amethyst_hoe", new int[]{2, 0});
+        weights.put("eternal_amethyst_bow", new int[]{2, 0});
+        weights.put("eternal_amethyst_elytra", new int[]{2, 0});
         weights.put("fortune_potion_i", new int[]{207, 0});
         weights.put("fortune_potion_ii", new int[]{83, 0});
         weights.put("fortune_potion_iii", new int[]{29, 0});
@@ -936,8 +969,10 @@ final class CrateCatalog {
     }
 
     private static Reward originalAmethystReward(String id) {
-        return java.util.stream.Stream.concat(
-                        AMETHYST_REWARDS.stream(), SOURCE_ONLY_REWARDS.stream())
+        return java.util.stream.Stream.of(
+                        AMETHYST_REWARDS.stream(), SOURCE_ONLY_REWARDS.stream(),
+                        ETERNAL_REWARDS.stream())
+                .flatMap(stream -> stream)
                 .filter(reward -> reward.id().equals(id))
                 .findFirst()
                 // The potion ladder is the Default crate's, not the Amethyst crate's.
@@ -1039,7 +1074,8 @@ final class CrateCatalog {
 
     private static Reward originalReward(String id) {
         return java.util.stream.Stream.of(
-                        REWARDS.stream(), AMETHYST_REWARDS.stream(), SOURCE_ONLY_REWARDS.stream())
+                        REWARDS.stream(), AMETHYST_REWARDS.stream(),
+                        SOURCE_ONLY_REWARDS.stream(), ETERNAL_REWARDS.stream())
                 .flatMap(stream -> stream)
                 .filter(reward -> reward.id().equals(id))
                 .findFirst()
@@ -1110,7 +1146,7 @@ final class CrateCatalog {
         Map<String, Reward> indexed = new LinkedHashMap<>();
         for (Reward reward : java.util.stream.Stream.of(
                         REWARDS.stream(), AMETHYST_REWARDS.stream(),
-                        SOURCE_ONLY_REWARDS.stream(),
+                        SOURCE_ONLY_REWARDS.stream(), ETERNAL_REWARDS.stream(),
                         HIDDEN_AMETHYST_REWARDS.stream(), DRAGON_REWARDS.stream(),
                         SHARD_REWARDS.stream()
                 ).flatMap(stream -> stream).toList()) {

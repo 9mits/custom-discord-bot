@@ -88,6 +88,13 @@
     {"java_item": "minecraft:amethyst_shard", "model": "mgx:cosmetic/dragon_clan_3", "bedrock_identifier": "mgx:cosmetic_dragon_clan_3", "display_name": "Violet Kin"},
     {"java_item": "minecraft:netherite_sword", "model": "mgx:pvp_scythe_1", "bedrock_identifier": "mgx:pvp_scythe_1", "display_name": "Apex Scythe"},
     {"java_item": "minecraft:netherite_sword", "model": "mgx:pvp_scythe_2", "bedrock_identifier": "mgx:pvp_scythe_2", "display_name": "Void Scythe"},
-    {"java_item": "minecraft:netherite_sword", "model": "mgx:pvp_scythe_3", "bedrock_identifier": "mgx:pvp_scythe_3", "display_name": "Shadow Scythe"}
+    {"java_item": "minecraft:netherite_sword", "model": "mgx:pvp_scythe_3", "bedrock_identifier": "mgx:pvp_scythe_3", "display_name": "Shadow Scythe"},
+    {"java_item": "minecraft:diamond_sword", "model": "mgx:eternal_amethyst_sword", "bedrock_identifier": "mgx:eternal_amethyst_sword", "display_name": "Eternal Amethyst Sword"},
+    {"java_item": "minecraft:diamond_pickaxe", "model": "mgx:eternal_amethyst_pickaxe", "bedrock_identifier": "mgx:eternal_amethyst_pickaxe", "display_name": "Eternal Amethyst Pickaxe"},
+    {"java_item": "minecraft:diamond_shovel", "model": "mgx:eternal_amethyst_shovel", "bedrock_identifier": "mgx:eternal_amethyst_shovel", "display_name": "Eternal Amethyst Shovel"},
+    {"java_item": "minecraft:diamond_axe", "model": "mgx:eternal_amethyst_axe", "bedrock_identifier": "mgx:eternal_amethyst_axe", "display_name": "Eternal Amethyst Axe"},
+    {"java_item": "minecraft:diamond_hoe", "model": "mgx:eternal_amethyst_hoe", "bedrock_identifier": "mgx:eternal_amethyst_hoe", "display_name": "Eternal Amethyst Hoe"},
+    {"java_item": "minecraft:bow", "model": "mgx:eternal_amethyst_bow", "bedrock_identifier": "mgx:eternal_amethyst_bow", "display_name": "Eternal Amethyst Bow"},
+    {"java_item": "minecraft:elytra", "model": "mgx:eternal_amethyst_elytra", "bedrock_identifier": "mgx:eternal_amethyst_elytra", "display_name": "Eternal Amethyst Elytra"}
   ]
 }

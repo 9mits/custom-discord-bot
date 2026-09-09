@@ -519,6 +519,15 @@
         "bedrock_options": {
           "icon": "mgx:amethyst_pickaxe"
         }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:eternal_amethyst_pickaxe",
+        "bedrock_identifier": "mgx:eternal_amethyst_pickaxe",
+        "display_name": "Eternal Amethyst Pickaxe",
+        "bedrock_options": {
+          "icon": "mgx:eternal_amethyst_pickaxe"
+        }
       }
     ],
     "minecraft:diamond_shovel": [
@@ -530,6 +539,15 @@
         "bedrock_options": {
           "icon": "mgx:amethyst_shovel"
         }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:eternal_amethyst_shovel",
+        "bedrock_identifier": "mgx:eternal_amethyst_shovel",
+        "display_name": "Eternal Amethyst Shovel",
+        "bedrock_options": {
+          "icon": "mgx:eternal_amethyst_shovel"
+        }
       }
     ],
     "minecraft:diamond_axe": [
@@ -540,6 +558,15 @@
         "display_name": "Amethyst Axe",
         "bedrock_options": {
           "icon": "mgx:amethyst_axe"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:eternal_amethyst_axe",
+        "bedrock_identifier": "mgx:eternal_amethyst_axe",
+        "display_name": "Eternal Amethyst Axe",
+        "bedrock_options": {
+          "icon": "mgx:eternal_amethyst_axe"
         }
       }
     ],
@@ -701,6 +728,15 @@
         "bedrock_options": {
           "icon": "mgx:amethyst_sword"
         }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:eternal_amethyst_sword",
+        "bedrock_identifier": "mgx:eternal_amethyst_sword",
+        "display_name": "Eternal Amethyst Sword",
+        "bedrock_options": {
+          "icon": "mgx:eternal_amethyst_sword"
+        }
       }
     ],
     "minecraft:diamond_hoe": [
@@ -712,6 +748,15 @@
         "bedrock_options": {
           "icon": "mgx:amethyst_hoe"
         }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:eternal_amethyst_hoe",
+        "bedrock_identifier": "mgx:eternal_amethyst_hoe",
+        "display_name": "Eternal Amethyst Hoe",
+        "bedrock_options": {
+          "icon": "mgx:eternal_amethyst_hoe"
+        }
       }
     ],
     "minecraft:bow": [
@@ -722,6 +767,15 @@
         "display_name": "Amethyst Bow",
         "bedrock_options": {
           "icon": "mgx:amethyst_bow"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:eternal_amethyst_bow",
+        "bedrock_identifier": "mgx:eternal_amethyst_bow",
+        "display_name": "Eternal Amethyst Bow",
+        "bedrock_options": {
+          "icon": "mgx:eternal_amethyst_bow"
         }
       }
     ],
@@ -786,6 +840,15 @@
         "display_name": "Dragonflight Wake",
         "bedrock_options": {
           "icon": "mgx:cosmetic_dragonflight_wake"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:eternal_amethyst_elytra",
+        "bedrock_identifier": "mgx:eternal_amethyst_elytra",
+        "display_name": "Eternal Amethyst Elytra",
+        "bedrock_options": {
+          "icon": "mgx:eternal_amethyst_elytra"
         }
       }
     ],
