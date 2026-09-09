@@ -361,6 +361,23 @@ def _clean_heading(value: str) -> str:
     return _MARKUP.sub("", str(value or "")).strip()
 
 
+def _quoted_beats(summary: str) -> str:
+    """A card's copy in the blog's own rhythm: one idea per line, all of it quoted.
+
+    A single ``>`` quotes one line only, so a summary with more than one beat would
+    come out half-quoted. ``>>>`` quotes the rest of the field, which is what lets the
+    line-per-beat style the posts are written in survive into Discord instead of
+    collapsing back into a paragraph.
+    """
+    beats: list[str] = []
+    for line in str(summary or "").splitlines():
+        for sentence in _SENTENCE.findall(line.strip()):
+            sentence = sentence.strip()
+            if sentence:
+                beats.append(sentence)
+    return ">>> " + "\n".join(beats or [str(summary or "").strip()])
+
+
 def _feature_excerpts(body: str) -> dict[str, NoticeFeature]:
     """Index feature headings and concise excerpts from the post itself.
 
@@ -576,7 +593,9 @@ def build_notice_embeds(template: UpdateTemplate) -> list[discord.Embed]:
             title=template.spotlight_title or update_name,
             colour=discord.Colour(0xFF8808),
         )
-        spotlight.add_field(name=feature.title, value=f">>> {feature.summary}", inline=False)
+        spotlight.add_field(
+            name=feature.title, value=_quoted_beats(feature.summary), inline=False
+        )
         image = _media_url(template, feature.image)
         if image and image_count < MAX_NOTICE_IMAGES:
             spotlight.set_image(url=image)
@@ -591,7 +610,9 @@ def build_notice_embeds(template: UpdateTemplate) -> list[discord.Embed]:
             colour=discord.Colour(group.colour),
         )
         for feature in group.features:
-            card.add_field(name=feature.title, value=f"> {feature.summary}", inline=False)
+            card.add_field(
+                name=feature.title, value=_quoted_beats(feature.summary), inline=False
+            )
         image = _media_url(template, group.image) or next(
             (_media_url(template, item.image) for item in group.features if item.image), ""
         )

@@ -433,6 +433,36 @@ class UpdateTemplateTests(unittest.TestCase):
         self.assertTrue(all(embed.url is None for embed in embeds[1:]))
         self.assertIn("stop future update DMs", embeds[-1].footer.text)
 
+    def test_every_card_quotes_its_copy_one_beat_per_line(self):
+        # '>' quotes a single line, so a section card written in the blog's
+        # line-per-beat voice would come out half-quoted.
+        directory = self._posts(**{"2026-09-08-update-7.md": self.POST})
+        embeds = build_notice_embeds(load_update_templates(directory)[0])
+
+        self.assertEqual(
+            ">>> More body.\nAnother sentence.", embeds[1].fields[0].value
+        )
+        self.assertEqual(
+            [">>> Fight people.\nClimb the ranks.", ">>> Griefing is over.\nBuild safely."],
+            [field.value for field in embeds[2].fields],
+        )
+
+    def test_the_amethyst_preview_cards_read_one_beat_per_line(self):
+        template = find_template("Amethyst Update")
+        self.assertIsNotNone(template)
+        values = [
+            field.value
+            for embed in build_notice_embeds(template)
+            for field in embed.fields
+        ]
+        self.assertTrue(values)
+        self.assertTrue(all(value.startswith(">>> ") for value in values))
+        self.assertIn(
+            ">>> Permanent rainbow versions of the full Amethyst set have the same "
+            "power with no timer.\nEach Eternal item is 2 in 100,000.",
+            values,
+        )
+
     def test_posts_without_notice_metadata_keep_the_single_embed_summary(self):
         post = self.POST.replace("notice_spotlight: A Feature\n", "").replace(
             "notice_group_1: Reasons To Return | Ranked Wins | Safe Bases\n", ""
