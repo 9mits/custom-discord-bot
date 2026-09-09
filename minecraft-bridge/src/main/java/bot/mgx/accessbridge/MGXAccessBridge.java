@@ -1548,7 +1548,11 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         if (bridgeClient == null || event == null) {
             return;
         }
-        if (activityLog != null && !activityLog.reports(event.category())) {
+        // test_unverify is a control request as well as an audit event. Muting the
+        // Admin log must never disable the command that resets verification.
+        if (activityLog != null
+                && !activityLog.reports(event.category())
+                && !"test_unverify".equals(event.event())) {
             return;
         }
         bridgeClient.queueServerEvent(event);
@@ -1562,8 +1566,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         return bridgeClient != null && bridgeClient.isConnected();
     }
 
-    /** Called only after Discord has successfully removed the test account link. */
-    void completeTestVerificationReset(UUID minecraftUuid) {
+    /** Resets the local login gate immediately; Discord catches up through the outbox. */
+    void beginTestVerificationReset(UUID minecraftUuid) {
         if (!localTestServer || minecraftUuid == null) {
             return;
         }
@@ -1573,11 +1577,23 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             if (player == null || !player.isOnline()) {
                 return;
             }
+            String bridgeStatus = bridgeConnected()
+                    ? "Your Discord link is being cleared now."
+                    : "Your Discord link will clear when the local access bot reconnects.";
             player.kick(Component.text(
-                    "Verification reset complete.\n\nReconnect to enter the verification lobby.",
+                    "Verification reset complete.\n\nReconnect to enter the verification lobby.\n"
+                            + bridgeStatus,
                     NamedTextColor.LIGHT_PURPLE
             ));
         });
+    }
+
+    /** Called only after Discord has successfully removed the test account link. */
+    void completeTestVerificationReset(UUID minecraftUuid) {
+        if (!localTestServer || minecraftUuid == null) {
+            return;
+        }
+        localVerificationOverrides.add(minecraftUuid);
     }
 
     /**

@@ -14,6 +14,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -191,7 +192,7 @@ final class MgxCommandRouterTest {
     }
 
     @Test
-    void verificationResetCannotClaimSuccessWhileItsBridgeIsUnavailable() throws Exception {
+    void verificationResetWorksLocallyWhileDiscordCatchesUpThroughTheOutbox() throws Exception {
         String source = Files.readString(Path.of(
                 "src/main/java/bot/mgx/accessbridge/AdminCommandService.java"),
                 StandardCharsets.UTF_8);
@@ -199,11 +200,10 @@ final class MgxCommandRouterTest {
         int end = source.indexOf("private void testLatestContent", start);
         String handler = source.substring(start, end);
 
-        assertTrue(handler.contains("!plugin.bridgeConnected()"),
-                "the reset must refuse instead of queueing into a disconnected bridge");
-        assertTrue(handler.indexOf("!plugin.bridgeConnected()")
-                        < handler.indexOf("ServerEvent.of("),
-                "connectivity has to be proven before the reset event is queued");
+        assertFalse(handler.contains("!plugin.bridgeConnected()"),
+                "an offline local access bot must not prevent the local reset");
+        assertTrue(handler.contains("plugin.beginTestVerificationReset("),
+                "the player must enter the verification lobby immediately");
 
         String bridge = Files.readString(Path.of(
                 "src/main/java/bot/mgx/accessbridge/BridgeClient.java"),
@@ -214,6 +214,8 @@ final class MgxCommandRouterTest {
         String plugin = Files.readString(Path.of(
                 "src/main/java/bot/mgx/accessbridge/MGXAccessBridge.java"),
                 StandardCharsets.UTF_8);
+        assertTrue(plugin.contains("!\"test_unverify\".equals(event.event())"),
+                "muting Admin logs must not silently disable the control request");
         assertTrue(plugin.contains("localVerificationOverrides.contains(uuid)"),
                 "a reset player must enter verification even while the local global bypass is on");
         assertTrue(plugin.contains("localVerificationOverrides.remove(uuid)"),

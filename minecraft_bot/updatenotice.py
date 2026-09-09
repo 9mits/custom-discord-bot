@@ -49,8 +49,8 @@ _SENTENCE = re.compile(r".*?[.!?](?:[*_]+)?(?=\s|$)|.+$")
 #: Markdown that carries no meaning once the heading is a bullet.
 _MARKUP = re.compile(r"[*_`]")
 
-MAX_NOTICE_EMBEDS = 4
-MAX_NOTICE_IMAGES = 3
+MAX_NOTICE_EMBEDS = 10
+MAX_NOTICE_IMAGES = 10
 NOTICE_SUMMARY_CHARACTERS = 330
 
 
@@ -69,6 +69,8 @@ class NoticeGroup:
 
     title: str
     features: tuple[NoticeFeature, ...]
+    image: str = ""
+    colour: int = 0x9B59FF
 
 
 @dataclass(frozen=True)
@@ -114,8 +116,8 @@ def _built_in_preview_templates() -> tuple[UpdateTemplate, ...]:
     """Private notice drafts that can be previewed before their blog post ships.
 
     The Update 7 article and its full media set deliberately remain unpublished. This
-    compact draft lets the owner review the exact comeback DM without making the article
-    public or allowing the owner console to broadcast a link that still returns 404.
+    sectioned draft lets the owner review the exact comeback DM without publishing the
+    article or allowing the owner console to broadcast a link that still returns 404.
     """
     return (
         UpdateTemplate(
@@ -137,69 +139,186 @@ def _built_in_preview_templates() -> tuple[UpdateTemplate, ...]:
                 "Protected Bases",
             ),
             draft=True,
-            notice_cover="banner.png",
+            notice_cover=f"{SITE_URL}/media/update-5/banner.png",
             spotlight_title="Amethyst Dragon",
             spotlight=NoticeFeature(
                 title="🐉 A Cooperative World Boss",
                 summary=(
                     "The Amethyst Dragon has awakened in its own crystal arena!\n"
-                    "Everyone who enters battles the same Dragon together.\n"
-                    "Break its crystals and bring it down before the fight clock expires."
+                    "This is a shared fight: everyone who enters battles the same Dragon "
+                    "together.\nBring it down before the arena's fight clock expires."
                 ),
                 image="dragon-victory.png",
             ),
             notice_groups=(
                 NoticeGroup(
-                    title="Rewards Worth Chasing",
+                    title="The Dragon's Treasure",
                     features=(
                         NoticeFeature(
-                            title="🌈 Eternal Rainbow Gear",
+                            title="📦 The Amethyst Dragon Crate",
                             summary=(
-                                "The Dragon Crate can drop permanent rainbow Amethyst gear "
-                                "with the same power and no expiry timer."
+                                "When the Dragon falls, its arena stays open and the Dragon "
+                                "Crate unlocks for a limited time. Spend your Mysterious Crate "
+                                "Keys before its countdown reaches zero."
                             ),
                         ),
                         NoticeFeature(
-                            title="🏆 Ranked PvP",
+                            title="⚔️ New Dragon Gear",
                             summary=(
-                                "Challenge players to safe ranked fights, climb from Bronze "
-                                "to Unreal, and compete for three exclusive Scythes."
+                                "Sharpness VII weapons, crystal abilities, a 3x3 harvesting Hoe, "
+                                "a Power VII Bow, faster Elytra, armour, supplies, and nine new "
+                                "Dragon cosmetics."
                             ),
                         ),
                         NoticeFeature(
-                            title="💜 The Amethyst Crate Is Back",
+                            title="🌈 Eternal Gear",
                             summary=(
-                                "The limited crate is open again for two Keys per pull, with "
-                                "a real countdown showing exactly when it closes."
+                                "Permanent rainbow versions of the full Amethyst set have the "
+                                "same power with no timer. Each Eternal item is 2 in 100,000."
+                            ),
+                        ),
+                        NoticeFeature(
+                            title="🥚 One Egg — And One Secret",
+                            summary=(
+                                "One Amethyst Dragon Egg appears after victory. The hidden "
+                                "Amethyst Dragon Ascendant jackpot is a music-synced royal aura."
                             ),
                         ),
                     ),
+                    image="dragon-rewards.png",
+                    colour=0x8E44FF,
                 ),
                 NoticeGroup(
-                    title="The Server Has Changed",
+                    title="Bigger Amethyst Blocks",
                     features=(
                         NoticeFeature(
-                            title="🛡️ Griefing Is Over",
+                            title="🟣 Giant And Humongous",
                             summary=(
-                                "Bases, farms, animals, storage, and clan builds are protected. "
-                                "Build the thing you were too afraid to build."
-                            ),
-                        ),
-                        NoticeFeature(
-                            title="🟣 Bigger Amethyst Events",
-                            summary=(
-                                "Giant and Humongous Amethyst Blocks now give the whole server "
-                                "larger cooperative targets and contributor rewards."
-                            ),
-                        ),
-                        NoticeFeature(
-                            title="🛒 Player Orders",
-                            summary=(
-                                "Post exactly what you want to buy and let other players fill "
-                                "all or part of the order—even while you are offline."
+                                "Two larger, tougher and rarer Amethyst Block events have landed. "
+                                "All tiers announce their coordinates and reward the players who "
+                                "actually help mine them."
                             ),
                         ),
                     ),
+                    image="humongous-amethyst.png",
+                    colour=0xA545FF,
+                ),
+                NoticeGroup(
+                    title="Dragon Leaderboards",
+                    features=(
+                        NoticeFeature(
+                            title="🏅 Damage, Crystals And Clan Battles",
+                            summary=(
+                                "Every run records Dragon Damage and End Crystals Broken. Claimed "
+                                "eggs also score in a Clan Battle with Shards and exclusive podium "
+                                "auras."
+                            ),
+                        ),
+                    ),
+                    image="dragon-clan-battle.png",
+                    colour=0xFF8808,
+                ),
+                NoticeGroup(
+                    title="Ranked PvP",
+                    features=(
+                        NoticeFeature(
+                            title="⚔️ Safe, Private Ranked Fights",
+                            summary=(
+                                "Challenge another player, fight with KEEP INVENTORY, then return "
+                                "to the exact blocks you left. Optional money, item and cosmetic "
+                                "wagers are locked only after both players agree."
+                            ),
+                        ),
+                        NoticeFeature(
+                            title="🏆 Bronze To Unreal",
+                            summary=(
+                                "Wins and losses move your RP through eight tiers. The arena is "
+                                "fully destructible during the fight and restored afterwards."
+                            ),
+                        ),
+                    ),
+                    image="pvp-victory.png",
+                    colour=0xE74C3C,
+                ),
+                NoticeGroup(
+                    title="The Three Scythes",
+                    features=(
+                        NoticeFeature(
+                            title="🗡️ Only The Podium Holds Them",
+                            summary=(
+                                "The #1 Apex, #2 Void and #3 Shadow Scythes carry bonus damage, "
+                                "heavy sweeps and unique kill finishes—and move when the leaderboard "
+                                "changes."
+                            ),
+                        ),
+                    ),
+                    image="pvp-scythes.png",
+                    colour=0x673AB7,
+                ),
+                NoticeGroup(
+                    title="The Amethyst Crate Is Back",
+                    features=(
+                        NoticeFeature(
+                            title="💜 The Clock Was Reset",
+                            summary=(
+                                "The limited Amethyst Crate is open again for 2 Keys per pull. Its "
+                                "hologram counts down to 12 September at 15:00 UTC."
+                            ),
+                        ),
+                        NoticeFeature(
+                            title="✨ Nine Exclusive Cosmetics",
+                            summary=(
+                                "The full timed Amethyst gear set and nine Amethyst cosmetics are "
+                                "inside. Dragon, Eternal and secret rewards stay exclusive to the "
+                                "Dragon Crate."
+                            ),
+                        ),
+                    ),
+                    image="amethyst-crate.png",
+                    colour=0xB531FF,
+                ),
+                NoticeGroup(
+                    title="The Server Is Protected Now",
+                    features=(
+                        NoticeFeature(
+                            title="🛡️ No More Griefing",
+                            summary=(
+                                "Bases, farms, animals, clan builds and player storage are off "
+                                "limits. Build the thing you were too scared to build."
+                            ),
+                        ),
+                        NoticeFeature(
+                            title="⚔️ Fights Go Through /pvp",
+                            summary=(
+                                "Agreed fights stay safe and restore themselves. Ambushing an "
+                                "unrelated player mid-build is punished."
+                            ),
+                        ),
+                    ),
+                    image="pvp-hub.png",
+                    colour=0x2ECC71,
+                ),
+                NoticeGroup(
+                    title="Player Orders And Quality Of Life",
+                    features=(
+                        NoticeFeature(
+                            title="🛒 Say What You Want To Buy",
+                            summary=(
+                                "Use /order to post exactly what you need and the price per item. "
+                                "Other players can fill it partially or completely while you are "
+                                "offline, and every offer is already funded."
+                            ),
+                        ),
+                        NoticeFeature(
+                            title="✨ Closer, Cleaner, Safer",
+                            summary=(
+                                "Closer Amethyst events, fixed Airdrops and Auto Buy, safer cosmetic "
+                                "delivery, default Night Vision, cleaner tooltips and more."
+                            ),
+                        ),
+                    ),
+                    image="order-board.png",
+                    colour=0x3498DB,
                 ),
             ),
         ),
@@ -427,20 +546,21 @@ def _short_update_name(title: str) -> str:
 
 
 def build_notice_embeds(template: UpdateTemplate) -> list[discord.Embed]:
-    """Build a restrained visual story when a post selects notice features.
+    """Build one full-width card for every selected section of an update.
 
     Posts without editorial notice metadata retain the established single-embed
-    summary. A configured notice is capped at four embeds and three large images:
-    enough to feel substantial, but not a second copy of the full article.
+    summary. A configured notice is capped at Discord's ten-embed message limit.
+    Only the lead links the article: Discord turns multiple same-URL image embeds
+    into a gallery and hides their section copy.
     """
     if template.spotlight is None and not template.notice_groups:
         return [build_notice_embed(template)]
 
     update_name = _short_update_name(template.title)
     lead = discord.Embed(
-        title=f"New Mysterious SMP X update! — {update_name}",
+        title=f"New Mysterious SMP X update! - {update_name}",
         description=template.tagline or "A new Mysterious SMP X update is live.",
-        colour=discord.Colour(0xB532FF),
+        colour=discord.Colour(0xB531FF),
         url=template.url,
     )
     lead.set_author(name="Mysterious SMP X")
@@ -454,8 +574,7 @@ def build_notice_embeds(template: UpdateTemplate) -> list[discord.Embed]:
         feature = template.spotlight
         spotlight = discord.Embed(
             title=template.spotlight_title or update_name,
-            colour=discord.Colour(0xF06000),
-            url=template.url,
+            colour=discord.Colour(0xFF8808),
         )
         spotlight.add_field(name=feature.title, value=f">>> {feature.summary}", inline=False)
         image = _media_url(template, feature.image)
@@ -469,12 +588,13 @@ def build_notice_embeds(template: UpdateTemplate) -> list[discord.Embed]:
             break
         card = discord.Embed(
             title=group.title,
-            colour=discord.Colour(0x9B59FF),
-            url=template.url,
+            colour=discord.Colour(group.colour),
         )
         for feature in group.features:
             card.add_field(name=feature.title, value=f"> {feature.summary}", inline=False)
-        image = next((_media_url(template, item.image) for item in group.features if item.image), "")
+        image = _media_url(template, group.image) or next(
+            (_media_url(template, item.image) for item in group.features if item.image), ""
+        )
         if image and image_count < MAX_NOTICE_IMAGES:
             card.set_image(url=image)
             image_count += 1
