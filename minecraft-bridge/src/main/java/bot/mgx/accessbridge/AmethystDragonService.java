@@ -445,7 +445,6 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         setPortalLit(true);
         createAdmissionBar();
         openPortalBar();
-        announcePortalCard();
         announce(render(variables.string("dragon-event.portal-open-message"),
                 "minutes", String.valueOf(variables.integer("dragon-event.portal-open-minutes"))),
                 configuredSound("dragon-event.portal-open-sound", Sound.BLOCK_BEACON_ACTIVATE));
@@ -2550,9 +2549,10 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     /**
      * The gateway's own bar, shown to the whole server.
      *
-     * <p>An Airdrop and a Huge Amethyst Block both announce themselves with a bar
-     * carrying their coordinates and a clock. The Dragon's gateway is the rarer event
-     * of the three and was announcing itself with one line of chat that scrolls away.
+     * <p>The gateway was announcing itself with one line of chat that scrolls away. It
+     * carries no coordinates, unlike the Airdrop bar it borrows the idea from: that one
+     * lands somewhere new every time, and this one is always at spawn. Name and clock
+     * is the whole message.
      *
      * <p>An ordinary bar rather than an exclusive one on purpose: it is for people in
      * the overworld deciding whether to run for it, and anyone already inside the arena
@@ -2572,14 +2572,12 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
 
     private void updatePortalBar() {
         if (portalBar == null || scheduledAt == null) return;
-        Location at = portal.location();
         long remaining = Math.max(0L, scheduledAt.toEpochMilli() - System.currentTimeMillis());
         long total = Math.max(1L, variables.integer("dragon-event.portal-open-minutes") * 60_000L);
-        portalBar.name(EventBanner.bossBar(
-                "Amethyst Dragon Portal", AMETHYST,
-                at.getBlockX(), at.getBlockY(), at.getBlockZ(),
-                "Step through", duration(remaining)
-        ));
+        portalBar.name(Component.text("AMETHYST DRAGON PORTAL", AMETHYST, TextDecoration.BOLD)
+                .append(Component.text("  SEALS IN ", NamedTextColor.GRAY))
+                .append(Component.text(duration(remaining), NamedTextColor.WHITE,
+                        TextDecoration.BOLD)));
         portalBar.progress((float) Math.clamp((double) remaining / total, 0d, 1d));
     }
 
@@ -2589,22 +2587,6 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
             plugin.bossBars().hide(player, portalBar);
         }
         portalBar = null;
-    }
-
-    /** The chat card, in the shape the other world events already use. */
-    private void announcePortalCard() {
-        if (portal == null || portal.location() == null) return;
-        Location at = portal.location();
-        Component card = EventBanner.chat(
-                "Amethyst Dragon Portal", AMETHYST,
-                at.getWorld() == null ? "Overworld" : at.getWorld().getName(),
-                at.getBlockX(), at.getBlockY(), at.getBlockZ(),
-                "Step through within",
-                duration(Math.max(0L, scheduledAt.toEpochMilli() - System.currentTimeMillis()))
-        );
-        for (Player player : Bukkit.getOnlinePlayers()) {
-            player.sendMessage(card);
-        }
     }
 
     private void createAdmissionBar() {
