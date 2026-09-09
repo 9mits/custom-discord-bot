@@ -16,6 +16,22 @@ final class AmethystDragonServiceTest {
     }
 
     @Test
+    void aPlayerCaughtInARisingPillarIsPutDownOutsideIt() {
+        // The layers are placed with setType, so anyone still inside the footprint is
+        // sealed into a solid obsidian column that cannot be broken.
+        for (int width = 1; width <= 6; width++) {
+            assertEquals(true, AmethystDragonService.insidePillarFootprint(0, width),
+                    "dead centre is in the way");
+            assertEquals(true, AmethystDragonService.insidePillarFootprint(width, width),
+                    "the edge is in the way");
+            // The bug this guards: ejecting somebody to a spot still inside the column.
+            assertEquals(false, AmethystDragonService.insidePillarFootprint(
+                    AmethystDragonService.pillarLandingDistance(width), width),
+                    "where they land must be outside the footprint");
+        }
+    }
+
+    @Test
     void dragonMinionsUseTheirVanillaMovementSpeeds() {
         assertEquals(0.23d, AmethystDragonService.normalMinionSpeed(EntityType.HUSK));
         assertEquals(0.25d, AmethystDragonService.normalMinionSpeed(EntityType.STRAY));

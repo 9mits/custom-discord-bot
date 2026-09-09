@@ -884,7 +884,72 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         }, 0L, interval);
     }
 
+    /**
+     * Whether a player this far from a pillar's centre is in the way of it.
+     *
+     * <p>A block of clearance past the edge, so nobody is left clipping the wall.
+     */
+    static boolean insidePillarFootprint(double distance, int width) {
+        return distance <= width + 1.5d;
+    }
+
+    /**
+     * How far from the centre an ejected player is put down.
+     *
+     * <p>Must exceed what {@link #insidePillarFootprint} counts as inside, or ejecting
+     * would drop the player back into the column it just pulled them out of.
+     */
+    static double pillarLandingDistance(int width) {
+        return width + 3.5d;
+    }
+
+    /**
+     * Moves players out of a pillar's footprint before its blocks arrive.
+     *
+     * <p>Layers are placed with {@code setType}, which does not care that somebody is
+     * standing there. A player caught inside the footprint is sealed into a solid
+     * obsidian column with no way out and no way to be dug free — the pillars are the
+     * one part of the arena players cannot break.
+     *
+     * <p>Ejecting sideways is the only move that works. There is no safe spot to leave
+     * someone inside a column that is about to be solid, and lifting them to the top
+     * only delays it by one layer. Called before every layer rather than once per
+     * pillar, because a player can walk in while it is still rising.
+     */
+    private void ejectFromPillar(PillarSpec spec) {
+        double centreX = spec.x() + 0.5d;
+        double centreZ = spec.z() + 0.5d;
+        for (Player player : List.copyOf(arena.getPlayers())) {
+            Location at = player.getLocation();
+            double dx = at.getX() - centreX;
+            double dz = at.getZ() - centreZ;
+            double distance = Math.sqrt(dx * dx + dz * dz);
+            if (!insidePillarFootprint(distance, spec.width())) {
+                continue;
+            }
+            double landing = pillarLandingDistance(spec.width());
+            // Dead centre has no outward direction of its own, so pick one.
+            double angle = distance < 0.01d
+                    ? ThreadLocalRandom.current().nextDouble(Math.PI * 2)
+                    : Math.atan2(dz, dx);
+            int targetX = (int) Math.floor(centreX + Math.cos(angle) * landing);
+            int targetZ = (int) Math.floor(centreZ + Math.sin(angle) * landing);
+            Location out = new Location(
+                    arena,
+                    targetX + 0.5d,
+                    arena.getHighestBlockYAt(targetX, targetZ) + 1.1d,
+                    targetZ + 0.5d,
+                    at.getYaw(),
+                    at.getPitch()
+            );
+            player.teleport(out);
+            player.sendActionBar(Component.text(
+                    "A crystal pillar is rising here", NamedTextColor.LIGHT_PURPLE));
+        }
+    }
+
     private void buildPillarLayer(PillarSpec spec, int y) {
+        ejectFromPillar(spec);
         for (int px = spec.x() - spec.width(); px <= spec.x() + spec.width(); px++) {
             for (int pz = spec.z() - spec.width(); pz <= spec.z() + spec.width(); pz++) {
                 if ((px - spec.x()) * (px - spec.x()) + (pz - spec.z()) * (pz - spec.z())
@@ -925,6 +990,9 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     }
 
     private void finishPillarStructure(PillarSpec spec) {
+        // The cap and the cage land after the last layer, so somebody who climbed back
+        // on top between ticks would be sealed under bedrock rather than inside it.
+        ejectFromPillar(spec);
         arena.getBlockAt(spec.x(), spec.top() + 1, spec.z()).setType(Material.BEDROCK, false);
         if (spec.index() < variables.integer("dragon-event.caged-crystals")) {
             buildCrystalCage(spec.x(), spec.top() + 2, spec.z());
