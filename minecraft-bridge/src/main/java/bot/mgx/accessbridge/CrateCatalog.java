@@ -127,10 +127,20 @@ final class CrateCatalog {
 
         /** The original reward ID when the Shard Crate reweights an existing prize. */
         String sourceId() {
-            if (id.startsWith("shard_")) {
-                return id.substring("shard_".length());
+            String base = id;
+            if (base.startsWith("shard_")) {
+                base = base.substring("shard_".length());
+            } else if (base.startsWith("dragon_")) {
+                base = base.substring("dragon_".length());
             }
-            return id.startsWith("dragon_") ? id.substring("dragon_".length()) : id;
+            // The Amethyst crate's copies of the shared potion ladder. Reward ids are
+            // unique server-wide, so a second copy needs its own; the prefix carries no
+            // meaning beyond that and the item built is the same one.
+            if (base.startsWith("amethyst_fortune_potion_")
+                    || base.startsWith("amethyst_crate_luck_")) {
+                base = base.substring("amethyst_".length());
+            }
+            return base;
         }
 
         boolean secret() {
@@ -639,7 +649,7 @@ final class CrateCatalog {
         // openings in eight paid out something that looked like rubble. What the
         // crate is called is what it should be full of.
         rewards.add(item(
-                "amethyst_shards", "32 Amethyst Shards", Category.RESOURCE, 12_562,
+                "amethyst_shards", "32 Amethyst Shards", Category.RESOURCE, 12_284,
                 "AMETHYST_SHARD", 32, "A bright stack of vanilla amethyst shards."
         ));
         rewards.add(item(
@@ -838,6 +848,26 @@ final class CrateCatalog {
                 "TIPPED_ARROW", "mgx:amethyst_arrow", "Permanent consumable crystal arrows."));
         rewards.add(amethystItem("amethyst_apple", "Amethyst Apple", Category.TREASURE, 100,
                 "ENCHANTED_GOLDEN_APPLE", "mgx:amethyst_apple", "Permanent crystal combat consumable."));
+        // Every crate carries the potion ladder now, at the weights the Default crate
+        // set, so which crate you opened never changes what a Fortune III is worth.
+        rewards.add(customPotion("amethyst_fortune_potion_i", "Fortune Potion I", 138,
+                "mgx:fortune_potion", "Multiplies eligible ore drops by 1.25x."));
+        rewards.add(customPotion("amethyst_fortune_potion_ii", "Fortune Potion II", 55,
+                "mgx:fortune_potion", "Multiplies eligible ore drops by 1.5x."));
+        rewards.add(customPotion("amethyst_fortune_potion_iii", "Fortune Potion III", 19,
+                "mgx:fortune_potion", "Multiplies eligible ore drops by 2x."));
+        rewards.add(customPotion("amethyst_fortune_potion_iv", "Fortune Potion IV", 6,
+                "mgx:fortune_potion", "Multiplies eligible ore drops by 2.5x."));
+        rewards.add(customPotion("amethyst_fortune_potion_v", "Fortune Potion V", 1,
+                "mgx:fortune_potion", "Multiplies eligible ore drops by 3x."));
+        rewards.add(customPotion("amethyst_crate_luck_ii", "Crate Luck II", 41,
+                "mgx:crate_luck_potion", "1.5x rare reward weight for a limited time."));
+        rewards.add(customPotion("amethyst_crate_luck_iii", "Crate Luck III", 14,
+                "mgx:crate_luck_potion", "2x rare reward weight for a limited time."));
+        rewards.add(customPotion("amethyst_crate_luck_iv", "Crate Luck IV", 3,
+                "mgx:crate_luck_potion", "2.5x rare reward weight for a limited time."));
+        rewards.add(customPotion("amethyst_crate_luck_v", "Crate Luck V", 1,
+                "mgx:crate_luck_potion", "3x rare reward weight for a limited time."));
         for (CosmeticCatalog.Definition cosmetic : CosmeticCatalog.amethystRewards()) {
             rewards.add(cosmetic(cosmetic));
         }
@@ -855,7 +885,7 @@ final class CrateCatalog {
         // therefore 99.181% modest purple building, food and enchanting supplies.
         // Each chase item remains slightly easier than in the ordinary Amethyst Crate,
         // while the volume can no longer flood the server with temporary equipment.
-        weights.put("amethyst_shards", new int[]{17_000, 8});
+        weights.put("amethyst_shards", new int[]{16_953, 8});
         weights.put("amethyst_blocks", new int[]{15_000, 4});
         weights.put("amethyst_purpur", new int[]{14_000, 8});
         weights.put("amethyst_purple_glass", new int[]{12_000, 8});
@@ -880,6 +910,14 @@ final class CrateCatalog {
         weights.put("amethyst_boots", new int[]{9, 0});
         weights.put("amethyst_elytra", new int[]{3, 0});
         weights.put("amethyst_excavation_i", new int[]{8, 0});
+        // Only the top of the potion ladder. The full ladder costs 420 points, which
+        // would drop this pool below the 99% common floor it is built around; the
+        // lower tiers stay in the Default, Amethyst and Shard crates.
+        weights.put("amethyst_fortune_potion_iii", new int[]{29, 0});
+        weights.put("amethyst_fortune_potion_iv", new int[]{9, 0});
+        weights.put("amethyst_fortune_potion_v", new int[]{2, 0});
+        weights.put("amethyst_crate_luck_iv", new int[]{5, 0});
+        weights.put("amethyst_crate_luck_v", new int[]{2, 0});
         List<Reward> rewards = new ArrayList<>();
         weights.forEach((id, values) -> {
             Reward source = originalAmethystReward(id);
