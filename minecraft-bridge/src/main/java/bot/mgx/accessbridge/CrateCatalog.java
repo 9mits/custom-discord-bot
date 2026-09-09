@@ -211,6 +211,19 @@ final class CrateCatalog {
         }
     }
 
+    /**
+     * Amethyst-family rewards that other pools copy but the Amethyst Crate does not sell.
+     *
+     * <p>The Elytra is the Dragon Crate's headline prize. Keeping the definition here
+     * lets the Dragon and Shard pools copy it, and the admin directory grant it, without
+     * the ordinary crate paying one out.
+     */
+    private static final List<Reward> SOURCE_ONLY_REWARDS = List.of(
+            amethystItem("amethyst_elytra", "Amethyst Elytra", Category.TREASURE, 2,
+                    "ELYTRA", "mgx:amethyst_elytra",
+                    "Lightning Speed flies 50% faster for 24 hours.")
+    );
+
     private static final List<Reward> REWARDS = buildRewards();
     private static final List<Reward> AMETHYST_REWARDS = buildAmethystRewards();
     private static final List<Reward> DRAGON_REWARDS = buildDragonRewards();
@@ -257,9 +270,10 @@ final class CrateCatalog {
     }
 
     static List<Reward> amethystAdminRewards() {
-        return java.util.stream.Stream.concat(
-                AMETHYST_REWARDS.stream(), HIDDEN_AMETHYST_REWARDS.stream()
-        ).toList();
+        return java.util.stream.Stream.of(
+                AMETHYST_REWARDS.stream(), SOURCE_ONLY_REWARDS.stream(),
+                HIDDEN_AMETHYST_REWARDS.stream()
+        ).flatMap(stream -> stream).toList();
     }
 
     /** The built-in reward list for one crate, before an owner's additions or removals. */
@@ -330,6 +344,7 @@ final class CrateCatalog {
     static List<Reward> everyReward() {
         return java.util.stream.Stream.of(
                         REWARDS.stream(), AMETHYST_REWARDS.stream(),
+                        SOURCE_ONLY_REWARDS.stream(),
                         HIDDEN_AMETHYST_REWARDS.stream(), SHARD_REWARDS.stream(),
                         DRAGON_REWARDS.stream(), CosmeticCatalog.hiddenDragonRewards().stream()
                                 .map(CrateCatalog::cosmetic)
@@ -818,7 +833,7 @@ final class CrateCatalog {
                 "TOTEM_OF_UNDYING", "mgx:amethyst_totem",
                 "A one-use crystal rescue with a ten-heart shell."
         ));
-        rewards.add(amethystItem("amethyst_sword", "Amethyst Sword", Category.TREASURE, 20,
+        rewards.add(amethystItem("amethyst_sword", "Amethyst Sword", Category.TREASURE, 22,
                 "DIAMOND_SWORD", "mgx:amethyst_sword",
                 "Activates for 24 hours with Dragon's Edge and crystal lifesteal."));
         rewards.add(amethystItem("amethyst_hoe", "Amethyst Hoe", Category.TREASURE, 30,
@@ -835,8 +850,6 @@ final class CrateCatalog {
                 "DIAMOND_LEGGINGS", "mgx:amethyst_leggings", "Part of the 24-hour Dragon Guard set."));
         rewards.add(amethystItem("amethyst_boots", "Amethyst Boots", Category.TREASURE, 6,
                 "DIAMOND_BOOTS", "mgx:amethyst_boots", "Part of the 24-hour Dragon Guard set."));
-        rewards.add(amethystItem("amethyst_elytra", "Amethyst Elytra", Category.TREASURE, 2,
-                "ELYTRA", "mgx:amethyst_elytra", "Lightning Speed flies 50% faster for 24 hours."));
         rewards.add(amethystItem("amethyst_arrows", "16 Amethyst Arrows", Category.TREASURE, 252,
                 "TIPPED_ARROW", "mgx:amethyst_arrow", "Permanent consumable crystal arrows."));
         rewards.add(amethystItem("amethyst_apple", "Amethyst Apple", Category.TREASURE, 100,
@@ -923,7 +936,9 @@ final class CrateCatalog {
     }
 
     private static Reward originalAmethystReward(String id) {
-        return AMETHYST_REWARDS.stream().filter(reward -> reward.id().equals(id))
+        return java.util.stream.Stream.concat(
+                        AMETHYST_REWARDS.stream(), SOURCE_ONLY_REWARDS.stream())
+                .filter(reward -> reward.id().equals(id))
                 .findFirst()
                 // The potion ladder is the Default crate's, not the Amethyst crate's.
                 // REWARDS is initialised first, so borrowing from it here is safe.
@@ -1023,7 +1038,9 @@ final class CrateCatalog {
     }
 
     private static Reward originalReward(String id) {
-        return java.util.stream.Stream.concat(REWARDS.stream(), AMETHYST_REWARDS.stream())
+        return java.util.stream.Stream.of(
+                        REWARDS.stream(), AMETHYST_REWARDS.stream(), SOURCE_ONLY_REWARDS.stream())
+                .flatMap(stream -> stream)
                 .filter(reward -> reward.id().equals(id))
                 .findFirst()
                 .orElseThrow(() -> new IllegalStateException("Unknown Shard Crate reward " + id));
@@ -1093,6 +1110,7 @@ final class CrateCatalog {
         Map<String, Reward> indexed = new LinkedHashMap<>();
         for (Reward reward : java.util.stream.Stream.of(
                         REWARDS.stream(), AMETHYST_REWARDS.stream(),
+                        SOURCE_ONLY_REWARDS.stream(),
                         HIDDEN_AMETHYST_REWARDS.stream(), DRAGON_REWARDS.stream(),
                         SHARD_REWARDS.stream()
                 ).flatMap(stream -> stream).toList()) {

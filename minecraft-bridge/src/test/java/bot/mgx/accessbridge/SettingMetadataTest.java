@@ -109,7 +109,7 @@ final class SettingMetadataTest {
         // Every distribution an owner edits, and how many rows each holds.
         Map<String, Integer> expected = new LinkedHashMap<>();
         expected.put("crate.default", 64);
-        expected.put("crate.amethyst", 61);
+        expected.put("crate.amethyst", 60);
         expected.put("crate.shard", 55);
         expected.put("crate.dragon", 43);
         expected.put("amethyst-block.tier", 3);
@@ -155,7 +155,7 @@ final class SettingMetadataTest {
         }
         Map<String, Integer> expected = new TreeMap<>();
         expected.put("crate.default", 64);
-        expected.put("crate.amethyst", 61);
+        expected.put("crate.amethyst", 60);
         expected.put("crate.shard", 55);
         expected.put("crate.dragon", 43);
         expected.put("amethyst-block.tier", 3);
@@ -266,7 +266,7 @@ final class SettingMetadataTest {
         }
         assertEquals(
                 Map.ofEntries(
-                        Map.entry("crates", 235),
+                        Map.entry("crates", 234),
                         Map.entry("airdrops", 119),
                         Map.entry("online_rewards", 67),
                         Map.entry("amethyst_blocks", 49),
@@ -298,7 +298,7 @@ final class SettingMetadataTest {
                 perGroup,
                 "the catalogue moved between panel pages"
         );
-        assertEquals(925, perGroup.values().stream().mapToInt(Integer::intValue).sum(),
+        assertEquals(924, perGroup.values().stream().mapToInt(Integer::intValue).sum(),
                 "group counts no longer add up to the catalogue");
     }
 
