@@ -237,7 +237,11 @@ final class CrateCatalog {
             eternal("amethyst_axe", "Eternal Amethyst Axe", "DIAMOND_AXE"),
             eternal("amethyst_hoe", "Eternal Amethyst Hoe", "DIAMOND_HOE"),
             eternal("amethyst_bow", "Eternal Amethyst Bow", "BOW"),
-            eternal("amethyst_elytra", "Eternal Amethyst Elytra", "ELYTRA")
+            eternal("amethyst_elytra", "Eternal Amethyst Elytra", "ELYTRA"),
+            eternal("amethyst_helmet", "Eternal Amethyst Helmet", "DIAMOND_HELMET"),
+            eternal("amethyst_chestplate", "Eternal Amethyst Chestplate", "DIAMOND_CHESTPLATE"),
+            eternal("amethyst_leggings", "Eternal Amethyst Leggings", "DIAMOND_LEGGINGS"),
+            eternal("amethyst_boots", "Eternal Amethyst Boots", "DIAMOND_BOOTS")
     );
 
     private static Reward eternal(String base, String displayName, String material) {
@@ -895,7 +899,7 @@ final class CrateCatalog {
         // therefore 99.181% modest purple building, food and enchanting supplies.
         // Each chase item remains slightly easier than in the ordinary Amethyst Crate,
         // while the volume can no longer flood the server with temporary equipment.
-        weights.put("amethyst_shards", new int[]{16_566, 8});
+        weights.put("amethyst_shards", new int[]{16_558, 8});
         weights.put("amethyst_blocks", new int[]{15_000, 4});
         weights.put("amethyst_purpur", new int[]{14_000, 8});
         weights.put("amethyst_purple_glass", new int[]{12_000, 8});
@@ -933,6 +937,10 @@ final class CrateCatalog {
         weights.put("eternal_amethyst_hoe", new int[]{2, 0});
         weights.put("eternal_amethyst_bow", new int[]{2, 0});
         weights.put("eternal_amethyst_elytra", new int[]{2, 0});
+        weights.put("eternal_amethyst_helmet", new int[]{2, 0});
+        weights.put("eternal_amethyst_chestplate", new int[]{2, 0});
+        weights.put("eternal_amethyst_leggings", new int[]{2, 0});
+        weights.put("eternal_amethyst_boots", new int[]{2, 0});
         weights.put("fortune_potion_i", new int[]{207, 0});
         weights.put("fortune_potion_ii", new int[]{83, 0});
         weights.put("fortune_potion_iii", new int[]{29, 0});

@@ -39,6 +39,10 @@ LINKED_ICON_SIZES = {
     "eternal_amethyst_hoe": (16, 16),
     "eternal_amethyst_bow": (16, 16),
     "eternal_amethyst_elytra": (16, 16),
+    "eternal_amethyst_helmet": (16, 16),
+    "eternal_amethyst_chestplate": (16, 16),
+    "eternal_amethyst_leggings": (16, 16),
+    "eternal_amethyst_boots": (16, 16),
     "pvp_scythe_1": (64, 64),
     "pvp_scythe_2": (64, 64),
     "pvp_scythe_3": (64, 64),
@@ -131,8 +135,8 @@ class ResourcePackIconTests(unittest.TestCase):
 
     def test_custom_icons_are_valid_distinct_minecraft_sprites(self):
         icons = self.icon_paths()
-        # 94, plus the seven Eternal twins of the timed Amethyst gear.
-        self.assertEqual(101, len(icons))
+        # 94, plus the eleven Eternal twins of the timed Amethyst gear.
+        self.assertEqual(105, len(icons))
 
         digests = set()
         for path in icons:

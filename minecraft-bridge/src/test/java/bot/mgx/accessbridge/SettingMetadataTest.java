@@ -111,7 +111,7 @@ final class SettingMetadataTest {
         expected.put("crate.default", 64);
         expected.put("crate.amethyst", 60);
         expected.put("crate.shard", 55);
-        expected.put("crate.dragon", 50);
+        expected.put("crate.dragon", 54);
         expected.put("amethyst-block.tier", 3);
         expected.put("airdrop.rarity", 4);
         expected.put("airdrop.loot.common", 13);
@@ -157,7 +157,7 @@ final class SettingMetadataTest {
         expected.put("crate.default", 64);
         expected.put("crate.amethyst", 60);
         expected.put("crate.shard", 55);
-        expected.put("crate.dragon", 50);
+        expected.put("crate.dragon", 54);
         expected.put("amethyst-block.tier", 3);
         expected.put("airdrop.rarity", 4);
         expected.put("airdrop.loot.common", 13);
@@ -266,7 +266,7 @@ final class SettingMetadataTest {
         }
         assertEquals(
                 Map.ofEntries(
-                        Map.entry("crates", 241),
+                        Map.entry("crates", 245),
                         Map.entry("airdrops", 119),
                         Map.entry("online_rewards", 67),
                         Map.entry("amethyst_blocks", 49),
@@ -298,7 +298,7 @@ final class SettingMetadataTest {
                 perGroup,
                 "the catalogue moved between panel pages"
         );
-        assertEquals(931, perGroup.values().stream().mapToInt(Integer::intValue).sum(),
+        assertEquals(935, perGroup.values().stream().mapToInt(Integer::intValue).sum(),
                 "group counts no longer add up to the catalogue");
     }
 

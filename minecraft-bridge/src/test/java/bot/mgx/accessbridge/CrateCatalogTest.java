@@ -336,7 +336,7 @@ class CrateCatalogTest {
         int commonWeight = CrateKind.DRAGON.rewards().stream()
                 .filter(reward -> common.contains(reward.id()))
                 .mapToInt(CrateCatalog.Reward::weight).sum();
-        assertEquals(98_747, commonWeight);
+        assertEquals(98_739, commonWeight);
         // Was a 99% floor. The potion ladder lives in this crate by design — it is the
         // one built to pay out the Elytra, the potions and the strong loot — and the
         // ladder costs 420 points. 98.7% still means the pool is overwhelmingly filler

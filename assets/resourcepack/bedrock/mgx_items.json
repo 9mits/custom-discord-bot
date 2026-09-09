@@ -788,6 +788,15 @@
         "bedrock_options": {
           "icon": "mgx:amethyst_helmet"
         }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:eternal_amethyst_helmet",
+        "bedrock_identifier": "mgx:eternal_amethyst_helmet",
+        "display_name": "Eternal Amethyst Helmet",
+        "bedrock_options": {
+          "icon": "mgx:eternal_amethyst_helmet"
+        }
       }
     ],
     "minecraft:diamond_chestplate": [
@@ -798,6 +807,15 @@
         "display_name": "Amethyst Chestplate",
         "bedrock_options": {
           "icon": "mgx:amethyst_chestplate"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:eternal_amethyst_chestplate",
+        "bedrock_identifier": "mgx:eternal_amethyst_chestplate",
+        "display_name": "Eternal Amethyst Chestplate",
+        "bedrock_options": {
+          "icon": "mgx:eternal_amethyst_chestplate"
         }
       }
     ],
@@ -810,6 +828,15 @@
         "bedrock_options": {
           "icon": "mgx:amethyst_leggings"
         }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:eternal_amethyst_leggings",
+        "bedrock_identifier": "mgx:eternal_amethyst_leggings",
+        "display_name": "Eternal Amethyst Leggings",
+        "bedrock_options": {
+          "icon": "mgx:eternal_amethyst_leggings"
+        }
       }
     ],
     "minecraft:diamond_boots": [
@@ -820,6 +847,15 @@
         "display_name": "Amethyst Boots",
         "bedrock_options": {
           "icon": "mgx:amethyst_boots"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:eternal_amethyst_boots",
+        "bedrock_identifier": "mgx:eternal_amethyst_boots",
+        "display_name": "Eternal Amethyst Boots",
+        "bedrock_options": {
+          "icon": "mgx:eternal_amethyst_boots"
         }
       }
     ],

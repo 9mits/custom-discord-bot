@@ -26,10 +26,24 @@ PACK = Path(__file__).resolve().parent / "src" / "assets" / "mgx"
 TEXTURES = PACK / "textures" / "item"
 MODELS = PACK / "models" / "item"
 ITEMS = PACK / "items"
+EQUIPMENT = PACK / "equipment"
+WORN = PACK / "textures" / "entity" / "equipment"
+
+#: Worn layers get the same treatment, or an Eternal set would look ordinary the
+#: moment it is put on. Keyed by equipment definition, valued by the texture folders
+#: the definition's layers live in.
+ETERNAL_EQUIPMENT = {
+    "amethyst_armor": ("humanoid", "humanoid_leggings"),
+    "amethyst_elytra": ("wings",),
+}
 
 #: The timed gear that gets a permanent twin, and the vanilla item each is built on.
 ETERNAL_ITEMS = {
     "amethyst_sword": ("minecraft:diamond_sword", "minecraft:item/handheld"),
+    "amethyst_helmet": ("minecraft:diamond_helmet", "minecraft:item/generated"),
+    "amethyst_chestplate": ("minecraft:diamond_chestplate", "minecraft:item/generated"),
+    "amethyst_leggings": ("minecraft:diamond_leggings", "minecraft:item/generated"),
+    "amethyst_boots": ("minecraft:diamond_boots", "minecraft:item/generated"),
     "amethyst_pickaxe": ("minecraft:diamond_pickaxe", "minecraft:item/handheld"),
     "amethyst_shovel": ("minecraft:diamond_shovel", "minecraft:item/handheld"),
     "amethyst_axe": ("minecraft:diamond_axe", "minecraft:item/handheld"),
@@ -89,7 +103,18 @@ def main() -> int:
         write_json(ITEMS / f"{name}.json",
                    {"model": {"type": "minecraft:model", "model": f"mgx:item/{name}"}})
         print(f"  {name}")
-    print(f"{len(ETERNAL_ITEMS)} Eternal icons, models and item definitions written")
+    for base, folders in ETERNAL_EQUIPMENT.items():
+        name = f"eternal_{base}"
+        for folder in folders:
+            source = WORN / folder / f"{base}.png"
+            prismatic(Image.open(source)).save(WORN / folder / f"{name}.png", optimize=True)
+        definition = json.loads((EQUIPMENT / f"{base}.json").read_text(encoding="utf-8"))
+        # Same layer structure, pointed at the prismatic textures.
+        rewritten = json.dumps(definition).replace(f"mgx:{base}", f"mgx:{name}")
+        (EQUIPMENT / f"{name}.json").write_text(rewritten + "\n", encoding="utf-8")
+        print(f"  {name} (worn)")
+
+    print(f"{len(ETERNAL_ITEMS)} Eternal icons and {len(ETERNAL_EQUIPMENT)} worn sets written")
     return 0
 
 
