@@ -345,20 +345,21 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
             Location base = new Location(arena, x, y, z);
             // The column, tall enough to clear the pillars and be seen across the island.
             for (int step = 0; step < 24; step++) {
-                arena.spawnParticle(Particle.END_ROD,
-                        base.clone().add(0, 0.6d + step * 0.8d, 0), 1, 0.05, 0.05, 0.05, 0.01);
+                spawnPresentationParticle(Particle.END_ROD,
+                        base.clone().add(0, 0.6d + step * 0.8d, 0),
+                        1, 0.05, 0.05, 0.05, 0.01, null);
             }
             // A ring at the base, so the last few blocks of the search are unambiguous.
             for (int point = 0; point < 8; point++) {
                 double angle = (Math.PI * 2 * point / 8) + eggBeaconPulse * 0.15d;
-                arena.spawnParticle(Particle.WITCH,
+                spawnPresentationParticle(Particle.WITCH,
                         base.clone().add(Math.cos(angle) * 1.2d, 0.4d, Math.sin(angle) * 1.2d),
-                        1, 0, 0, 0, 0);
+                        1, 0, 0, 0, 0, null);
             }
             if (chime) {
-                arena.playSound(base, configuredSound("dragon-event.egg-beacon-sound",
+                playFromEgg(base, configuredSound("dragon-event.egg-beacon-sound",
                                 Sound.BLOCK_AMETHYST_BLOCK_CHIME),
-                        (float) variables.decimal("dragon-event.effect-sound-volume"), 1.4f);
+                        (float) variables.decimal("dragon-event.egg-beacon-pitch"));
             }
         }
     }
@@ -561,18 +562,20 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                 configuredSound("dragon-event.start-sound", Sound.ENTITY_ENDER_DRAGON_GROWL));
         refreshPortalDisplay();
         if (variables.bool("dragon-event.effects-enabled")) {
-            arena.spawnParticle(Particle.DRAGON_BREATH, dragon.getLocation(),
+            spawnPresentationParticle(Particle.DRAGON_BREATH, dragon.getLocation(),
                     variables.integer("dragon-event.spawn-particle-count"), 8, 5, 8, 0.08, 1.0f);
-            arena.spawnParticle(Particle.END_ROD, dragon.getLocation(),
-                    variables.integer("dragon-event.spawn-particle-count"), 10, 6, 10, 0.12);
+            spawnPresentationParticle(Particle.END_ROD, dragon.getLocation(),
+                    variables.integer("dragon-event.spawn-particle-count"), 10, 6, 10, 0.12, null);
             for (int index = 0; index < variables.integer("dragon-event.spawn-lightning-count"); index++) {
                 double angle = Math.PI * 2d * index
                         / Math.max(1, variables.integer("dragon-event.spawn-lightning-count"));
                 Location burst = new Location(arena,
                         Math.cos(angle) * variables.decimal("dragon-event.spawn-lightning-radius"),
                         76, Math.sin(angle) * variables.decimal("dragon-event.spawn-lightning-radius"));
-                arena.spawnParticle(Particle.EXPLOSION_EMITTER, burst, 1);
-                arena.spawnParticle(Particle.DUST, burst, 35, 1.2, 2.5, 1.2, .02, BRIGHT);
+                spawnPresentationParticle(Particle.EXPLOSION_EMITTER, burst,
+                        1, 0, 0, 0, 0, null);
+                spawnPresentationParticle(Particle.DUST, burst,
+                        35, 1.2, 2.5, 1.2, .02, BRIGHT);
             }
         }
     }
@@ -650,9 +653,10 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
             double angle = Math.PI * 2d * point / ringPoints + spin;
             double y = Math.sin(angle * 3d + spin) * (1.2d + progress * 3d);
             Location particle = centre.clone().add(Math.cos(angle) * radius, y, Math.sin(angle) * radius);
-            arena.spawnParticle(Particle.DUST, particle, 1, 0, 0, 0, 0,
+            spawnPresentationParticle(Particle.DUST, particle, 1, 0, 0, 0, 0,
                     (point & 1) == 0 ? BRIGHT : DARK);
-            if (point % 6 == 0) arena.spawnParticle(Particle.REVERSE_PORTAL, particle, 1, 0, 0, 0, .02);
+            if (point % 6 == 0) spawnPresentationParticle(
+                    Particle.REVERSE_PORTAL, particle, 1, 0, 0, 0, .02, null);
         }
 
         int beamPoints = variables.integer("dragon-event.death-beam-points");
@@ -662,16 +666,18 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
             double y = (fraction - .35d) * beamHeight;
             Location vertical = centre.clone().add(0, y, 0);
             if (point % 4 == 0) {
-                arena.spawnParticle(Particle.END_ROD, vertical, 1, 0, 0, 0, 0);
+                spawnPresentationParticle(Particle.END_ROD, vertical,
+                        1, 0, 0, 0, 0, null);
             } else {
-                arena.spawnParticle(Particle.DUST, vertical, 1, 0, 0, 0, 0, BRIGHT);
+                spawnPresentationParticle(Particle.DUST, vertical,
+                        1, 0, 0, 0, 0, BRIGHT);
             }
 
             double across = (fraction - .5d) * maximumRadius * 2d;
             double angle = progress * Math.PI;
             Location cutting = centre.clone().add(Math.cos(angle) * across,
                     Math.sin(progress * Math.PI) * 2d, Math.sin(angle) * across);
-            arena.spawnParticle(Particle.DUST, cutting, 1, 0, 0, 0, 0,
+            spawnPresentationParticle(Particle.DUST, cutting, 1, 0, 0, 0, 0,
                     point % 3 == 0 ? BRIGHT : DARK);
         }
 
@@ -683,7 +689,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                     arena.getHighestBlockYAt(x, z) + 1, z + .5));
         }
         if (frame % variables.integer("dragon-event.death-sound-every-frames") == 0) {
-            arena.playSound(centre,
+            playToArena(
                     configuredSound("dragon-event.death-pulse-sound", Sound.BLOCK_RESPAWN_ANCHOR_CHARGE),
                     (float) variables.decimal("dragon-event.effect-sound-volume"),
                     (float) Math.min(2d, variables.decimal("dragon-event.death-pulse-pitch")
@@ -693,12 +699,13 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
 
     private void dragonDeathClimax(Location centre) {
         int particles = variables.integer("dragon-event.death-climax-particle-count");
-        arena.spawnParticle(Particle.EXPLOSION_EMITTER, centre, 1);
-        arena.spawnParticle(Particle.DRAGON_BREATH, centre, particles,
+        spawnPresentationParticle(Particle.EXPLOSION_EMITTER, centre,
+                1, 0, 0, 0, 0, null);
+        spawnPresentationParticle(Particle.DRAGON_BREATH, centre, particles,
                 8, 6, 8, .18, 1.0f);
-        arena.spawnParticle(Particle.END_ROD, centre, Math.max(1, particles / 2),
-                12, 8, 12, .22);
-        arena.spawnParticle(Particle.DUST, centre, particles,
+        spawnPresentationParticle(Particle.END_ROD, centre, Math.max(1, particles / 2),
+                12, 8, 12, .22, null);
+        spawnPresentationParticle(Particle.DUST, centre, particles,
                 10, 6, 10, .08, BRIGHT);
         double radius = variables.decimal("dragon-event.death-animation-radius");
         int points = variables.integer("dragon-event.death-ring-points") * 2;
@@ -706,9 +713,11 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
             double angle = Math.PI * 2d * point / points;
             Location wave = centre.clone().add(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
             if (point % 3 == 0) {
-                arena.spawnParticle(Particle.END_ROD, wave, 1, 0, 0, 0, 0);
+                spawnPresentationParticle(Particle.END_ROD, wave,
+                        1, 0, 0, 0, 0, null);
             } else {
-                arena.spawnParticle(Particle.DUST, wave, 1, 0, 0, 0, 0, BRIGHT);
+                spawnPresentationParticle(Particle.DUST, wave,
+                        1, 0, 0, 0, 0, BRIGHT);
             }
         }
         // A ring of strikes on the horizon, so the collapse is something the whole
@@ -720,18 +729,19 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
             arena.strikeLightningEffect(
                     new Location(arena, x + .5, arena.getHighestBlockYAt(x, z) + 1, z + .5));
         }
-        arena.playSound(centre,
+        playToArena(
                 configuredSound("dragon-event.death-climax-sound", Sound.ENTITY_WARDEN_SONIC_BOOM),
                 (float) variables.decimal("dragon-event.effect-sound-volume"),
                 (float) variables.decimal("dragon-event.death-climax-pitch"));
-        arena.playSound(centre, Sound.ENTITY_ENDER_DRAGON_DEATH, 1.4f, 0.7f);
+        playToArena(Sound.ENTITY_ENDER_DRAGON_DEATH, 1.4f, 0.7f);
         // The long tail: the arena keeps ringing after the flash, which is what makes a
         // death feel finished rather than cut off.
         long generation = runGeneration;
         plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
             if (runGeneration != generation || arena == null) return;
-            arena.playSound(centre, Sound.BLOCK_BEACON_DEACTIVATE, 1.2f, 0.5f);
-            arena.spawnParticle(Particle.END_ROD, centre, 300, 16, 12, 16, .08);
+            playToArena(Sound.BLOCK_BEACON_DEACTIVATE, 1.2f, 0.5f);
+            spawnPresentationParticle(Particle.END_ROD, centre,
+                    300, 16, 12, 16, .08, null);
         }, 25L);
     }
 
@@ -1180,11 +1190,12 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
             double angle = Math.PI * 2d * point / 120d;
             double radius = 30d;
             Location from = centre.clone().add(Math.cos(angle) * radius, -6, Math.sin(angle) * radius);
-            arena.spawnParticle(Particle.END_ROD, from, 2,
-                    0, 0, 0, 0.9d);
-            arena.spawnParticle(Particle.DUST, from, 2, .3, .3, .3, 0, BRIGHT);
+            spawnPresentationParticle(Particle.END_ROD, from,
+                    2, 0, 0, 0, 0.9d, null);
+            spawnPresentationParticle(Particle.DUST, from,
+                    2, .3, .3, .3, 0, BRIGHT);
         }
-        arena.playSound(centre, Sound.BLOCK_BEACON_DEACTIVATE,
+        playToArena(Sound.BLOCK_BEACON_DEACTIVATE,
                 (float) variables.decimal("dragon-event.effect-sound-volume"), 0.5f);
 
         // Half a second of nothing.
@@ -1193,10 +1204,14 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                 spawnDragonAndBeginFight();
                 return;
             }
-            arena.spawnParticle(Particle.FLASH, centre, 6, 2, 2, 2, 0);
-            arena.spawnParticle(Particle.EXPLOSION_EMITTER, centre, 3, 3, 2, 3, 0);
-            arena.spawnParticle(Particle.DRAGON_BREATH, centre, 400, 6, 6, 6, .35);
-            arena.spawnParticle(Particle.REVERSE_PORTAL, centre, 400, 8, 10, 8, .5);
+            spawnPresentationParticle(Particle.FLASH, centre,
+                    6, 2, 2, 2, 0, null);
+            spawnPresentationParticle(Particle.EXPLOSION_EMITTER, centre,
+                    3, 3, 2, 3, 0, null);
+            spawnPresentationParticle(Particle.DRAGON_BREATH, centre,
+                    400, 6, 6, 6, .35, null);
+            spawnPresentationParticle(Particle.REVERSE_PORTAL, centre,
+                    400, 8, 10, 8, .5, null);
             for (int point = 0; point < 8; point++) {
                 double angle = Math.PI * 2d * point / 8d;
                 int x = (int) Math.round(centre.getX() + Math.cos(angle) * 14d);
@@ -1204,9 +1219,9 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                 arena.strikeLightningEffect(
                         new Location(arena, x + .5, arena.getHighestBlockYAt(x, z) + 1, z + .5));
             }
-            arena.playSound(centre, Sound.ENTITY_ENDER_DRAGON_GROWL, 1.4f, 0.6f);
-            arena.playSound(centre, Sound.ENTITY_GENERIC_EXPLODE, 1.2f, 0.5f);
-            arena.playSound(centre, Sound.BLOCK_END_PORTAL_SPAWN, 1.0f, 0.7f);
+            playToArena(Sound.ENTITY_ENDER_DRAGON_GROWL, 1.4f, 0.6f);
+            playToArena(Sound.ENTITY_GENERIC_EXPLODE, 1.2f, 0.5f);
+            playToArena(Sound.BLOCK_END_PORTAL_SPAWN, 1.0f, 0.7f);
             spawnDragonAndBeginFight();
         }, 10L);
     }
@@ -1236,6 +1251,35 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         }
     }
 
+    /**
+     * Emits an event particle to the whole arena with the payload Paper requires.
+     *
+     * <p>The force flag is what lets an animation centred above the island reach a
+     * player at its entry. Passing {@code null} straight through is not safe, though:
+     * modern Paper requires a {@link Float} for Dragon Breath and a colour for Flash.
+     * That exact combination aborted the old summoning task on its first frame.
+     */
+    private void spawnPresentationParticle(
+            Particle particle,
+            Location at,
+            int count,
+            double offsetX,
+            double offsetY,
+            double offsetZ,
+            double extra,
+            Object data
+    ) {
+        arena.spawnParticle(particle, at, count, offsetX, offsetY, offsetZ, extra,
+                CosmeticEffectService.particleData(particle, data), true);
+    }
+
+    /** Keeps the egg cue directional while making its configured range arena-sized. */
+    private void playFromEgg(Location egg, Sound sound, float pitch) {
+        if (arena == null) return;
+        arena.playSound(egg, sound,
+                (float) variables.decimal("dragon-event.egg-sound-volume"), pitch);
+    }
+
     private void dragonSummonPulse(int pulse, int pulses) {
         Location centre = new Location(arena, .5, 86, .5);
         double progress = (pulse + 1d) / Math.max(1, pulses);
@@ -1244,19 +1288,20 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                 * (1d - progress * 0.8d);
         int particles = variables.integer("dragon-event.dragon-summon-particle-count");
         if (variables.bool("dragon-event.effects-enabled")) {
-            arena.spawnParticle(Particle.DRAGON_BREATH, centre, particles,
-                    radius, 4d + progress * 8d, radius, .08, null, true);
-            arena.spawnParticle(Particle.REVERSE_PORTAL, centre, particles,
-                    radius, 6d + progress * 10d, radius, .16, null, true);
-            arena.spawnParticle(Particle.DUST, centre, particles,
-                    radius, 5d + progress * 9d, radius, .04, BRIGHT, true);
+            spawnPresentationParticle(Particle.DRAGON_BREATH, centre, particles,
+                    radius, 4d + progress * 8d, radius, .08, null);
+            spawnPresentationParticle(Particle.REVERSE_PORTAL, centre, particles,
+                    radius, 6d + progress * 10d, radius, .16, null);
+            spawnPresentationParticle(Particle.DUST, centre, particles,
+                    radius, 5d + progress * 9d, radius, .04, BRIGHT);
             if (pulse % variables.integer("dragon-event.dragon-summon-lightning-every-pulses") == 0) {
                 double angle = Math.PI * 2d * pulse / Math.max(1, pulses);
                 Location burst = centre.clone().add(Math.cos(angle) * radius, -10,
                         Math.sin(angle) * radius);
-                arena.spawnParticle(Particle.EXPLOSION_EMITTER, burst, 1, 0, 0, 0, 0, null, true);
-                arena.spawnParticle(Particle.END_ROD, burst, Math.max(12, particles / 5),
-                        1.2, 4, 1.2, .08, null, true);
+                spawnPresentationParticle(Particle.EXPLOSION_EMITTER, burst,
+                        1, 0, 0, 0, 0, null);
+                spawnPresentationParticle(Particle.END_ROD, burst, Math.max(12, particles / 5),
+                        1.2, 4, 1.2, .08, null);
             }
         }
         playToArena(
@@ -1711,11 +1756,11 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                 egg.setType(Material.DRAGON_EGG, false);
                 claimableEggs.add(blockKey(egg));
                 Location at = egg.getLocation().add(.5, .8, .5);
-                arena.spawnParticle(Particle.REVERSE_PORTAL, at,
-                        variables.integer("dragon-event.egg-spawn-particle-count"), .7, .9, .7, .09);
-                arena.playSound(at, configuredSound("dragon-event.egg-spawn-sound",
+                spawnPresentationParticle(Particle.REVERSE_PORTAL, at,
+                        variables.integer("dragon-event.egg-spawn-particle-count"),
+                        .7, .9, .7, .09, null);
+                playFromEgg(at, configuredSound("dragon-event.egg-spawn-sound",
                                 Sound.BLOCK_RESPAWN_ANCHOR_CHARGE),
-                        (float) variables.decimal("dragon-event.effect-sound-volume"),
                         (float) variables.decimal("dragon-event.egg-spawn-pitch"));
             }, delay);
         }

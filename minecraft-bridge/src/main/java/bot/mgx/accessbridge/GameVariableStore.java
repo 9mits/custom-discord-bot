@@ -278,6 +278,12 @@ final class GameVariableStore {
                 "BLOCK_AMETHYST_BLOCK_CHIME",
                 List.of("BLOCK_AMETHYST_BLOCK_CHIME", "BLOCK_BEACON_AMBIENT",
                         "BLOCK_NOTE_BLOCK_CHIME", "ENTITY_EXPERIENCE_ORB_PICKUP"));
+        decimal("dragon-event.egg-sound-volume", "Dragon Egg sound volume", "Dragon Presentation",
+                "Positional volume and hearing range for Dragon Egg spawn and beacon sounds.",
+                5.0, 0.0, 10.0, "volume");
+        decimal("dragon-event.egg-beacon-pitch", "Egg beacon chime pitch", "Dragon Presentation",
+                "Pitch of the recurring sound emitted by an unclaimed Dragon Egg.",
+                1.4, 0.5, 2.0, "pitch");
         choice("dragon-event.portal-bossbar-color", "Portal gateway bar colour", "Dragon Presentation",
                 "Colour of the server-wide bar shown while the gateway is open.", "PURPLE",
                 List.of("PINK", "BLUE", "RED", "GREEN", "YELLOW", "PURPLE", "WHITE"));
