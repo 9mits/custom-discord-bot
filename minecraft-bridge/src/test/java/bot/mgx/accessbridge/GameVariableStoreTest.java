@@ -43,6 +43,8 @@ final class GameVariableStoreTest {
     void dragonCountdownAndSummoningSafetyAreConfigurable() throws Exception {
         GameVariableStore variables = store();
         assertEquals(45, variables.integer("dragon-event.summoning-timeout-seconds"));
+        assertEquals(5d, variables.decimal("dragon-event.egg-sound-volume"));
+        assertEquals(1.4d, variables.decimal("dragon-event.egg-beacon-pitch"));
         assertEquals("AMETHYST DRAGON AWAKENS IN <time>",
                 variables.string("dragon-event.countdown-bossbar-text"));
         assertEquals("PURPLE", variables.string("dragon-event.countdown-bossbar-color"));

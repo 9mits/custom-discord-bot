@@ -4,7 +4,13 @@ import org.bukkit.Material;
 import org.bukkit.entity.EntityType;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 final class AmethystDragonServiceTest {
@@ -85,5 +91,40 @@ final class AmethystDragonServiceTest {
         assertEquals(4, AmethystDragonService.visualKeyWaveCount(20, 6, 0));
         assertEquals(3, AmethystDragonService.visualKeyWaveCount(20, 6, 5));
         assertEquals(0, AmethystDragonService.visualKeyWaveCount(20, 6, 6));
+    }
+
+    @Test
+    void distantPresentationPathsUseThePayloadSafeForcedEmitter() throws IOException {
+        String source = Files.readString(Path.of(
+                "src/main/java/bot/mgx/accessbridge/AmethystDragonService.java"));
+
+        String summoning = method(source, "private void dragonEntranceClimax()",
+                "private void cancelSummoningTask()");
+        assertTrue(summoning.contains(
+                "spawnPresentationParticle(Particle.DRAGON_BREATH"));
+        assertFalse(summoning.contains(
+                "arena.spawnParticle(Particle.DRAGON_BREATH"));
+
+        String death = method(source, "private void animateDragonDeath(Location deathAt)",
+                "private void beginRewardPhase(Location deathAt)");
+        assertTrue(death.contains("spawnPresentationParticle(Particle.DUST"));
+        assertTrue(death.contains("playToArena("));
+
+        String egg = method(source, "private void eggBeacons()", "private void tick()");
+        assertTrue(egg.contains("spawnPresentationParticle(Particle.END_ROD"));
+        assertTrue(egg.contains("playFromEgg("));
+
+        String emitter = method(source, "private void spawnPresentationParticle(",
+                "/** Keeps the egg cue directional");
+        assertTrue(emitter.contains("CosmeticEffectService.particleData(particle, data)"));
+        assertTrue(emitter.contains(", true)"));
+    }
+
+    private static String method(String source, String start, String end) {
+        int from = source.indexOf(start);
+        int to = source.indexOf(end, from + start.length());
+        assertTrue(from >= 0, start);
+        assertTrue(to > from, end);
+        return source.substring(from, to);
     }
 }
