@@ -365,25 +365,42 @@ class UpdateTemplateTests(unittest.TestCase):
     def test_amethyst_update_selects_the_dragon_preview_not_the_old_collage(self):
         # This workstation has the private Update 7 post beside the published Update
         # 5 post with this exact old title. The stable alias must still select the new
-        # compact comeback draft—the production checkout has no private post at all.
+        # sectioned comeback draft—the production checkout has no private post at all.
         template = find_template("Amethyst Update")
         self.assertIsNotNone(template)
         self.assertEqual("update-7", template.slug)
         self.assertTrue(template.draft)
         embeds = build_notice_embeds(template)
-        self.assertEqual(4, len(embeds))
-        self.assertEqual("New Mysterious SMP X update! — Amethyst Dragon", embeds[0].title)
+        self.assertEqual(10, len(embeds))
+        self.assertEqual("New Mysterious SMP X update! - Amethyst Dragon", embeds[0].title)
+        self.assertEqual(0xB531FF, embeds[0].colour.value)
         self.assertEqual(
-            "https://mysterioussmpx.blog/media/update-7/banner.png",
+            "https://mysterioussmpx.blog/media/update-5/banner.png",
             embeds[0].image.url,
         )
         self.assertEqual("Amethyst Dragon", embeds[1].title)
+        self.assertEqual(0xFF8808, embeds[1].colour.value)
         self.assertEqual(
             "https://mysterioussmpx.blog/media/update-7/dragon-victory.png",
             embeds[1].image.url,
         )
-        self.assertEqual("Rewards Worth Chasing", embeds[2].title)
-        self.assertEqual("The Server Has Changed", embeds[3].title)
+        self.assertEqual(
+            [
+                "The Dragon's Treasure",
+                "Bigger Amethyst Blocks",
+                "Dragon Leaderboards",
+                "Ranked PvP",
+                "The Three Scythes",
+                "The Amethyst Crate Is Back",
+                "The Server Is Protected Now",
+                "Player Orders And Quality Of Life",
+            ],
+            [embed.title for embed in embeds[2:]],
+        )
+        self.assertTrue(all(embed.image.url for embed in embeds))
+        self.assertEqual(template.url, embeds[0].url)
+        self.assertTrue(all(embed.url is None for embed in embeds[1:]))
+        self.assertLessEqual(sum(len(embed) for embed in embeds), 6000)
 
     def test_a_draft_is_carried_through_and_labelled(self):
         directory = self._posts(**{"2026-09-08-update-7.md": self.POST})
@@ -404,7 +421,7 @@ class UpdateTemplateTests(unittest.TestCase):
         embeds = build_notice_embeds(load_update_templates(directory)[0])
 
         self.assertEqual(3, len(embeds))
-        self.assertEqual("New Mysterious SMP X update! — Amethyst Dragon", embeds[0].title)
+        self.assertEqual("New Mysterious SMP X update! - Amethyst Dragon", embeds[0].title)
         self.assertEqual(
             "https://mysterioussmpx.blog/media/update-7/cover.png",
             embeds[0].image.url,
@@ -413,6 +430,7 @@ class UpdateTemplateTests(unittest.TestCase):
         self.assertEqual("A Feature", embeds[1].fields[0].name)
         self.assertEqual("Reasons To Return", embeds[2].title)
         self.assertEqual(["Ranked Wins", "Safe Bases"], [field.name for field in embeds[2].fields])
+        self.assertTrue(all(embed.url is None for embed in embeds[1:]))
         self.assertIn("stop future update DMs", embeds[-1].footer.text)
 
     def test_posts_without_notice_metadata_keep_the_single_embed_summary(self):
