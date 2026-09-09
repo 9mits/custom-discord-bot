@@ -1090,7 +1090,9 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         }
 
         List<ItemStack> itemKit = new ArrayList<>();
-        for (CrateCatalog.Reward reward : CrateCatalog.amethyst()) {
+        // Not amethyst(): the Elytra and the Eternal twins are expansion content that
+        // crate no longer sells, and a kit without them cannot test them.
+        for (CrateCatalog.Reward reward : CrateCatalog.amethystAdminRewards()) {
             if (!reward.cosmetic() && CrateCatalog.isExclusiveAmethyst(reward)) {
                 itemKit.add(amethystItems.create(reward).orElseThrow(() ->
                         new IllegalStateException("No test item exists for " + reward.id())));
