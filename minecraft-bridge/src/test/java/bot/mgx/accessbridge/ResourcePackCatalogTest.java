@@ -387,7 +387,9 @@ class ResourcePackCatalogTest {
                     "minecraft:" + definition.materialName().toLowerCase(Locale.ROOT)
             );
         }
-        for (CrateCatalog.Reward reward : CrateCatalog.amethyst()) {
+        // Not amethyst() alone: the Elytra is a Dragon Crate prize now, so the
+        // Amethyst pool no longer lists every custom item Bedrock must map.
+        for (CrateCatalog.Reward reward : CrateCatalog.amethystAdminRewards()) {
             if (!reward.cosmetic() && reward.modelKey().startsWith("mgx:")) {
                 expectedBases.put(
                         reward.modelKey(),
