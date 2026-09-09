@@ -267,6 +267,14 @@ final class GameVariableStore {
         choice("dragon-event.countdown-bossbar-color", "Admission countdown colour", "Dragon Presentation",
                 "Colour of the boss bar shown during the five-minute gathering period.", "PURPLE",
                 List.of("PINK", "BLUE", "RED", "GREEN", "YELLOW", "PURPLE", "WHITE"));
+        choice("dragon-event.egg-beacon-sound", "Egg beacon chime", "Dragon Presentation",
+                "Ambient chime marking where an unclaimed Dragon Egg is.",
+                "BLOCK_AMETHYST_BLOCK_CHIME",
+                List.of("BLOCK_AMETHYST_BLOCK_CHIME", "BLOCK_BEACON_AMBIENT",
+                        "BLOCK_NOTE_BLOCK_CHIME", "ENTITY_EXPERIENCE_ORB_PICKUP"));
+        choice("dragon-event.portal-bossbar-color", "Portal gateway bar colour", "Dragon Presentation",
+                "Colour of the server-wide bar shown while the gateway is open.", "PURPLE",
+                List.of("PINK", "BLUE", "RED", "GREEN", "YELLOW", "PURPLE", "WHITE"));
         text("dragon-event.fight-bossbar-text", "Dragon fight boss bar", "Dragon Presentation",
                 "Boss bar during combat. Supports <hp> and <time>.",
                 "AMETHYST DRAGON  •  <hp> HP  •  <time>", 120);
