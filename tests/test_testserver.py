@@ -219,6 +219,84 @@ class TestServerRestartTests(unittest.TestCase):
         stop.assert_not_called()
         start.assert_not_called()
 
+    def test_restart_detaches_so_paper_outlives_the_shell_that_deployed_it(self):
+        # A foreground Paper dies with the agent command that started it, and the
+        # player meets "Connection refused" from a deploy that reported success.
+        args = SimpleNamespace(memory="2G")
+        seen = {}
+        with mock.patch.object(testserver, "deploy", return_value=0), mock.patch.object(
+            testserver, "running_server_pid", return_value=None
+        ), mock.patch.object(
+            testserver, "start", side_effect=lambda a: seen.update(detach=a.detach) or 0
+        ):
+            self.assertEqual(testserver.restart(args), 0)
+        self.assertTrue(seen["detach"])
+
+    def test_restart_foreground_is_still_available_on_request(self):
+        args = SimpleNamespace(memory="2G", foreground=True)
+        seen = {}
+        with mock.patch.object(testserver, "deploy", return_value=0), mock.patch.object(
+            testserver, "running_server_pid", return_value=None
+        ), mock.patch.object(
+            testserver,
+            "start",
+            side_effect=lambda a: seen.update(detach=getattr(a, "detach", False)) or 0,
+        ):
+            self.assertEqual(testserver.restart(args), 0)
+        self.assertFalse(seen["detach"])
+
+
+class DetachedPaperTests(unittest.TestCase):
+    def test_a_detached_start_gets_its_own_session_and_no_inherited_pipes(self):
+        with TemporaryDirectory() as holder:
+            server = Path(holder)
+            (server / "eula.txt").write_text("eula=true\n")
+            (server / "logs").mkdir()
+            with mock.patch.object(testserver, "SERVER", server), mock.patch.object(
+                testserver, "PLUGINS", server / "plugins"
+            ), mock.patch.object(
+                testserver, "SERVER_PID", server / "server.pid"
+            ), mock.patch.object(
+                testserver, "LATEST_LOG", server / "logs" / "latest.log"
+            ), mock.patch.object(
+                testserver, "match_production_limits"
+            ), mock.patch.object(testserver, "configure_grim"), mock.patch.object(
+                testserver, "running_server_pid", return_value=None
+            ), mock.patch.object(
+                testserver, "server_java_binary", return_value=Path("/bin/true")
+            ), mock.patch.object(
+                testserver, "wait_for_done", return_value=True
+            ), mock.patch.object(
+                testserver, "subprocess"
+            ) as sub:
+                sub.DEVNULL = -3
+                sub.Popen.return_value = SimpleNamespace(pid=4242)
+                code = testserver.start(SimpleNamespace(memory="2G", detach=True))
+
+        self.assertEqual(0, code)
+        kwargs = sub.Popen.call_args.kwargs
+        self.assertTrue(kwargs["start_new_session"])
+        self.assertEqual(-3, kwargs["stdout"])
+        self.assertEqual(-3, kwargs["stderr"])
+
+    def test_done_is_matched_only_in_this_run_s_rotated_log(self):
+        # Paper gzips latest.log at startup, so the previous server's "Done" line
+        # is still on disk for a moment; the inode is what tells the runs apart.
+        with TemporaryDirectory() as holder:
+            log = Path(holder) / "latest.log"
+            log.write_text("[00:00:00] Done (1.0s)! For help, type \"help\"\n")
+            stale = log.stat().st_ino
+            alive = SimpleNamespace(poll=lambda: None, returncode=None)
+            with mock.patch.object(testserver, "LATEST_LOG", log):
+                self.assertFalse(testserver.wait_for_done(alive, stale, timeout=0.2))
+                log.unlink()
+                log.write_text("[00:00:01] Done (2.0s)! For help, type \"help\"\n")
+                self.assertTrue(testserver.wait_for_done(alive, stale, timeout=5.0))
+
+    def test_a_paper_that_dies_during_startup_is_reported_not_waited_out(self):
+        dead = SimpleNamespace(poll=lambda: 1, returncode=1)
+        self.assertFalse(testserver.wait_for_done(dead, None, timeout=30.0))
+
 
 class WorldProtectionPluginTests(unittest.TestCase):
     """WorldGuard and WorldEdit, matching the builds GravelHost runs.

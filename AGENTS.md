@@ -72,6 +72,7 @@ python scripts/testserver.py setup   # once: Paper, Floodgate, Geyser, LuckPerms
 python scripts/testserver.py deploy  # build + install jar without starting Paper
 python scripts/testserver.py run     # build the plugin, install it, start the server
 python scripts/testserver.py restart # build, install, gracefully restart Paper (normal deploy)
+python scripts/testserver.py stop    # gracefully stop a detached Paper
 
 # Deploy (BisectHosting panel auto-pulls main on restart)
 python panel.py restart
@@ -318,7 +319,19 @@ working verification panel in a chosen test channel. It changes the Discord
 panel destination only; it never deploys or changes either Paper server.
 For an explicitly requested verification run, start or restart local Paper with
 `python scripts/testserver.py restart --verification`; without that switch the
-local bypass remains the safe default.
+local bypass remains the safe default — a plain `restart` turns verification back
+off, so never drop the flag from a server someone is testing verification on.
+The verification DM itself comes from the **local** Minecraft access bot
+(`python minecraft_main.py`, its own Discord application in the machine-local
+`.env.minecraft`, listening on `127.0.0.1:8765`). With nothing on that port the
+plugin logs `ClosedChannelException` once a minute, `/verify` only saves the
+request to the outbox, and no DM is ever sent.
+
+`restart` detaches Paper into its own session and returns once the server reports
+`Done`. That is deliberate: it is normally run by an agent whose shell ends with
+the command, and a foreground Paper is killed along with it — which reaches the
+player as `Connection refused` from a deploy that reported success. Use
+`--foreground` to hold the terminal instead, and `stop` to end a detached server.
 
 The Minecraft EULA is left unaccepted; flipping `eula=true` is the user's to do.
 

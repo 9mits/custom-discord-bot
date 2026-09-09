@@ -53,6 +53,7 @@ BEDROCK_PACK = BEDROCK_RESOURCES / "MysteriousSMPX-Bedrock.mcpack"
 BEDROCK_MAPPINGS = BEDROCK_RESOURCES / "mgx_items.json"
 TEST_BUILD_MANIFEST = SERVER / "test-build.json"
 SERVER_PID = SERVER / "server.pid"
+LATEST_LOG = SERVER / "logs" / "latest.log"
 PACK_SERVER_PID = SERVER / "resource-pack-server.pid"
 PACK_SERVER_PORT = 8768
 PACK_SERVER_DIR = SERVER / "resourcepacks"
@@ -879,18 +880,39 @@ def start(args: argparse.Namespace) -> int:
         log(f"Paper is already running as pid {running}; use 'restart'")
         return 1
     log("starting Paper — join at  localhost  (Java) or  localhost:19132  (Bedrock)")
+    detach = bool(getattr(args, "detach", False))
+    command = [
+        str(server_java_binary()),
+        f"-Xms{args.memory}",
+        f"-Xmx{args.memory}",
+        "-jar",
+        "server.jar",
+        "nogui",
+    ]
+    if detach:
+        # Paper outlives whatever shell asked for it. Sharing a session means the
+        # terminal closing — or an agent's command being killed — takes the server
+        # down with it, which reaches the player as "Connection refused" long after
+        # the deploy that looked successful. Same reason as ensure_pack_server.
+        previous_log = LATEST_LOG.stat().st_ino if LATEST_LOG.exists() else None
+        process = subprocess.Popen(
+            command,
+            cwd=SERVER,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        SERVER_PID.write_text(f"{process.pid}\n")
+        log(f"Paper is starting detached as pid {process.pid}")
+        if not wait_for_done(process, previous_log):
+            log("Paper did not report 'Done' in time; check logs/latest.log")
+            return 1
+        log("stop it with 'testserver.py stop'")
+        return 0
+
     log("stop it with the 'stop' console command, or ctrl-c")
-    process = subprocess.Popen(
-        [
-            str(server_java_binary()),
-            f"-Xms{args.memory}",
-            f"-Xmx{args.memory}",
-            "-jar",
-            "server.jar",
-            "nogui",
-        ],
-        cwd=SERVER,
-    )
+    process = subprocess.Popen(command, cwd=SERVER)
     SERVER_PID.write_text(f"{process.pid}\n")
     try:
         return process.wait()
@@ -900,6 +922,30 @@ def start(args: argparse.Namespace) -> int:
                 SERVER_PID.unlink()
         except FileNotFoundError:
             pass
+
+
+def wait_for_done(
+    process: subprocess.Popen, previous_log: int | None, timeout: float = 240.0
+) -> bool:
+    """Block until this Paper reports it finished loading.
+
+    Paper rotates ``latest.log`` on startup, so the inode is what tells this run's
+    log apart from the previous one — matching on the text alone would accept the
+    ``Done`` line of the server that just stopped.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            log(f"Paper exited during startup with code {process.returncode}")
+            return False
+        try:
+            if LATEST_LOG.stat().st_ino != previous_log:
+                if "Done (" in LATEST_LOG.read_text(encoding="utf-8", errors="replace"):
+                    return True
+        except OSError:
+            pass
+        time.sleep(1.0)
+    return False
 
 
 def running_server_pid() -> int | None:
@@ -947,14 +993,31 @@ def run(args: argparse.Namespace) -> int:
 
 
 def restart(args: argparse.Namespace) -> int:
-    """Deploy first, then gracefully replace the currently running Paper process."""
+    """Deploy first, then gracefully replace the currently running Paper process.
+
+    Detached unless asked otherwise: this is the automated deploy path, so it is
+    normally invoked by an agent whose shell ends the moment the command returns.
+    A foreground Paper would go down with it and the next person to join gets
+    "Connection refused" from a server the deploy said was running.
+    """
     code = deploy(args)
     if code:
         return code
     running = running_server_pid()
     if running is not None and not stop_server(running):
         return 1
+    if not getattr(args, "foreground", False):
+        args.detach = True
     return start(args)
+
+
+def stop(_: argparse.Namespace) -> int:
+    """Stop a detached Paper the same graceful way restart does."""
+    running = running_server_pid()
+    if running is None:
+        log("Paper is not running")
+        return 0
+    return 0 if stop_server(running) else 1
 
 
 def reset(_: argparse.Namespace) -> int:
@@ -975,6 +1038,7 @@ def main() -> int:
         ("start", start, "start the server"),
         ("run", run, "deploy, then start"),
         ("restart", restart, "deploy, then gracefully restart the server"),
+        ("stop", stop, "gracefully stop a detached server"),
         ("reset", reset, "delete worlds and plugin data, keep the jars"),
     ):
         sub = subcommands.add_parser(name, help=blurb)
@@ -985,6 +1049,18 @@ def main() -> int:
                 "--verification",
                 action="store_true",
                 help="temporarily require Discord verification on this local run",
+            )
+        if name in ("start", "run"):
+            sub.add_argument(
+                "--detach",
+                action="store_true",
+                help="leave Paper running after this command returns",
+            )
+        if name == "restart":
+            sub.add_argument(
+                "--foreground",
+                action="store_true",
+                help="hold the terminal instead of detaching (Paper stops with it)",
             )
     args = parser.parse_args()
     return args.handler(args)
