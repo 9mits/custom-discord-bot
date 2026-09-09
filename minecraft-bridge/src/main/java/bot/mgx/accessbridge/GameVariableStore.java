@@ -207,6 +207,12 @@ final class GameVariableStore {
         integer("dragon-event.crystals", "End Crystals", "Dragon Event",
                 "Number of reward crystals created around the arena.", 10, 1, 64,
                 "crystals", false);
+        integer("dragon-event.arena-view-distance", "Arena view distance", "Dragon Event",
+                "Chunks rendered in the Dragon dimension. The island is 144 blocks across.",
+                8, 3, 32, "chunks", false);
+        integer("dragon-event.arena-simulation-distance", "Arena simulation distance", "Dragon Event",
+                "Chunks ticked in the Dragon dimension. Lower means less work per tick.",
+                6, 3, 32, "chunks", false);
         integer("dragon-event.arena-radius", "Arena terrain radius", "Dragon Event",
                 "Radius of the Amethyst terrain treatment inside the border.", 72, 24, 256,
                 "blocks", false);
