@@ -1067,6 +1067,12 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         if (args.length < 2 || !args[1].equalsIgnoreCase("reset")) {
             throw new IllegalArgumentException("Usage: /mgxadmin testverify reset");
         }
+        if (!plugin.bridgeConnected()) {
+            throw new IllegalArgumentException(
+                    "The local Discord verification bridge is offline. Start the local "
+                            + "Minecraft access bot, wait for the bridge to connect, then try again."
+            );
+        }
         ServerEvent.of(
                 "test_unverify",
                 ServerEvent.CATEGORY_ADMIN,
@@ -1075,7 +1081,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 plugin::recordServerEvent
         ).summary(player.getName() + " reset their verification on the local test server.")
                 .record();
-        success(sender, "Verification reset requested. You will disconnect, then reconnect into the lobby.");
+        success(sender, "Verification reset sent to Discord. You will disconnect when it is ready.");
     }
 
     /** Gives one non-serial test copy of every item and cosmetic from the Amethyst expansion. */

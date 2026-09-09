@@ -2,6 +2,7 @@ package bot.mgx.accessbridge;
 
 import io.papermc.paper.event.player.AsyncPlayerSpawnLocationEvent;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
 import org.bukkit.Difficulty;
 import org.bukkit.GameRules;
@@ -61,6 +62,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     }
 
     private final ConcurrentHashMap<UUID, Component> verificationKicks = new ConcurrentHashMap<>();
+    /** Local players deliberately testing verification while the global bypass stays safe. */
+    private final java.util.Set<UUID> localVerificationOverrides =
+            ConcurrentHashMap.newKeySet();
     private final ConcurrentHashMap<UUID, PlayerConnectionIdentity> connectionIdentities =
             new ConcurrentHashMap<>();
     private boolean verificationRequired = true;
@@ -1554,6 +1558,28 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         return localTestServer;
     }
 
+    boolean bridgeConnected() {
+        return bridgeClient != null && bridgeClient.isConnected();
+    }
+
+    /** Called only after Discord has successfully removed the test account link. */
+    void completeTestVerificationReset(UUID minecraftUuid) {
+        if (!localTestServer || minecraftUuid == null) {
+            return;
+        }
+        getServer().getScheduler().runTask(this, () -> {
+            localVerificationOverrides.add(minecraftUuid);
+            Player player = getServer().getPlayer(minecraftUuid);
+            if (player == null || !player.isOnline()) {
+                return;
+            }
+            player.kick(Component.text(
+                    "Verification reset complete.\n\nReconnect to enter the verification lobby.",
+                    NamedTextColor.LIGHT_PURPLE
+            ));
+        });
+    }
+
     /**
      * Re-reads clan state for everyone online: tags, and the perks their clan level
      * grants. Every membership change already routes through here, which is what makes
@@ -1826,12 +1852,13 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
 
     /** Decides whether an account is already approved, verifies a pending claim, or refuses it. */
     private Verdict handleVerification(UUID uuid, String loginName) {
-        if (!verificationRequired) {
+        boolean localOverride = localTestServer && localVerificationOverrides.contains(uuid);
+        if (!verificationRequired && !localOverride) {
             verificationKicks.remove(uuid);
             return Verdict.allowed();
         }
         VerificationIdentity.Resolved identity = resolveConnectingIdentity(uuid, loginName);
-        if (isApprovedAccount(uuid, loginName, identity)) {
+        if (!localOverride && isApprovedAccount(uuid, loginName, identity)) {
             verificationKicks.remove(uuid);
             return Verdict.allowed();
         }
@@ -1843,8 +1870,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             // Already verified, but the whitelist has not arrived yet. The store is
             // written the moment a verification is queued and survives a restart,
             // so this is what stops a reconnect in that window being turned away.
-            if (verifiedAccounts.find(uuid).isPresent()
-                    || (identity.uuid() != null && verifiedAccounts.find(identity.uuid()).isPresent())) {
+            if (!localOverride && (verifiedAccounts.find(uuid).isPresent()
+                    || (identity.uuid() != null && verifiedAccounts.find(identity.uuid()).isPresent()))) {
                 return Verdict.allowed();
             }
             UUID accountId = identity.uuid() != null ? identity.uuid() : uuid;
@@ -1877,6 +1904,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             // being let in. The durable APPROVE that follows adds the real
             // whitelist entry; this connection does not wait for it.
             verificationKicks.remove(uuid);
+            localVerificationOverrides.remove(uuid);
             getLogger().info("Verified " + loginName + " at login; letting them in.");
             return Verdict.allowed();
         }

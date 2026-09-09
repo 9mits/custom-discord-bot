@@ -26,6 +26,8 @@ from typing import Any, Iterable, Optional, Sequence
 
 import discord
 
+from . import logroutes
+
 logger = logging.getLogger("MinecraftAccessBot.announce")
 
 #: Seconds between two direct messages. Discord's own ceiling is far higher; this is
@@ -46,6 +48,48 @@ RECIPIENT_COOLDOWN_SECONDS = 6 * 60 * 60
 
 #: The house orange, used when a draft names no colour of its own.
 DEFAULT_COLOUR = 0xF06000
+
+
+async def log_update_notice(
+    bot: Any,
+    *,
+    title: str,
+    member: Any,
+    detail: str,
+    success: bool = True,
+) -> None:
+    """Write one recipient-level update-DM event to its configured log stream.
+
+    Delivery logging is best-effort and never turns a successful DM into a failed one.
+    The bot's normal log sender queues the embed when Discord's channel is temporarily
+    unavailable, so a short outage does not silently erase the record.
+    """
+    settings = getattr(bot, "settings", None)
+    sender = getattr(bot, "_send_configured_log", None)
+    if settings is None or sender is None:
+        return
+    try:
+        member_id = int(getattr(member, "id", 0) or 0)
+        label = str(member)
+        recipient = f"<@{member_id}> (`{member_id}`)" if member_id else label
+        embed = discord.Embed(
+            title=title,
+            description=f"> {detail}\n\n**Member:** {recipient}\n**Account:** {label}",
+            colour=discord.Colour(0x57F287 if success else 0xF06000),
+            timestamp=discord.utils.utcnow(),
+        )
+        await sender(logroutes.resolve(settings, "announcement"), embed)
+    except Exception:
+        logger.exception("Could not log update-DM event %s", title)
+
+
+def _notice_title(
+    *,
+    embed: Optional[discord.Embed],
+    embeds: Optional[Sequence[discord.Embed]],
+) -> str:
+    first = embed or (embeds[0] if embeds else None)
+    return str(getattr(first, "title", "") or "Untitled update")
 
 
 def build_announcement_embed(
@@ -194,6 +238,12 @@ class UpdateAnnouncer:
         """
         payload = self._embed_payload(embed=embed, embeds=embeds)
         await member.send(content=content or None, view=view, **payload)
+        await log_update_notice(
+            self.bot,
+            title="Announcement Preview DM Sent",
+            member=member,
+            detail=f"A preview of **{_notice_title(embed=embed, embeds=embeds)}** was delivered.",
+        )
 
     async def send(
         self,
@@ -234,6 +284,15 @@ class UpdateAnnouncer:
                     await member.send(content=content or None, view=view, **payload)
                     result.delivered += 1
                     self._last_sent[member.id] = now
+                    await log_update_notice(
+                        self.bot,
+                        title="Update DM Sent",
+                        member=member,
+                        detail=(
+                            f"**{_notice_title(embed=embed, embeds=embeds)}** was delivered "
+                            f"during the announcement started by **{actor}**."
+                        ),
+                    )
                 except discord.Forbidden:
                     # Their inbox is closed. Expected, and not an error worth retrying.
                     result.refused += 1
