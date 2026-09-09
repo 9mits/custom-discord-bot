@@ -404,9 +404,17 @@ final class CrateCatalog {
     }
 
     static boolean isExclusiveAmethyst(Reward reward) {
+        // The Elytra and the Eternal twins are Amethyst-family rewards that the ordinary
+        // Amethyst Crate does not sell. They still belong to the expansion, so anything
+        // asking "is this ours" — the test kit, the admin directory — must see them.
         return reward != null
-                && (AMETHYST_REWARDS.contains(reward) || HIDDEN_AMETHYST_REWARDS.contains(reward))
-                && (reward.cosmetic() || AMETHYST_EXCLUSIVE_IDS.contains(reward.id()));
+                && (AMETHYST_REWARDS.contains(reward)
+                        || HIDDEN_AMETHYST_REWARDS.contains(reward)
+                        || SOURCE_ONLY_REWARDS.contains(reward)
+                        || ETERNAL_REWARDS.contains(reward))
+                && (reward.cosmetic()
+                        || AMETHYST_EXCLUSIVE_IDS.contains(reward.id())
+                        || reward.id().startsWith("eternal_"));
     }
 
     static boolean isHiddenAmethyst(Reward reward) {
