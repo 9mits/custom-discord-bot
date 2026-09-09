@@ -256,6 +256,15 @@ a { color: inherit; }
 .post-body strong { color: var(--ink); font-weight: 700; }
 .post-body em, .post-body i { color: var(--grey); }
 
+/* An item sprite dropped into the sentence that names it. Sized against the text
+   rather than in pixels so it tracks the line, and nudged down a hair because a
+   16px sprite sits optically high on a cap-height baseline. Full-bleed screenshot
+   rules must not catch it, so it is never wrapped in a figure. */
+.item-icon {
+  display: inline-block; width: 1.4em; height: 1.4em; margin: 0 .12em;
+  vertical-align: -.32em; image-rendering: pixelated; object-fit: contain;
+}
+
 /* Section header: orange, bold, underlined the full width of the column. */
 .post-body h2 {
   margin: 2.75rem 0 1rem; font-size: 2.1875rem; line-height: 1.2;
