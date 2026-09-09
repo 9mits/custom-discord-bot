@@ -40,6 +40,7 @@ RANK_ROLES = (
     (1476839722247786587, "partner", "PARTNER", 0xE8399E),
     (1476877246902960249, "booster", "BOOSTER", 0xFF73FA),
 )
+OWNER_ROLE_ID = next(role_id for role_id, group, *_rest in RANK_ROLES if group == "owner")
 RANK_GROUPS = tuple(group for _role_id, group, _label, _colour in RANK_ROLES)
 # Boost perks are independent of the displayed rank: an owner who also boosts
 # still earns them, even though "owner" is the rank that wins the tag.

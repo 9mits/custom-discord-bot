@@ -313,6 +313,20 @@ class UpdateTemplateTests(unittest.TestCase):
         self.assertEqual("update-7", template.slug)
         self.assertEqual("https://mysterioussmpx.blog/update-7/", template.url)
 
+    def test_the_post_title_is_accepted_as_a_template_value(self):
+        directory = self._posts(**{"2026-09-08-update-7.md": self.POST})
+        template = find_template("The Amethyst Dragon Update", directory)
+        self.assertIsNotNone(template)
+        self.assertEqual("update-7", template.slug)
+
+    def test_the_published_amethyst_update_supports_the_exact_preview_value(self):
+        template = find_template("Amethyst Update")
+        self.assertIsNotNone(template)
+        self.assertEqual("update-5", template.slug)
+        embeds = build_notice_embeds(template)
+        self.assertEqual(4, len(embeds))
+        self.assertEqual("New Mysterious SMP X update! — Amethyst Update", embeds[0].title)
+
     def test_a_draft_is_carried_through_and_labelled(self):
         directory = self._posts(**{"2026-09-08-update-7.md": self.POST})
         template = load_update_templates(directory)[0]

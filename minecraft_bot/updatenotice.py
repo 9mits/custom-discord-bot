@@ -255,7 +255,7 @@ def load_update_templates(posts_dir: Optional[Path] = None) -> list[UpdateTempla
 def find_template(slug: str, posts_dir: Optional[Path] = None) -> Optional[UpdateTemplate]:
     wanted = str(slug or "").strip().lower()
     for template in load_update_templates(posts_dir):
-        if template.slug.lower() == wanted:
+        if wanted in {template.slug.lower(), template.title.lower()}:
             return template
     return None
 
@@ -295,8 +295,12 @@ def _media_url(template: UpdateTemplate, image: str) -> str:
 
 
 def _short_update_name(title: str) -> str:
-    name = re.sub(r"\s+update\s*$", "", str(title or "").strip(), flags=re.IGNORECASE)
-    return re.sub(r"^the\s+", "", name, flags=re.IGNORECASE)
+    name = re.sub(r"^the\s+", "", str(title or "").strip(), flags=re.IGNORECASE)
+    without_suffix = re.sub(r"\s+update\s*$", "", name, flags=re.IGNORECASE)
+    # "Amethyst Update" is already a useful name; reducing it to just
+    # "Amethyst" makes the preview look unfinished. Longer titles read better
+    # without repeating Update in the surrounding headline.
+    return without_suffix if " " in without_suffix else name
 
 
 def build_notice_embeds(template: UpdateTemplate) -> list[discord.Embed]:
