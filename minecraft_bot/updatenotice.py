@@ -1,4 +1,4 @@
-"""Update notices built from a published dev-blog post.
+"""Update notices built from a dev-blog post or an explicitly private preview.
 
 Writing the same announcement twice is how the Discord copy and the blog end up
 disagreeing about what shipped. So a notice is not composed by hand: it is derived
@@ -6,9 +6,10 @@ from the post itself. The title, the hype line and the list of beats all come ou
 of `devblog/posts/`, which means an announcement can only ever describe an update
 that is actually written up.
 
-A draft post can be previewed but never broadcast. The notice's whole purpose is
-to hand people a link, and a draft is not on the site yet — a hundred DMs pointing
-at a 404 is worse than no announcement at all.
+A draft can be previewed but never broadcast. The notice's whole purpose is to hand
+people a link, and a draft is not on the site yet — a hundred DMs pointing at a 404
+is worse than no announcement at all. Update 7 therefore has a compact private preview
+until its full article is deliberately published.
 """
 
 from __future__ import annotations
@@ -26,7 +27,6 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 POSTS_DIR = REPO_ROOT / "devblog" / "posts"
 
 SITE_URL = "https://mysterioussmpx.blog"
-JOIN_URL = f"{SITE_URL}/apply/"
 
 #: Only these get announced. An event post is its own thing and a page is not news.
 UPDATE_CATEGORY = "update"
@@ -82,6 +82,8 @@ class UpdateTemplate:
     highlights: tuple[str, ...]
     draft: bool
     cover: str = ""
+    notice_cover: str = ""
+    aliases: tuple[str, ...] = ()
     spotlight_title: str = ""
     spotlight: Optional[NoticeFeature] = None
     notice_groups: tuple[NoticeGroup, ...] = ()
@@ -106,6 +108,102 @@ class UpdateTemplate:
             "url": self.url,
             "notice_embeds": 1 + int(self.spotlight is not None) + len(self.notice_groups),
         }
+
+
+def _built_in_preview_templates() -> tuple[UpdateTemplate, ...]:
+    """Private notice drafts that can be previewed before their blog post ships.
+
+    The Update 7 article and its full media set deliberately remain unpublished. This
+    compact draft lets the owner review the exact comeback DM without making the article
+    public or allowing the owner console to broadcast a link that still returns 404.
+    """
+    return (
+        UpdateTemplate(
+            slug="update-7",
+            title="Amethyst Dragon Update",
+            aliases=("Amethyst Update",),
+            tagline=(
+                "🐉 THE AMETHYST DRAGON HAS AWAKENED! Break its crystals, climb "
+                "RANKED PVP, chase ETERNAL RAINBOW GEAR that never expires — the "
+                "AMETHYST CRATE IS BACK ON A TIMER — and GRIEFING IS OVER, your base "
+                "is finally safe!"
+            ),
+            date="2026-09-08",
+            highlights=(
+                "Amethyst Dragon",
+                "Eternal Rainbow Gear",
+                "Ranked PvP",
+                "Amethyst Crate",
+                "Protected Bases",
+            ),
+            draft=True,
+            notice_cover="banner.png",
+            spotlight_title="Amethyst Dragon",
+            spotlight=NoticeFeature(
+                title="🐉 A Cooperative World Boss",
+                summary=(
+                    "The Amethyst Dragon has awakened in its own crystal arena!\n"
+                    "Everyone who enters battles the same Dragon together.\n"
+                    "Break its crystals and bring it down before the fight clock expires."
+                ),
+                image="dragon-victory.png",
+            ),
+            notice_groups=(
+                NoticeGroup(
+                    title="Rewards Worth Chasing",
+                    features=(
+                        NoticeFeature(
+                            title="🌈 Eternal Rainbow Gear",
+                            summary=(
+                                "The Dragon Crate can drop permanent rainbow Amethyst gear "
+                                "with the same power and no expiry timer."
+                            ),
+                        ),
+                        NoticeFeature(
+                            title="🏆 Ranked PvP",
+                            summary=(
+                                "Challenge players to safe ranked fights, climb from Bronze "
+                                "to Unreal, and compete for three exclusive Scythes."
+                            ),
+                        ),
+                        NoticeFeature(
+                            title="💜 The Amethyst Crate Is Back",
+                            summary=(
+                                "The limited crate is open again for two Keys per pull, with "
+                                "a real countdown showing exactly when it closes."
+                            ),
+                        ),
+                    ),
+                ),
+                NoticeGroup(
+                    title="The Server Has Changed",
+                    features=(
+                        NoticeFeature(
+                            title="🛡️ Griefing Is Over",
+                            summary=(
+                                "Bases, farms, animals, storage, and clan builds are protected. "
+                                "Build the thing you were too afraid to build."
+                            ),
+                        ),
+                        NoticeFeature(
+                            title="🟣 Bigger Amethyst Events",
+                            summary=(
+                                "Giant and Humongous Amethyst Blocks now give the whole server "
+                                "larger cooperative targets and contributor rewards."
+                            ),
+                        ),
+                        NoticeFeature(
+                            title="🛒 Player Orders",
+                            summary=(
+                                "Post exactly what you want to buy and let other players fill "
+                                "all or part of the order—even while you are offline."
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    )
 
 
 def _front_matter(text: str) -> tuple[dict[str, str], str]:
@@ -243,10 +341,23 @@ def load_update_templates(posts_dir: Optional[Path] = None) -> list[UpdateTempla
                 highlights=_highlights(body),
                 draft=str(meta.get("draft", "")).strip().lower() in {"1", "true", "yes"},
                 cover=str(meta.get("cover", "")).strip(),
+                notice_cover=str(meta.get("notice_cover", "")).strip(),
+                aliases=tuple(
+                    alias.strip()
+                    for alias in str(meta.get("notice_aliases", "")).split("|")
+                    if alias.strip()
+                ),
                 spotlight_title=str(meta.get("notice_spotlight_title", "")).strip(),
                 spotlight=spotlight,
                 notice_groups=notice_groups,
             )
+        )
+    if posts_dir is None:
+        present = {template.slug.casefold() for template in templates}
+        templates.extend(
+            template
+            for template in _built_in_preview_templates()
+            if template.slug.casefold() not in present
         )
     templates.sort(key=lambda item: (item.date, item.slug), reverse=True)
     return templates
@@ -254,8 +365,20 @@ def load_update_templates(posts_dir: Optional[Path] = None) -> list[UpdateTempla
 
 def find_template(slug: str, posts_dir: Optional[Path] = None) -> Optional[UpdateTemplate]:
     wanted = str(slug or "").strip().lower()
+    if posts_dir is None:
+        # The private Update 7 article exists on the author's workstation, but is
+        # intentionally absent from production. Resolve its stable preview names to
+        # the same compact draft in both places instead of falling back to the older
+        # published post whose title happened to be "Amethyst Update".
+        for template in _built_in_preview_templates():
+            names = {template.slug.lower(), template.title.lower()}
+            names.update(alias.lower() for alias in template.aliases)
+            if wanted in names:
+                return template
     for template in load_update_templates(posts_dir):
-        if wanted in {template.slug.lower(), template.title.lower()}:
+        names = {template.slug.lower(), template.title.lower()}
+        names.update(alias.lower() for alias in template.aliases)
+        if wanted in names:
             return template
     return None
 
@@ -321,7 +444,7 @@ def build_notice_embeds(template: UpdateTemplate) -> list[discord.Embed]:
         url=template.url,
     )
     lead.set_author(name="Mysterious SMP X")
-    cover = _media_url(template, template.cover)
+    cover = _media_url(template, template.notice_cover or template.cover)
     if cover:
         lead.set_image(url=cover)
     embeds = [lead]
@@ -364,7 +487,7 @@ def build_notice_embeds(template: UpdateTemplate) -> list[discord.Embed]:
 
 
 class UpdateNoticeView(discord.ui.View):
-    """The two buttons under an update notice.
+    """The update link and the recipient's reversible DM preference.
 
     Persistent by construction: no timeout and a fixed custom_id, so the opt-out on a
     notice sent months ago still works after a restart.
@@ -381,34 +504,84 @@ class UpdateNoticeView(discord.ui.View):
                 url=url or SITE_URL,
             )
         )
-        self.add_item(
-            discord.ui.Button(
-                label="Play again",
-                style=discord.ButtonStyle.link,
-                url=JOIN_URL,
-            )
-        )
 
     @discord.ui.button(
-        label="Stop update DMs",
-        style=discord.ButtonStyle.danger,
+        label="Update DM settings",
+        style=discord.ButtonStyle.secondary,
         custom_id=OPTOUT_CUSTOM_ID,
     )
-    async def stop_updates(
+    async def update_dm_settings(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ) -> None:
-        await self.bot.data.set_update_optout(interaction.user.id, True)
+        from .announce import log_update_notice
+
+        if await self.bot.data.is_update_opted_out(interaction.user.id):
+            await self.bot.data.set_update_optout(interaction.user.id, False)
+            await interaction.response.send_message(
+                embed=discord.Embed(
+                    title="Update DMs Switched Back On",
+                    description=(
+                        "> You will receive future Mysterious SMP X update notices again."
+                    ),
+                    colour=discord.Colour(0x57F287),
+                ),
+                ephemeral=True,
+            )
+            await log_update_notice(
+                self.bot,
+                title="Update DMs Re-enabled",
+                member=interaction.user,
+                detail="The member turned future update notices back on.",
+                success=True,
+            )
+            return
+
         await interaction.response.send_message(
             embed=discord.Embed(
-                title="Update DMs Switched Off",
+                title="Stop Future Update DMs?",
                 description=(
-                    "> You will not be sent another update announcement.\n\n"
-                    "This covers update notices only. Messages about your account, "
-                    "your verification and anything staff need to tell you still "
-                    "reach you, because those are how the server works.\n\n"
-                    "Changed your mind? Ask an administrator to turn them back on."
+                    "> This stops future server-update announcements. It does not stop "
+                    "account, verification, or necessary staff messages.\n\n"
+                    "Press the red confirmation below to finish. You can turn updates "
+                    "back on later from this same **Update DM settings** button."
                 ),
                 colour=discord.Colour(0xF06000),
             ),
+            view=ConfirmUpdateOptOutView(self.bot),
             ephemeral=True,
+        )
+
+
+class ConfirmUpdateOptOutView(discord.ui.View):
+    """One deliberate confirmation before a member silences future update notices."""
+
+    def __init__(self, bot: Any) -> None:
+        super().__init__(timeout=180)
+        self.bot = bot
+
+    @discord.ui.button(label="Yes, stop future update DMs", style=discord.ButtonStyle.danger)
+    async def confirm(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
+        from .announce import log_update_notice
+
+        await self.bot.data.set_update_optout(interaction.user.id, True)
+        await interaction.response.edit_message(
+            embed=discord.Embed(
+                title="Update DMs Switched Off",
+                description=(
+                    "> You will not be sent another server-update announcement.\n\n"
+                    "This affects update notices only. Press **Update DM settings** on "
+                    "any previous notice to turn them back on instantly."
+                ),
+                colour=discord.Colour(0xF06000),
+            ),
+            view=None,
+        )
+        await log_update_notice(
+            self.bot,
+            title="Update DMs Disabled",
+            member=interaction.user,
+            detail="The member confirmed that future update notices should stop.",
+            success=False,
         )

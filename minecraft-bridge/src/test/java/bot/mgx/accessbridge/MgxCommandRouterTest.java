@@ -189,4 +189,34 @@ final class MgxCommandRouterTest {
                     tier.node() + " must be declared");
         }
     }
+
+    @Test
+    void verificationResetCannotClaimSuccessWhileItsBridgeIsUnavailable() throws Exception {
+        String source = Files.readString(Path.of(
+                "src/main/java/bot/mgx/accessbridge/AdminCommandService.java"),
+                StandardCharsets.UTF_8);
+        int start = source.indexOf("private void testVerify(");
+        int end = source.indexOf("private void testLatestContent", start);
+        String handler = source.substring(start, end);
+
+        assertTrue(handler.contains("!plugin.bridgeConnected()"),
+                "the reset must refuse instead of queueing into a disconnected bridge");
+        assertTrue(handler.indexOf("!plugin.bridgeConnected()")
+                        < handler.indexOf("ServerEvent.of("),
+                "connectivity has to be proven before the reset event is queued");
+
+        String bridge = Files.readString(Path.of(
+                "src/main/java/bot/mgx/accessbridge/BridgeClient.java"),
+                StandardCharsets.UTF_8);
+        assertTrue(bridge.contains("plugin.completeTestVerificationReset("),
+                "the successful Discord acknowledgement must finish the reset in game");
+
+        String plugin = Files.readString(Path.of(
+                "src/main/java/bot/mgx/accessbridge/MGXAccessBridge.java"),
+                StandardCharsets.UTF_8);
+        assertTrue(plugin.contains("localVerificationOverrides.contains(uuid)"),
+                "a reset player must enter verification even while the local global bypass is on");
+        assertTrue(plugin.contains("localVerificationOverrides.remove(uuid)"),
+                "the one-player override must clear after verification succeeds");
+    }
 }

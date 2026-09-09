@@ -81,6 +81,11 @@ TOPICS: tuple[Topic, ...] = (
         "Players connecting to and leaving the server.",
         "player_log_channel_id",
     ),
+    Topic(
+        "announcement",
+        "Update DMs",
+        "Every delivered update DM and every member opt-out or opt-in.",
+    ),
     Topic("chat", "In-game Chat", "Chat relayed out of Minecraft."),
     Topic("combat", "Combat", "Player kills, deaths and boss fights."),
     Topic("mining", "Mining", "Ores broken, with the rare finds called out."),

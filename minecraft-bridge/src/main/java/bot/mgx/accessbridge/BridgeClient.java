@@ -222,7 +222,20 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
                 }
                 case "SERVER_EVENT_ACK" -> {
                     String key = payload.get("event_idempotency_key").getAsString();
-                    serverEventOutbox.remove(key);
+                    JsonObject event = serverEventOutbox.remove(key);
+                    if (event != null
+                            && "test_unverify".equals(optionalString(event, "event"))) {
+                        try {
+                            plugin.completeTestVerificationReset(
+                                    UUID.fromString(event.get("actor_uuid").getAsString())
+                            );
+                        } catch (RuntimeException exception) {
+                            plugin.getLogger().warning(
+                                    "Could not finish local verification reset: "
+                                            + safeError(exception)
+                            );
+                        }
+                    }
                 }
                 case "LINK_REQUEST_ACK" -> {
                     String requestId = payload.get("request_id").getAsString();

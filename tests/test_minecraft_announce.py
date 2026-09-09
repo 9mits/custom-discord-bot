@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import discord
 
@@ -15,6 +15,7 @@ from minecraft_bot.announce import (
     build_announcement_embed,
 )
 from minecraft_bot.updatenotice import (
+    ConfirmUpdateOptOutView,
     UpdateNoticeView,
     build_notice_embed,
     build_notice_embeds,
@@ -133,6 +134,48 @@ class PreviewTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(1, result.delivered)
         self.assertEqual(["Hook", "Feature", "Come Back"], [item.title for item in member.received])
+
+    async def test_every_successful_announcement_dm_is_logged(self):
+        send_log = AsyncMock(return_value=True)
+        bot = SimpleNamespace(
+            data=SimpleNamespace(
+                get_config=self._config("1"),
+                update_optout_ids=AsyncMock(return_value=set()),
+            ),
+            settings=SimpleNamespace(command_log_channel_id=91, log_routes={}),
+            _send_configured_log=send_log,
+        )
+        announcer = UpdateAnnouncer(bot)
+        members = [Recipient(7), Recipient(8)]
+
+        with patch("minecraft_bot.announce.asyncio.sleep", AsyncMock()):
+            result = await announcer.send(
+                embed=build_announcement_embed(title="Amethyst Dragon"),
+                targets=members,
+                actor="owner",
+            )
+
+        self.assertEqual(2, result.delivered)
+        self.assertEqual(2, send_log.await_count)
+        self.assertTrue(all(call.args[0] == 91 for call in send_log.await_args_list))
+        self.assertTrue(all(
+            call.args[1].title == "Update DM Sent" for call in send_log.await_args_list
+        ))
+
+    async def test_a_successful_preview_dm_is_logged_too(self):
+        send_log = AsyncMock(return_value=True)
+        bot = SimpleNamespace(
+            settings=SimpleNamespace(command_log_channel_id=91, log_routes={}),
+            _send_configured_log=send_log,
+        )
+        announcer = UpdateAnnouncer(bot)
+
+        await announcer.preview(
+            embed=build_announcement_embed(title="Amethyst Dragon"),
+            member=Recipient(7),
+        )
+
+        self.assertEqual("Announcement Preview DM Sent", send_log.await_args.args[1].title)
 
     async def test_discords_ten_embed_limit_is_enforced_before_a_preview(self):
         announcer = self._announcer()
@@ -319,13 +362,28 @@ class UpdateTemplateTests(unittest.TestCase):
         self.assertIsNotNone(template)
         self.assertEqual("update-7", template.slug)
 
-    def test_the_published_amethyst_update_supports_the_exact_preview_value(self):
+    def test_amethyst_update_selects_the_dragon_preview_not_the_old_collage(self):
+        # This workstation has the private Update 7 post beside the published Update
+        # 5 post with this exact old title. The stable alias must still select the new
+        # compact comeback draft—the production checkout has no private post at all.
         template = find_template("Amethyst Update")
         self.assertIsNotNone(template)
-        self.assertEqual("update-5", template.slug)
+        self.assertEqual("update-7", template.slug)
+        self.assertTrue(template.draft)
         embeds = build_notice_embeds(template)
         self.assertEqual(4, len(embeds))
-        self.assertEqual("New Mysterious SMP X update! — Amethyst Update", embeds[0].title)
+        self.assertEqual("New Mysterious SMP X update! — Amethyst Dragon", embeds[0].title)
+        self.assertEqual(
+            "https://mysterioussmpx.blog/media/update-7/banner.png",
+            embeds[0].image.url,
+        )
+        self.assertEqual("Amethyst Dragon", embeds[1].title)
+        self.assertEqual(
+            "https://mysterioussmpx.blog/media/update-7/dragon-victory.png",
+            embeds[1].image.url,
+        )
+        self.assertEqual("Rewards Worth Chasing", embeds[2].title)
+        self.assertEqual("The Server Has Changed", embeds[3].title)
 
     def test_a_draft_is_carried_through_and_labelled(self):
         directory = self._posts(**{"2026-09-08-update-7.md": self.POST})
@@ -381,43 +439,89 @@ class UpdateNoticeViewTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(view.is_persistent())
         self.assertIsNone(view.timeout)
 
-    def test_it_offers_update_join_and_opt_out_actions(self):
+    def test_it_offers_the_update_and_dm_settings_without_a_play_again_button(self):
         view = UpdateNoticeView(SimpleNamespace(), "https://mysterioussmpx.blog/update-7/")
         styles = {item.style for item in view.children}
         self.assertIn(discord.ButtonStyle.link, styles)
-        self.assertIn(discord.ButtonStyle.danger, styles)
+        self.assertIn(discord.ButtonStyle.secondary, styles)
         links = {
             item.label: item.url
             for item in view.children
             if item.style is discord.ButtonStyle.link
         }
         self.assertEqual("https://mysterioussmpx.blog/update-7/", links["Read the full update"])
-        self.assertEqual("https://mysterioussmpx.blog/apply/", links["Play again"])
+        self.assertNotIn("Play again", [item.label for item in view.children])
 
-    async def test_pressing_stop_records_the_opt_out(self):
+    async def test_stopping_requires_a_clear_confirmation(self):
         recorded = {}
 
         async def set_update_optout(user_id, opted_out=True):
             recorded["user_id"] = user_id
             recorded["opted_out"] = opted_out
 
-        bot = SimpleNamespace(data=SimpleNamespace(set_update_optout=set_update_optout))
+        send_log = AsyncMock(return_value=True)
+        bot = SimpleNamespace(
+            data=SimpleNamespace(
+                is_update_opted_out=AsyncMock(return_value=False),
+                set_update_optout=set_update_optout,
+            ),
+            settings=SimpleNamespace(command_log_channel_id=91, log_routes={}),
+            _send_configured_log=send_log,
+        )
         view = UpdateNoticeView(bot)
         interaction = SimpleNamespace(
             user=SimpleNamespace(id=77),
             response=SimpleNamespace(send_message=AsyncMock()),
         )
         button = [
-            item for item in view.children if item.style is discord.ButtonStyle.danger
+            item for item in view.children if item.custom_id == "mgx:update-notice:optout"
         ][0]
 
         await button.callback(interaction)
 
+        self.assertEqual({}, recorded)
+        confirmation = interaction.response.send_message.await_args.kwargs["view"]
+        self.assertIsInstance(confirmation, ConfirmUpdateOptOutView)
+
+        confirm_interaction = SimpleNamespace(
+            user=SimpleNamespace(id=77),
+            response=SimpleNamespace(edit_message=AsyncMock()),
+        )
+        await confirmation.children[0].callback(confirm_interaction)
+
         self.assertEqual({"user_id": 77, "opted_out": True}, recorded)
-        reply = interaction.response.send_message.await_args.kwargs["embed"]
+        reply = confirm_interaction.response.edit_message.await_args.kwargs["embed"]
         # The promise that matters: this silences updates, not the bot.
-        self.assertIn("update notices only", reply.description)
+        self.assertIn("update notices only", reply.description.lower())
         self.assertTrue(interaction.response.send_message.await_args.kwargs["ephemeral"])
+        self.assertEqual("Update DMs Disabled", send_log.await_args.args[1].title)
+
+    async def test_the_same_button_turns_update_dms_back_on_in_one_click(self):
+        set_update_optout = AsyncMock()
+        send_log = AsyncMock(return_value=True)
+        bot = SimpleNamespace(
+            data=SimpleNamespace(
+                is_update_opted_out=AsyncMock(return_value=True),
+                set_update_optout=set_update_optout,
+            ),
+            settings=SimpleNamespace(command_log_channel_id=91, log_routes={}),
+            _send_configured_log=send_log,
+        )
+        view = UpdateNoticeView(bot)
+        interaction = SimpleNamespace(
+            user=SimpleNamespace(id=77),
+            response=SimpleNamespace(send_message=AsyncMock()),
+        )
+        button = next(
+            item for item in view.children if item.custom_id == "mgx:update-notice:optout"
+        )
+
+        await button.callback(interaction)
+
+        set_update_optout.assert_awaited_once_with(77, False)
+        reply = interaction.response.send_message.await_args.kwargs["embed"]
+        self.assertEqual("Update DMs Switched Back On", reply.title)
+        self.assertEqual("Update DMs Re-enabled", send_log.await_args.args[1].title)
 
 
 class OptOutFilteringTests(unittest.IsolatedAsyncioTestCase):
