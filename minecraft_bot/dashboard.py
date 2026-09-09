@@ -26,7 +26,7 @@ from .audit import (
     CommandAuditRecord,
     deliver,
 )
-from .perks import RANK_ROLES
+from .perks import OWNER_ROLE_ID
 from .presentation import head_url, skin_url
 from .updatenotice import (
     UpdateNoticeView,
@@ -37,7 +37,6 @@ from .updatenotice import (
 
 
 logger = logging.getLogger("MinecraftAccessBot.dashboard")
-OWNER_ROLE_ID = next(role_id for role_id, group, *_rest in RANK_ROLES if group == "owner")
 SESSION_SECONDS = 12 * 60 * 60
 SITE_ROOT = Path(__file__).resolve().parents[1] / "devblog" / "dist"
 

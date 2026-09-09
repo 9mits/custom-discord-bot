@@ -44,6 +44,7 @@ from .models import (
 from .perks import (
     BOOSTER_ROLE_ID,
     LEVEL_ROLE_MILESTONES,
+    OWNER_ROLE_ID,
     RANK_ROLES,
     is_booster,
     profile_for_role_ids,
@@ -132,7 +133,7 @@ class WipeConfirmationModal(discord.ui.Modal, title="Wipe All Minecraft Data"):
                 **branded_send(
                     info_embed(
                         "Owner Access Required",
-                        "> Only the server owner may wipe Minecraft data.",
+                        "> You need the Discord **OWNER** role to wipe Minecraft data.",
                         error=True,
                     )
                 ),
@@ -352,9 +353,11 @@ class MinecraftAccessBot(commands.Bot):
         return bool(permissions is not None and permissions.administrator)
 
     def is_owner_member(self, member: discord.Member | discord.User) -> bool:
-        """The Discord guild owner only. Role names are not authority."""
-        guild = self.get_guild(self.config.guild_id)
-        return guild is not None and int(member.id) == int(guild.owner_id or 0)
+        """The member holding the exact Discord role mapped to LuckPerms owner."""
+        return any(
+            int(getattr(role, "id", 0) or 0) == OWNER_ROLE_ID
+            for role in getattr(member, "roles", ())
+        )
 
     async def require_moderator(self, interaction: discord.Interaction) -> bool:
         if self.is_moderator(interaction.user):
@@ -3033,7 +3036,7 @@ class MinecraftAccessBot(commands.Bot):
 
         @admin_group.command(
             name="announce-preview",
-            description="Owner only: DM yourself an update notice to see how it looks.",
+            description="OWNER role only: DM yourself an update notice to see how it looks.",
         )
         @app_commands.describe(
             template="A dev-blog update to announce. Leave empty to write it yourself.",
@@ -3058,7 +3061,7 @@ class MinecraftAccessBot(commands.Bot):
                     **branded_send(
                         info_embed(
                             "Owner Access Required",
-                            "> Only the server owner may compose update notices.",
+                            "> You need the Discord **OWNER** role to compose update notices.",
                             error=True,
                         )
                     ),
@@ -3173,7 +3176,7 @@ class MinecraftAccessBot(commands.Bot):
 
         @admin_group.command(
             name="wipe",
-            description="Owner only: delete every access and whitelist record, keeping settings.",
+            description="OWNER role only: delete every access and whitelist record, keeping settings.",
         )
         async def wipe(interaction: discord.Interaction) -> None:
             if not self.is_owner_member(interaction.user):
@@ -3181,7 +3184,7 @@ class MinecraftAccessBot(commands.Bot):
                     **branded_send(
                         info_embed(
                             "Owner Access Required",
-                            "> Only the server owner may wipe Minecraft data.",
+                            "> You need the Discord **OWNER** role to wipe Minecraft data.",
                             error=True,
                         )
                     ),
@@ -3741,9 +3744,9 @@ class MinecraftAccessBot(commands.Bot):
                         "`/mgxadmin maintenance` — hold the server closed before "
                         "launch, or open it again\n"
                         "`/mgxadmin cleanheads` — remove leaderboard head emoji\n"
-                        "`/mgxadmin announce-preview` — owner only; DM yourself a draft "
+                        "`/mgxadmin announce-preview` — OWNER role only; DM yourself a draft "
                         "update notice\n"
-                        "`/mgxadmin wipe` — owner only; delete all access and whitelist data"
+                        "`/mgxadmin wipe` — OWNER role only; delete all access and whitelist data"
                     ),
                     inline=False,
                 )

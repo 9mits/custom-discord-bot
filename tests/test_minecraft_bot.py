@@ -3997,15 +3997,15 @@ class MinecraftSetupDashboardOutcomeTests(unittest.IsolatedAsyncioTestCase):
 
 
 class MinecraftAccessGuardTests(unittest.IsolatedAsyncioTestCase):
-    def test_owner_is_only_the_guild_owner(self):
+    def test_owner_is_the_exact_mapped_owner_role(self):
+        from minecraft_bot.perks import OWNER_ROLE_ID
+
         bot = object.__new__(MinecraftAccessBot)
-        bot.config = SimpleNamespace(guild_id=10)
-        bot.get_guild = lambda _gid: SimpleNamespace(owner_id=1)
-        owner = SimpleNamespace(id=1, roles=[SimpleNamespace(name="Member")])
-        named = SimpleNamespace(id=2, roles=[SimpleNamespace(name="Owner")])
+        owner = SimpleNamespace(id=1, roles=[SimpleNamespace(id=OWNER_ROLE_ID, name="OWNER")])
+        guild_owner = SimpleNamespace(id=2, roles=[SimpleNamespace(id=123, name="OWNER")])
 
         self.assertTrue(bot.is_owner_member(owner))
-        self.assertFalse(bot.is_owner_member(named))
+        self.assertFalse(bot.is_owner_member(guild_owner))
 
     async def test_unlinked_discord_chat_is_not_relayed(self):
         bot = object.__new__(MinecraftAccessBot)
