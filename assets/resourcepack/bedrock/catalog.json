@@ -95,6 +95,10 @@
     {"java_item": "minecraft:diamond_axe", "model": "mgx:eternal_amethyst_axe", "bedrock_identifier": "mgx:eternal_amethyst_axe", "display_name": "Eternal Amethyst Axe"},
     {"java_item": "minecraft:diamond_hoe", "model": "mgx:eternal_amethyst_hoe", "bedrock_identifier": "mgx:eternal_amethyst_hoe", "display_name": "Eternal Amethyst Hoe"},
     {"java_item": "minecraft:bow", "model": "mgx:eternal_amethyst_bow", "bedrock_identifier": "mgx:eternal_amethyst_bow", "display_name": "Eternal Amethyst Bow"},
-    {"java_item": "minecraft:elytra", "model": "mgx:eternal_amethyst_elytra", "bedrock_identifier": "mgx:eternal_amethyst_elytra", "display_name": "Eternal Amethyst Elytra"}
+    {"java_item": "minecraft:elytra", "model": "mgx:eternal_amethyst_elytra", "bedrock_identifier": "mgx:eternal_amethyst_elytra", "display_name": "Eternal Amethyst Elytra"},
+    {"java_item": "minecraft:diamond_helmet", "model": "mgx:eternal_amethyst_helmet", "bedrock_identifier": "mgx:eternal_amethyst_helmet", "display_name": "Eternal Amethyst Helmet"},
+    {"java_item": "minecraft:diamond_chestplate", "model": "mgx:eternal_amethyst_chestplate", "bedrock_identifier": "mgx:eternal_amethyst_chestplate", "display_name": "Eternal Amethyst Chestplate"},
+    {"java_item": "minecraft:diamond_leggings", "model": "mgx:eternal_amethyst_leggings", "bedrock_identifier": "mgx:eternal_amethyst_leggings", "display_name": "Eternal Amethyst Leggings"},
+    {"java_item": "minecraft:diamond_boots", "model": "mgx:eternal_amethyst_boots", "bedrock_identifier": "mgx:eternal_amethyst_boots", "display_name": "Eternal Amethyst Boots"}
   ]
 }

@@ -318,8 +318,8 @@ final class AmethystCrateCatalogTest {
                 .mapToInt(CrateCatalog.Reward::weight).sum();
         // Was 99,181 before the potion ladder moved here. The 420 points it costs come
         // off the shard filler, not off any chase item. The seven Eternal twins cost
-        // a further 14.
-        assertEquals(98_747, commonWeight);
+        // a further 22 across all eleven.
+        assertEquals(98_739, commonWeight);
         assertEquals(CrateCatalog.TOTAL_WEIGHT,
                 CrateCatalog.dragon().stream().mapToInt(CrateCatalog.Reward::weight).sum());
         assertTrue(CrateCatalog.dragon().stream()

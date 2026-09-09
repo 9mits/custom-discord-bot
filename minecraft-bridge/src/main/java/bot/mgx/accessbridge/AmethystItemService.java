@@ -138,33 +138,32 @@ final class AmethystItemService implements Listener {
         return switch (id) {
             case "amethyst_pickaxe" -> Optional.of(createTimed(
                     Material.DIAMOND_PICKAXE, "pickaxe", "Amethyst Pickaxe",
-                    "3x3 mining", "Automatically smelts drops", "mgx:amethyst_pickaxe"
+                    "3x3 Mining", "Smelts what it breaks", "mgx:amethyst_pickaxe"
             ));
             case "amethyst_shovel" -> Optional.of(createTimed(
                     Material.DIAMOND_SHOVEL, "shovel", "Amethyst Shovel",
-                    "3x3 digging", "Clears matching shovel blocks", "mgx:amethyst_shovel"
+                    "3x3 Digging", "Clears every matching block", "mgx:amethyst_shovel"
             ));
             case "amethyst_axe" -> Optional.of(createTimed(
                     Material.DIAMOND_AXE, "axe", "Amethyst Axe",
-                    "Fells a whole tree", "Up to 256 connected logs", "mgx:amethyst_axe"
+                    "Timber", "Fells up to 256 connected logs", "mgx:amethyst_axe"
             ));
             case "amethyst_shield" -> Optional.of(createTimed(
                     Material.SHIELD, "shield", "Amethyst Shield",
-                    "Crystal Guard, Reflect, projectile bounce",
-                    "Guard Burst after repeated blocks", "mgx:amethyst_shield"
+                    "Crystal Guard", "Reflects projectiles and bursts under pressure", "mgx:amethyst_shield"
             ));
             case "amethyst_totem" -> Optional.of(createTotem());
             case "amethyst_sword" -> Optional.of(createTimed(
                     Material.DIAMOND_SWORD, "sword", "Amethyst Sword",
-                    "Crystal Edge adds heavy bonus damage", "Violet lightning marks every hit",
+                    "Crystal Edge", "Heavy bonus damage and violet lightning",
                     "mgx:amethyst_sword"));
             case "amethyst_hoe" -> Optional.of(createTimed(
                     Material.DIAMOND_HOE, "hoe", "Amethyst Hoe",
-                    "Harvests a 3x3 crop area", "Fortune V and automatic replanting",
+                    "3x3 Harvest", "Fortune V, and replants behind you",
                     "mgx:amethyst_hoe"));
             case "amethyst_bow" -> Optional.of(createTimed(
                     Material.BOW, "bow", "Amethyst Bow",
-                    "Crystal shots deal bonus damage", "Every shot leaves violet lightning",
+                    "Crystal Shot", "Bonus damage and violet lightning",
                     "mgx:amethyst_bow"));
             case "amethyst_helmet" -> Optional.of(armor(Material.DIAMOND_HELMET, "helmet", "Amethyst Helmet"));
             case "amethyst_chestplate" -> Optional.of(armor(Material.DIAMOND_CHESTPLATE, "chestplate", "Amethyst Chestplate"));
@@ -174,7 +173,9 @@ final class AmethystItemService implements Listener {
             case "eternal_amethyst_sword", "eternal_amethyst_pickaxe",
                  "eternal_amethyst_shovel", "eternal_amethyst_axe",
                  "eternal_amethyst_hoe", "eternal_amethyst_bow",
-                 "eternal_amethyst_elytra" ->
+                 "eternal_amethyst_elytra", "eternal_amethyst_helmet",
+                 "eternal_amethyst_chestplate", "eternal_amethyst_leggings",
+                 "eternal_amethyst_boots" ->
                     create(CrateCatalog.find(id.substring("eternal_".length()))
                             .orElseThrow(() -> new IllegalStateException("Missing " + id)))
                             .map(this::makeEternal);
@@ -192,7 +193,7 @@ final class AmethystItemService implements Listener {
 
     private ItemStack armor(Material material, String kind, String name) {
         ItemStack item = createTimed(material, kind, name,
-                "Full set grants Crystal Bulwark", "Continuous resistance and regeneration",
+                "Crystal Bulwark", "Full set grants resistance and regeneration",
                 "mgx:amethyst_" + kind);
         ItemMeta meta = item.getItemMeta();
         meta.addEnchant(Enchantment.PROTECTION,
@@ -217,7 +218,7 @@ final class AmethystItemService implements Listener {
 
     private ItemStack elytra() {
         ItemStack item = createTimed(Material.ELYTRA, "elytra", "Amethyst Elytra",
-                "Lightning Speed", "Glides 50% faster than an ordinary Elytra",
+                "Lightning Speed", "Glides 50% faster",
                 "mgx:amethyst_elytra");
         ItemMeta meta = item.getItemMeta();
         meta.addEnchant(Enchantment.UNBREAKING,
@@ -238,8 +239,7 @@ final class AmethystItemService implements Listener {
         meta.getPersistentDataContainer().set(arrowKey, PersistentDataType.BYTE, (byte) 1);
         NamespacedKey model = NamespacedKey.fromString("mgx:amethyst_arrow");
         if (model != null) meta.setItemModel(model);
-        meta.lore(List.of(line("Consumable crystal arrows that burst with lightning."),
-                line("Permanent until fired; no expiration timer.")));
+        meta.lore(List.of(line("Crystal Burst"), line("Bursts with lightning on impact")));
         item.setItemMeta(meta);
         return item;
     }
@@ -253,8 +253,7 @@ final class AmethystItemService implements Listener {
         NamespacedKey model = NamespacedKey.fromString("mgx:amethyst_apple");
         if (model != null) meta.setItemModel(model);
         meta.addEnchant(Enchantment.UNBREAKING, 1, true);
-        meta.lore(List.of(line("A permanent consumable with powerful crystal regeneration."),
-                line("Consumables do not expire.")));
+        meta.lore(List.of(line("Crystal Regeneration"), line("A stronger golden apple")));
         item.setItemMeta(meta);
         return item;
     }
@@ -325,19 +324,29 @@ final class AmethystItemService implements Listener {
         if (model != null) {
             meta.setItemModel(model);
         }
+        // The equippable model decides what other players see, so it has to move too.
+        org.bukkit.inventory.meta.components.EquippableComponent equippable = meta.getEquippable();
+        if (equippable != null && equippable.getModel() != null) {
+            NamespacedKey worn = ARMOR_KINDS.contains(kind)
+                    ? NamespacedKey.fromString("mgx:eternal_amethyst_armor")
+                    : NamespacedKey.fromString("mgx:eternal_amethyst_" + kind);
+            if (worn != null) {
+                equippable.setModel(worn);
+                meta.setEquippable(equippable);
+            }
+        }
         List<Component> lore = new ArrayList<>();
         for (Component existing : meta.lore() == null ? List.<Component>of() : meta.lore()) {
             String text = PlainTextComponentSerializer.plainText().serialize(existing);
             // Every clock line goes; what the item does is unchanged.
-            if (text.contains("Timer begins") || text.contains("after activation")) {
+            if (text.startsWith("Timer starts") || text.startsWith("Lasts ")) {
                 continue;
             }
             lore.add(existing);
         }
         lore.add(Component.empty());
-        lore.add(Component.text("Never expires.", ETERNAL)
+        lore.add(Component.text("Never Expires", ETERNAL)
                 .decoration(TextDecoration.ITALIC, false));
-        lore.add(line("No timer. No activation. Yours."));
         meta.lore(lore);
         item.setItemMeta(meta);
         return item;
@@ -368,18 +377,16 @@ final class AmethystItemService implements Listener {
 
     private List<Component> inactiveLore(String ability, String detail, String kind) {
         String trigger = switch (kind) {
-            case "shield" -> "Timer begins on your first successful block.";
-            case "sword", "bow" -> "Timer begins on your first attack.";
-            case "helmet", "chestplate", "leggings", "boots", "elytra" ->
-                    "Timer begins when equipped and used.";
-            default -> "Timer begins when you first break a block.";
+            case "shield" -> "your first block";
+            case "sword", "bow" -> "your first attack";
+            case "helmet", "chestplate", "leggings", "boots", "elytra" -> "first being worn";
+            default -> "your first broken block";
         };
         double hours = tuned("amethyst-items.active-hours", 24d);
         return List.of(
                 line(ability), line(detail), Component.empty(),
-                line("Unbreakable for " + formatHours(hours) + " after activation."),
-                line(trigger),
-                line("May be enchanted before or after activation.")
+                value("Lasts ", formatHours(hours), " once used"),
+                line("Timer starts on " + trigger)
         );
     }
 
@@ -1045,6 +1052,13 @@ final class AmethystItemService implements Listener {
             return hours + "h " + minutes + "m";
         }
         return totalMinutes + "m";
+    }
+
+    private static Component value(String before, String value, String after) {
+        return Component.text(before, NamedTextColor.GRAY)
+                .decoration(TextDecoration.ITALIC, false)
+                .append(Component.text(value, NamedTextColor.WHITE))
+                .append(Component.text(after, NamedTextColor.GRAY));
     }
 
     private static Component line(String text) {
