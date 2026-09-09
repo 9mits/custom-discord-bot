@@ -894,7 +894,7 @@ def start(args: argparse.Namespace) -> int:
         # terminal closing — or an agent's command being killed — takes the server
         # down with it, which reaches the player as "Connection refused" long after
         # the deploy that looked successful. Same reason as ensure_pack_server.
-        previous_log = LATEST_LOG.stat().st_ino if LATEST_LOG.exists() else None
+        previous_log = read_latest_log()
         process = subprocess.Popen(
             command,
             cwd=SERVER,
@@ -924,26 +924,47 @@ def start(args: argparse.Namespace) -> int:
             pass
 
 
-def wait_for_done(
-    process: subprocess.Popen, previous_log: int | None, timeout: float = 240.0
-) -> bool:
-    """Block until this Paper reports it finished loading.
+STARTUP_MARKER = "Starting minecraft server version"
+READY_MARKER = "Done ("
 
-    Paper rotates ``latest.log`` on startup, so the inode is what tells this run's
-    log apart from the previous one — matching on the text alone would accept the
-    ``Done`` line of the server that just stopped.
+
+def read_latest_log() -> str | None:
+    """The current console log, or None when there is not one yet."""
+    try:
+        return LATEST_LOG.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+
+
+def log_reports_ready(text: str) -> bool:
+    """Whether the newest run recorded in this log finished loading.
+
+    Anchored to the last startup banner rather than to ``Done`` alone: Paper gzips
+    ``latest.log`` and starts a new one on every boot, so the file can still hold a
+    previous run whose ``Done`` line says nothing about this one.
+    """
+    start = text.rfind(STARTUP_MARKER)
+    return start != -1 and READY_MARKER in text[start:]
+
+
+def wait_for_done(
+    process: subprocess.Popen, previous_log: str | None, timeout: float = 240.0
+) -> bool:
+    """Block until the Paper we just launched reports it finished loading.
+
+    The log has to have changed as well as report ready. Identity by inode was the
+    obvious way to tell this run's log from the last one and it is wrong: a freshly
+    created ``latest.log`` can reuse the inode the rotated one just freed, which is
+    exactly what CI reproduced on Linux.
     """
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if process.poll() is not None:
             log(f"Paper exited during startup with code {process.returncode}")
             return False
-        try:
-            if LATEST_LOG.stat().st_ino != previous_log:
-                if "Done (" in LATEST_LOG.read_text(encoding="utf-8", errors="replace"):
-                    return True
-        except OSError:
-            pass
+        text = read_latest_log()
+        if text is not None and text != previous_log and log_reports_ready(text):
+            return True
         time.sleep(1.0)
     return False
 

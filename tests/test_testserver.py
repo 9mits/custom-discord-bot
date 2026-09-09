@@ -279,19 +279,38 @@ class DetachedPaperTests(unittest.TestCase):
         self.assertEqual(-3, kwargs["stdout"])
         self.assertEqual(-3, kwargs["stderr"])
 
-    def test_done_is_matched_only_in_this_run_s_rotated_log(self):
-        # Paper gzips latest.log at startup, so the previous server's "Done" line
-        # is still on disk for a moment; the inode is what tells the runs apart.
+    STALE = (
+        '[00:00:00] Starting minecraft server version 1.21.11\n'
+        '[00:00:10] Done (1.0s)! For help, type "help"\n'
+    )
+
+    def test_the_previous_run_s_done_line_is_not_mistaken_for_this_one(self):
+        # Paper gzips latest.log at startup, so the last server's "Done" is still on
+        # disk for a moment. Identity by inode looked right and is not: a new
+        # latest.log can reuse the inode the rotated one just freed.
         with TemporaryDirectory() as holder:
             log = Path(holder) / "latest.log"
-            log.write_text("[00:00:00] Done (1.0s)! For help, type \"help\"\n")
-            stale = log.stat().st_ino
+            log.write_text(self.STALE)
             alive = SimpleNamespace(poll=lambda: None, returncode=None)
             with mock.patch.object(testserver, "LATEST_LOG", log):
-                self.assertFalse(testserver.wait_for_done(alive, stale, timeout=0.2))
+                self.assertFalse(
+                    testserver.wait_for_done(alive, self.STALE, timeout=0.2)
+                )
                 log.unlink()
-                log.write_text("[00:00:01] Done (2.0s)! For help, type \"help\"\n")
-                self.assertTrue(testserver.wait_for_done(alive, stale, timeout=5.0))
+                log.write_text(
+                    "[00:01:00] Starting minecraft server version 1.21.11\n"
+                    '[00:01:30] Done (2.0s)! For help, type "help"\n'
+                )
+                self.assertTrue(
+                    testserver.wait_for_done(alive, self.STALE, timeout=5.0)
+                )
+
+    def test_a_started_but_unfinished_run_is_not_reported_ready(self):
+        booting = self.STALE + "[00:01:00] Starting minecraft server version 1.21.11\n"
+        self.assertFalse(testserver.log_reports_ready(booting))
+        self.assertTrue(
+            testserver.log_reports_ready(booting + '[00:01:30] Done (3.0s)!\n')
+        )
 
     def test_a_paper_that_dies_during_startup_is_reported_not_waited_out(self):
         dead = SimpleNamespace(poll=lambda: 1, returncode=1)
