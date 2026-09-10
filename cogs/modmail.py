@@ -29,6 +29,7 @@ from core.utils import iso_to_dt, now_iso
 from minecraft_bot.support import (
     claim_support_request,
     list_support_requests,
+    quarantine_support_request,
     read_support_request,
     release_support_request,
 )
@@ -951,17 +952,29 @@ class ModmailCog(commands.Cog):
 
     @tasks.loop(seconds=5)
     async def minecraft_support_requests(self):
-        for path in list_support_requests()[:10]:
+        processed = 0
+        for path in list_support_requests():
             preview = read_support_request(path)
+            if preview is None:
+                logger.warning("Quarantined unreadable Minecraft support request %s", path.name)
+                quarantine_support_request(path)
+                continue
             try:
-                target_guild_id = int(preview.get("guild_id", 0)) if preview else 0
+                target_guild_id = int(preview.get("guild_id", 0))
+                target_user_id = int(preview.get("discord_user_id", 0))
             except (TypeError, ValueError):
                 target_guild_id = 0
-            if not target_guild_id or self.bot.get_guild(target_guild_id) is None:
+                target_user_id = 0
+            if target_guild_id <= 0 or target_user_id <= 0:
+                logger.warning("Quarantined malformed Minecraft support request %s", path.name)
+                quarantine_support_request(path)
+                continue
+            if self.bot.get_guild(target_guild_id) is None:
                 continue
             claimed = claim_support_request(path)
             if claimed is None:
                 continue
+            processed += 1
             claimed_path, request = claimed
             guild = self.bot.get_guild(int(request.get("guild_id", 0)))
             try:
@@ -977,6 +990,8 @@ class ModmailCog(commands.Cog):
                 release_support_request(claimed_path)
             else:
                 claimed_path.unlink(missing_ok=True)
+            if processed >= 10:
+                break
 
     @minecraft_support_requests.before_loop
     async def before_minecraft_support_requests(self):

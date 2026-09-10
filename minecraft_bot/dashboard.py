@@ -388,6 +388,8 @@ class DashboardServer:
             body = await request.json()
         except (json.JSONDecodeError, TypeError):
             raise web.HTTPBadRequest(text="A JSON request body is required.")
+        if not isinstance(body, dict):
+            raise web.HTTPBadRequest(text="The schedule request must be a JSON object.")
         operation = "reset" if body.get("reset") is True else "set"
         key = request.match_info["key"]
         accounts = await self.bot.data.list_accounts_for_user(member.id)
@@ -723,17 +725,37 @@ class DashboardServer:
 
     async def save_schedule(self, request: web.Request) -> web.Response:
         """Books, edits or cancels one scheduled action."""
-        session, _member = await self._require_owner(request)
+        session, member = await self._require_owner(request)
         self._require_csrf(request, session)
         try:
             body = await request.json()
         except (json.JSONDecodeError, TypeError):
             raise web.HTTPBadRequest(text="A JSON request body is required.")
+        if not isinstance(body, dict):
+            raise web.HTTPBadRequest(text="The schedule request must be a JSON object.")
         try:
             if body.get("delete"):
                 await self.bot.schedule.remove(str(body.get("id", "")))
             else:
-                await self.bot.schedule.upsert(body)
+                if session.get("automation"):
+                    actor_uuid = str(
+                        getattr(self.config, "dashboard_automation_uuid", "") or ""
+                    )
+                else:
+                    accounts = await self.bot.data.list_accounts_for_user(member.id)
+                    actor_uuid = next(
+                        (
+                            str(row.get("minecraft_uuid") or "")
+                            for row in accounts
+                            if row.get("minecraft_uuid")
+                        ),
+                        "",
+                    )
+                await self.bot.schedule.upsert(
+                    body,
+                    actor_uuid=actor_uuid,
+                    actor_label=member.name,
+                )
         except ValueError as exc:
             raise web.HTTPBadRequest(text=str(exc))
         await self.bot.schedule.load()

@@ -12,11 +12,12 @@ import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Axis;
 import org.bukkit.Bukkit;
 import org.bukkit.Color;
-import org.bukkit.GameRule;
+import org.bukkit.GameRules;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.Particle;
+import org.bukkit.Registry;
 import org.bukkit.Sound;
 import org.bukkit.World;
 import org.bukkit.WorldCreator;
@@ -829,13 +830,13 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         // afford it. Eight chunks still shows the whole island from its centre.
         arena.setViewDistance(variables.integer("dragon-event.arena-view-distance"));
         arena.setSimulationDistance(variables.integer("dragon-event.arena-simulation-distance"));
-        arena.setGameRule(GameRule.DO_MOB_SPAWNING, false);
-        arena.setGameRule(GameRule.KEEP_INVENTORY, true);
-        arena.setGameRule(GameRule.DO_DAYLIGHT_CYCLE, false);
-        arena.setGameRule(GameRule.DO_WEATHER_CYCLE, false);
-        arena.setGameRule(GameRule.DO_INSOMNIA, false);
-        arena.setGameRule(GameRule.DO_PATROL_SPAWNING, false);
-        arena.setGameRule(GameRule.DO_TRADER_SPAWNING, false);
+        arena.setGameRule(GameRules.SPAWN_MOBS, false);
+        arena.setGameRule(GameRules.KEEP_INVENTORY, true);
+        arena.setGameRule(GameRules.ADVANCE_TIME, false);
+        arena.setGameRule(GameRules.ADVANCE_WEATHER, false);
+        arena.setGameRule(GameRules.SPAWN_PHANTOMS, false);
+        arena.setGameRule(GameRules.SPAWN_PATROLS, false);
+        arena.setGameRule(GameRules.SPAWN_WANDERING_TRADERS, false);
         applyArenaSky();
         arena.getWorldBorder().setCenter(0.5, 0.5);
         arena.getWorldBorder().setSize(variables.integer("dragon-event.border-size"));
@@ -3508,10 +3509,36 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     /** The custom generator keeps the End-styled arena blank and separate from the locked vanilla End. */
     private static final class VoidArenaGenerator extends ChunkGenerator {
         @Override
-        public ChunkData generateChunkData(
-                World world, Random random, int chunkX, int chunkZ, BiomeGrid biome
+        public boolean shouldGenerateNoise() {
+            return false;
+        }
+
+        @Override
+        public boolean shouldGenerateSurface() {
+            return false;
+        }
+
+        @Override
+        public void generateBedrock(
+                org.bukkit.generator.WorldInfo worldInfo, Random random,
+                int chunkX, int chunkZ, ChunkData chunkData
         ) {
-            return createChunkData(world);
+            // Deliberately empty: the event arena is a void world.
+        }
+
+        @Override
+        public boolean shouldGenerateCaves() {
+            return false;
+        }
+
+        @Override
+        public boolean shouldGenerateDecorations() {
+            return false;
+        }
+
+        @Override
+        public boolean shouldGenerateMobs() {
+            return false;
         }
 
         @Override
@@ -3521,11 +3548,12 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     }
 
     private Sound configuredSound(String key, Sound fallback) {
-        try {
-            return Sound.valueOf(variables.string(key));
-        } catch (IllegalArgumentException ignored) {
-            return fallback;
-        }
+        String configured = variables.string(key).strip().toLowerCase(Locale.ROOT);
+        NamespacedKey soundKey = NamespacedKey.fromString(
+                configured.contains(":") ? configured : "minecraft:" + configured
+        );
+        Sound sound = soundKey == null ? null : Registry.SOUND_EVENT.get(soundKey);
+        return sound == null ? fallback : sound;
     }
 
     private void playLocalSound(Player player, String soundKey, Sound fallback, String pitchKey) {

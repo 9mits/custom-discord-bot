@@ -531,6 +531,20 @@ class MinecraftBridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(self.server._pending_results, {})
 
+    async def test_cancelled_action_wait_does_not_leak_a_pending_future(self):
+        self.server._send = AsyncMock()
+        task = asyncio.create_task(
+            self.server._send_awaiting_detail("ACTION", {"action": "STATUS"})
+        )
+        await asyncio.sleep(0)
+        self.assertEqual(len(self.server._pending_results), 1)
+
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+
+        self.assertEqual(self.server._pending_results, {})
+
     async def test_message_from_superseded_socket_is_ignored(self):
         current_socket = object()
         stale_socket = object()
@@ -789,6 +803,32 @@ class MinecraftBridgeDispatchTests(unittest.IsolatedAsyncioTestCase):
 
         data.mark_outbox_sent_batch.assert_awaited_once_with([1, 2])
         self.assertEqual(server._socket.send_json.await_count, 2)
+
+    async def test_whitelist_snapshot_is_never_silently_truncated(self):
+        server = MinecraftBridgeServer(
+            SimpleNamespace(bridge_path="/bridge", bridge_secret=bytes(range(32))),
+            SimpleNamespace(),
+            verification_handler=AsyncMock(),
+            action_result_handler=AsyncMock(),
+            player_event_handler=AsyncMock(),
+        )
+        server._socket = SimpleNamespace(closed=False)
+        server._peer_protocol_version = 6
+        server._send = AsyncMock()
+        players = [
+            {
+                "username": f"Player{index}",
+                "edition": "JAVA",
+                "minecraft_uuid": f"00000000-0000-0000-0000-{index:012d}",
+                "discord_username": f"member{index}",
+            }
+            for index in range(501)
+        ]
+
+        self.assertTrue(await server.send_whitelist_snapshot(players))
+
+        payload = server._send.await_args.args[1]
+        self.assertEqual(len(payload["players"]), 501)
 
     def test_forwarded_proto_from_a_remote_client_is_ignored(self):
         server = MinecraftBridgeServer(

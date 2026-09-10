@@ -25,11 +25,14 @@ import org.bukkit.event.block.BlockDropItemEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityShootBowEvent;
 import org.bukkit.event.entity.EntityResurrectEvent;
+import org.bukkit.event.entity.ItemSpawnEvent;
 import org.bukkit.event.inventory.InventoryOpenEvent;
 import org.bukkit.event.player.PlayerItemConsumeEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerItemDamageEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.world.EntitiesLoadEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -45,6 +48,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -102,6 +106,10 @@ final class AmethystItemService implements Listener {
     private final NamespacedKey eternalKey;
     private final Set<UUID> multiBreaking = new HashSet<>();
     private final Map<UUID, Integer> blockedHits = new HashMap<>();
+    /** Timed ground items only; avoids scanning every entity in every world each second. */
+    private final Set<UUID> droppedTimedItems = new HashSet<>();
+    /** A client can send several movement packets in one tick; equipment work only needs one. */
+    private final Map<UUID, Integer> lastWearTick = new HashMap<>();
     private Runnable auctionSweep = () -> { };
     private BukkitTask expiryTask;
 
@@ -121,6 +129,7 @@ final class AmethystItemService implements Listener {
 
     void start() {
         stop();
+        indexLoadedDrops();
         expiryTask = plugin.getServer().getScheduler().runTaskTimer(
                 plugin, this::sweepOnlinePlayers, 20L, 20L
         );
@@ -131,6 +140,8 @@ final class AmethystItemService implements Listener {
             expiryTask.cancel();
             expiryTask = null;
         }
+        droppedTimedItems.clear();
+        lastWearTick.clear();
     }
 
     Optional<ItemStack> create(CrateCatalog.Reward reward) {
@@ -628,6 +639,11 @@ final class AmethystItemService implements Listener {
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onWear(PlayerMoveEvent event) {
         Player player = event.getPlayer();
+        int tick = plugin.getServer().getCurrentTick();
+        Integer previousTick = lastWearTick.put(player.getUniqueId(), tick);
+        if (previousTick != null && previousTick == tick) {
+            return;
+        }
         ItemStack chest = player.getInventory().getChestplate();
         if (player.isGliding() && kind(chest).filter("elytra"::equals).isPresent()
                 && !expired(chest, System.currentTimeMillis())) {
@@ -867,6 +883,25 @@ final class AmethystItemService implements Listener {
         plugin.getServer().getScheduler().runTask(plugin, () -> sweep(event.getPlayer()));
     }
 
+    @EventHandler
+    public void onQuit(PlayerQuitEvent event) {
+        lastWearTick.remove(event.getPlayer().getUniqueId());
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onItemSpawn(ItemSpawnEvent event) {
+        trackDrop(event.getEntity());
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onEntitiesLoad(EntitiesLoadEvent event) {
+        for (Entity entity : event.getEntities()) {
+            if (entity instanceof org.bukkit.entity.Item item) {
+                trackDrop(item);
+            }
+        }
+    }
+
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onInventoryOpen(InventoryOpenEvent event) {
         ItemStack[] contents = event.getInventory().getContents();
@@ -880,17 +915,24 @@ final class AmethystItemService implements Listener {
 
     private void sweepOnlinePlayers() {
         long now = System.currentTimeMillis();
-        for (org.bukkit.World world : Bukkit.getWorlds()) {
-            for (org.bukkit.entity.Item dropped : world.getEntitiesByClass(org.bukkit.entity.Item.class)) {
-                ItemStack stack = dropped.getItemStack();
-                if (expired(stack, now)) {
-                    dropped.remove();
-                } else {
-                    boolean changed = upgradeLegacyItem(stack);
-                    changed |= refreshCountdown(stack, now);
-                    if (changed) {
-                        dropped.setItemStack(stack);
-                    }
+        Iterator<UUID> iterator = droppedTimedItems.iterator();
+        while (iterator.hasNext()) {
+            Entity entity = Bukkit.getEntity(iterator.next());
+            if (!(entity instanceof org.bukkit.entity.Item dropped) || !dropped.isValid()) {
+                iterator.remove();
+                continue;
+            }
+            ItemStack stack = dropped.getItemStack();
+            if (!isTimed(stack)) {
+                iterator.remove();
+            } else if (expired(stack, now)) {
+                dropped.remove();
+                iterator.remove();
+            } else {
+                boolean changed = upgradeLegacyItem(stack);
+                changed |= refreshCountdown(stack, now);
+                if (changed) {
+                    dropped.setItemStack(stack);
                 }
             }
         }
@@ -902,6 +944,21 @@ final class AmethystItemService implements Listener {
                 player.sendActionBar(Component.text("◆ AMETHYST ITEM EXPIRED ◆", AMETHYST));
                 player.playSound(player.getLocation(), Sound.BLOCK_AMETHYST_CLUSTER_BREAK, 0.9f, 0.55f);
             }
+        }
+    }
+
+    private void indexLoadedDrops() {
+        for (org.bukkit.World world : Bukkit.getWorlds()) {
+            for (org.bukkit.entity.Item item
+                    : world.getEntitiesByClass(org.bukkit.entity.Item.class)) {
+                trackDrop(item);
+            }
+        }
+    }
+
+    private void trackDrop(org.bukkit.entity.Item item) {
+        if (isTimed(item.getItemStack())) {
+            droppedTimedItems.add(item.getUniqueId());
         }
     }
 

@@ -6,8 +6,10 @@ import com.google.gson.JsonParser;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -37,7 +39,14 @@ final class MetricCounters {
         if (key == null || key.isBlank() || amount == 0L) {
             return;
         }
-        counters.merge(key, amount, Long::sum);
+        long current = counters.getOrDefault(key, 0L);
+        long updated;
+        try {
+            updated = Math.addExact(current, amount);
+        } catch (ArithmeticException overflow) {
+            updated = amount > 0L ? Long.MAX_VALUE : Long.MIN_VALUE;
+        }
+        counters.put(key, updated);
         dirty = true;
     }
 
@@ -61,7 +70,15 @@ final class MetricCounters {
         JsonObject root = new JsonObject();
         counters.forEach(root::addProperty);
         try {
-            Files.writeString(file, root.toString(), StandardCharsets.UTF_8);
+            Files.createDirectories(file.getParent());
+            Path temporary = file.resolveSibling(file.getFileName() + ".tmp");
+            Files.writeString(temporary, root.toString(), StandardCharsets.UTF_8);
+            try {
+                Files.move(temporary, file,
+                        StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException unsupported) {
+                Files.move(temporary, file, StandardCopyOption.REPLACE_EXISTING);
+            }
             dirty = false;
         } catch (IOException exception) {
             throw new UncheckedIOException(exception);

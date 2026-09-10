@@ -755,16 +755,20 @@ class MinecraftBridgeServer:
         future: asyncio.Future = loop.create_future()
         self._pending_results[key] = future
         try:
-            await self._send(message_type, payload, idempotency_key=key)
-        except ConnectionError:
+            try:
+                await self._send(message_type, payload, idempotency_key=key)
+            except ConnectionError:
+                return False, "The Minecraft bridge is offline.", {}
+            try:
+                success, message, detail = await asyncio.wait_for(future, timeout=timeout)
+            except asyncio.TimeoutError:
+                return False, "The server did not respond in time.", {}
+            return success, message, detail
+        finally:
+            # A dashboard request can be cancelled when its browser disconnects. Without
+            # this cleanup its unresolved Future stayed reachable until Paper replied or
+            # the whole bridge disconnected.
             self._pending_results.pop(key, None)
-            return False, "The Minecraft bridge is offline.", {}
-        try:
-            success, message, detail = await asyncio.wait_for(future, timeout=timeout)
-        except asyncio.TimeoutError:
-            self._pending_results.pop(key, None)
-            return False, "The server did not respond in time.", {}
-        return success, message, detail
 
     async def run_clan_action(
         self,
@@ -1028,7 +1032,7 @@ class MinecraftBridgeServer:
                     "minecraft_uuid": str(player.get("minecraft_uuid", ""))[:64],
                     "discord_username": str(player.get("discord_username", ""))[:32],
                 }
-                for player in players[:500]
+                for player in players
             ],
         }
         try:

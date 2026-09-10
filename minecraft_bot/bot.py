@@ -882,7 +882,9 @@ class MinecraftAccessBot(commands.Bot):
         """Pushes the whitelist directory to Paper so /whitelisted works in game."""
         if not self.bridge.supports_whitelist_sync:
             return
-        rows = await self.data.list_whitelisted(limit=500)
+        # This snapshot is authoritative on Paper. Truncating it would silently deny
+        # every verified account after the display-oriented query limit.
+        rows = await self.data.list_whitelisted(limit=None)
         guild = self.get_guild(self.config.guild_id)
         players = []
         for row in rows:
@@ -2248,8 +2250,13 @@ class MinecraftAccessBot(commands.Bot):
             return
         try:
             for entry in await self.schedule.due():
+                if not entry.actor_uuid:
+                    message = "failed: re-save this booking so it has an owner account"
+                    await self.schedule.record(entry.id, message)
+                    logger.warning("Scheduled %s: %s", entry.action, message)
+                    continue
                 ok, message, _detail = await self.bridge.run_admin_action(
-                    actor_uuid="00000000-0000-0000-0000-000000000000",
+                    actor_uuid=entry.actor_uuid,
                     action_id=entry.action,
                     arguments=entry.arguments,
                 )
