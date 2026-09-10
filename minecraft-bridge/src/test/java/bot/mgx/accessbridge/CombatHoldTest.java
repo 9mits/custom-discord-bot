@@ -116,4 +116,17 @@ class CombatHoldTest {
                         "if (!isFighter(attacker.getUniqueId()) && plugin.openWorldPvpEnabled())"),
                 "the fighter exemption in onDamage has moved");
     }
+
+    @Test
+    void startupSaysTheHoldIsOnAndNotJustThatTheRuleIs() throws IOException {
+        // forcePvp(false) pins the game rule ON, so LaunchService logs "PvP is pinned
+        // on by an operator" — the opposite of what players are experiencing.
+        String bridge = Files.readString(
+                Path.of("src/main/java/bot/mgx/accessbridge/MGXAccessBridge.java"),
+                StandardCharsets.UTF_8);
+        int start = bridge.indexOf("launchService.restoreOnEnable();");
+        assertTrue(start > 0, "the startup call has moved");
+        assertTrue(bridge.substring(start, start + 400).contains("combatHold.describe("),
+                "a restart under a hold has to say so");
+    }
 }
