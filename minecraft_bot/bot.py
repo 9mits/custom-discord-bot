@@ -3078,11 +3078,13 @@ class MinecraftAccessBot(commands.Bot):
             from .updatenotice import (
                 UpdateNoticeView,
                 build_notice_embeds,
+                build_notice_layout,
                 find_template,
             )
 
             view = None
             embeds = None
+            layout = None
             if template:
                 chosen = find_template(template)
                 if chosen is None:
@@ -3096,8 +3098,12 @@ class MinecraftAccessBot(commands.Bot):
                         )
                     )
                     return
-                embeds = build_notice_embeds(chosen)
-                view = UpdateNoticeView(self, chosen.url)
+                # One card when the post is sectioned; the embed summary is what a
+                # post with no editorial metadata still gets.
+                layout = build_notice_layout(self, chosen)
+                if layout is None:
+                    embeds = build_notice_embeds(chosen)
+                    view = UpdateNoticeView(self, chosen.url)
             else:
                 try:
                     embed = build_announcement_embed(
@@ -3119,8 +3125,9 @@ class MinecraftAccessBot(commands.Bot):
             announcer = announcer_for(self)
             try:
                 await announcer.preview(
-                    embed=embed if embeds is None else None,
+                    embed=embed if embeds is None and layout is None else None,
                     embeds=embeds,
+                    layout=layout,
                     member=interaction.user,
                     view=view,
                 )

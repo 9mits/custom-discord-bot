@@ -61,6 +61,9 @@ class NoticeFeature:
     title: str
     summary: str
     image: str = ""
+    #: Its line on the one-card notice, when the opening sentence is not the one
+    #: worth keeping. Falls back to that sentence.
+    headline: str = ""
 
 
 @dataclass(frozen=True)
@@ -71,6 +74,9 @@ class NoticeGroup:
     features: tuple[NoticeFeature, ...]
     image: str = ""
     colour: int = 0x9B59FF
+    #: The single line this section gets on the one-card notice. Derived from the
+    #: section's first feature when the post does not write one itself.
+    headline: str = ""
 
 
 @dataclass(frozen=True)
@@ -149,6 +155,9 @@ def _built_in_preview_templates() -> tuple[UpdateTemplate, ...]:
                     "together.\nBring it down before the arena's fight clock expires."
                 ),
                 image="dragon-victory.png",
+                headline=(
+                    "A shared world boss in its own crystal arena, on a fight clock."
+                ),
             ),
             notice_groups=(
                 NoticeGroup(
@@ -186,6 +195,9 @@ def _built_in_preview_templates() -> tuple[UpdateTemplate, ...]:
                         ),
                     ),
                     image="dragon-rewards.png",
+                    headline=(
+                        "The Dragon Crate opens when it falls — Sharpness VII gear, and Eternal rainbow items at 2 in 100,000."
+                    ),
                     colour=0x8E44FF,
                 ),
                 NoticeGroup(
@@ -201,6 +213,9 @@ def _built_in_preview_templates() -> tuple[UpdateTemplate, ...]:
                         ),
                     ),
                     image="humongous-amethyst.png",
+                    headline=(
+                        "Giant and Humongous tiers, tougher and rarer, and every one announces its coordinates."
+                    ),
                     colour=0xA545FF,
                 ),
                 NoticeGroup(
@@ -216,6 +231,9 @@ def _built_in_preview_templates() -> tuple[UpdateTemplate, ...]:
                         ),
                     ),
                     image="dragon-clan-battle.png",
+                    headline=(
+                        "Dragon Damage, End Crystals Broken, and a Clan Battle for the claimed eggs."
+                    ),
                     colour=0xFF8808,
                 ),
                 NoticeGroup(
@@ -238,6 +256,9 @@ def _built_in_preview_templates() -> tuple[UpdateTemplate, ...]:
                         ),
                     ),
                     image="pvp-victory.png",
+                    headline=(
+                        "Challenge anyone, keep your inventory, and wager money, items or cosmetics."
+                    ),
                     colour=0xE74C3C,
                 ),
                 NoticeGroup(
@@ -253,6 +274,9 @@ def _built_in_preview_templates() -> tuple[UpdateTemplate, ...]:
                         ),
                     ),
                     image="pvp-scythes.png",
+                    headline=(
+                        "Apex, Void and Shadow — carried only by the top three."
+                    ),
                     colour=0x673AB7,
                 ),
                 NoticeGroup(
@@ -275,6 +299,9 @@ def _built_in_preview_templates() -> tuple[UpdateTemplate, ...]:
                         ),
                     ),
                     image="amethyst-crate.png",
+                    headline=(
+                        "Open again at 2 Keys a pull, counting down to 12 September, 15:00 UTC."
+                    ),
                     colour=0xB531FF,
                 ),
                 NoticeGroup(
@@ -296,6 +323,9 @@ def _built_in_preview_templates() -> tuple[UpdateTemplate, ...]:
                         ),
                     ),
                     image="pvp-hub.png",
+                    headline=(
+                        "Griefing is over, and agreed fights go through /pvp."
+                    ),
                     colour=0x2ECC71,
                 ),
                 NoticeGroup(
@@ -318,6 +348,9 @@ def _built_in_preview_templates() -> tuple[UpdateTemplate, ...]:
                         ),
                     ),
                     image="order-board.png",
+                    headline=(
+                        "/order posts exactly what you want to buy and what you will pay for it."
+                    ),
                     colour=0x3498DB,
                 ),
             ),
@@ -627,6 +660,190 @@ def build_notice_embeds(template: UpdateTemplate) -> list[discord.Embed]:
     return embeds
 
 
+# ----------------------------------------------------------------------------
+# The one-card notice
+# ----------------------------------------------------------------------------
+
+#: Discord lays a media gallery out roughly three across, so nine shots make a
+#: square mosaic and ten leaves a widow on the last row.
+NOTICE_GALLERY_LIMIT = 9
+
+
+def _lead_emoji(title: str) -> str:
+    """The emoji a feature heading opens with, if it has one."""
+    first = str(title or "").strip().split(" ", 1)[0]
+    return first if first and not first.isascii() else ""
+
+
+def _first_beat(summary: str) -> str:
+    """The opening sentence — the part that still lands with everything else cut."""
+    for line in str(summary or "").splitlines():
+        for sentence in _SENTENCE.findall(line.strip()):
+            sentence = sentence.strip()
+            if sentence:
+                return sentence
+    return ""
+
+
+def _headline_line(emoji: str, title: str, beat: str) -> str:
+    label = f"{emoji} {title}".strip()
+    return f"**{label}** — {beat}" if beat else f"**{label}**"
+
+
+def notice_headlines(template: UpdateTemplate) -> list[str]:
+    """One line per section: the whole update read at a glance.
+
+    A section writes its own ``headline`` when the post has one; otherwise the
+    opening sentence of its first feature stands in, so a section can never appear
+    on the card describing something the article does not.
+    """
+    lines: list[str] = []
+    if template.spotlight is not None:
+        lines.append(_headline_line(
+            _lead_emoji(template.spotlight.title),
+            template.spotlight_title or _short_update_name(template.title),
+            template.spotlight.headline or _first_beat(template.spotlight.summary),
+        ))
+    for group in template.notice_groups:
+        first = group.features[0] if group.features else None
+        lines.append(_headline_line(
+            _lead_emoji(first.title) if first else "",
+            group.title,
+            group.headline or (_first_beat(first.summary) if first else ""),
+        ))
+    return lines
+
+
+def notice_gallery(template: UpdateTemplate) -> list[tuple[str, str]]:
+    """``(url, alt text)`` for the mosaic: the cover, then one shot per section."""
+    chosen: list[tuple[str, str]] = []
+    seen: set[str] = set()
+
+    def add(image: str, alt: str) -> None:
+        url = _media_url(template, image)
+        if url and url not in seen and len(chosen) < NOTICE_GALLERY_LIMIT:
+            seen.add(url)
+            chosen.append((url, alt[:256]))
+
+    if template.spotlight is not None:
+        add(template.spotlight.image, template.spotlight_title or template.spotlight.title)
+    for group in template.notice_groups:
+        add(
+            group.image or next((item.image for item in group.features if item.image), ""),
+            group.title,
+        )
+    return chosen
+
+
+async def open_update_dm_settings(bot: Any, interaction: discord.Interaction) -> None:
+    """The opt-out flow, shared by the card and by every notice sent before it."""
+    from .announce import log_update_notice
+
+    if await bot.data.is_update_opted_out(interaction.user.id):
+        await bot.data.set_update_optout(interaction.user.id, False)
+        await interaction.response.send_message(
+            embed=discord.Embed(
+                title="Update DMs Switched Back On",
+                description=(
+                    "> You will receive future Mysterious SMP X update notices again."
+                ),
+                colour=discord.Colour(0x57F287),
+            ),
+            ephemeral=True,
+        )
+        await log_update_notice(
+            bot,
+            title="Update DMs Re-enabled",
+            member=interaction.user,
+            detail="The member turned future update notices back on.",
+            success=True,
+        )
+        return
+
+    await interaction.response.send_message(
+        embed=discord.Embed(
+            title="Stop Future Update DMs?",
+            description=(
+                "> This stops future server-update announcements. It does not stop "
+                "account, verification, or necessary staff messages.\n\n"
+                "Press the red confirmation below to finish. You can turn updates "
+                "back on later from this same **Update DM settings** button."
+            ),
+            colour=discord.Colour(0xF06000),
+        ),
+        view=ConfirmUpdateOptOutView(bot),
+        ephemeral=True,
+    )
+
+
+class _OptOutButton(discord.ui.Button):
+    """The card's copy of the opt-out control, on the one custom_id that must not move."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            label="Update DM settings",
+            style=discord.ButtonStyle.secondary,
+            custom_id=OPTOUT_CUSTOM_ID,
+        )
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await open_update_dm_settings(self.view.bot, interaction)
+
+
+class UpdateNoticeLayout(discord.ui.LayoutView):
+    """The whole notice as one card.
+
+    Ten embeds said everything and asked the reader to scroll past nine screens to
+    find out. Components V2 puts the hype line, a mosaic of the update's real
+    screenshots, a line per section and both buttons inside one container, so the
+    update is taken in at a glance and the link is never below the fold.
+    """
+
+    def __init__(self, bot: Any, template: UpdateTemplate) -> None:
+        super().__init__(timeout=None)
+        self.bot = bot
+        #: The audit log reads this: a layout has no embed title to fall back on.
+        self.notice_title = template.label
+        container = discord.ui.Container(accent_colour=discord.Colour(0xB531FF))
+        container.add_item(discord.ui.TextDisplay(
+            f"## New Mysterious SMP X update! — {_short_update_name(template.title)}\n"
+            + (template.tagline or "A new Mysterious SMP X update is live.")
+        ))
+        gallery = notice_gallery(template)
+        if gallery:
+            container.add_item(discord.ui.MediaGallery(*(
+                discord.MediaGalleryItem(url, description=alt) for url, alt in gallery
+            )))
+        headlines = notice_headlines(template)
+        if headlines:
+            container.add_item(discord.ui.Separator())
+            container.add_item(discord.ui.TextDisplay("\n".join(headlines)))
+        container.add_item(discord.ui.Separator())
+        container.add_item(discord.ui.TextDisplay(
+            "-# Sent once for this update. Read everything, or change update DMs below."
+        ))
+        container.add_item(discord.ui.ActionRow(
+            discord.ui.Button(
+                label="Read the full update",
+                style=discord.ButtonStyle.link,
+                url=template.url or SITE_URL,
+            ),
+            _OptOutButton(),
+        ))
+        self.add_item(container)
+
+
+def build_notice_layout(bot: Any, template: UpdateTemplate) -> Optional[UpdateNoticeLayout]:
+    """The one-card notice, or None when this post has nothing to lay out.
+
+    Returning None rather than raising keeps a post with no editorial metadata on
+    the plain single-embed summary it has always had.
+    """
+    if template.spotlight is None and not template.notice_groups:
+        return None
+    return UpdateNoticeLayout(bot, template)
+
+
 class UpdateNoticeView(discord.ui.View):
     """The update link and the recipient's reversible DM preference.
 
@@ -654,43 +871,7 @@ class UpdateNoticeView(discord.ui.View):
     async def update_dm_settings(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ) -> None:
-        from .announce import log_update_notice
-
-        if await self.bot.data.is_update_opted_out(interaction.user.id):
-            await self.bot.data.set_update_optout(interaction.user.id, False)
-            await interaction.response.send_message(
-                embed=discord.Embed(
-                    title="Update DMs Switched Back On",
-                    description=(
-                        "> You will receive future Mysterious SMP X update notices again."
-                    ),
-                    colour=discord.Colour(0x57F287),
-                ),
-                ephemeral=True,
-            )
-            await log_update_notice(
-                self.bot,
-                title="Update DMs Re-enabled",
-                member=interaction.user,
-                detail="The member turned future update notices back on.",
-                success=True,
-            )
-            return
-
-        await interaction.response.send_message(
-            embed=discord.Embed(
-                title="Stop Future Update DMs?",
-                description=(
-                    "> This stops future server-update announcements. It does not stop "
-                    "account, verification, or necessary staff messages.\n\n"
-                    "Press the red confirmation below to finish. You can turn updates "
-                    "back on later from this same **Update DM settings** button."
-                ),
-                colour=discord.Colour(0xF06000),
-            ),
-            view=ConfirmUpdateOptOutView(self.bot),
-            ephemeral=True,
-        )
+        await open_update_dm_settings(self.bot, interaction)
 
 
 class ConfirmUpdateOptOutView(discord.ui.View):
