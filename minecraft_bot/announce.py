@@ -87,7 +87,16 @@ def _notice_title(
     *,
     embed: Optional[discord.Embed],
     embeds: Optional[Sequence[discord.Embed]],
+    layout: Optional[discord.ui.LayoutView] = None,
 ) -> str:
+    """What the audit log calls this notice.
+
+    A layout has no embed title to read, so it names itself — otherwise every
+    Components V2 broadcast would be logged as "Untitled update".
+    """
+    named = getattr(layout, "notice_title", "")
+    if named:
+        return str(named)
     first = embed or (embeds[0] if embeds else None)
     return str(getattr(first, "title", "") or "Untitled update")
 
@@ -221,6 +230,7 @@ class UpdateAnnouncer:
         *,
         embed: Optional[discord.Embed] = None,
         embeds: Optional[Sequence[discord.Embed]] = None,
+        layout: Optional[discord.ui.LayoutView] = None,
         member: discord.abc.Messageable,
         content: Optional[str] = None,
         view: Optional[discord.ui.View] = None,
@@ -236,13 +246,15 @@ class UpdateAnnouncer:
         the member role too, and a recorded preview would make the real
         announcement skip the one person who knows it went out.
         """
-        payload = self._embed_payload(embed=embed, embeds=embeds)
-        await member.send(content=content or None, view=view, **payload)
+        payload, sent_view = self._payload(
+            embed=embed, embeds=embeds, layout=layout, view=view
+        )
+        await member.send(content=content or None, view=sent_view, **payload)
         await log_update_notice(
             self.bot,
             title="Announcement Preview DM Sent",
             member=member,
-            detail=f"A preview of **{_notice_title(embed=embed, embeds=embeds)}** was delivered.",
+            detail=f"A preview of **{_notice_title(embed=embed, embeds=embeds, layout=layout)}** was delivered.",
         )
 
     async def send(
@@ -250,6 +262,7 @@ class UpdateAnnouncer:
         *,
         embed: Optional[discord.Embed] = None,
         embeds: Optional[Sequence[discord.Embed]] = None,
+        layout: Optional[discord.ui.LayoutView] = None,
         content: Optional[str] = None,
         actor: str = "owner",
         targets: Optional[Iterable[discord.Member]] = None,
@@ -280,8 +293,10 @@ class UpdateAnnouncer:
                     result.skipped += 1
                     continue
                 try:
-                    payload = self._embed_payload(embed=embed, embeds=embeds)
-                    await member.send(content=content or None, view=view, **payload)
+                    payload, sent_view = self._payload(
+                        embed=embed, embeds=embeds, layout=layout, view=view
+                    )
+                    await member.send(content=content or None, view=sent_view, **payload)
                     result.delivered += 1
                     self._last_sent[member.id] = now
                     await log_update_notice(
@@ -289,7 +304,7 @@ class UpdateAnnouncer:
                         title="Update DM Sent",
                         member=member,
                         detail=(
-                            f"**{_notice_title(embed=embed, embeds=embeds)}** was delivered "
+                            f"**{_notice_title(embed=embed, embeds=embeds, layout=layout)}** was delivered "
                             f"during the announcement started by **{actor}**."
                         ),
                     )
@@ -323,6 +338,25 @@ class UpdateAnnouncer:
             actor, result.delivered, result.refused, result.skipped,
         )
         return result
+
+    @staticmethod
+    def _payload(
+        *,
+        embed: Optional[discord.Embed],
+        embeds: Optional[Sequence[discord.Embed]],
+        layout: Optional[discord.ui.LayoutView] = None,
+        view: Optional[discord.ui.View] = None,
+    ) -> tuple[dict[str, Any], Optional[discord.ui.View]]:
+        """What to send, and which view carries it.
+
+        A Components V2 layout *is* the message: Discord rejects one sent alongside
+        embeds, and the layout already holds the buttons, so it replaces both.
+        """
+        if layout is not None:
+            if embed is not None or embeds:
+                raise ValueError("A layout notice carries no embeds.")
+            return {}, layout
+        return UpdateAnnouncer._embed_payload(embed=embed, embeds=embeds), view
 
     @staticmethod
     def _embed_payload(
