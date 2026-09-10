@@ -1,3 +1,4 @@
+import hashlib
 import time
 import unittest
 from pathlib import Path
@@ -379,19 +380,45 @@ class UpdateTemplateTests(unittest.TestCase):
         self.assertEqual("New Mysterious SMP X update! - Amethyst Dragon", lead.title)
         self.assertEqual(0xB531FF, lead.colour.value)
         self.assertEqual(
-            "https://mysterioussmpx.blog/media/update-7/banner.png", lead.image.url
+            "https://mysterioussmpx.blog/media/update-7/banner.png",
+            lead.image.url.partition("?")[0],
         )
         self.assertEqual(template.url, lead.url)
 
         self.assertEqual(
             "https://mysterioussmpx.blog/media/update-7/notice-collage.png",
-            showcase.image.url,
+            showcase.image.url.partition("?")[0],
         )
         self.assertIsNone(showcase.url, "only the lead links the article")
         self.assertEqual(template.details, showcase.description)
         # It has to end by sending them somewhere, or the notice is the whole update.
         self.assertIn("on the site", showcase.description.lower())
         self.assertLessEqual(sum(len(embed) for embed in embeds), 6000)
+
+    def test_media_urls_are_stamped_with_the_file_they_point_at(self):
+        # Discord's media proxy caches by URL and caches failures too, so an image
+        # previewed before it reached the site stays 404 at that address forever.
+        # The stamp makes new bytes a new URL.
+        template = find_template("Amethyst Update")
+        media = (
+            Path(__file__).resolve().parent.parent / "devblog" / "media" / template.slug
+        )
+        for embed in build_notice_embeds(template):
+            url, _, query = embed.image.url.partition("?")
+            self.assertTrue(query.startswith("v="), f"{url} carries no cache stamp")
+            name = url.rsplit("/", 1)[-1]
+            expected = hashlib.sha256((media / name).read_bytes()).hexdigest()[:10]
+            self.assertEqual(f"v={expected}", query)
+
+    def test_a_missing_media_file_still_produces_a_plain_url(self):
+        # A stamp is an optimisation, never a reason to emit no image at all.
+        from minecraft_bot.updatenotice import _media_url
+
+        template = find_template("Amethyst Update")
+        self.assertEqual(
+            "https://mysterioussmpx.blog/media/update-7/not-here.png",
+            _media_url(template, "not-here.png"),
+        )
 
     def test_the_collage_the_notice_points_at_actually_exists(self):
         # A notice referring to a missing image is a broken notice, and the composer
@@ -425,7 +452,7 @@ class UpdateTemplateTests(unittest.TestCase):
         self.assertEqual("New Mysterious SMP X update! - Amethyst Dragon", embeds[0].title)
         self.assertEqual(
             "https://mysterioussmpx.blog/media/update-7/cover.png",
-            embeds[0].image.url,
+            embeds[0].image.url.partition("?")[0],
         )
         self.assertEqual("Amethyst Dragon", embeds[1].title)
         self.assertEqual("A Feature", embeds[1].fields[0].name)

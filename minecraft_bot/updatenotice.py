@@ -14,6 +14,7 @@ until its full article is deliberately published.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,6 +26,7 @@ import discord
 #: The blog lives beside the bot in the same checkout.
 REPO_ROOT = Path(__file__).resolve().parent.parent
 POSTS_DIR = REPO_ROOT / "devblog" / "posts"
+MEDIA_DIR = REPO_ROOT / "devblog" / "media"
 
 SITE_URL = "https://mysterioussmpx.blog"
 
@@ -481,6 +483,22 @@ def build_notice_embed(template: UpdateTemplate) -> discord.Embed:
     return embed
 
 
+def _media_stamp(slug: str, filename: str) -> str:
+    """A short content fingerprint for one media file, or "" if it is not here.
+
+    Discord's media proxy caches by URL, and it caches failures too: a notice
+    previewed before its image reached the site leaves a 404 pinned against that
+    address, and republishing the picture does not dislodge it. Stamping the URL
+    with the file's own bytes means new content is always a new URL — which also
+    covers an image that is later corrected in place under the same name.
+    """
+    try:
+        data = (MEDIA_DIR / slug / filename).read_bytes()
+    except OSError:
+        return ""
+    return hashlib.sha256(data).hexdigest()[:10]
+
+
 def _media_url(template: UpdateTemplate, image: str) -> str:
     source = str(image or "").strip()
     if source.startswith("https://"):
@@ -488,7 +506,9 @@ def _media_url(template: UpdateTemplate, image: str) -> str:
     filename = Path(source).name
     if not filename:
         return ""
-    return f"{SITE_URL}/media/{quote(template.slug)}/{quote(filename)}"
+    url = f"{SITE_URL}/media/{quote(template.slug)}/{quote(filename)}"
+    stamp = _media_stamp(template.slug, filename)
+    return f"{url}?v={stamp}" if stamp else url
 
 
 def _short_update_name(title: str) -> str:
