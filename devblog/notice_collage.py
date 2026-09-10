@@ -41,11 +41,20 @@ TRIM_TOLERANCE = 26
 #: panel whose composition is destroyed by cropping.
 DEFAULT_TILES = {
     "update-7": [
+        # The hero, then a row of the world and a row of the spoils. Weighted
+        # towards places rather than item grids: a wall of icons says "inventory
+        # screen", and what pulls somebody back is seeing somewhere to go.
         ("dragon-victory.png", "cover", ""),
+        ("mysterious-portal.png", "cover", ""),
+        ("dragon-battle.png", "cover", ""),
+        ("humongous-amethyst.png", "cover", ""),
+        ("pvp-rank-progression.png", "contain", ""),
         ("eternal-gear.png", "contain", ""),
-        ("amethyst-cosmetics.png", "contain", ""),
     ],
 }
+#: Tiles per row under the hero, and how wide each row's cells sit. World shots
+#: want something near 16:9; designed panels are far wider than that.
+DEFAULT_ROWS = ((3, 1.60), (2, 2.45))
 
 
 def _trim(image: Image.Image) -> Image.Image:
@@ -123,29 +132,35 @@ def _caption(tile: Image.Image, text: str) -> None:
     draw.text((x, y), text, font=font, fill=CAPTION_INK)
 
 
-def build(slug: str, tiles: list[tuple[str, str, str]], out: Path) -> Path:
+def build(
+    slug: str,
+    tiles: list[tuple[str, str, str]],
+    out: Path,
+    rows: tuple[tuple[int, float], ...] = DEFAULT_ROWS,
+) -> Path:
     """Write the collage for one update and return where it landed."""
     source = MEDIA / slug
     if len(tiles) < 2:
         raise SystemExit("A collage is a hero plus at least one tile.")
 
-    # Wider tiles than a three-across row, because the designed panels these carry
-    # are 2:1 and up; squeezing them into near-square cells is all padding.
-    row_count = len(tiles) - 1
     hero_width = WIDTH - 2 * MARGIN
-    cell_width = (hero_width - (row_count - 1) * GUTTER) // row_count
-    row_height = round(cell_width / 2.45)
-    height = MARGIN * 2 + HERO_HEIGHT + GUTTER + row_height
+    boxes = [(MARGIN, MARGIN, hero_width, HERO_HEIGHT)]
+    y = MARGIN + HERO_HEIGHT
+    for count, aspect in rows:
+        cell_width = (hero_width - (count - 1) * GUTTER) // count
+        cell_height = round(cell_width / aspect)
+        y += GUTTER
+        boxes.extend(
+            (MARGIN + index * (cell_width + GUTTER), y, cell_width, cell_height)
+            for index in range(count)
+        )
+        y += cell_height
+    if len(boxes) != len(tiles):
+        raise SystemExit(
+            f"{len(tiles)} tiles will not fill {len(boxes)} places; adjust --rows."
+        )
 
-    sheet = Image.new("RGB", (WIDTH, height), BACKDROP)
-    boxes = [
-        (MARGIN, MARGIN, hero_width, HERO_HEIGHT),
-        *[
-            (MARGIN + index * (cell_width + GUTTER),
-             MARGIN + HERO_HEIGHT + GUTTER, cell_width, row_height)
-            for index in range(row_count)
-        ],
-    ]
+    sheet = Image.new("RGB", (WIDTH, y + MARGIN), BACKDROP)
     for (name, mode, label), (x, y, width, box_height) in zip(tiles, boxes):
         path = source / name
         if not path.exists():
@@ -170,7 +185,21 @@ def main() -> int:
         metavar="FILE:MODE:LABEL",
         help="<name.png>:<cover|contain>:<caption> tiles, hero first",
     )
+    parser.add_argument(
+        "--rows",
+        nargs="+",
+        metavar="COUNT:ASPECT",
+        help="tiles per row under the hero, e.g. 3:1.6 2:2.45",
+    )
     args = parser.parse_args()
+
+    rows = DEFAULT_ROWS
+    if args.rows:
+        parsed = []
+        for entry in args.rows:
+            count, _, aspect = entry.partition(":")
+            parsed.append((int(count), float(aspect or 1.6)))
+        rows = tuple(parsed)
 
     if args.tiles:
         tiles = []
@@ -184,7 +213,7 @@ def main() -> int:
         raise SystemExit(f"No default tiles for {args.slug}; pass --tiles.")
 
     out = args.out or (MEDIA / args.slug / "notice-collage.png")
-    written = build(args.slug, tiles, out)
+    written = build(args.slug, tiles, out, rows)
     print(f"{written}  {written.stat().st_size // 1024} KB")
     return 0
 

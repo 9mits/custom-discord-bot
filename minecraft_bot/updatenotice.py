@@ -152,14 +152,16 @@ def _built_in_preview_templates() -> tuple[UpdateTemplate, ...]:
             notice_cover="banner.png",
             notice_collage="notice-collage.png",
             details=(
-                "**The Amethyst Dragon is awake.**\n"
+                "## 🐉 The Amethyst Dragon is awake\n"
                 "The whole server fights it at once — break the crystals, claim the "
-                "**Egg**, and crack the **Dragon Crate** before its timer dies.\n\n"
-                "**Ranked PvP** is live. Wager money, items, even cosmetics.\n"
-                "**Eternal gear** never expires — **2 in 100,000**.\n"
-                "**Griefing is over.** Your base is finally safe.\n\n"
-                "⏳ **The Amethyst Crate closes 12 September, 15:00 UTC.**\n\n"
-                "**Every reward, every drop rate, every screenshot is on the site.**\n"
+                "**Egg**, and crack the **Dragon Crate** before its timer dies.\n"
+                "### Also in this update\n"
+                "- ⚔️ **Ranked PvP** — wager money, items, even cosmetics\n"
+                "- 🌈 **Eternal Rainbow Gear** — never expires, **2 in 100,000**\n"
+                "- 🟣 **Giant & Humongous Amethyst** — bigger, tougher, rarer\n"
+                "- 🛡️ **Griefing is over** — your base is finally safe\n"
+                "> ⏳ **The Amethyst Crate closes 12 September, 15:00 UTC.**\n\n"
+                "**Every reward, every drop rate and every screenshot is on the site.**\n"
                 "*Go look before somebody beats you to it.*"
             ),
             also=(
