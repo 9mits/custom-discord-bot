@@ -89,6 +89,20 @@ class AmethystTokenTest {
     }
 
     @Test
+    void theDefaultCrateShipsOpenSoKeysAlwaysHaveSomewhereToGo() throws IOException {
+        // Mysterious Crate Keys still drop from staying online. If the crate that spends
+        // them defaults shut, every one of those keys is earned into a locked door.
+        String source = source("GameVariableStore.java");
+        int flag = source.indexOf("\"crates.default-enabled\"");
+        assertTrue(flag > 0, "the Default Crate switch must exist");
+        String definition = source.substring(flag, flag + 500);
+        assertTrue(
+                definition.contains("true);"),
+                "the Default Crate must default to open"
+        );
+    }
+
+    @Test
     void theDefaultCrateCanBeStoodDownFromTheControlPanel() {
         try {
             CrateKind.defaultOpenSource(() -> false);
