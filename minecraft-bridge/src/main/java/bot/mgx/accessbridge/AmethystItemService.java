@@ -978,6 +978,9 @@ final class AmethystItemService implements Listener {
         boolean changed = false;
         boolean removed = false;
         for (int index = 0; index < contents.length; index++) {
+            if (!couldBeAmethyst(contents[index])) {
+                continue;
+            }
             if (expired(contents[index], now)) {
                 contents[index] = null;
                 changed = true;
@@ -991,6 +994,26 @@ final class AmethystItemService implements Listener {
             setter.accept(contents);
         }
         return removed;
+    }
+
+    /**
+     * Cheap rejection for the per-second inventory sweep.
+     *
+     * <p>Every check below this ({@code expired}, {@code upgradeLegacyItem},
+     * {@code refreshCountdown}) reaches for the persistent data container, and
+     * {@link ItemStack#getItemMeta()} hands back a fresh deep copy each time — so an
+     * ordinary enchanted sword was costing three full meta clones per slot, for every
+     * slot of every online player's inventory and ender chest, once a second.
+     *
+     * <p>One copy answers it instead. An item with no plugin data cannot be an Amethyst
+     * item: it has no kind, so {@code isTimed} is false and {@code expiresAt} is zero,
+     * which is exactly the path all three checks would have taken the long way round.
+     */
+    private boolean couldBeAmethyst(ItemStack item) {
+        if (item == null || item.getType().isAir() || !item.hasItemMeta()) {
+            return false;
+        }
+        return !item.getItemMeta().getPersistentDataContainer().isEmpty();
     }
 
     private boolean refreshCountdown(ItemStack item, long now) {

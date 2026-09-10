@@ -51,8 +51,16 @@ final class SpawnProtectionTest {
         assertTrue(source.contains("public void onBlockBreak"), "blocks must not break");
         assertTrue(source.contains("public void onBlockPlace"), "blocks must not be placed");
         assertTrue(source.contains("public void onPvp"), "PvP must be refused");
-        assertTrue(source.contains("getEntitiesByClass(Monster.class)"),
+        // Every hostile, not only zombies - the filter is what carries that, and it
+        // must stay a Monster test rather than narrowing to a single type again.
+        assertTrue(source.contains("Monster.class::isInstance"),
                 "the sweep must cover every hostile, not only zombies");
+        // ...and it must stay scoped to the region. getEntitiesByClass walks the whole
+        // world, which made a 100x100 box cost a full entity scan every second.
+        assertTrue(source.contains("world.getNearbyEntities(region"),
+                "the sweep must query the region, not the whole world");
+        assertFalse(source.contains("getEntitiesByClass(Monster.class)"),
+                "a world-wide monster scan must not come back");
         assertTrue(source.contains("amethystMobs.isAmethystMob(entity)"),
                 "an airdrop garrison must still be able to stand here");
     }

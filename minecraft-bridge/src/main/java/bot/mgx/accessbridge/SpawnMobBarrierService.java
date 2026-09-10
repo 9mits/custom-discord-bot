@@ -15,6 +15,7 @@ import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.CreatureSpawnEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.scheduler.BukkitTask;
+import org.bukkit.util.BoundingBox;
 
 import java.util.UUID;
 
@@ -148,13 +149,30 @@ final class SpawnMobBarrierService implements Listener {
         }
     }
 
+    /**
+     * Clears whatever got inside the box by teleport, mount or a spawn path that
+     * skipped the event.
+     *
+     * <p>Scoped to the region rather than the world. {@code getEntitiesByClass} walks
+     * every entity the world has loaded, so a busy overworld paid for a full monster
+     * scan every second to look at a 100x100 box; the bounded query only touches the
+     * chunks the box actually covers. The bounds are read once per sweep too — they were
+     * being rebuilt inside the loop, which meant four game-variable lookups for every
+     * monster on the server, every second.
+     */
     private void removeInside() {
         World world = plugin.getServer().getWorld(worldId);
         if (world == null) {
             return;
         }
-        for (Monster monster : world.getEntitiesByClass(Monster.class)) {
-            if (bounds().contains(monster.getX(), monster.getZ()) && hostile(monster)) {
+        SpawnMobBarrier box = bounds();
+        BoundingBox region = new BoundingBox(
+                box.minX(), world.getMinHeight(), box.minZ(),
+                box.maxX() + 1d, world.getMaxHeight(), box.maxZ() + 1d
+        );
+        for (Entity entity : world.getNearbyEntities(region, Monster.class::isInstance)) {
+            Monster monster = (Monster) entity;
+            if (box.contains(monster.getX(), monster.getZ()) && hostile(monster)) {
                 monster.remove();
             }
         }

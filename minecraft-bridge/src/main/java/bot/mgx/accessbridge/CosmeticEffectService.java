@@ -439,6 +439,10 @@ final class CosmeticEffectService implements Listener {
      * player is and where their tag was last told to be.
      */
     private void followWithNameplates() {
+        // Every tick, and empty except during a crate reveal.
+        if (rarityNameplates.isEmpty()) {
+            return;
+        }
         for (Map.Entry<UUID, ArmorStand> entry : rarityNameplates.entrySet()) {
             Player owner = plugin.getServer().getPlayer(entry.getKey());
             ArmorStand plate = entry.getValue();
