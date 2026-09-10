@@ -2800,7 +2800,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                     ThreadLocalRandom.current().nextDouble(-sourceRadius, sourceRadius),
                     ThreadLocalRandom.current().nextDouble(-.4, .8),
                     ThreadLocalRandom.current().nextDouble(-sourceRadius, sourceRadius));
-            Item visual = spawn.getWorld().dropItem(spawn, items.key(1));
+            Item visual = spawn.getWorld().dropItem(spawn, items.token(1));
             visual.addScoreboardTag(KEY_EFFECT_TAG);
             visual.setGlowing(true);
             visual.setPickupDelay(Integer.MAX_VALUE);

@@ -896,7 +896,7 @@ final class AmethystBlockEventService implements Listener {
                             random.nextDouble(-0.8d, 0.8d),
                             random.nextDouble(-0.4d, 0.8d),
                             random.nextDouble(-0.8d, 0.8d)
-                    ), crateItems.key(1));
+                    ), crateItems.token(1));
                     item.setGlowing(true);
                     item.setPickupDelay(Integer.MAX_VALUE);
                     item.setPersistent(false);

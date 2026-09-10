@@ -56,16 +56,26 @@ final class CrateKeyStackingTest {
         String source = Files.readString(
                 Path.of("src/main/java/bot/mgx/accessbridge/CrateItems.java")
         );
-        int start = source.indexOf("ItemStack key(long amount) {");
+        int start = source.indexOf("ItemStack token(long amount) {");
         int end = source.indexOf("List<ItemStack> keyStacks(long amount)", start);
         assertTrue(start > 0 && end > start, "could not locate the key item builder");
         String body = source.substring(start, end);
-        assertFalse(body.contains("+ amount"), "key text must not embed its own count");
+        assertFalse(body.contains("+ amount"), "token text must not embed its own count");
         assertFalse(body.contains("keyCountMarker"),
-                "a new key must not carry a virtual count; the stack size is the count");
+                "a new token must not carry a virtual count; the stack size is the count");
         assertTrue(body.contains("new ItemStack(Material.TRIAL_KEY, (int) amount)"),
                 "the balance must be the item count");
-        assertTrue(body.contains("setMaxStackSize(MAX_REAL_STACK)"),
-                "keys must declare the real stack ceiling");
+
+        // The stack ceiling and the wording live in applyTokenSkin, which is shared with
+        // the refresh that rewrites stacks minted before the rename. Two stacks whose
+        // text differs refuse to merge, so both paths have to write exactly the same
+        // thing — which is the whole reason it is one method.
+        int skin = source.indexOf("private void applyTokenSkin(ItemMeta meta) {");
+        assertTrue(skin > 0, "could not locate the shared token skin");
+        String appearance = source.substring(skin, source.indexOf("\n    }", skin));
+        assertTrue(appearance.contains("setMaxStackSize(MAX_REAL_STACK)"),
+                "tokens must declare the real stack ceiling");
+        assertTrue(body.contains("applyTokenSkin(meta)"),
+                "a minted token must wear the same skin a refreshed one gets");
     }
 }

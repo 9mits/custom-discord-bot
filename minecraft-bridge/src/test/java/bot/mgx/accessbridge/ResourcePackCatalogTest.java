@@ -170,6 +170,9 @@ class ResourcePackCatalogTest {
     void customItemIconsPreserveTheirIntendedQualityProfiles() throws Exception {
         Set<String> nativePotions = Set.of("fortune_potion.png", "crate_luck_potion.png");
         Map<String, List<Integer>> exactLinkedIcons = Map.ofEntries(
+                // Hand-drawn at vanilla resolution and supplied that way, like the
+                // Amethyst tools — not a generated 72px icon that got shrunk.
+                Map.entry("crate_key.png", List.of(16, 16)),
                 Map.entry("amethyst_pickaxe.png", List.of(16, 16)),
                 Map.entry("amethyst_shovel.png", List.of(16, 16)),
                 Map.entry("amethyst_axe.png", List.of(16, 16)),
@@ -193,6 +196,7 @@ class ResourcePackCatalogTest {
         Set<Path> icons = new HashSet<>();
         Path textures = SOURCE.resolve("assets/mgx/textures/item");
         icons.add(textures.resolve("crate_key.png"));
+        icons.add(textures.resolve("mystery_key.png"));
         icons.add(textures.resolve("fortune_potion.png"));
         icons.add(textures.resolve("crate_luck_potion.png"));
         icons.add(textures.resolve("amethyst_dragon_egg.png"));
@@ -376,6 +380,9 @@ class ResourcePackCatalogTest {
 
         Map<String, String> expectedBases = new HashMap<>();
         expectedBases.put("mgx:crate_key", "minecraft:trial_key");
+        // The token kept crate_key so existing balances survived the rename; the key
+        // that only staying online earns is the item with the new identity.
+        expectedBases.put("mgx:mystery_key", "minecraft:trial_key");
         expectedBases.put("mgx:shard", "minecraft:amethyst_shard");
         expectedBases.put("mgx:fortune_potion", "minecraft:potion");
         expectedBases.put("mgx:crate_luck_potion", "minecraft:potion");

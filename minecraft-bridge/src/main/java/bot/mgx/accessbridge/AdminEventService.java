@@ -205,7 +205,7 @@ final class AdminEventService {
                         10d + random.nextDouble(7d),
                         Math.sin(angle) * distance
                 );
-                Item drop = world.dropItem(at, crateItems.key(1));
+                Item drop = world.dropItem(at, crateItems.token(1));
                 drop.setGlowing(true);
                 drop.setPickupDelay(20);
                 drop.setVelocity(new org.bukkit.util.Vector(

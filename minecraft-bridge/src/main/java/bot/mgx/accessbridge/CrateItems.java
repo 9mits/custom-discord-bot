@@ -22,6 +22,7 @@ final class CrateItems {
     private static final TextColor ORANGE = TextColor.color(0xFF9900);
     private static final TextColor AMETHYST = TextColor.color(0xB56CFF);
     private final NamespacedKey keyMarker;
+    private final NamespacedKey mysteryKeyMarker;
     private final NamespacedKey keyCountMarker;
     private final NamespacedKey shardMarker;
     private final NamespacedKey shardGrantMarker;
@@ -36,7 +37,11 @@ final class CrateItems {
             MGXAccessBridge plugin, CosmeticStore cosmeticStore, SpecialItemService specialItems,
             GameVariableStore variables
     ) {
+        // Never renamed. This marker is the identity of every token in the world,
+        // including the ones that were keys before the rename and are sitting in a
+        // chest nobody has opened since.
         keyMarker = new NamespacedKey(plugin, "crate_key");
+        mysteryKeyMarker = new NamespacedKey(plugin, "mystery_key");
         keyCountMarker = new NamespacedKey(plugin, "crate_key_count");
         shardMarker = new NamespacedKey(plugin, "shard");
         shardGrantMarker = new NamespacedKey(plugin, "shard_grant");
@@ -83,18 +88,14 @@ final class CrateItems {
     }
 
     /**
-     * One real stack of keys.
+     * One real stack of Mysterious Crate Keys.
      *
-     * <p>Keys used to be a single item carrying its balance in persistent data and
-     * printing it into the name — a stack of one that claimed to be nine hundred. The
-     * count is now the item count, so a key behaves like every other item in the game:
-     * it merges, it splits, it shows the number the client draws in the corner of the
-     * slot, and half of it can be dropped or put in a chest.
-     *
-     * <p>Nothing beyond the count varies between two key items, which is precisely what
-     * lets the client merge them. Any per-stack text here would silently stop that.
+     * <p>A separate item from the Amethyst Token, not a renamed one. The token kept the
+     * old {@code crate_key} marker so existing balances survived the rename, so the key
+     * — now earned only by staying online — needed an identity of its own, and inherited
+     * the artwork players already read as "key".
      */
-    ItemStack key(long amount) {
+    ItemStack mysteryKey(long amount) {
         if (amount <= 0) throw new IllegalArgumentException("Key amount must be positive.");
         if (amount > keyStackSize()) {
             throw new IllegalArgumentException("One key stack cannot exceed " + keyStackSize() + ".");
@@ -107,11 +108,11 @@ final class CrateItems {
                     .decoration(TextDecoration.ITALIC, false));
             meta.lore(List.of(
                     line("Opens the Default Crate: 1 key"),
-                    line("Opens the NEW Amethyst Crate: 2 keys"),
+                    line("Earned by staying online."),
                     line("Use /crate to open or inspect rewards.")
             ));
-            meta.getPersistentDataContainer().set(keyMarker, PersistentDataType.BYTE, (byte) 1);
-            NamespacedKey model = NamespacedKey.fromString("mgx:crate_key");
+            meta.getPersistentDataContainer().set(mysteryKeyMarker, PersistentDataType.BYTE, (byte) 1);
+            NamespacedKey model = NamespacedKey.fromString("mgx:mystery_key");
             if (model != null) {
                 meta.setItemModel(model);
             }
@@ -121,11 +122,94 @@ final class CrateItems {
         return item;
     }
 
+    boolean isMysteryKey(ItemStack item) {
+        if (item == null || item.getType() != Material.TRIAL_KEY || !item.hasItemMeta()) {
+            return false;
+        }
+        return item.getItemMeta().getPersistentDataContainer()
+                .has(mysteryKeyMarker, PersistentDataType.BYTE);
+    }
+
+    /**
+     * The name, lore and model every Amethyst Token carries.
+     *
+     * <p>Split out because it is applied twice: once when a token is minted, and again
+     * to a stack that predates the rename. Tokens *are* the keys players already had —
+     * the persistent marker never changed, so the balance in a forgotten chest survived
+     * intact and the resource pack retextured it in place. Only the words were baked
+     * into the stack, and two stacks whose words differ refuse to merge, which is why
+     * the old ones have to be rewritten rather than left to read oddly.
+     */
+    private void applyTokenSkin(ItemMeta meta) {
+        meta.setMaxStackSize(MAX_REAL_STACK);
+        meta.displayName(Component.text("Amethyst Token", AMETHYST, TextDecoration.BOLD)
+                .decoration(TextDecoration.ITALIC, false));
+        meta.lore(List.of(
+                line("Opens the NEW Amethyst Crate: 2 Tokens"),
+                line("Opens the Amethyst Dragon Crate: 1 Token"),
+                line("Use /crate to open or inspect rewards.")
+        ));
+        meta.getPersistentDataContainer().set(keyMarker, PersistentDataType.BYTE, (byte) 1);
+        NamespacedKey model = NamespacedKey.fromString("mgx:crate_key");
+        if (model != null) {
+            meta.setItemModel(model);
+        }
+        meta.setEnchantmentGlintOverride(true);
+    }
+
+    /**
+     * Brings a pre-rename stack up to date, so it merges with freshly minted tokens.
+     *
+     * @return true when the stack was a token that needed rewriting.
+     */
+    boolean refreshToken(ItemStack item) {
+        if (!isKey(item)) {
+            return false;
+        }
+        ItemMeta meta = item.getItemMeta();
+        if (meta == null) {
+            return false;
+        }
+        Component current = meta.displayName();
+        Component wanted = Component.text("Amethyst Token", AMETHYST, TextDecoration.BOLD)
+                .decoration(TextDecoration.ITALIC, false);
+        if (wanted.equals(current)) {
+            return false;
+        }
+        applyTokenSkin(meta);
+        item.setItemMeta(meta);
+        return true;
+    }
+
+    /**
+     * One real stack of Amethyst Tokens.
+     *
+     * <p>The count is the item count, so a token behaves like every other item in the
+     * game: it merges, it splits, it shows the number the client draws in the corner of
+     * the slot, and half of it can be dropped or put in a chest.
+     *
+     * <p>Nothing beyond the count varies between two token items, which is precisely
+     * what lets the client merge them. Any per-stack text here would silently stop that.
+     */
+    ItemStack token(long amount) {
+        if (amount <= 0) throw new IllegalArgumentException("Token amount must be positive.");
+        if (amount > keyStackSize()) {
+            throw new IllegalArgumentException("One key stack cannot exceed " + keyStackSize() + ".");
+        }
+        ItemStack item = new ItemStack(Material.TRIAL_KEY, (int) amount);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            applyTokenSkin(meta);
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
     /** Splits a balance into real stacks, none larger than one slot can hold. */
     List<ItemStack> keyStacks(long amount) {
         List<ItemStack> stacks = new ArrayList<>();
         for (long portion : keyPortions(amount, keyStackSize())) {
-            stacks.add(key(portion));
+            stacks.add(token(portion));
         }
         return List.copyOf(stacks);
     }
@@ -202,6 +286,88 @@ final class CrateItems {
         return isLegacyBundle(player.getInventory().getItemInOffHand());
     }
 
+    /**
+     * How many Mysterious Crate Keys this player is carrying.
+     *
+     * <p>Separate from {@link #count(Player)} because that counts Amethyst Tokens: the
+     * token inherited the key's persistent marker so nobody's balance was lost in the
+     * rename, which left the key itself needing its own tally.
+     */
+    long countMysteryKeys(Player player) {
+        long total = 0;
+        for (ItemStack item : player.getInventory().getStorageContents()) {
+            if (isMysteryKey(item)) {
+                total = Math.addExact(total, item.getAmount());
+            }
+        }
+        ItemStack offhand = player.getInventory().getItemInOffHand();
+        return isMysteryKey(offhand) ? Math.addExact(total, offhand.getAmount()) : total;
+    }
+
+    /** @return how many were actually taken, which may be fewer than requested. */
+    int removeMysteryKeys(Player player, int requested) {
+        int remaining = Math.max(0, requested);
+        ItemStack[] storage = player.getInventory().getStorageContents();
+        for (int index = 0; index < storage.length && remaining > 0; index++) {
+            ItemStack item = storage[index];
+            if (!isMysteryKey(item)) {
+                continue;
+            }
+            int taken = Math.min(item.getAmount(), remaining);
+            remaining -= taken;
+            if (taken == item.getAmount()) {
+                storage[index] = null;
+            } else {
+                item.setAmount(item.getAmount() - taken);
+            }
+        }
+        player.getInventory().setStorageContents(storage);
+        ItemStack offhand = player.getInventory().getItemInOffHand();
+        if (remaining > 0 && isMysteryKey(offhand)) {
+            int taken = Math.min(offhand.getAmount(), remaining);
+            remaining -= taken;
+            if (taken == offhand.getAmount()) {
+                player.getInventory().setItemInOffHand(null);
+            } else {
+                offhand.setAmount(offhand.getAmount() - taken);
+            }
+        }
+        return Math.max(0, requested) - remaining;
+    }
+
+    /**
+     * @return true when every key fitted; false leaves the inventory untouched so the
+     *     caller can bank the reward instead of dropping it at the player's feet.
+     */
+    boolean giveMysteryKeys(Player player, long amount) {
+        if (amount <= 0) {
+            return true;
+        }
+        List<ItemStack> stacks = new ArrayList<>();
+        for (long portion : keyPortions(amount, keyStackSize())) {
+            stacks.add(mysteryKey(portion));
+        }
+        int free = 0;
+        for (ItemStack slot : player.getInventory().getStorageContents()) {
+            if (slot == null || slot.getType() == Material.AIR) {
+                free++;
+            }
+        }
+        if (free < stacks.size()) {
+            return false;
+        }
+        stacks.forEach(stack -> player.getInventory().addItem(stack));
+        return true;
+    }
+
+    /** Hands over keys, dropping whatever will not fit rather than losing it. */
+    void giveMysteryKeysOrDrop(Player player, long amount) {
+        for (long portion : keyPortions(amount, keyStackSize())) {
+            player.getInventory().addItem(mysteryKey(portion)).values().forEach(overflow ->
+                    player.getWorld().dropItemNaturally(player.getLocation(), overflow));
+        }
+    }
+
     long count(Player player) {
         long total = 0;
         for (ItemStack item : player.getInventory().getStorageContents()) {
@@ -276,18 +442,18 @@ final class CrateItems {
             long held = keyCount(storage[i]);
             if (held <= 0L || held >= keyStackSize()) continue;
             long added = Math.min(remaining, keyStackSize() - held);
-            storage[i] = key(held + added);
+            storage[i] = token(held + added);
             remaining -= added;
         }
         if (remaining > 0L && offhandKeys > 0L && offhandKeys < keyStackSize()) {
             long added = Math.min(remaining, keyStackSize() - offhandKeys);
-            player.getInventory().setItemInOffHand(key(offhandKeys + added));
+            player.getInventory().setItemInOffHand(token(offhandKeys + added));
             remaining -= added;
         }
         for (int i = 0; i < storage.length && remaining > 0L; i++) {
             if (storage[i] != null) continue;
             long added = Math.min(remaining, keyStackSize());
-            storage[i] = key(added);
+            storage[i] = token(added);
             remaining -= added;
         }
         player.getInventory().setStorageContents(storage);
@@ -315,14 +481,14 @@ final class CrateItems {
             long held = keyCount(storage[i]);
             if (held == 0) continue;
             int taken = (int) Math.min(held, remaining);
-            storage[i] = held == taken ? null : key(held - taken);
+            storage[i] = held == taken ? null : token(held - taken);
             remaining -= taken;
         }
         player.getInventory().setStorageContents(storage);
         long held = keyCount(player.getInventory().getItemInOffHand());
         if (held > 0 && remaining > 0) {
             int taken = (int) Math.min(held, remaining);
-            player.getInventory().setItemInOffHand(held == taken ? null : key(held - taken));
+            player.getInventory().setItemInOffHand(held == taken ? null : token(held - taken));
             remaining -= taken;
         }
         return Math.max(0, requested) - remaining;

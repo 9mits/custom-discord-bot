@@ -1636,6 +1636,14 @@ final class GameVariableStore {
         integer("online-rewards.population.maximum-bonus-keys", "Maximum population bonus", "Online Rewards",
                 "Ceiling on bonus keys supplied by the current online player count.",
                 4, 0, 1_024, "keys", false);
+        decimal("online-rewards.token-bonus", "Token bonus per key", "Online Rewards",
+                "Amethyst Tokens handed out alongside each stay-reward key. Staying online"
+                        + " is the one reward the Amethyst event did not take over.",
+                1.0, 0, 64, "tokens");
+        bool("crates.default-enabled", "Default Crate open", "Crates",
+                "Whether the Default Crate can be opened. Off hides it from /crate while"
+                        + " the Amethyst event runs; Mysterious Crate Keys keep accruing.",
+                false);
         bool("online-rewards.key-events-multiply-bonus", "Key events multiply stay rewards", "Online Rewards",
                 "Whether 2x/4x key events also multiply stay-ladder and population bonus keys.", false);
 
