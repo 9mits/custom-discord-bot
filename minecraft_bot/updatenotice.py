@@ -160,9 +160,7 @@ def _built_in_preview_templates() -> tuple[UpdateTemplate, ...]:
                 "- 🌈 **Eternal Rainbow Gear** — never expires, **2 in 100,000**\n"
                 "- 🟣 **Giant & Humongous Amethyst** — bigger, tougher, rarer\n"
                 "- 🛡️ **Griefing is over** — your base is finally safe\n"
-                "> ⏳ **The Amethyst Crate closes 12 September, 15:00 UTC.**\n\n"
-                "**Every reward, every drop rate and every screenshot is on the site.**\n"
-                "*Go look before somebody beats you to it.*"
+                "> ⏳ **The Amethyst Crate closes 12 September, 15:00 UTC.**"
             ),
             also=(
                 "Bigger Amethyst Blocks, Dragon leaderboards and clan battles, "

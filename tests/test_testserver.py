@@ -384,3 +384,79 @@ class WorldProtectionPluginTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NoticeCollageTests(unittest.TestCase):
+    """The collage composer: justified rows, no padding, no invented art."""
+
+    def _sheet(self, tmp, names, rows):
+        from PIL import Image
+
+        from devblog import notice_collage
+
+        media = Path(tmp) / "update-x"
+        media.mkdir(parents=True)
+        for name, (width, height) in names.items():
+            Image.new("RGB", (width, height), (90, 40, 160)).save(media / name)
+        out = Path(tmp) / "collage.png"
+        with mock.patch.object(notice_collage, "MEDIA", Path(tmp)):
+            notice_collage.build(
+                "update-x",
+                [(name, "cover", "") for name in names],
+                out,
+                rows,
+            )
+        return Image.open(out)
+
+    def test_a_row_of_mismatched_shapes_still_meets_both_margins(self):
+        # A 3.6:1 panel beside a 1.9:1 one used to letterbox whichever lost, and
+        # the uneven bands read as broken spacing rather than as design.
+        from devblog import notice_collage as nc
+
+        with TemporaryDirectory() as tmp:
+            sheet = self._sheet(
+                tmp,
+                {
+                    "hero.png": (1600, 900),
+                    "wide.png": (1800, 500),
+                    "square.png": (1254, 650),
+                },
+                (2,),
+            )
+            self.assertEqual(nc.WIDTH, sheet.width)
+            # The rightmost usable column must carry artwork somewhere down the
+            # bottom row, which is only true if that row was justified to fit.
+            # Sampled as a column, since the tile corners are deliberately rounded.
+            column = nc.WIDTH - nc.MARGIN - 3
+            band = range(sheet.height // 2, sheet.height - nc.MARGIN)
+            painted = sum(
+                sheet.getpixel((column, y)) != nc.BACKDROP for y in band
+            )
+            self.assertGreater(painted, 0, "the row stops short of the right margin")
+
+    def test_a_collage_refuses_to_invent_a_missing_screenshot(self):
+        from devblog import notice_collage as nc
+
+        with TemporaryDirectory() as tmp:
+            (Path(tmp) / "update-x").mkdir(parents=True)
+            with mock.patch.object(nc, "MEDIA", Path(tmp)):
+                with self.assertRaises(SystemExit):
+                    nc.build(
+                        "update-x",
+                        [("hero.png", "cover", ""), ("gone.png", "cover", "")],
+                        Path(tmp) / "out.png",
+                        (1,),
+                    )
+
+    def test_tiles_have_to_fill_the_rows_they_are_given(self):
+        from devblog import notice_collage as nc
+
+        with TemporaryDirectory() as tmp:
+            with mock.patch.object(nc, "MEDIA", Path(tmp)):
+                with self.assertRaises(SystemExit):
+                    nc.build(
+                        "update-x",
+                        [("a.png", "cover", ""), ("b.png", "cover", "")],
+                        Path(tmp) / "out.png",
+                        (3,),
+                    )

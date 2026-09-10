@@ -391,8 +391,9 @@ class UpdateTemplateTests(unittest.TestCase):
         )
         self.assertIsNone(showcase.url, "only the lead links the article")
         self.assertEqual(template.details, showcase.description)
-        # It has to end by sending them somewhere, or the notice is the whole update.
-        self.assertIn("on the site", showcase.description.lower())
+        # The article is reached by the lead's link and the button, so the copy is
+        # free to stop at the update itself rather than advertising the site.
+        self.assertEqual(template.url, lead.url)
         self.assertLessEqual(sum(len(embed) for embed in embeds), 6000)
 
     def test_media_urls_are_stamped_with_the_file_they_point_at(self):
