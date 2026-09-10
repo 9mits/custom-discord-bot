@@ -132,7 +132,9 @@ class MinecraftConfig:
             ).strip() or DEFAULT_BEDROCK_ADDRESS,
             bedrock_port=bedrock_port,
             bridge_path=bridge_path,
-            bridge_host=os.environ.get("MINECRAFT_BRIDGE_HOST", "0.0.0.0").strip(),
+            bridge_host=os.environ.get(
+                "MINECRAFT_BRIDGE_HOST", "0.0.0.0"
+            ).strip() or "0.0.0.0",
             bridge_port=bridge_port,
             data_dir=data_dir.resolve(),
             allow_insecure_localhost=os.environ.get(

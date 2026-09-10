@@ -1309,7 +1309,7 @@ final class ChaosService implements Listener {
         // which is how you get a boss nobody can find.
         Location at = session.anchor.clone();
         Zombie boss = world.spawn(at, Zombie.class, zombie -> {
-            zombie.setCustomName("Alfredo");
+            zombie.customName(Component.text("Alfredo"));
             // The vanilla nameplate is a fixed size and sits just above the head,
             // which at this scale is off the top of the screen. A TextDisplay
             // scaled to match him replaces it.
@@ -1342,7 +1342,7 @@ final class ChaosService implements Listener {
                 + " health=" + (long) health);
 
         TextDisplay label = world.spawn(at.clone().add(0d, headroom, 0d), TextDisplay.class, text -> {
-            text.setText("ALFREDO");
+            text.text(Component.text("ALFREDO"));
             text.setBillboard(org.bukkit.entity.Display.Billboard.CENTER);
             text.setSeeThrough(true);
             text.setPersistent(false);

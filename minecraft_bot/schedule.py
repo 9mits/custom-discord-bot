@@ -18,6 +18,7 @@ Two properties matter more than precision here:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -47,6 +48,8 @@ class Entry:
     repeat_days: int = 0
     enabled: bool = True
     label: str = ""
+    actor_uuid: str = ""
+    actor_label: str = ""
     last_run_at: Optional[int] = None
     last_result: str = ""
 
@@ -59,6 +62,8 @@ class Entry:
             "repeat_days": self.repeat_days,
             "enabled": self.enabled,
             "label": self.label,
+            "actor_uuid": self.actor_uuid,
+            "actor_label": self.actor_label,
             "last_run_at": self.last_run_at,
             "last_result": self.last_result,
         }
@@ -72,7 +77,9 @@ class Entry:
             run_at=int(raw.get("run_at") or 0),
             repeat_days=max(0, int(raw.get("repeat_days") or 0)),
             enabled=bool(raw.get("enabled", True)),
-            label=str(raw.get("label", "")),
+            label=str(raw.get("label", ""))[:100],
+            actor_uuid=str(raw.get("actor_uuid", "")).strip(),
+            actor_label=str(raw.get("actor_label", ""))[:80],
             last_run_at=raw.get("last_run_at"),
             last_result=str(raw.get("last_result", "")),
         )
@@ -97,41 +104,78 @@ class Schedule:
 
     bot: Any
     entries: list[Entry] = field(default_factory=list)
+    _lock: asyncio.Lock = field(default_factory=asyncio.Lock, init=False, repr=False)
 
     async def load(self) -> None:
+        async with self._lock:
+            await self._load_unlocked()
+
+    async def _load_unlocked(self) -> None:
         raw = await self.bot.data.get_config(STORAGE_KEY, "[]")
         try:
             rows = json.loads(raw) if isinstance(raw, str) else (raw or [])
         except (json.JSONDecodeError, TypeError):
             rows = []
-        self.entries = [Entry.from_dict(row) for row in rows if isinstance(row, dict)]
+        if not isinstance(rows, list):
+            rows = []
+        entries: list[Entry] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            try:
+                entries.append(Entry.from_dict(row))
+            except (TypeError, ValueError, OverflowError):
+                logger.warning("Ignored a malformed scheduled-action row")
+        self.entries = entries[:MAX_ENTRIES]
 
     async def save(self) -> None:
+        async with self._lock:
+            await self._save_unlocked()
+
+    async def _save_unlocked(self) -> None:
         await self.bot.data.set_config(
             STORAGE_KEY, json.dumps([entry.as_dict() for entry in self.entries])
         )
 
-    async def upsert(self, raw: dict[str, Any]) -> Entry:
-        await self.load()
-        entry = Entry.from_dict(raw)
+    async def upsert(
+        self,
+        raw: dict[str, Any],
+        *,
+        actor_uuid: str,
+        actor_label: str = "",
+    ) -> Entry:
+        try:
+            normalized_actor = str(uuid.UUID(str(actor_uuid).strip()))
+        except (ValueError, AttributeError, TypeError) as exc:
+            raise ValueError("A linked Minecraft owner account is required.") from exc
+        candidate = dict(raw)
+        candidate["actor_uuid"] = normalized_actor
+        candidate["actor_label"] = str(actor_label)[:80]
+        try:
+            entry = Entry.from_dict(candidate)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("That schedule entry contains an invalid value.") from exc
         if not entry.action:
             raise ValueError("Choose what the schedule should run.")
         if entry.run_at <= 0:
             raise ValueError("Choose when it should run.")
-        existing = [row for row in self.entries if row.id == entry.id]
-        if existing:
-            self.entries = [entry if row.id == entry.id else row for row in self.entries]
-        else:
-            if len(self.entries) >= MAX_ENTRIES:
-                raise ValueError("That is as many scheduled actions as the panel holds.")
-            self.entries.append(entry)
-        await self.save()
+        async with self._lock:
+            await self._load_unlocked()
+            existing = [row for row in self.entries if row.id == entry.id]
+            if existing:
+                self.entries = [entry if row.id == entry.id else row for row in self.entries]
+            else:
+                if len(self.entries) >= MAX_ENTRIES:
+                    raise ValueError("That is as many scheduled actions as the panel holds.")
+                self.entries.append(entry)
+            await self._save_unlocked()
         return entry
 
     async def remove(self, entry_id: str) -> None:
-        await self.load()
-        self.entries = [row for row in self.entries if row.id != entry_id]
-        await self.save()
+        async with self._lock:
+            await self._load_unlocked()
+            self.entries = [row for row in self.entries if row.id != entry_id]
+            await self._save_unlocked()
 
     async def due(self, now: Optional[int] = None) -> list[Entry]:
         """Entries to run right now, advancing or retiring each as it is taken.
@@ -140,31 +184,33 @@ class Schedule:
         not leave an entry still due and start twice on the next tick.
         """
         moment = int(time.time()) if now is None else int(now)
-        await self.load()
-        ready: list[Entry] = []
-        changed = False
-        for entry in list(self.entries):
-            if not entry.enabled or entry.run_at > moment:
-                continue
-            missed = moment - entry.run_at > GRACE_SECONDS
-            if not entry.advance(moment):
-                entry.enabled = False
-            changed = True
-            if missed:
-                # Nobody wants Saturday's event starting on Sunday morning.
-                entry.last_result = "skipped: the moment had passed"
-                entry.last_run_at = moment
-                logger.info("Skipped a scheduled %s that was overdue", entry.action)
-                continue
-            ready.append(entry)
-        if changed:
-            await self.save()
-        return ready
+        async with self._lock:
+            await self._load_unlocked()
+            ready: list[Entry] = []
+            changed = False
+            for entry in list(self.entries):
+                if not entry.enabled or entry.run_at > moment:
+                    continue
+                missed = moment - entry.run_at > GRACE_SECONDS
+                if not entry.advance(moment):
+                    entry.enabled = False
+                changed = True
+                if missed:
+                    # Nobody wants Saturday's event starting on Sunday morning.
+                    entry.last_result = "skipped: the moment had passed"
+                    entry.last_run_at = moment
+                    logger.info("Skipped a scheduled %s that was overdue", entry.action)
+                    continue
+                ready.append(entry)
+            if changed:
+                await self._save_unlocked()
+            return ready
 
     async def record(self, entry_id: str, message: str) -> None:
-        await self.load()
-        for entry in self.entries:
-            if entry.id == entry_id:
-                entry.last_run_at = int(time.time())
-                entry.last_result = message[:200]
-        await self.save()
+        async with self._lock:
+            await self._load_unlocked()
+            for entry in self.entries:
+                if entry.id == entry_id:
+                    entry.last_run_at = int(time.time())
+                    entry.last_result = message[:200]
+            await self._save_unlocked()

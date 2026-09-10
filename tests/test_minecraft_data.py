@@ -58,6 +58,31 @@ class MinecraftDataTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual([row["sent_at"] for row in rows], [1000])
 
+    async def test_failed_small_write_rolls_back_and_connection_recovers(self):
+        with self.assertRaises(sqlite3.IntegrityError):
+            async with self.data._write_transaction() as db:
+                await db.execute(
+                    "INSERT INTO minecraft_notification_receipts(dedupe_key, sent_at) VALUES (?, ?)",
+                    ("duplicate", 1000),
+                )
+                await db.execute(
+                    "INSERT INTO minecraft_notification_receipts(dedupe_key, sent_at) VALUES (?, ?)",
+                    ("duplicate", 1001),
+                )
+
+        self.assertTrue(await self.data.claim_notification("duplicate", now=1002))
+
+    async def test_cancelled_write_rolls_back_and_connection_recovers(self):
+        with self.assertRaises(asyncio.CancelledError):
+            async with self.data._write_transaction() as db:
+                await db.execute(
+                    "INSERT INTO minecraft_notification_receipts(dedupe_key, sent_at) VALUES (?, ?)",
+                    ("cancelled", 1000),
+                )
+                raise asyncio.CancelledError()
+
+        self.assertTrue(await self.data.claim_notification("cancelled", now=1001))
+
     async def test_reverse_link_persists_member_confirmation_lifecycle(self):
         request = await self.data.create_reverse_link(
             guild_id=10,
@@ -569,6 +594,32 @@ class MinecraftDataTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(second_processed)
         audit = await self.data.audit_rows(application.id)
         self.assertEqual(sum(row["action"] == "WHITELIST_CONFIRMED" for row in audit), 1)
+
+    async def test_late_sent_marker_cannot_reopen_a_completed_action(self):
+        application = await self.create_pending()
+        await self.data.record_verification(
+            access_id=application.id,
+            edition=Edition.JAVA,
+            minecraft_uuid="123e4567-e89b-12d3-a456-426614174000",
+            current_username="TestPlayer",
+            xuid=None,
+            event_idempotency_key="fast-confirmation",
+            now=1010,
+        )
+        action = next(
+            record for record in await self.data.get_outbox_batch() if record.action is BridgeAction.APPROVE
+        )
+
+        await self.data.complete_outbox(action.idempotency_key)
+        await self.data.mark_outbox_sent_batch([action.id])
+
+        rows = await self.data._connection().execute_fetchall(
+            "SELECT status, attempts FROM minecraft_bridge_outbox WHERE id=?",
+            (action.id,),
+        )
+        self.assertEqual(rows[0]["status"], "PROCESSED")
+        self.assertEqual(rows[0]["attempts"], 0)
+        self.assertNotIn(action.id, [record.id for record in await self.data.get_outbox_batch()])
 
     async def test_expiry_moves_a_pending_verification_out_of_the_way(self):
         expiring = await self.create_pending(user_id=1, now=1000)

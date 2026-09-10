@@ -15,8 +15,10 @@ import org.bukkit.inventory.Recipe;
 import org.bukkit.potion.PotionEffect;
 
 import java.io.IOException;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.Iterator;
@@ -272,7 +274,14 @@ final class ServerDataResetService {
                 return 0;
             }
             boolean hadContent = Files.readString(file).replaceAll("\\s", "").length() > 2;
-            Files.writeString(file, "[]");
+            Path temporary = file.resolveSibling(file.getFileName() + ".tmp");
+            Files.writeString(temporary, "[]");
+            try {
+                Files.move(temporary, file,
+                        StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException unsupported) {
+                Files.move(temporary, file, StandardCopyOption.REPLACE_EXISTING);
+            }
             return hadContent ? 1 : 0;
         } catch (IOException exception) {
             problems.add("Could not empty " + file.getFileName() + ": " + exception.getMessage());

@@ -14,8 +14,10 @@ import org.bukkit.scheduler.BukkitTask;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -369,7 +371,7 @@ final class LaunchService {
 
     private void writeForced(boolean enabled) {
         try {
-            Files.writeString(forcedFile, PvpPin.format(enabled), StandardCharsets.UTF_8);
+            writeAtomically(forcedFile, PvpPin.format(enabled));
         } catch (IOException exception) {
             plugin.getLogger().warning("Could not persist the PvP pin: " + exception.getMessage());
         }
@@ -397,9 +399,21 @@ final class LaunchService {
 
     private void writeHoldUntil(long untilMillis) {
         try {
-            Files.writeString(holdFile, Long.toString(untilMillis), StandardCharsets.UTF_8);
+            writeAtomically(holdFile, Long.toString(untilMillis));
         } catch (IOException exception) {
             plugin.getLogger().warning("Could not persist the PvP hold: " + exception.getMessage());
+        }
+    }
+
+    private static void writeAtomically(Path file, String value) throws IOException {
+        Files.createDirectories(file.getParent());
+        Path temporary = file.resolveSibling(file.getFileName() + ".tmp");
+        Files.writeString(temporary, value, StandardCharsets.UTF_8);
+        try {
+            Files.move(temporary, file,
+                    StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        } catch (AtomicMoveNotSupportedException unsupported) {
+            Files.move(temporary, file, StandardCopyOption.REPLACE_EXISTING);
         }
     }
 }

@@ -389,6 +389,12 @@ class ConfigChangeSetEndpointTests(unittest.IsolatedAsyncioTestCase):
         bot = SimpleNamespace(
             config=config,
             data=data,
+            schedule=SimpleNamespace(
+                entries=[],
+                load=AsyncMock(),
+                remove=AsyncMock(),
+                upsert=AsyncMock(),
+            ),
             bridge=SimpleNamespace(
                 connected=connected,
                 game_variables_at=1_700_000_000.0,
@@ -625,3 +631,28 @@ class ConfigChangeSetEndpointTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(response.status, 409)
         self.assertIn("linked Minecraft account", await response.text())
+
+    async def test_schedule_records_the_linked_owner_account(self):
+        dashboard = self._dashboard()
+        client = await self._owner_client(dashboard)
+
+        response = await client.post(
+            "/api/schedule",
+            json={"action": "airdrop", "run_at": 1_700_000_000},
+        )
+
+        self.assertEqual(response.status, 200)
+        dashboard.bot.schedule.upsert.assert_awaited_once_with(
+            {"action": "airdrop", "run_at": 1_700_000_000},
+            actor_uuid="uuid-1",
+            actor_label="mits",
+        )
+
+    async def test_schedule_rejects_a_non_object_body(self):
+        dashboard = self._dashboard()
+        client = await self._owner_client(dashboard)
+
+        response = await client.post("/api/schedule", json=[])
+
+        self.assertEqual(response.status, 400)
+        dashboard.bot.schedule.upsert.assert_not_awaited()

@@ -287,14 +287,22 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
                             new ProcessedActionStore.Result(false, "unknown event " + eventId));
                     return;
                 }
-                // Hop to the main thread: this touches boss bars and titles.
+                // Hop to the main thread: this touches boss bars and titles. The
+                // acknowledgement belongs inside the task too; acknowledging here used
+                // to report success before Bukkit had even attempted the change.
                 Bukkit.getScheduler().runTask(plugin, () -> {
-                    ServerEventService events = plugin.serverEvents();
-                    if (events != null) {
+                    try {
+                        ServerEventService events = plugin.serverEvents();
+                        if (events == null) {
+                            throw new IllegalStateException("Server events are not available right now");
+                        }
                         events.set(type, enabled, seconds);
+                        recordAndSend(idempotencyKey, new ProcessedActionStore.Result(true, ""));
+                    } catch (RuntimeException exception) {
+                        recordAndSend(idempotencyKey,
+                                new ProcessedActionStore.Result(false, safeError(exception)));
                     }
                 });
-                recordAndSend(idempotencyKey, new ProcessedActionStore.Result(true, ""));
             } catch (RuntimeException exception) {
                 recordAndSend(idempotencyKey, new ProcessedActionStore.Result(false, safeError(exception)));
             }

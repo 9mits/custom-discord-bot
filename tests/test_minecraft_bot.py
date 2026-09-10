@@ -1137,6 +1137,18 @@ class MinecraftConfigurationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(config.bridge_tls_cert_path)
         self.assertIsNone(config.bridge_tls_key_path)
 
+    def test_blank_bridge_host_uses_the_safe_bind_default(self):
+        environment = {
+            "MINECRAFT_DISCORD_BOT_TOKEN": "token",
+            "MINECRAFT_GUILD_ID": "123456789",
+            "MINECRAFT_BRIDGE_SECRET": "ab" * 32,
+            "MINECRAFT_BRIDGE_HOST": "   ",
+        }
+        with patch.dict(os.environ, environment, clear=True):
+            config = MinecraftConfig.from_env()
+
+        self.assertEqual(config.bridge_host, "0.0.0.0")
+
     def test_bridge_tls_certificate_and_key_must_be_configured_together(self):
         environment = {
             "MINECRAFT_DISCORD_BOT_TOKEN": "token",

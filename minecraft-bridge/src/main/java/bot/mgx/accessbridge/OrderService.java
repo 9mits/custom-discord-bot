@@ -189,7 +189,7 @@ final class OrderService implements CommandExecutor, TabCompleter, Listener {
                     + " /order create <amount> <price each>.");
             return;
         }
-        if (held.hasItemMeta() && held.getItemMeta().hasCustomModelData()) {
+        if (!plain(held, held.getType().name())) {
             // A custom item is not interchangeable with the plain material, and an
             // order that paid out for the wrong one would be a theft with a receipt.
             error(player, "Custom items cannot be ordered. Use the auction house.");
@@ -596,7 +596,7 @@ final class OrderService implements CommandExecutor, TabCompleter, Listener {
             openBoard(player, 1);
             return;
         }
-        if (held.hasItemMeta() && held.getItemMeta().hasCustomModelData()) {
+        if (!plain(held, held.getType().name())) {
             error(player, "Custom items cannot be ordered. Use the auction house.");
             openBoard(player, 1);
             return;
@@ -734,10 +734,11 @@ final class OrderService implements CommandExecutor, TabCompleter, Listener {
                 || !item.getType().name().equals(material)) {
             return false;
         }
-        return !item.hasItemMeta()
-                || (!item.getItemMeta().hasDisplayName()
-                        && !item.getItemMeta().hasEnchants()
-                        && !item.getItemMeta().hasCustomModelData());
+        // Comparing with a fresh stack covers every kind of item metadata, not only
+        // names and enchants. Potion contents, written books, filled maps, dyed gear,
+        // bundle contents and plugin PDC are all economically different items even
+        // when their Material is identical.
+        return item.isSimilar(new ItemStack(item.getType()));
     }
 
     private static int countMatching(Player player, String material) {

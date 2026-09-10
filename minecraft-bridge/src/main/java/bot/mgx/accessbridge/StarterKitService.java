@@ -14,12 +14,12 @@ import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.inventory.ItemStack;
 
 import java.io.IOException;
-import java.io.Reader;
-import java.io.Writer;
 import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.UUID;
@@ -47,7 +47,14 @@ final class StarterKitService implements Listener {
             return;
         }
         claimed.add(id);
-        save();
+        if (!save()) {
+            claimed.remove(id);
+            player.sendMessage(Component.text(
+                    "Your starter kit could not be recorded. Please contact staff before reconnecting.",
+                    NamedTextColor.RED
+            ));
+            return;
+        }
         player.getInventory().addItem(
                 new ItemStack(Material.OAK_LOG, 30),
                 new ItemStack(Material.STONE_AXE, 1),
@@ -65,24 +72,31 @@ final class StarterKitService implements Listener {
         if (!Files.isRegularFile(path)) {
             return;
         }
-        try (Reader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
-            Set<String> loaded = gson.fromJson(reader, SET_TYPE);
+        try {
+            Set<String> loaded = gson.fromJson(Files.readString(path, StandardCharsets.UTF_8), SET_TYPE);
             if (loaded != null) {
                 claimed.addAll(loaded);
             }
-        } catch (IOException exception) {
+        } catch (IOException | RuntimeException exception) {
             plugin.getLogger().warning("Could not read starter kit claims: " + exception.getMessage());
         }
     }
 
-    private void save() {
+    private boolean save() {
         try {
             Files.createDirectories(path.getParent());
-            try (Writer writer = Files.newBufferedWriter(path, StandardCharsets.UTF_8)) {
-                gson.toJson(claimed, writer);
+            Path temporary = path.resolveSibling(path.getFileName() + ".tmp");
+            Files.writeString(temporary, gson.toJson(claimed, SET_TYPE), StandardCharsets.UTF_8);
+            try {
+                Files.move(temporary, path,
+                        StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException unsupported) {
+                Files.move(temporary, path, StandardCopyOption.REPLACE_EXISTING);
             }
+            return true;
         } catch (IOException exception) {
             plugin.getLogger().warning("Could not save starter kit claims: " + exception.getMessage());
+            return false;
         }
     }
 }

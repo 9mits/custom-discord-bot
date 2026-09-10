@@ -58,21 +58,33 @@ def list_support_requests() -> list[Path]:
                 stale.replace(stale.with_suffix(".json"))
         except OSError:
             pass
-    return sorted(queue.glob("*.json"), key=lambda path: path.stat().st_mtime)
+    queued: list[tuple[float, Path]] = []
+    for path in queue.glob("*.json"):
+        try:
+            queued.append((path.stat().st_mtime, path))
+        except OSError:
+            # Another bot process may have claimed it between glob() and stat().
+            continue
+    return [path for _mtime, path in sorted(queued, key=lambda row: row[0])]
 
 
 def read_support_request(path: Path) -> dict[str, Any] | None:
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
+    return payload if isinstance(payload, dict) else None
 
 
 def claim_support_request(path: Path) -> tuple[Path, dict[str, Any]] | None:
     claimed = path.with_suffix(".processing")
     try:
         path.replace(claimed)
-        return claimed, json.loads(claimed.read_text(encoding="utf-8"))
+        payload = json.loads(claimed.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            claimed.replace(claimed.with_suffix(".invalid"))
+            return None
+        return claimed, payload
     except json.JSONDecodeError:
         try:
             claimed.replace(claimed.with_suffix(".invalid"))
@@ -81,6 +93,14 @@ def claim_support_request(path: Path) -> tuple[Path, dict[str, Any]] | None:
         return None
     except (FileNotFoundError, FileExistsError, OSError):
         return None
+
+
+def quarantine_support_request(path: Path) -> None:
+    """Keep an unreadable or structurally invalid request without retrying it forever."""
+    try:
+        path.replace(path.with_suffix(".invalid"))
+    except OSError:
+        pass
 
 
 def release_support_request(path: Path) -> None:

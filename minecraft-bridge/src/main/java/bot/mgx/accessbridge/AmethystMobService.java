@@ -329,7 +329,7 @@ final class AmethystMobService implements Listener {
     private LivingEntity replace(LivingEntity source, EntityType type, boolean marked) {
         Location where = source.getLocation();
         EntityEquipment from = source.getEquipment();
-        boolean baby = source instanceof Zombie zombie && zombie.isBaby();
+        boolean baby = source instanceof Zombie zombie && !zombie.isAdult();
         double health = source.getHealth();
 
         LivingEntity spawned;
@@ -352,7 +352,11 @@ final class AmethystMobService implements Listener {
             }
         }
         if (spawned instanceof Zombie zombie) {
-            zombie.setBaby(baby);
+            if (baby) {
+                zombie.setBaby();
+            } else {
+                zombie.setAdult();
+            }
             zombie.setShouldBurnInDay(false);
         }
         if (spawned instanceof Mob mob && source instanceof Mob sourceMob) {

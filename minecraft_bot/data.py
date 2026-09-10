@@ -10,9 +10,10 @@ import secrets
 import statistics
 import time
 import uuid
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Any, AsyncIterator, Iterable, Optional
 from zoneinfo import ZoneInfo
 
 import aiosqlite
@@ -345,7 +346,7 @@ class MinecraftDataManager:
             await db.executescript(SCHEMA_SQL)
             await db.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
             await db.commit()
-        except Exception:
+        except BaseException:
             await db.rollback()
             await db.close()
             raise
@@ -641,7 +642,7 @@ class MinecraftDataManager:
                     ),
                 )
                 await db.commit()
-            except Exception:
+            except BaseException:
                 await db.rollback()
                 raise
         result = await self.get_reverse_link(token)
@@ -659,8 +660,7 @@ class MinecraftDataManager:
         self, request_id: str, discord_user_id: int | str, *, now: Optional[int] = None
     ) -> Optional[ReverseLinkRequest]:
         current = _now() if now is None else int(now)
-        db = self._connection()
-        async with self._write_lock:
+        async with self._write_transaction() as db:
             await db.execute(
                 "UPDATE minecraft_reverse_links SET discord_user_id=?, status=?, updated_at=? "
                 "WHERE request_id=? AND status=? AND expires_at>?",
@@ -669,7 +669,6 @@ class MinecraftDataManager:
                     current, str(request_id), ReverseLinkStatus.WAITING_FOR_MEMBER.value, current,
                 ),
             )
-            await db.commit()
         return await self.get_reverse_link(request_id)
 
     async def waiting_reverse_links_for_username(
@@ -688,8 +687,7 @@ class MinecraftDataManager:
         self, request_id: str, discord_user_id: int | str, *, now: Optional[int] = None
     ) -> ReverseLinkRequest:
         current = _now() if now is None else int(now)
-        db = self._connection()
-        async with self._write_lock:
+        async with self._write_transaction() as db:
             cursor = await db.execute(
                 "UPDATE minecraft_reverse_links SET status=?, updated_at=? WHERE request_id=? "
                 "AND discord_user_id=? AND status=? AND expires_at>?",
@@ -698,7 +696,6 @@ class MinecraftDataManager:
                     str(discord_user_id), ReverseLinkStatus.WAITING_FOR_APPROVAL.value, current,
                 ),
             )
-            await db.commit()
         result = await self.get_reverse_link(request_id)
         if result is None:
             raise InvalidTransition("This verification request no longer exists")
@@ -714,20 +711,18 @@ class MinecraftDataManager:
         }:
             raise ValueError("Reverse link can only finish approved, denied, or failed")
         current = _now() if now is None else int(now)
-        async with self._write_lock:
-            await self._connection().execute(
+        async with self._write_transaction() as db:
+            await db.execute(
                 "UPDATE minecraft_reverse_links SET status=?, updated_at=? WHERE request_id=?",
                 (status.value, current, str(request_id)),
             )
-            await self._connection().commit()
         return await self.get_reverse_link(request_id)
 
     async def expire_reverse_links(
         self, *, now: Optional[int] = None
     ) -> list[ReverseLinkRequest]:
         current = _now() if now is None else int(now)
-        db = self._connection()
-        async with self._write_lock:
+        async with self._write_transaction() as db:
             rows = await db.execute_fetchall(
                 "SELECT * FROM minecraft_reverse_links WHERE expires_at<=? "
                 "AND status IN (?,?)",
@@ -746,7 +741,6 @@ class MinecraftDataManager:
                     ReverseLinkStatus.WAITING_FOR_APPROVAL.value,
                 ),
             )
-            await db.commit()
         return [
             self._reverse_link({**dict(row), "status": ReverseLinkStatus.EXPIRED.value, "updated_at": current})
             for row in rows
@@ -754,6 +748,19 @@ class MinecraftDataManager:
 
     async def _begin(self, db: aiosqlite.Connection) -> None:
         await db.execute("BEGIN IMMEDIATE")
+
+    @asynccontextmanager
+    async def _write_transaction(self) -> AsyncIterator[aiosqlite.Connection]:
+        """Serialize one durable write and leave the shared connection usable on failure."""
+        async with self._write_lock:
+            db = self._connection()
+            try:
+                await self._begin(db)
+                yield db
+                await db.commit()
+            except BaseException:
+                await db.rollback()
+                raise
 
     async def _audit(
         self,
@@ -962,7 +969,7 @@ class MinecraftDataManager:
                     timestamp=current,
                 )
                 await db.commit()
-            except Exception:
+            except BaseException:
                 await db.rollback()
                 raise
         application = await self.get_access(access_id)
@@ -1125,7 +1132,7 @@ class MinecraftDataManager:
                         timestamp=current,
                     )
                 await db.commit()
-            except Exception:
+            except BaseException:
                 await db.rollback()
                 raise
         results = []
@@ -1308,7 +1315,7 @@ class MinecraftDataManager:
                 )
                 await db.commit()
                 changed = True
-            except Exception:
+            except BaseException:
                 await db.rollback()
                 raise
         updated = await self.get_access(access_id)
@@ -1316,14 +1323,18 @@ class MinecraftDataManager:
             raise RuntimeError("Verified access record disappeared")
         return updated, changed
 
-    async def list_whitelisted(self, *, limit: int = 200) -> list[dict[str, Any]]:
+    async def list_whitelisted(self, *, limit: int | None = 200) -> list[dict[str, Any]]:
         """Every account with active whitelist access, for the public directory."""
-        rows = await self._connection().execute_fetchall(
+        query = (
             "SELECT edition, verified_username, claimed_username, discord_user_id, "
             "minecraft_uuid, verified_at FROM minecraft_access WHERE status=? "
-            "ORDER BY LOWER(COALESCE(verified_username, claimed_username)) LIMIT ?",
-            (AccessStatus.VERIFIED.value, max(1, min(int(limit), 500))),
+            "ORDER BY LOWER(COALESCE(verified_username, claimed_username))"
         )
+        parameters: tuple[Any, ...] = (AccessStatus.VERIFIED.value,)
+        if limit is not None:
+            query += " LIMIT ?"
+            parameters += (max(1, int(limit)),)
+        rows = await self._connection().execute_fetchall(query, parameters)
         return [
             {
                 "edition": str(row["edition"]),
@@ -1398,28 +1409,24 @@ class MinecraftDataManager:
                     timestamp=current,
                 )
                 await db.commit()
-            except Exception:
+            except BaseException:
                 await db.rollback()
                 raise
         return counts
 
     async def set_status_message(self, access_id: int, channel_id: int, message_id: int) -> None:
-        async with self._write_lock:
-            db = self._connection()
+        async with self._write_transaction() as db:
             await db.execute(
                 "UPDATE minecraft_access SET status_channel_id=?, status_message_id=? WHERE id=?",
                 (str(channel_id), str(message_id), int(access_id)),
             )
-            await db.commit()
 
     async def clear_status_message(self, access_id: int) -> None:
-        async with self._write_lock:
-            db = self._connection()
+        async with self._write_transaction() as db:
             await db.execute(
                 "UPDATE minecraft_access SET status_channel_id=NULL, status_message_id=NULL WHERE id=?",
                 (int(access_id),),
             )
-            await db.commit()
 
     async def get_access_by_status_message(self, message_id: int) -> Optional[MinecraftAccess]:
         rows = await self._connection().execute_fetchall(
@@ -1459,8 +1466,7 @@ class MinecraftDataManager:
         parsed = Edition(str(edition).upper())
         cleaned, _normalized = normalize_username(parsed, current_username)
         current = _now() if now is None else int(now)
-        async with self._write_lock:
-            db = self._connection()
+        async with self._write_transaction() as db:
             rows = await db.execute_fetchall(
                 "SELECT discord_user_id FROM minecraft_accounts WHERE edition=? AND minecraft_uuid=?",
                 (parsed.value, str(minecraft_uuid)),
@@ -1472,7 +1478,6 @@ class MinecraftDataManager:
                 "last_seen_at=?, updated_at=? WHERE edition=? AND minecraft_uuid=?",
                 (cleaned, str(xuid) if xuid else None, current, current, parsed.value, str(minecraft_uuid)),
             )
-            await db.commit()
             return str(rows[0]["discord_user_id"])
 
     async def cancel_verification(self, access_id: int, moderator_id: int) -> MinecraftAccess:
@@ -1540,7 +1545,7 @@ class MinecraftDataManager:
                     timestamp=current,
                 )
                 await db.commit()
-            except Exception:
+            except BaseException:
                 await db.rollback()
                 raise
         updated = await self.get_access(access_id)
@@ -1609,7 +1614,7 @@ class MinecraftDataManager:
                     timestamp=current,
                 )
                 await db.commit()
-            except Exception:
+            except BaseException:
                 await db.rollback()
                 raise
         updated = await self.get_access(access_id)
@@ -1656,7 +1661,7 @@ class MinecraftDataManager:
                         timestamp=current,
                     )
                 await db.commit()
-            except Exception:
+            except BaseException:
                 await db.rollback()
                 raise
         results = []
@@ -1787,7 +1792,7 @@ class MinecraftDataManager:
                         timestamp=current,
                     )
                 await db.commit()
-            except Exception:
+            except BaseException:
                 await db.rollback()
                 raise
         affected = []
@@ -1818,23 +1823,21 @@ class MinecraftDataManager:
                 await self._begin(db)
                 await db.executemany(
                     "UPDATE minecraft_bridge_outbox SET status='SENT', attempts=attempts+1, "
-                    "last_error=NULL WHERE id=?",
+                    "last_error=NULL WHERE id=? AND status IN ('PENDING', 'SENT')",
                     [(record_id,) for record_id in normalized],
                 )
                 await db.commit()
-            except Exception:
+            except BaseException:
                 await db.rollback()
                 raise
 
     async def mark_outbox_failed(self, idempotency_key: str, error: str) -> Optional[OutboxRecord]:
-        async with self._write_lock:
-            db = self._connection()
+        async with self._write_transaction() as db:
             await db.execute(
                 "UPDATE minecraft_bridge_outbox SET status='FAILED', last_error=? WHERE idempotency_key=? "
                 "AND status IN ('PENDING', 'SENT')",
                 (str(error)[:1000], idempotency_key),
             )
-            await db.commit()
         rows = await self._connection().execute_fetchall(
             "SELECT * FROM minecraft_bridge_outbox WHERE idempotency_key=?",
             (idempotency_key,),
@@ -1928,21 +1931,19 @@ class MinecraftDataManager:
                                     timestamp=current,
                                 )
                     await db.commit()
-            except Exception:
+            except BaseException:
                 await db.rollback()
                 raise
         application = await self.get_access(access_id) if access_id is not None else None
         return record, application, newly_processed
 
     async def retry_access(self, access_id: int) -> int:
-        async with self._write_lock:
-            db = self._connection()
+        async with self._write_transaction() as db:
             cursor = await db.execute(
                 "UPDATE minecraft_bridge_outbox SET status='PENDING', last_error=NULL, processed_at=NULL "
                 "WHERE access_id=? AND status='FAILED'",
                 (int(access_id),),
             )
-            await db.commit()
             return max(0, cursor.rowcount)
 
     async def outbox_counts(self) -> dict[str, int]:
@@ -1973,7 +1974,7 @@ class MinecraftDataManager:
                         (str(user_id),),
                     )
                 await db.commit()
-            except Exception:
+            except BaseException:
                 await db.rollback()
                 raise
 
@@ -2022,7 +2023,7 @@ class MinecraftDataManager:
                         payload={"keys": sorted(str(key) for key in values)},
                     )
                 await db.commit()
-            except Exception:
+            except BaseException:
                 await db.rollback()
                 raise
 
@@ -2070,7 +2071,7 @@ class MinecraftDataManager:
                     normalized,
                 )
                 await db.commit()
-            except Exception:
+            except BaseException:
                 await db.rollback()
                 raise
 
@@ -2087,7 +2088,7 @@ class MinecraftDataManager:
                 )
                 await db.commit()
                 return cursor.rowcount == 1
-            except Exception:
+            except BaseException:
                 await db.rollback()
                 raise
 
@@ -2113,7 +2114,7 @@ class MinecraftDataManager:
                 )
                 await db.commit()
                 return cursor.rowcount == 1
-            except Exception:
+            except BaseException:
                 await db.rollback()
                 raise
 
@@ -2128,7 +2129,7 @@ class MinecraftDataManager:
                     (str(idempotency_key), str(message_type)[:64]),
                 )
                 await db.commit()
-            except Exception:
+            except BaseException:
                 await db.rollback()
                 raise
 
@@ -2162,7 +2163,7 @@ class MinecraftDataManager:
                     ),
                 )
                 await db.commit()
-            except Exception:
+            except BaseException:
                 await db.rollback()
                 raise
 
@@ -2202,7 +2203,7 @@ class MinecraftDataManager:
                     ),
                 )
                 await db.commit()
-            except Exception:
+            except BaseException:
                 await db.rollback()
                 raise
 
@@ -2263,7 +2264,7 @@ class MinecraftDataManager:
                     [(str(k), float(v), sampled_at) for k, v in metrics.items()],
                 )
                 await db.commit()
-            except Exception:
+            except BaseException:
                 await db.rollback()
                 raise
 
@@ -2378,8 +2379,7 @@ class MinecraftDataManager:
         now: Optional[int] = None,
     ) -> None:
         current = _now() if now is None else int(now)
-        async with self._write_lock:
-            db = self._connection()
+        async with self._write_transaction() as db:
             await db.execute(
                 "INSERT INTO minecraft_delivery_outbox"
                 "(dedupe_key, kind, target_id, payload, next_attempt_at, created_at) "
@@ -2394,7 +2394,6 @@ class MinecraftDataManager:
                     current,
                 ),
             )
-            await db.commit()
 
     async def claim_notification(self, dedupe_key: str, *, now: Optional[int] = None) -> bool:
         """Claims a one-time user notification before any competing path can DM it.
@@ -2405,14 +2404,12 @@ class MinecraftDataManager:
         once across concurrent handlers, reconnect replays, and process restarts.
         """
         current = _now() if now is None else int(now)
-        async with self._write_lock:
-            db = self._connection()
+        async with self._write_transaction() as db:
             cursor = await db.execute(
                 "INSERT OR IGNORE INTO minecraft_notification_receipts"
                 "(dedupe_key, sent_at) VALUES (?, ?)",
                 (str(dedupe_key), current),
             )
-            await db.commit()
             return cursor.rowcount == 1
 
     async def get_due_deliveries(self, *, limit: int = 25, now: Optional[int] = None) -> list[DeliveryRecord]:
@@ -2436,31 +2433,25 @@ class MinecraftDataManager:
         ]
 
     async def complete_delivery(self, delivery_id: int) -> None:
-        async with self._write_lock:
-            db = self._connection()
+        async with self._write_transaction() as db:
             await db.execute("DELETE FROM minecraft_delivery_outbox WHERE id=?", (int(delivery_id),))
-            await db.commit()
 
     async def discard_deliveries(self, kind: str) -> int:
-        async with self._write_lock:
-            db = self._connection()
+        async with self._write_transaction() as db:
             cursor = await db.execute(
                 "DELETE FROM minecraft_delivery_outbox WHERE kind=?",
                 (str(kind),),
             )
-            await db.commit()
             return cursor.rowcount
 
     async def fail_delivery(self, delivery_id: int, error: str, attempts: int) -> None:
         delay = min(3600, 5 * (2 ** min(max(0, int(attempts)), 9)))
-        async with self._write_lock:
-            db = self._connection()
+        async with self._write_transaction() as db:
             await db.execute(
                 "UPDATE minecraft_delivery_outbox SET attempts=attempts+1, next_attempt_at=?, last_error=? "
                 "WHERE id=?",
                 (_now() + delay, str(error)[:500], int(delivery_id)),
             )
-            await db.commit()
 
     async def delivery_counts(self) -> dict[str, int]:
         rows = await self._connection().execute_fetchall(
@@ -2508,7 +2499,7 @@ class MinecraftDataManager:
                 )
                 row_id = cursor.lastrowid
                 await db.commit()
-            except Exception:
+            except BaseException:
                 await db.rollback()
                 raise
         return int(row_id)
@@ -2575,7 +2566,7 @@ class MinecraftDataManager:
                 )
                 deleted += max(0, int(cursor.rowcount))
                 await db.commit()
-            except Exception:
+            except BaseException:
                 await db.rollback()
                 raise
         return deleted
@@ -2636,6 +2627,6 @@ class MinecraftDataManager:
                     payload=payload,
                 )
                 await db.commit()
-            except Exception:
+            except BaseException:
                 await db.rollback()
                 raise

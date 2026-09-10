@@ -4,7 +4,6 @@ import com.google.gson.JsonObject;
 
 import java.util.Collection;
 import java.util.Map;
-import java.util.UUID;
 
 /**
  * The numbers an owner is actually tuning, published for the panel to record.
@@ -23,14 +22,11 @@ import java.util.UUID;
 final class ServerMetrics {
     /** Counter keys, named the way they are charted. */
     static final String CRATES_OPENED = "crates.opened";
-    static final String KEYS_EARNED = "crates.keys_earned";
+    static final String KEYS_SPENT = "crates.keys_spent";
     static final String AIRDROPS_CLAIMED = "airdrops.claimed";
     static final String AIRDROPS_SPAWNED = "airdrops.spawned";
     static final String AMETHYST_EVENTS = "events.amethyst_completed";
     static final String AUCTION_SALES = "auction.sales";
-    static final String COSMETICS_MINTED = "cosmetics.minted";
-    static final String MONEY_EARNED = "economy.earned";
-    static final String MONEY_SPENT = "economy.spent";
 
     private ServerMetrics() {
     }
@@ -58,7 +54,11 @@ final class ServerMetrics {
             int holders = 0;
             for (Long balance : balances) {
                 long value = balance == null ? 0L : balance;
-                total += value;
+                try {
+                    total = Math.addExact(total, value);
+                } catch (ArithmeticException overflow) {
+                    total = Long.MAX_VALUE;
+                }
                 richest = Math.max(richest, value);
                 if (value > 0L) {
                     holders += 1;
@@ -93,10 +93,4 @@ final class ServerMetrics {
         return root;
     }
 
-    /** Convenience for call sites that only have a player id to hand. */
-    static void countFor(MetricCounters counters, String key, UUID ignored, long amount) {
-        if (counters != null) {
-            counters.increment(key, amount);
-        }
-    }
 }
