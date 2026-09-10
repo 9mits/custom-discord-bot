@@ -127,6 +127,28 @@ final class AmethystDragonServiceTest {
         assertTrue(emitter.contains(", true)"));
     }
 
+    @Test
+    void fightDrivesTheNativeDragonBarAfterPaperTracksIt() throws IOException {
+        String source = Files.readString(Path.of(
+                "src/main/java/bot/mgx/accessbridge/AmethystDragonService.java"));
+
+        String tickEnd = method(source, "public void onServerTickEnd(ServerTickEndEvent event)",
+                "private void rescueFallenPlayers()");
+        int refresh = tickEnd.indexOf("if (phase == Phase.FIGHT) updateDragonBar()");
+        assertTrue(refresh >= 0);
+        assertTrue(refresh < tickEnd.indexOf("rescueFallenPlayers()"));
+
+        String update = method(source, "private void updateDragonBar()",
+                "/**\n     * The gateway's own bar");
+        assertTrue(update.contains("org.bukkit.boss.BossBar nativeBar = nativeDragonBar()"));
+        assertTrue(update.contains("nativeBar.setTitle(\"§d§l\" + title)"));
+        assertTrue(update.contains("nativeBar.setProgress(progress)"));
+        assertTrue(update.contains("nativeBar.addPlayer(player)"));
+        assertTrue(update.contains("nativeBar.setVisible(true)"));
+        assertTrue(update.contains("if (dragonBar == null)"),
+                "worlds without a native Dragon bar still need the custom fallback");
+    }
+
     private static String method(String source, String start, String end) {
         int from = source.indexOf(start);
         int to = source.indexOf(end, from + start.length());
