@@ -61,9 +61,6 @@ class NoticeFeature:
     title: str
     summary: str
     image: str = ""
-    #: Its line on the one-card notice, when the opening sentence is not the one
-    #: worth keeping. Falls back to that sentence.
-    headline: str = ""
 
 
 @dataclass(frozen=True)
@@ -74,9 +71,6 @@ class NoticeGroup:
     features: tuple[NoticeFeature, ...]
     image: str = ""
     colour: int = 0x9B59FF
-    #: The single line this section gets on the one-card notice. Derived from the
-    #: section's first feature when the post does not write one itself.
-    headline: str = ""
 
 
 @dataclass(frozen=True)
@@ -95,6 +89,9 @@ class UpdateTemplate:
     spotlight_title: str = ""
     spotlight: Optional[NoticeFeature] = None
     notice_groups: tuple[NoticeGroup, ...] = ()
+    #: One line naming what the trimmed cards left out. A shorter notice is only
+    #: honest if the features it does not have room for are still acknowledged.
+    also: str = ""
 
     @property
     def url(self) -> str:
@@ -145,7 +142,12 @@ def _built_in_preview_templates() -> tuple[UpdateTemplate, ...]:
                 "Protected Bases",
             ),
             draft=True,
-            notice_cover=f"{SITE_URL}/media/update-5/banner.png",
+            notice_cover="banner.png",
+            also=(
+                "Bigger Amethyst Blocks, Dragon leaderboards and clan battles, "
+                "Sharpness VII gear, a faster Elytra, nine Amethyst cosmetics, "
+                "and a pile of quality-of-life fixes."
+            ),
             spotlight_title="Amethyst Dragon",
             spotlight=NoticeFeature(
                 title="🐉 A Cooperative World Boss",
@@ -155,86 +157,36 @@ def _built_in_preview_templates() -> tuple[UpdateTemplate, ...]:
                     "together.\nBring it down before the arena's fight clock expires."
                 ),
                 image="dragon-victory.png",
-                headline=(
-                    "A shared world boss in its own crystal arena, on a fight clock."
-                ),
             ),
             notice_groups=(
                 NoticeGroup(
-                    title="The Dragon's Treasure",
+                    title="Rewards Worth Chasing",
                     features=(
                         NoticeFeature(
                             title="📦 The Amethyst Dragon Crate",
                             summary=(
                                 "When the Dragon falls, its arena stays open and the Dragon "
-                                "Crate unlocks for a limited time. Spend your Mysterious Crate "
+                                "Crate unlocks for a limited time.\nSpend your Mysterious Crate "
                                 "Keys before its countdown reaches zero."
-                            ),
-                        ),
-                        NoticeFeature(
-                            title="⚔️ New Dragon Gear",
-                            summary=(
-                                "Sharpness VII weapons, crystal abilities, a 3x3 harvesting Hoe, "
-                                "a Power VII Bow, faster Elytra, armour, supplies, and nine new "
-                                "Dragon cosmetics."
                             ),
                         ),
                         NoticeFeature(
                             title="🌈 Eternal Gear",
                             summary=(
-                                "Permanent rainbow versions of the full Amethyst set have the "
-                                "same power with no timer. Each Eternal item is 2 in 100,000."
+                                "Permanent rainbow versions of the full Amethyst set, same "
+                                "power and no timer.\nEach Eternal item is 2 in 100,000."
                             ),
                         ),
                         NoticeFeature(
                             title="🥚 One Egg — And One Secret",
                             summary=(
-                                "One Amethyst Dragon Egg appears after victory. The hidden "
+                                "One Amethyst Dragon Egg appears after victory.\nThe hidden "
                                 "Amethyst Dragon Ascendant jackpot is a music-synced royal aura."
                             ),
                         ),
                     ),
                     image="dragon-rewards.png",
-                    headline=(
-                        "The Dragon Crate opens when it falls — Sharpness VII gear, and Eternal rainbow items at 2 in 100,000."
-                    ),
                     colour=0x8E44FF,
-                ),
-                NoticeGroup(
-                    title="Bigger Amethyst Blocks",
-                    features=(
-                        NoticeFeature(
-                            title="🟣 Giant And Humongous",
-                            summary=(
-                                "Two larger, tougher and rarer Amethyst Block events have landed. "
-                                "All tiers announce their coordinates and reward the players who "
-                                "actually help mine them."
-                            ),
-                        ),
-                    ),
-                    image="humongous-amethyst.png",
-                    headline=(
-                        "Giant and Humongous tiers, tougher and rarer, and every one announces its coordinates."
-                    ),
-                    colour=0xA545FF,
-                ),
-                NoticeGroup(
-                    title="Dragon Leaderboards",
-                    features=(
-                        NoticeFeature(
-                            title="🏅 Damage, Crystals And Clan Battles",
-                            summary=(
-                                "Every run records Dragon Damage and End Crystals Broken. Claimed "
-                                "eggs also score in a Clan Battle with Shards and exclusive podium "
-                                "auras."
-                            ),
-                        ),
-                    ),
-                    image="dragon-clan-battle.png",
-                    headline=(
-                        "Dragon Damage, End Crystals Broken, and a Clan Battle for the claimed eggs."
-                    ),
-                    colour=0xFF8808,
                 ),
                 NoticeGroup(
                     title="Ranked PvP",
@@ -242,116 +194,52 @@ def _built_in_preview_templates() -> tuple[UpdateTemplate, ...]:
                         NoticeFeature(
                             title="⚔️ Safe, Private Ranked Fights",
                             summary=(
-                                "Challenge another player, fight with KEEP INVENTORY, then return "
-                                "to the exact blocks you left. Optional money, item and cosmetic "
-                                "wagers are locked only after both players agree."
+                                "Challenge another player, fight with KEEP INVENTORY, then "
+                                "return to the exact blocks you left.\nWins and losses move "
+                                "your RP through eight tiers, and wagers are locked only "
+                                "after both players agree."
                             ),
                         ),
                         NoticeFeature(
-                            title="🏆 Bronze To Unreal",
+                            title="🗡️ The Three Scythes",
                             summary=(
-                                "Wins and losses move your RP through eight tiers. The arena is "
-                                "fully destructible during the fight and restored afterwards."
+                                "The #1 Apex, #2 Void and #3 Shadow Scythes carry bonus "
+                                "damage, heavy sweeps and unique kill finishes.\nThey move "
+                                "the moment the leaderboard does."
                             ),
                         ),
                     ),
                     image="pvp-victory.png",
-                    headline=(
-                        "Challenge anyone, keep your inventory, and wager money, items or cosmetics."
-                    ),
                     colour=0xE74C3C,
                 ),
                 NoticeGroup(
-                    title="The Three Scythes",
+                    title="The Server Has Changed",
                     features=(
                         NoticeFeature(
-                            title="🗡️ Only The Podium Holds Them",
+                            title="💜 The Amethyst Crate Is Back",
                             summary=(
-                                "The #1 Apex, #2 Void and #3 Shadow Scythes carry bonus damage, "
-                                "heavy sweeps and unique kill finishes—and move when the leaderboard "
-                                "changes."
+                                "The limited Amethyst Crate is open again at 2 Keys a pull.\n"
+                                "Its hologram counts down to 12 September at 15:00 UTC."
                             ),
                         ),
-                    ),
-                    image="pvp-scythes.png",
-                    headline=(
-                        "Apex, Void and Shadow — carried only by the top three."
-                    ),
-                    colour=0x673AB7,
-                ),
-                NoticeGroup(
-                    title="The Amethyst Crate Is Back",
-                    features=(
-                        NoticeFeature(
-                            title="💜 The Clock Was Reset",
-                            summary=(
-                                "The limited Amethyst Crate is open again for 2 Keys per pull. Its "
-                                "hologram counts down to 12 September at 15:00 UTC."
-                            ),
-                        ),
-                        NoticeFeature(
-                            title="✨ Nine Exclusive Cosmetics",
-                            summary=(
-                                "The full timed Amethyst gear set and nine Amethyst cosmetics are "
-                                "inside. Dragon, Eternal and secret rewards stay exclusive to the "
-                                "Dragon Crate."
-                            ),
-                        ),
-                    ),
-                    image="amethyst-crate.png",
-                    headline=(
-                        "Open again at 2 Keys a pull, counting down to 12 September, 15:00 UTC."
-                    ),
-                    colour=0xB531FF,
-                ),
-                NoticeGroup(
-                    title="The Server Is Protected Now",
-                    features=(
                         NoticeFeature(
                             title="🛡️ No More Griefing",
                             summary=(
-                                "Bases, farms, animals, clan builds and player storage are off "
-                                "limits. Build the thing you were too scared to build."
+                                "Bases, farms, animals, clan builds and player storage are "
+                                "off limits.\nBuild the thing you were too scared to build."
                             ),
                         ),
                         NoticeFeature(
-                            title="⚔️ Fights Go Through /pvp",
+                            title="🛒 Say What You Want To Buy",
                             summary=(
-                                "Agreed fights stay safe and restore themselves. Ambushing an "
-                                "unrelated player mid-build is punished."
+                                "Use /order to post exactly what you need and the price per "
+                                "item.\nOthers fill it while you are offline, and every offer "
+                                "is already funded."
                             ),
                         ),
                     ),
                     image="pvp-hub.png",
-                    headline=(
-                        "Griefing is over, and agreed fights go through /pvp."
-                    ),
                     colour=0x2ECC71,
-                ),
-                NoticeGroup(
-                    title="Player Orders And Quality Of Life",
-                    features=(
-                        NoticeFeature(
-                            title="🛒 Say What You Want To Buy",
-                            summary=(
-                                "Use /order to post exactly what you need and the price per item. "
-                                "Other players can fill it partially or completely while you are "
-                                "offline, and every offer is already funded."
-                            ),
-                        ),
-                        NoticeFeature(
-                            title="✨ Closer, Cleaner, Safer",
-                            summary=(
-                                "Closer Amethyst events, fixed Airdrops and Auto Buy, safer cosmetic "
-                                "delivery, default Night Vision, cleaner tooltips and more."
-                            ),
-                        ),
-                    ),
-                    image="order-board.png",
-                    headline=(
-                        "/order posts exactly what you want to buy and what you will pay for it."
-                    ),
-                    colour=0x3498DB,
                 ),
             ),
         ),
@@ -654,194 +542,16 @@ def build_notice_embeds(template: UpdateTemplate) -> list[discord.Embed]:
             image_count += 1
         embeds.append(card)
 
+    if template.also:
+        embeds[-1].add_field(
+            name="Also in this update",
+            value=_quoted_beats(template.also),
+            inline=False,
+        )
     embeds[-1].set_footer(
         text="Sent once for this update. Read everything or stop future update DMs below."
     )
     return embeds
-
-
-# ----------------------------------------------------------------------------
-# The one-card notice
-# ----------------------------------------------------------------------------
-
-#: Discord lays a media gallery out roughly three across, so nine shots make a
-#: square mosaic and ten leaves a widow on the last row.
-NOTICE_GALLERY_LIMIT = 9
-
-
-def _lead_emoji(title: str) -> str:
-    """The emoji a feature heading opens with, if it has one."""
-    first = str(title or "").strip().split(" ", 1)[0]
-    return first if first and not first.isascii() else ""
-
-
-def _first_beat(summary: str) -> str:
-    """The opening sentence — the part that still lands with everything else cut."""
-    for line in str(summary or "").splitlines():
-        for sentence in _SENTENCE.findall(line.strip()):
-            sentence = sentence.strip()
-            if sentence:
-                return sentence
-    return ""
-
-
-def _headline_line(emoji: str, title: str, beat: str) -> str:
-    label = f"{emoji} {title}".strip()
-    return f"**{label}** — {beat}" if beat else f"**{label}**"
-
-
-def notice_headlines(template: UpdateTemplate) -> list[str]:
-    """One line per section: the whole update read at a glance.
-
-    A section writes its own ``headline`` when the post has one; otherwise the
-    opening sentence of its first feature stands in, so a section can never appear
-    on the card describing something the article does not.
-    """
-    lines: list[str] = []
-    if template.spotlight is not None:
-        lines.append(_headline_line(
-            _lead_emoji(template.spotlight.title),
-            template.spotlight_title or _short_update_name(template.title),
-            template.spotlight.headline or _first_beat(template.spotlight.summary),
-        ))
-    for group in template.notice_groups:
-        first = group.features[0] if group.features else None
-        lines.append(_headline_line(
-            _lead_emoji(first.title) if first else "",
-            group.title,
-            group.headline or (_first_beat(first.summary) if first else ""),
-        ))
-    return lines
-
-
-def notice_gallery(template: UpdateTemplate) -> list[tuple[str, str]]:
-    """``(url, alt text)`` for the mosaic: the cover, then one shot per section."""
-    chosen: list[tuple[str, str]] = []
-    seen: set[str] = set()
-
-    def add(image: str, alt: str) -> None:
-        url = _media_url(template, image)
-        if url and url not in seen and len(chosen) < NOTICE_GALLERY_LIMIT:
-            seen.add(url)
-            chosen.append((url, alt[:256]))
-
-    if template.spotlight is not None:
-        add(template.spotlight.image, template.spotlight_title or template.spotlight.title)
-    for group in template.notice_groups:
-        add(
-            group.image or next((item.image for item in group.features if item.image), ""),
-            group.title,
-        )
-    return chosen
-
-
-async def open_update_dm_settings(bot: Any, interaction: discord.Interaction) -> None:
-    """The opt-out flow, shared by the card and by every notice sent before it."""
-    from .announce import log_update_notice
-
-    if await bot.data.is_update_opted_out(interaction.user.id):
-        await bot.data.set_update_optout(interaction.user.id, False)
-        await interaction.response.send_message(
-            embed=discord.Embed(
-                title="Update DMs Switched Back On",
-                description=(
-                    "> You will receive future Mysterious SMP X update notices again."
-                ),
-                colour=discord.Colour(0x57F287),
-            ),
-            ephemeral=True,
-        )
-        await log_update_notice(
-            bot,
-            title="Update DMs Re-enabled",
-            member=interaction.user,
-            detail="The member turned future update notices back on.",
-            success=True,
-        )
-        return
-
-    await interaction.response.send_message(
-        embed=discord.Embed(
-            title="Stop Future Update DMs?",
-            description=(
-                "> This stops future server-update announcements. It does not stop "
-                "account, verification, or necessary staff messages.\n\n"
-                "Press the red confirmation below to finish. You can turn updates "
-                "back on later from this same **Update DM settings** button."
-            ),
-            colour=discord.Colour(0xF06000),
-        ),
-        view=ConfirmUpdateOptOutView(bot),
-        ephemeral=True,
-    )
-
-
-class _OptOutButton(discord.ui.Button):
-    """The card's copy of the opt-out control, on the one custom_id that must not move."""
-
-    def __init__(self) -> None:
-        super().__init__(
-            label="Update DM settings",
-            style=discord.ButtonStyle.secondary,
-            custom_id=OPTOUT_CUSTOM_ID,
-        )
-
-    async def callback(self, interaction: discord.Interaction) -> None:
-        await open_update_dm_settings(self.view.bot, interaction)
-
-
-class UpdateNoticeLayout(discord.ui.LayoutView):
-    """The whole notice as one card.
-
-    Ten embeds said everything and asked the reader to scroll past nine screens to
-    find out. Components V2 puts the hype line, a mosaic of the update's real
-    screenshots, a line per section and both buttons inside one container, so the
-    update is taken in at a glance and the link is never below the fold.
-    """
-
-    def __init__(self, bot: Any, template: UpdateTemplate) -> None:
-        super().__init__(timeout=None)
-        self.bot = bot
-        #: The audit log reads this: a layout has no embed title to fall back on.
-        self.notice_title = template.label
-        container = discord.ui.Container(accent_colour=discord.Colour(0xB531FF))
-        container.add_item(discord.ui.TextDisplay(
-            f"## New Mysterious SMP X update! — {_short_update_name(template.title)}\n"
-            + (template.tagline or "A new Mysterious SMP X update is live.")
-        ))
-        gallery = notice_gallery(template)
-        if gallery:
-            container.add_item(discord.ui.MediaGallery(*(
-                discord.MediaGalleryItem(url, description=alt) for url, alt in gallery
-            )))
-        headlines = notice_headlines(template)
-        if headlines:
-            container.add_item(discord.ui.Separator())
-            container.add_item(discord.ui.TextDisplay("\n".join(headlines)))
-        container.add_item(discord.ui.Separator())
-        container.add_item(discord.ui.TextDisplay(
-            "-# Sent once for this update. Read everything, or change update DMs below."
-        ))
-        container.add_item(discord.ui.ActionRow(
-            discord.ui.Button(
-                label="Read the full update",
-                style=discord.ButtonStyle.link,
-                url=template.url or SITE_URL,
-            ),
-            _OptOutButton(),
-        ))
-        self.add_item(container)
-
-
-def build_notice_layout(bot: Any, template: UpdateTemplate) -> Optional[UpdateNoticeLayout]:
-    """The one-card notice, or None when this post has nothing to lay out.
-
-    Returning None rather than raising keeps a post with no editorial metadata on
-    the plain single-embed summary it has always had.
-    """
-    if template.spotlight is None and not template.notice_groups:
-        return None
-    return UpdateNoticeLayout(bot, template)
 
 
 class UpdateNoticeView(discord.ui.View):
@@ -871,7 +581,43 @@ class UpdateNoticeView(discord.ui.View):
     async def update_dm_settings(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ) -> None:
-        await open_update_dm_settings(self.bot, interaction)
+        from .announce import log_update_notice
+
+        if await self.bot.data.is_update_opted_out(interaction.user.id):
+            await self.bot.data.set_update_optout(interaction.user.id, False)
+            await interaction.response.send_message(
+                embed=discord.Embed(
+                    title="Update DMs Switched Back On",
+                    description=(
+                        "> You will receive future Mysterious SMP X update notices again."
+                    ),
+                    colour=discord.Colour(0x57F287),
+                ),
+                ephemeral=True,
+            )
+            await log_update_notice(
+                self.bot,
+                title="Update DMs Re-enabled",
+                member=interaction.user,
+                detail="The member turned future update notices back on.",
+                success=True,
+            )
+            return
+
+        await interaction.response.send_message(
+            embed=discord.Embed(
+                title="Stop Future Update DMs?",
+                description=(
+                    "> This stops future server-update announcements. It does not stop "
+                    "account, verification, or necessary staff messages.\n\n"
+                    "Press the red confirmation below to finish. You can turn updates "
+                    "back on later from this same **Update DM settings** button."
+                ),
+                colour=discord.Colour(0xF06000),
+            ),
+            view=ConfirmUpdateOptOutView(self.bot),
+            ephemeral=True,
+        )
 
 
 class ConfirmUpdateOptOutView(discord.ui.View):
