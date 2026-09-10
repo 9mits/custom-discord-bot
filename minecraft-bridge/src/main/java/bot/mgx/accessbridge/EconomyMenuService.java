@@ -288,13 +288,18 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
      */
     void refreshCountdowns() {
         long now = System.currentTimeMillis();
+        List<ShopCatalog.Category> categories = null;
         for (Player player : plugin.getServer().getOnlinePlayers()) {
             if (!(player.getOpenInventory().getTopInventory().getHolder() instanceof Menu menu)
                     || menu.kind() != Menu.Kind.SHOP_HUB) {
                 continue;
             }
             Inventory inventory = menu.getInventory();
-            List<ShopCatalog.Category> categories = ShopCatalog.categories(now);
+            if (categories == null) {
+                // Depends only on the timestamp, so it is the same list for everybody
+                // in this pass. Computed lazily so a tick with no hub open costs nothing.
+                categories = ShopCatalog.categories(now);
+            }
             for (int index = 0; index < CATEGORY_SLOTS.length; index++) {
                 inventory.setItem(CATEGORY_SLOTS[index], index < categories.size()
                         ? categoryIcon(categories.get(index), now)
@@ -409,9 +414,12 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
             List<ItemStack> offered = new ArrayList<>();
             Map<Integer, ItemStack> removed = new LinkedHashMap<>();
             for (int slot = 0; slot < 36; slot++) {
-                if (isInstantSellable(inventory.getItem(slot))) {
-                    offered.add(inventory.getItem(slot));
-                    removed.put(slot, inventory.getItem(slot).clone());
+                // One read per slot. This runs for every auto-selling player every two
+                // seconds, and the slot was being fetched three times over.
+                ItemStack candidate = inventory.getItem(slot);
+                if (isInstantSellable(candidate)) {
+                    offered.add(candidate);
+                    removed.put(slot, candidate.clone());
                 }
             }
             if (offered.isEmpty()) {

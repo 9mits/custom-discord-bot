@@ -13,6 +13,8 @@ import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityExhaustionEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 
+import com.destroystokyo.paper.event.player.PlayerPostRespawnEvent;
+
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -187,6 +189,41 @@ final class PlayerPerkService implements Listener {
         }
         if (exhaustion != event.getExhaustion()) {
             event.setExhaustion(exhaustion);
+        }
+    }
+
+    /**
+     * Re-applies every perk after a death.
+     *
+     * <p>Hearts and the clan attributes are transient modifiers, which live only on the
+     * entity. Respawning builds a fresh player and copies just the base attribute values
+     * across unless {@code keepInventory} is on, so the modifiers are dropped and the
+     * player silently returns on vanilla twenty health. Nothing re-sent them either:
+     * Discord only pushes a profile on join, a role change or a rename, so the hearts
+     * stayed missing until the player relogged.
+     *
+     * <p>The cached profile is keyed by player id and only cleared on quit, so the
+     * values needed here already survived the death.
+     */
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onPlayerPostRespawn(PlayerPostRespawnEvent event) {
+        Player player = event.getPlayer();
+        UUID id = player.getUniqueId();
+        PlayerProfile profile = profiles.get(id);
+        if (profile != null) {
+            applyHearts(player, HEART_MODIFIER_KEY, profile.totalExtraHearts());
+        }
+        ClanLevel.Perks perks = clanPerks.get(id);
+        if (perks != null) {
+            applyHearts(player, CLAN_HEART_KEY, perks.extraHearts());
+            applyScalar(player, Attribute.MOVEMENT_SPEED, CLAN_SPEED_KEY, perks.speed());
+            applyScalar(player, Attribute.BLOCK_BREAK_SPEED, CLAN_DIG_KEY, perks.diggingSpeed());
+        }
+        // Vanilla fills the health bar before these modifiers exist, so without this a
+        // player respawns on 20 of 24 and looks like they took damage on the way back.
+        AttributeInstance health = player.getAttribute(Attribute.MAX_HEALTH);
+        if (health != null && player.getHealth() < health.getValue()) {
+            player.setHealth(health.getValue());
         }
     }
 

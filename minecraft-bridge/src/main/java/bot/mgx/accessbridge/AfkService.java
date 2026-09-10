@@ -399,6 +399,13 @@ final class AfkService implements Listener, CommandExecutor {
      * and a player in a boat or a minecart is meant to travel.
      */
     private void holdAnchors() {
+        // Runs every tick. Set.copyOf allocates whether or not anybody is AFK, and the
+        // overwhelmingly common case is an empty set, so 20 throwaway sets a second were
+        // being made to iterate nothing. The copy still guards the non-empty path, where
+        // the teleport below can fire events that touch this set.
+        if (afk.isEmpty()) {
+            return;
+        }
         for (UUID playerId : Set.copyOf(afk)) {
             Player player = plugin.getServer().getPlayer(playerId);
             Location anchor = anchors.get(playerId);
