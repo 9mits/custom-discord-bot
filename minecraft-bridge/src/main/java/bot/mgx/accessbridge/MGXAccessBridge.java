@@ -303,6 +303,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             CrateOddsBalance.tuningSource(tuning);
             CrateCatalog.tuningSource(tuning);
             CrateKind.eventEndSource(() -> (long) (gameVariables.decimal("amethyst-events.ends-at") * 1000L));
+            CrateKind.defaultOpenSource(() -> gameVariables.bool("crates.default-enabled"));
             WorldLimits.tuningSource(tuning);
             ChaosService.tuningSource(tuning);
             VerificationLobbyService.tuningSource(tuning);

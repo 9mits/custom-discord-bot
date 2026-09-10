@@ -1,6 +1,7 @@
 {
   "items": [
-    {"java_item": "minecraft:trial_key", "model": "mgx:crate_key", "bedrock_identifier": "mgx:crate_key", "display_name": "Mysterious Crate Key"},
+    {"java_item": "minecraft:trial_key", "model": "mgx:crate_key", "bedrock_identifier": "mgx:crate_key", "display_name": "Amethyst Token"},
+    {"java_item": "minecraft:trial_key", "model": "mgx:mystery_key", "bedrock_identifier": "mgx:mystery_key", "display_name": "Mysterious Crate Key"},
     {"java_item": "minecraft:potion", "model": "mgx:fortune_potion", "bedrock_identifier": "mgx:fortune_potion", "display_name": "Fortune Potion"},
     {"java_item": "minecraft:potion", "model": "mgx:crate_luck_potion", "bedrock_identifier": "mgx:crate_luck_potion", "display_name": "Crate Luck Potion"},
     {"java_item": "minecraft:red_dye", "model": "mgx:cosmetic/blood_burst", "bedrock_identifier": "mgx:cosmetic_blood_burst", "display_name": "Blood Burst"},

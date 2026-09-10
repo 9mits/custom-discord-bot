@@ -6,9 +6,18 @@
         "type": "definition",
         "model": "mgx:crate_key",
         "bedrock_identifier": "mgx:crate_key",
-        "display_name": "Mysterious Crate Key",
+        "display_name": "Amethyst Token",
         "bedrock_options": {
           "icon": "mgx:crate_key"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:mystery_key",
+        "bedrock_identifier": "mgx:mystery_key",
+        "display_name": "Mysterious Crate Key",
+        "bedrock_options": {
+          "icon": "mgx:mystery_key"
         }
       }
     ],

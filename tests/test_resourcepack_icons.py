@@ -14,6 +14,8 @@ BADGE_TEXTURES = RESOURCE_PACK / "src" / "assets" / "mgx" / "textures" / "badge"
 NATIVE_POTION_ICONS = {"crate_luck_potion", "fortune_potion"}
 LINKED_ICON_SIZES = {
     "amethyst_apple": (32, 32),
+    # Hand-drawn at vanilla resolution and supplied that way, like the Amethyst tools.
+    "crate_key": (16, 16),
     "amethyst_arrow": (16, 16),
     "amethyst_boots": (16, 16),
     "amethyst_bow": (16, 16),
@@ -135,8 +137,10 @@ class ResourcePackIconTests(unittest.TestCase):
 
     def test_custom_icons_are_valid_distinct_minecraft_sprites(self):
         icons = self.icon_paths()
-        # 94, plus the eleven Eternal twins of the timed Amethyst gear.
-        self.assertEqual(105, len(icons))
+        # 94, plus the eleven Eternal twins of the timed Amethyst gear, plus the
+        # Mysterious Crate Key, which became its own item when the Amethyst Token
+        # inherited the old key's identity.
+        self.assertEqual(106, len(icons))
 
         digests = set()
         for path in icons:

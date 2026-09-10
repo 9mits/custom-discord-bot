@@ -392,7 +392,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         holder.inventory = inventory;
         fillHub(inventory);
         inventory.setItem(4, named(
-                items.key(1),
+                items.token(1),
                 "Your Keys",
                 "In inventory: " + items.count(player),
                 "Banked: " + store.bankedKeys(player.getUniqueId()),
@@ -1450,6 +1450,10 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
      */
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPickup(EntityPickupItemEvent event) {
+        // A token minted before the rename still reads "Mysterious Crate Key", and two
+        // stacks whose words differ refuse to merge. Rewriting it as it is picked up is
+        // what stops a player ending up with two piles of the same currency.
+        items.refreshToken(event.getItem().getItemStack());
         if (!(event.getEntity() instanceof Player player)
                 || !items.isLegacyBundle(event.getItem().getItemStack())) {
             return;
@@ -1457,6 +1461,24 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         if (items.giveKeys(player, items.keyCount(event.getItem().getItemStack()))) {
             event.setCancelled(true);
             event.getItem().remove();
+        }
+    }
+
+    /** Brings a player's whole inventory up to date the moment they arrive. */
+    void refreshTokens(Player player) {
+        int changed = 0;
+        for (ItemStack item : player.getInventory().getContents()) {
+            if (items.refreshToken(item)) {
+                changed++;
+            }
+        }
+        for (ItemStack item : player.getEnderChest().getContents()) {
+            if (items.refreshToken(item)) {
+                changed++;
+            }
+        }
+        if (changed > 0) {
+            player.updateInventory();
         }
     }
 
@@ -1522,6 +1544,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             return;
         }
         items.upgradeLegacyKeys(event.getPlayer());
+        refreshTokens(event.getPlayer());
         long now = System.currentTimeMillis();
         onlineCreditStarted.put(event.getPlayer().getUniqueId(), now);
         onlineRewardStarted.put(event.getPlayer().getUniqueId(), now);
@@ -1956,26 +1979,35 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         if (banked <= 0) {
             return 0;
         }
-        int delivered = items.giveKeys(player, banked) ? banked : 0;
+        // Staying online is the one reward the Amethyst event did not take over, so it
+        // still pays real keys; the tokens are the sweetener beside them.
+        int delivered = items.giveMysteryKeys(player, banked) ? banked : 0;
         if (delivered == 0) {
             return 0;
         }
         try {
             int claimed = store.claimBankedKeys(player.getUniqueId(), delivered);
             if (claimed != delivered) {
-                items.remove(player, delivered - claimed);
+                items.removeMysteryKeys(player, delivered - claimed);
                 delivered = claimed;
             }
         } catch (UncheckedIOException exception) {
-            items.remove(player, delivered);
+            items.removeMysteryKeys(player, delivered);
             plugin.getLogger().warning("Could not claim banked crate keys: "
                     + exception.getMessage());
             return 0;
         }
+        long tokens = Math.max(0L, Math.round(
+                delivered * variables.decimal("online-rewards.token-bonus")));
+        if (tokens > 0) {
+            items.giveKeysOrDrop(player, tokens);
+        }
         if (notify && delivered > 0) {
             player.sendMessage(PlayerMenuService.prefix().append(Component.text(
                     "You earned " + delivered + " hourly crate "
-                            + (delivered == 1 ? "key" : "keys") + ".",
+                            + (delivered == 1 ? "key" : "keys")
+                            + (tokens > 0 ? " and " + tokens + " Amethyst "
+                                    + (tokens == 1 ? "Token" : "Tokens") : "") + ".",
                     NamedTextColor.GREEN
             )));
             playCrateSound(player, Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 0.8f, 1.15f);
@@ -1984,25 +2016,34 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private long currencyCount(Player player, CrateKind kind) {
-        return kind.currency() == CrateKind.Currency.SHARD
-                ? items.countShards(player) : items.count(player);
+        return switch (kind.currency()) {
+            case SHARD -> items.countShards(player);
+            case KEY -> items.countMysteryKeys(player);
+            case TOKEN -> items.count(player);
+        };
     }
 
     private int removeCurrency(Player player, CrateKind kind, int count) {
-        return kind.currency() == CrateKind.Currency.SHARD
-                ? items.removeShards(player, count) : items.remove(player, count);
+        return switch (kind.currency()) {
+            case SHARD -> items.removeShards(player, count);
+            case KEY -> items.removeMysteryKeys(player, count);
+            case TOKEN -> items.remove(player, count);
+        };
     }
 
     private ItemStack currencyItem(CrateKind kind, int count) {
-        return kind.currency() == CrateKind.Currency.SHARD
-                ? items.shard(count) : items.key(count);
+        return switch (kind.currency()) {
+            case SHARD -> items.shard(count);
+            case KEY -> items.mysteryKey(count);
+            case TOKEN -> items.token(count);
+        };
     }
 
     private void returnCurrency(Player player, CrateKind kind, int count) {
         if (count <= 0) {
             return;
         }
-        if (kind.currency() == CrateKind.Currency.KEY && items.giveKeys(player, count)) return;
+        if (kind.currency() == CrateKind.Currency.TOKEN && items.giveKeys(player, count)) return;
         player.getInventory().addItem(currencyItem(kind, count)).values().forEach(overflow ->
                 player.getWorld().dropItemNaturally(player.getLocation(), overflow));
     }

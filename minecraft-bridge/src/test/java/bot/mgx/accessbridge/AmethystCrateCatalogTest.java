@@ -295,7 +295,7 @@ final class AmethystCrateCatalogTest {
         assertEquals(4, dragon.size());
         assertEquals("Amethyst Dragon Crate",
                 ((net.kyori.adventure.text.TextComponent) dragon.get(0)).content());
-        assertEquals("1 Mysterious Crate Key",
+        assertEquals("1 Amethyst Token",
                 ((net.kyori.adventure.text.TextComponent) dragon.get(1)).content());
         assertEquals(CrateKind.AMETHYST.countdownLines(now), dragon.subList(2, 4));
     }

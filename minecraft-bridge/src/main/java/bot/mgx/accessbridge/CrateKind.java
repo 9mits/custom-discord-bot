@@ -21,7 +21,7 @@ enum CrateKind {
     AMETHYST(
             "amethyst", "NEW Amethyst Crate", "NEW Amethyst Crate", Material.AMETHYST_BLOCK,
             TextColor.color(0xB56CFF),
-            Currency.KEY, 2,
+            Currency.TOKEN, 2,
             // Sunday, September 13, 2026 at 12:00 AM JST.
             1_789_225_200_000L, CrateCatalog.amethyst()
     ),
@@ -33,11 +33,12 @@ enum CrateKind {
     DRAGON(
             "dragon", "Amethyst Dragon Crate", "Dragon Crate", Material.DRAGON_HEAD,
             TextColor.color(0xD98BFF),
-            Currency.KEY, 1, Long.MAX_VALUE, CrateCatalog.dragon()
+            Currency.TOKEN, 1, Long.MAX_VALUE, CrateCatalog.dragon()
     );
 
     enum Currency {
         KEY("key", "keys", "Mysterious Crate Key", "Mysterious Crate Keys"),
+        TOKEN("Token", "Tokens", "Amethyst Token", "Amethyst Tokens"),
         SHARD("Shard", "Shards", "Shard", "Shards");
 
         private final String singular;
@@ -101,6 +102,15 @@ enum CrateKind {
     private static volatile java.util.function.LongSupplier eventEnd = () -> 1_789_225_200_000L;
     private static volatile java.util.function.BooleanSupplier dragonAvailable = () -> false;
     private static volatile java.util.function.LongSupplier dragonEnd = () -> 0L;
+    /**
+     * Whether the Default Crate can be opened at all.
+     *
+     * <p>Live rather than a constant, so the crate can be stood down from the control
+     * panel while the Amethyst event owns every drop, and brought back without a
+     * release. Keys keep accruing from staying online the whole time — the crate they
+     * open is closed, not the way to earn them.
+     */
+    private static volatile java.util.function.BooleanSupplier defaultOpen = () -> true;
 
     static void eventEndSource(java.util.function.LongSupplier source) {
         eventEnd = source;
@@ -108,6 +118,10 @@ enum CrateKind {
 
     static void dragonAvailableSource(java.util.function.BooleanSupplier source) {
         dragonAvailable = source == null ? () -> false : source;
+    }
+
+    static void defaultOpenSource(java.util.function.BooleanSupplier source) {
+        defaultOpen = source == null ? () -> true : source;
     }
 
     static void dragonEndSource(java.util.function.LongSupplier source) {
@@ -152,6 +166,7 @@ enum CrateKind {
     }
 
     boolean available(long now) {
+        if (this == DEFAULT) return defaultOpen.getAsBoolean();
         if (this == DRAGON) return dragonAvailable.getAsBoolean();
         return !limited() || now < closesAt();
     }

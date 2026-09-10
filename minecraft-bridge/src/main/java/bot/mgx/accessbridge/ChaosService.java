@@ -1190,7 +1190,7 @@ final class ChaosService implements Listener {
                 .append(Component.text(" " + keys + " keys are on the floor.", NamedTextColor.WHITE)));
         ThreadLocalRandom random = ThreadLocalRandom.current();
         for (int index = 0; index < keys; index++) {
-            Item drop = world.dropItem(where.clone().add(0d, 1d, 0d), crateItems.key(1));
+            Item drop = world.dropItem(where.clone().add(0d, 1d, 0d), crateItems.token(1));
             drop.setGlowing(true);
             drop.setPickupDelay(20);
             drop.setVelocity(new Vector(
@@ -1703,7 +1703,7 @@ final class ChaosService implements Listener {
         }
         List<ItemStack> loot = new ArrayList<>();
         for (int index = 0; index < keys; index++) {
-            loot.add(crateItems.key(1));
+            loot.add(crateItems.token(1));
         }
         for (int index = 0; index < diamonds; index++) {
             loot.add(new ItemStack(Material.DIAMOND, 1));
