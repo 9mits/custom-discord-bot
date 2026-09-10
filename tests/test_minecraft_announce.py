@@ -365,13 +365,14 @@ class UpdateTemplateTests(unittest.TestCase):
         self.assertEqual("update-7", template.slug)
 
     def test_the_amethyst_notice_is_the_banner_then_the_collage(self):
-        # This workstation has the private Update 7 post beside the published Update
-        # 5 post with this exact old title. The stable alias must still select the new
-        # comeback draft—the production checkout has no private post at all.
+        # Update 5 is published under this exact old title. The stable alias must
+        # still select Update 7's notice copy rather than falling back to it.
         template = find_template("Amethyst Update")
         self.assertIsNotNone(template)
         self.assertEqual("update-7", template.slug)
-        self.assertTrue(template.draft)
+        self.assertFalse(
+            template.draft, "the Update 7 post is published, so the notice can be sent"
+        )
 
         embeds = build_notice_embeds(template)
         self.assertEqual(2, len(embeds))
@@ -436,6 +437,34 @@ class UpdateTemplateTests(unittest.TestCase):
         template = load_update_templates(directory)[0]
         self.assertTrue(template.draft)
         self.assertIn("(draft)", template.label)
+
+    def test_publishing_the_post_releases_the_built_in_preview(self):
+        # The flag in the preview records the day it was authored, not today. Left
+        # authoritative it outlives the article and refuses to send a notice whose
+        # link works, which is a refusal nothing in the blog workflow can clear.
+        published = self.POST.replace("draft: true\n", "")
+        with patch("minecraft_bot.updatenotice.POSTS_DIR", self._posts(
+            **{"2026-09-08-update-7.md": published}
+        )):
+            template = find_template("Amethyst Update")
+        self.assertEqual("update-7", template.slug)
+        self.assertFalse(template.draft)
+        self.assertNotIn("(draft)", template.label)
+        # Releasing it must not quietly swap the copy the owner reviewed.
+        self.assertEqual("notice-collage.png", template.notice_collage)
+
+    def test_an_unpublished_post_leaves_the_preview_a_draft(self):
+        for label, files in (
+            ("no post at all", {}),
+            ("the post is itself a draft", {"2026-09-08-update-7.md": self.POST}),
+        ):
+            with self.subTest(label):
+                with patch(
+                    "minecraft_bot.updatenotice.POSTS_DIR", self._posts(**files)
+                ):
+                    template = find_template("Amethyst Update")
+                self.assertEqual("update-7", template.slug)
+                self.assertTrue(template.draft)
 
     def test_the_notice_carries_the_tagline_beats_and_link(self):
         directory = self._posts(**{"2026-09-08-update-7.md": self.POST})

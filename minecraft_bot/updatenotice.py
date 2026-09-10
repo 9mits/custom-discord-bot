@@ -8,15 +8,16 @@ that is actually written up.
 
 A draft can be previewed but never broadcast. The notice's whole purpose is to hand
 people a link, and a draft is not on the site yet — a hundred DMs pointing at a 404
-is worse than no announcement at all. Update 7 therefore has a compact private preview
-until its full article is deliberately published.
+is worse than no announcement at all. A preview therefore stops being a draft the
+moment its article is published: what makes the link safe is the post being live,
+never a flag written months earlier.
 """
 
 from __future__ import annotations
 
 import hashlib
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import quote
@@ -123,17 +124,22 @@ class UpdateTemplate:
 
 
 def _built_in_preview_templates() -> tuple[UpdateTemplate, ...]:
-    """Private notice drafts that can be previewed before their blog post ships.
+    """Notice copy that can be previewed before its blog post ships.
 
-    The Update 7 article and its full media set deliberately remain unpublished. This
-    sectioned draft lets the owner review the exact comeback DM without publishing the
-    article or allowing the owner console to broadcast a link that still returns 404.
+    A built-in keeps the notice reviewable while the article is still being written,
+    and stays the copy the notice is built from once it ships — the composed collage
+    and its blurb have no home in the post's single-line front matter. `draft` here
+    only records that the article was unpublished when this was authored;
+    `find_template` clears it once the post is actually live, because a link is safe
+    exactly when the page exists.
     """
     return (
         UpdateTemplate(
             slug="update-7",
             title="Amethyst Dragon Update",
-            aliases=("Amethyst Update",),
+            # The article's own title too, so every way of naming Update 7 reaches
+            # the one reviewed notice instead of the post's fuller card layout.
+            aliases=("Amethyst Update", "The Amethyst Dragon Update"),
             tagline=(
                 "🐉 THE AMETHYST DRAGON HAS AWAKENED! Break its crystals, climb "
                 "RANKED PVP, chase ETERNAL RAINBOW GEAR that never expires — the "
@@ -441,17 +447,22 @@ def load_update_templates(posts_dir: Optional[Path] = None) -> list[UpdateTempla
 
 def find_template(slug: str, posts_dir: Optional[Path] = None) -> Optional[UpdateTemplate]:
     wanted = str(slug or "").strip().lower()
+    posts = load_update_templates(posts_dir)
     if posts_dir is None:
-        # The private Update 7 article exists on the author's workstation, but is
-        # intentionally absent from production. Resolve its stable preview names to
-        # the same compact draft in both places instead of falling back to the older
-        # published post whose title happened to be "Amethyst Update".
+        # A built-in wins its stable names outright, so the alias "Amethyst Update"
+        # reaches Update 7's notice copy rather than the older published post whose
+        # title happened to be the same. Only its draft flag defers to the article:
+        # once a post of that slug is live the link works, and refusing to send then
+        # would strand the notice behind a flag nothing can clear.
+        published = {post.slug.casefold() for post in posts if not post.draft}
         for template in _built_in_preview_templates():
             names = {template.slug.lower(), template.title.lower()}
             names.update(alias.lower() for alias in template.aliases)
             if wanted in names:
+                if template.draft and template.slug.casefold() in published:
+                    return replace(template, draft=False)
                 return template
-    for template in load_update_templates(posts_dir):
+    for template in posts:
         names = {template.slug.lower(), template.title.lower()}
         names.update(alias.lower() for alias in template.aliases)
         if wanted in names:
