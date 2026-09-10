@@ -158,8 +158,11 @@ final class GameVariableStore {
 
     private void defineAmethystExpansion() {
         integer("amethyst-events.ends-at", "Amethyst event deadline", "Amethyst Events",
-                "Unix seconds for the shared event and limited crate deadline.",
-                1_789_225_200L, 0, 4_102_444_800L, "epoch seconds", false);
+                "Unix seconds for the shared Amethyst deadline. One clock ends the lot:"
+                        + " the limited crate, the Dragon, the Airdrop and Amethyst Block"
+                        + " rotation, and both the Dragon and clan leaderboards."
+                        + " 2026-09-19 06:00 UTC (3:00 PM JST).",
+                1_789_797_600L, 0, 4_102_444_800L, "epoch seconds", false);
         String[] tiers = {"huge", "giant", "humongous"};
         int[] sizes = {12, 16, 20};
         int[] health = {2750, 8250, 16500};

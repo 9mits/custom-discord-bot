@@ -223,6 +223,15 @@ final class SidebarService {
         UUID playerId = player.getUniqueId();
 
         List<Row> rows = new ArrayList<>();
+        // The one clock that ends the Amethyst expansion, live on every screen that has
+        // room for it. Coarse on purpose: this board rebuilds every five seconds, and a
+        // seconds display that only moves in fives reads as a broken timer rather than a
+        // live one. The crate holograms and menus carry the to-the-second version.
+        long now = System.currentTimeMillis();
+        if (CrateKind.AMETHYST.available(now)) {
+            rows.add(Row.heading("AMETHYST EVENT"));
+            rows.add(Row.important("Ends in", CrateKind.AMETHYST.remaining(now), NamedTextColor.YELLOW));
+        }
         if (settings.isEnabled(playerId, PlayerSettingsStore.Setting.SCOREBOARD_PROFILE)) {
             rows.add(Row.heading("PROFILE"));
             if (profile.hasRankLabel()) {
