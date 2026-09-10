@@ -184,4 +184,29 @@ class ClanAllianceTest {
         assertFalse(f.store().pvpBlocked(f.a(), drifter));
         assertFalse(f.store().pvpBlocked(drifter, drifter));
     }
+
+    @Test
+    void anAcceptedPvpDuelOverridesProtectionOnlyForItsOpponents() throws Exception {
+        String clans = Files.readString(Path.of(
+                "src/main/java/bot/mgx/accessbridge/ClanService.java"));
+        int handler = clans.indexOf("public void onClanDamage(");
+        int duelException = clans.indexOf("plugin.arePvpOpponents(attacker, victim)", handler);
+        int protection = clans.indexOf("store.pvpBlocked(attacker.getUniqueId()", handler);
+
+        assertTrue(duelException > handler);
+        assertTrue(duelException < protection,
+                "the accepted-duel exception must run before ally damage is cancelled");
+
+        String plugin = Files.readString(Path.of(
+                "src/main/java/bot/mgx/accessbridge/MGXAccessBridge.java"));
+        assertTrue(plugin.contains("pvpDuels.areOpponents("));
+
+        String duels = Files.readString(Path.of(
+                "src/main/java/bot/mgx/accessbridge/PvpDuelService.java"));
+        String pairing = duels.substring(
+                duels.indexOf("boolean areOpponents(UUID first, UUID second)"),
+                duels.indexOf("boolean isParticipant(UUID playerId)"));
+        assertTrue(pairing.contains("fight == fighting.get(second)"));
+        assertTrue(pairing.contains("fight.opponent(first).equals(second)"));
+    }
 }

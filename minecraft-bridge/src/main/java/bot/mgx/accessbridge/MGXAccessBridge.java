@@ -1432,6 +1432,12 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         return pvpDuels != null && pvpDuels.isFighter(player.getUniqueId());
     }
 
+    /** Whether two players explicitly accepted the same arranged PvP fight. */
+    boolean arePvpOpponents(Player first, Player second) {
+        return pvpDuels != null && pvpDuels.areOpponents(
+                first.getUniqueId(), second.getUniqueId());
+    }
+
     BossBarDisplay bossBars() {
         return bossBars;
     }
