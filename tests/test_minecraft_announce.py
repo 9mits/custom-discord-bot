@@ -15,16 +15,12 @@ from minecraft_bot.announce import (
     build_announcement_embed,
 )
 from minecraft_bot.updatenotice import (
-    OPTOUT_CUSTOM_ID,
     ConfirmUpdateOptOutView,
     UpdateNoticeView,
     build_notice_embed,
     build_notice_embeds,
-    build_notice_layout,
     find_template,
     load_update_templates,
-    notice_gallery,
-    notice_headlines,
 )
 
 
@@ -375,11 +371,12 @@ class UpdateTemplateTests(unittest.TestCase):
         self.assertEqual("update-7", template.slug)
         self.assertTrue(template.draft)
         embeds = build_notice_embeds(template)
-        self.assertEqual(10, len(embeds))
+        self.assertEqual(5, len(embeds))
         self.assertEqual("New Mysterious SMP X update! - Amethyst Dragon", embeds[0].title)
         self.assertEqual(0xB531FF, embeds[0].colour.value)
+        # This update's own banner, not a reach into the previous post's folder.
         self.assertEqual(
-            "https://mysterioussmpx.blog/media/update-5/banner.png",
+            "https://mysterioussmpx.blog/media/update-7/banner.png",
             embeds[0].image.url,
         )
         self.assertEqual("Amethyst Dragon", embeds[1].title)
@@ -389,18 +386,12 @@ class UpdateTemplateTests(unittest.TestCase):
             embeds[1].image.url,
         )
         self.assertEqual(
-            [
-                "The Dragon's Treasure",
-                "Bigger Amethyst Blocks",
-                "Dragon Leaderboards",
-                "Ranked PvP",
-                "The Three Scythes",
-                "The Amethyst Crate Is Back",
-                "The Server Is Protected Now",
-                "Player Orders And Quality Of Life",
-            ],
+            ["Rewards Worth Chasing", "Ranked PvP", "The Server Has Changed"],
             [embed.title for embed in embeds[2:]],
         )
+        # Trimming the cards is only honest if the rest is still acknowledged.
+        self.assertEqual("Also in this update", embeds[-1].fields[-1].name)
+        self.assertIn("Bigger Amethyst Blocks", embeds[-1].fields[-1].value)
         self.assertTrue(all(embed.image.url for embed in embeds))
         self.assertEqual(template.url, embeds[0].url)
         self.assertTrue(all(embed.url is None for embed in embeds[1:]))
@@ -462,10 +453,31 @@ class UpdateTemplateTests(unittest.TestCase):
         self.assertTrue(values)
         self.assertTrue(all(value.startswith(">>> ") for value in values))
         self.assertIn(
-            ">>> Permanent rainbow versions of the full Amethyst set have the same "
-            "power with no timer.\nEach Eternal item is 2 in 100,000.",
+            ">>> Permanent rainbow versions of the full Amethyst set, same power "
+            "and no timer.\nEach Eternal item is 2 in 100,000.",
             values,
         )
+
+    def test_the_lead_card_always_opens_the_notice(self):
+        # The banner card is the notice's face and the only thing carrying the
+        # article link, so no amount of trimming may drop it.
+        for template in (find_template("Amethyst Update"), find_template("update-7")):
+            embeds = build_notice_embeds(template)
+            lead = embeds[0]
+            self.assertTrue(lead.image.url, "the lead card is missing its banner")
+            self.assertEqual(template.url, lead.url)
+            self.assertIn("New Mysterious SMP X update!", lead.title)
+            self.assertEqual(template.tagline, lead.description)
+            self.assertTrue(all(embed.url is None for embed in embeds[1:]))
+
+    def test_a_trimmed_notice_stays_short_enough_to_read(self):
+        embeds = build_notice_embeds(find_template("Amethyst Update"))
+        self.assertLessEqual(len(embeds), 5, "the notice is a headline, not the post")
+        self.assertTrue(all(embed.image.url for embed in embeds), "every card earns a shot")
+        for embed in embeds[1:]:
+            self.assertLessEqual(
+                len(embed.fields), 4, "more beats than this reads as a wall of text"
+            )
 
     def test_posts_without_notice_metadata_keep_the_single_embed_summary(self):
         post = self.POST.replace("notice_spotlight: A Feature\n", "").replace(
@@ -596,91 +608,3 @@ class OptOutFilteringTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-
-class OneCardNoticeTests(unittest.TestCase):
-    """The Components V2 notice: one container instead of ten embeds."""
-
-    def _components(self, layout):
-        payload = layout.to_components()
-        self.assertEqual(1, len(payload), "the notice is one container")
-        return payload[0]["components"]
-
-    def _kinds(self, children):
-        return [child["type"] for child in children]
-
-    def test_the_whole_update_is_one_container(self):
-        template = find_template("Amethyst Update")
-        layout = build_notice_layout(object(), template)
-        children = self._components(layout)
-
-        # 10 TextDisplay, 12 MediaGallery, 14 Separator, 1 ActionRow.
-        self.assertEqual([10, 12, 14, 10, 14, 10, 1], self._kinds(children))
-        head = children[0]["content"]
-        self.assertTrue(head.startswith("## New Mysterious SMP X update! — Amethyst Dragon"))
-        self.assertIn(template.tagline, head)
-
-    def test_no_section_is_dropped_from_the_mosaic_or_the_text(self):
-        # A section that shows up in one but not the other is the failure that
-        # matters: the reader sees a screenshot nothing explains, or the reverse.
-        template = find_template("Amethyst Update")
-        sections = [template.spotlight_title] + [g.title for g in template.notice_groups]
-        gallery = notice_gallery(template)
-        headlines = notice_headlines(template)
-
-        self.assertEqual(len(sections), len(gallery))
-        self.assertEqual(len(sections), len(headlines))
-        self.assertEqual(sections, [alt for _, alt in gallery])
-        for section, line in zip(sections, headlines):
-            self.assertIn(section, line)
-        self.assertTrue(all(url.startswith("https://") for url, _ in gallery))
-
-    def test_the_mosaic_never_exceeds_what_discord_lays_out(self):
-        template = find_template("Amethyst Update")
-        self.assertLessEqual(len(notice_gallery(template)), 9)
-        self.assertEqual(
-            len(notice_gallery(template)),
-            len({url for url, _ in notice_gallery(template)}),
-            "a repeated screenshot wastes a tile",
-        )
-
-    def test_both_buttons_survive_and_the_optout_id_never_moves(self):
-        template = find_template("Amethyst Update")
-        row = self._components(build_notice_layout(object(), template))[-1]
-        buttons = row["components"]
-        self.assertEqual(
-            ["Read the full update", "Update DM settings"],
-            [button["label"] for button in buttons],
-        )
-        self.assertEqual(template.url, buttons[0]["url"])
-        self.assertEqual(OPTOUT_CUSTOM_ID, buttons[1]["custom_id"])
-
-    def test_a_post_without_notice_metadata_gets_no_card(self):
-        plain = SimpleNamespace(spotlight=None, notice_groups=())
-        self.assertIsNone(build_notice_layout(object(), plain))
-
-    def test_a_layout_and_embeds_are_never_sent_together(self):
-        from minecraft_bot.announce import UpdateAnnouncer
-
-        layout = build_notice_layout(object(), find_template("Amethyst Update"))
-        payload, view = UpdateAnnouncer._payload(
-            embed=None, embeds=None, layout=layout, view=None
-        )
-        self.assertEqual({}, payload, "a layout is the message; it carries no embeds")
-        self.assertIs(layout, view)
-        with self.assertRaises(ValueError):
-            UpdateAnnouncer._payload(
-                embed=None,
-                embeds=[discord.Embed(title="x")],
-                layout=layout,
-                view=None,
-            )
-
-    def test_the_audit_log_can_name_a_layout_notice(self):
-        from minecraft_bot.announce import _notice_title
-
-        template = find_template("Amethyst Update")
-        layout = build_notice_layout(object(), template)
-        self.assertEqual(
-            template.label, _notice_title(embed=None, embeds=None, layout=layout)
-        )

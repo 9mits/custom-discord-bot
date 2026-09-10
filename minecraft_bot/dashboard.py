@@ -31,7 +31,6 @@ from .presentation import head_url, skin_url
 from .updatenotice import (
     UpdateNoticeView,
     build_notice_embeds,
-    build_notice_layout,
     find_template,
     load_update_templates,
 )
@@ -863,7 +862,6 @@ class DashboardServer:
         view = None
         embed = None
         embeds = None
-        layout = None
         slug = str(body.get("template", "")).strip()
         if slug:
             template = find_template(slug)
@@ -875,10 +873,8 @@ class DashboardServer:
                     text="%s is still a draft. Publish the post before announcing it."
                     % template.title
                 )
-            layout = build_notice_layout(self.bot, template)
-            if layout is None:
-                embeds = build_notice_embeds(template)
-                view = UpdateNoticeView(self.bot, template.url)
+            embeds = build_notice_embeds(template)
+            view = UpdateNoticeView(self.bot, template.url)
         else:
             try:
                 embed = build_announcement_embed(
@@ -894,7 +890,6 @@ class DashboardServer:
         result = await announcer.send(
             embed=embed,
             embeds=embeds,
-            layout=layout,
             actor=str(member),
             content=None,
             view=view,
