@@ -59,7 +59,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     private static final List<String> AIRDROP_RARITIES = List.of(
             "common", "rare", "legendary", "mythic"
     );
-    private static final List<String> PVP_ACTIONS = List.of("on", "off", "status");
+    private static final List<String> PVP_ACTIONS = List.of("on", "off", "until", "status");
     private static final List<String> RANK_ACTIONS = List.of("hold", "release", "list");
     private static final List<String> DEVBLOG_ACTIONS = List.of(
             "on", "off", "cam", "time", "weather", "players", "status"
@@ -285,10 +285,36 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             info(sender, plugin.pvpStatus());
             return;
         }
+        if (action.equals("until")) {
+            if (args.length < 3) {
+                throw new IllegalArgumentException(
+                        "Usage: /mgxadmin pvp until <hours>  — holds open-world PvP off "
+                                + "and lifts it automatically. /pvp keeps working.");
+            }
+            double hours;
+            try {
+                hours = Double.parseDouble(args[2]);
+            } catch (NumberFormatException notANumber) {
+                throw new IllegalArgumentException("Give the hold in hours, like 72.");
+            }
+            if (hours <= 0 || hours > 24 * 90) {
+                throw new IllegalArgumentException("Hold it for between 0 and 2160 hours.");
+            }
+            long until = System.currentTimeMillis() + Math.round(hours * 3_600_000d);
+            plugin.holdPvpUntil(until);
+            Bukkit.broadcast(Component.text(
+                    "Open-world PvP is off while the clan battle runs. Use /pvp to fight.",
+                    NamedTextColor.GOLD).decorate(TextDecoration.BOLD));
+            success(sender, plugin.pvpStatus());
+            report(sender, "admin_pvp", sender.getName() + " held PvP off")
+                    .detail("state", "off").detail("until", Long.toString(until)).record();
+            return;
+        }
         boolean enabled = switch (action) {
             case "on", "enable", "true" -> true;
             case "off", "disable", "false" -> false;
-            default -> throw new IllegalArgumentException("Use /mgxadmin pvp <on|off|status>.");
+            default -> throw new IllegalArgumentException(
+                    "Use /mgxadmin pvp <on|off|until <hours>|status>.");
         };
         plugin.forcePvp(enabled);
         Bukkit.broadcast(Component.text(enabled

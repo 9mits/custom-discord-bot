@@ -104,6 +104,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private CosmeticEffectService cosmeticEffects;
     private RankSyncStore rankSyncStore;
     private MaintenanceStore maintenanceStore;
+    private CombatHold combatHold;
     private ServerEventStore serverEventStore;
     private AutoPayStore autoPayStore;
     private CrateFilterStore crateFilterStore;
@@ -199,6 +200,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             maintenanceStore = new MaintenanceStore(
                     getDataFolder().toPath().resolve("maintenance.flag")
             );
+            combatHold = new CombatHold(getDataFolder().toPath().resolve("combat-hold"));
             serverEventStore = new ServerEventStore(
                     getDataFolder().toPath().resolve("server-events.json")
             );
@@ -1356,12 +1358,34 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         launchService.startTest(sender);
     }
 
-    /** Pins PvP on or off in every world, outranking the five-hour launch hold. */
+    /**
+     * Pins open-world PvP on or off, outranking the five-hour launch hold.
+     *
+     * <p>Off is a {@link CombatHold}, not the {@code PVP} game rule. The rule refuses
+     * every player-on-player attack before a plugin sees it, so pinning it off used to
+     * take arranged {@code /pvp} duels down with the ambushes — while this command's
+     * own message promised the opposite. The rule is pinned *on* for the same reason:
+     * a duel needs the engine to deliver the damage event the duel handler allows.
+     */
     void forcePvp(boolean enabled) {
-        if (launchService == null) {
+        if (launchService == null || combatHold == null) {
             throw new IllegalStateException("Launch service is not ready.");
         }
-        launchService.forcePvp(enabled);
+        launchService.forcePvp(true);
+        if (enabled) {
+            combatHold.lift();
+        } else {
+            combatHold.hold(CombatHold.NO_EXPIRY);
+        }
+    }
+
+    /** Holds open-world PvP off until a moment, lifting itself when it passes. */
+    void holdPvpUntil(long expiresAtMillis) {
+        if (launchService == null || combatHold == null) {
+            throw new IllegalStateException("Launch service is not ready.");
+        }
+        launchService.forcePvp(true);
+        combatHold.hold(expiresAtMillis);
     }
 
     /** Whether this player is in {@code /mgxadmin devblog} screenshot mode. */
@@ -1384,12 +1408,16 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     }
 
     String pvpStatus() {
-        return launchService == null
-                ? "PvP state is not available yet."
-                : launchService.pvpStatus()
-                        + " /pvp is "
-                        + (gameVariables != null && gameVariables.bool("pvp-duels.enabled")
-                                ? "enabled." : "disabled.");
+        if (launchService == null) {
+            return "PvP state is not available yet.";
+        }
+        String duels = " /pvp is "
+                + (gameVariables != null && gameVariables.bool("pvp-duels.enabled")
+                        ? "enabled." : "disabled.");
+        if (combatHold != null && combatHold.active()) {
+            return combatHold.describe(System.currentTimeMillis()) + duels;
+        }
+        return launchService.pvpStatus() + duels;
     }
 
     /** True only while this player is one of the two accepted duel fighters. */
@@ -1401,8 +1429,23 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         return bossBars;
     }
 
+    /**
+     * Whether an ordinary player may hit another player where they stand.
+     *
+     * <p>The combat hold is checked here rather than by switching the game rule off,
+     * because the rule refuses every attack before a plugin sees it and would take
+     * arranged {@code /pvp} duels down with the ambushes. The duel handler already
+     * lets a fighter past this check.
+     */
     boolean openWorldPvpEnabled() {
+        if (combatHold != null && combatHold.active()) {
+            return false;
+        }
         return launchService != null && launchService.pvpEnabled();
+    }
+
+    CombatHold combatHold() {
+        return combatHold;
     }
 
     void setMaintenance(boolean enabled) {
