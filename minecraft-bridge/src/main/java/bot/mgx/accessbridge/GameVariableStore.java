@@ -1641,9 +1641,10 @@ final class GameVariableStore {
                         + " is the one reward the Amethyst event did not take over.",
                 1.0, 0, 64, "tokens");
         bool("crates.default-enabled", "Default Crate open", "Crates",
-                "Whether the Default Crate can be opened. Off hides it from /crate while"
-                        + " the Amethyst event runs; Mysterious Crate Keys keep accruing.",
-                false);
+                "Whether the Default Crate can be opened. On by default so Mysterious Crate"
+                        + " Keys always have somewhere to go; turning it off hides it from"
+                        + " /crate and the keys keep accruing until it is opened again.",
+                true);
         bool("online-rewards.key-events-multiply-bonus", "Key events multiply stay rewards", "Online Rewards",
                 "Whether 2x/4x key events also multiply stay-ladder and population bonus keys.", false);
 
