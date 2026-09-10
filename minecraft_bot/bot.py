@@ -3182,6 +3182,111 @@ class MinecraftAccessBot(commands.Bot):
             )
 
         @admin_group.command(
+            name="announce-send",
+            description="OWNER role only: DM an update notice to every member, with live progress.",
+        )
+        @app_commands.describe(
+            template="The dev-blog update to announce. It must be published, not a draft.",
+        )
+        @app_commands.autocomplete(template=self._update_template_autocomplete)
+        async def announce_send(
+            interaction: discord.Interaction,
+            template: str,
+        ) -> None:
+            if not self.is_owner_member(interaction.user):
+                await interaction.response.send_message(
+                    **branded_send(
+                        info_embed(
+                            "Owner Access Required",
+                            "> You need the Discord **OWNER** role to send update notices.",
+                            error=True,
+                        )
+                    ),
+                    ephemeral=True,
+                )
+                return
+            await interaction.response.defer(ephemeral=True)
+
+            from .announce import (
+                BroadcastConfirmOne,
+                PendingBroadcast,
+                SEND_INTERVAL_SECONDS,
+                announcer_for,
+            )
+            from .updatenotice import (
+                UpdateNoticeView,
+                build_notice_embeds,
+                find_template,
+            )
+
+            def refuse(title: str, body: str) -> dict:
+                return branded_edit(info_embed(title, f"> {body}", error=True))
+
+            chosen = find_template(template)
+            if chosen is None:
+                await interaction.edit_original_response(
+                    **refuse("No Such Update", f"No dev-blog update post matches `{template}`.")
+                )
+                return
+            if chosen.draft:
+                await interaction.edit_original_response(
+                    **refuse(
+                        "That Update Is Still A Draft",
+                        f"**{chosen.title}** has not been published, so the link in the "
+                        "notice would go nowhere. Publish the post first.",
+                    )
+                )
+                return
+
+            announcer = announcer_for(self)
+            if announcer.running:
+                await interaction.edit_original_response(
+                    **refuse("Already Sending", "An announcement is going out right now.")
+                )
+                return
+            if not await announcer.enabled():
+                await interaction.edit_original_response(
+                    **refuse(
+                        "Announcements Are Switched Off",
+                        "Turn them on in the owner console before sending anything.",
+                    )
+                )
+                return
+
+            recipients = await announcer.recipients()
+            if not recipients:
+                await interaction.edit_original_response(
+                    **refuse(
+                        "Nobody To Tell",
+                        "No member holds the member role, so there is nobody to announce to.",
+                    )
+                )
+                return
+
+            pending = PendingBroadcast(
+                title=chosen.title,
+                embeds=build_notice_embeds(chosen),
+                view=UpdateNoticeView(self, chosen.url),
+                actor=str(interaction.user),
+                recipients=len(recipients),
+            )
+            minutes = max(1, round(len(recipients) * SEND_INTERVAL_SECONDS / 60))
+            await interaction.edit_original_response(
+                **branded_edit(
+                    info_embed(
+                        "Confirmation 1 of 3 — Send This Announcement?",
+                        f"> You are about to announce **{chosen.title}**.\n\n"
+                        f"**Recipients:** {len(recipients)} member(s)\n"
+                        f"**Estimated time:** about {minutes} minute(s)\n"
+                        f"**Pace:** one direct message every {SEND_INTERVAL_SECONDS} seconds\n\n"
+                        "Anyone who turned update DMs off, and anyone already sent this "
+                        "in the last 6 hours, is left out automatically.",
+                    )
+                ),
+                view=BroadcastConfirmOne(self, interaction.user.id, pending),
+            )
+
+        @admin_group.command(
             name="wipe",
             description="OWNER role only: delete every access and whitelist record, keeping settings.",
         )

@@ -666,3 +666,158 @@ class OptOutFilteringTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BroadcastProgressTests(unittest.IsolatedAsyncioTestCase):
+    """The live percentage an owner watches while an announcement runs."""
+
+    def _announcer(self) -> UpdateAnnouncer:
+        async def get_config(key, default=None):
+            return "1"
+
+        async def no_optouts():
+            return set()
+
+        bot = SimpleNamespace(
+            data=SimpleNamespace(get_config=get_config, update_optout_ids=no_optouts),
+            settings=SimpleNamespace(member_role_id=0),
+        )
+        return UpdateAnnouncer(bot)
+
+    async def test_progress_starts_at_zero_and_finishes_at_one_hundred(self):
+        from minecraft_bot.announce import BroadcastProgress
+
+        readings: list[BroadcastProgress] = []
+
+        async def record(reading):
+            readings.append(reading)
+
+        announcer = self._announcer()
+        members = [Recipient(i) for i in range(3)]
+        with patch("minecraft_bot.announce.asyncio.sleep", new=AsyncMock()):
+            result = await announcer.send(
+                embed=build_announcement_embed(title="Update 7"),
+                targets=members,
+                progress=record,
+            )
+        self.assertEqual(3, result.delivered)
+        # Forced at both ends, whatever the throttle decides in between.
+        self.assertEqual(0, readings[0].processed)
+        self.assertEqual(0, readings[0].percent)
+        self.assertEqual(3, readings[-1].processed)
+        self.assertEqual(100, readings[-1].percent)
+        self.assertEqual(3, readings[-1].delivered)
+
+    async def test_a_broken_progress_reporter_never_stops_the_send(self):
+        # A status message that cannot be edited is a nuisance; a broadcast that dies
+        # halfway because of one is a real problem.
+        async def explode(reading):
+            raise RuntimeError("the status message was deleted")
+
+        announcer = self._announcer()
+        members = [Recipient(i) for i in range(3)]
+        with patch("minecraft_bot.announce.asyncio.sleep", new=AsyncMock()):
+            result = await announcer.send(
+                embed=build_announcement_embed(title="Update 7"),
+                targets=members,
+                progress=explode,
+            )
+        self.assertEqual(3, result.delivered)
+        self.assertEqual(0, result.refused)
+
+    async def test_skipped_recipients_still_advance_the_bar(self):
+        # A cooled-down recipient is not sent to, but the percentage has to keep
+        # moving or a re-send looks frozen.
+        from minecraft_bot.announce import BroadcastProgress
+
+        readings: list[BroadcastProgress] = []
+
+        async def record(reading):
+            readings.append(reading)
+
+        announcer = self._announcer()
+        members = [Recipient(i) for i in range(2)]
+        announcer._last_sent = {member.id: time.time() for member in members}
+        with patch("minecraft_bot.announce.asyncio.sleep", new=AsyncMock()):
+            result = await announcer.send(
+                embed=build_announcement_embed(title="Update 7"),
+                targets=members,
+                progress=record,
+            )
+        self.assertEqual(2, result.skipped)
+        self.assertEqual(0, result.delivered)
+        self.assertEqual(100, readings[-1].percent)
+
+    def test_the_bar_is_twenty_cells_and_reports_what_happened(self):
+        from minecraft_bot.announce import BroadcastProgress, progress_embed
+
+        embed = progress_embed(
+            BroadcastProgress(
+                processed=5, total=10, delivered=4, refused=1, skipped=0,
+                seconds_left=6.0,
+            ),
+            title="Sending",
+        )
+        body = embed.description
+        self.assertEqual(20, body.count("▰") + body.count("▱"))
+        self.assertIn("50%", body)
+        self.assertIn("**Delivered:** 4", body)
+        self.assertIn("**Refused (DMs closed):** 1", body)
+
+
+class BroadcastConfirmationTests(unittest.IsolatedAsyncioTestCase):
+    """Three deliberate presses before anything reaches a real inbox."""
+
+    def _pending(self):
+        from minecraft_bot.announce import PendingBroadcast
+
+        return PendingBroadcast(title="Update 7", embeds=[], recipients=240)
+
+    def test_it_really_is_three_separate_doors(self):
+        from minecraft_bot.announce import (
+            BroadcastConfirmOne,
+            BroadcastConfirmThree,
+            BroadcastConfirmTwo,
+        )
+
+        bot = SimpleNamespace()
+        pending = self._pending()
+        first = BroadcastConfirmOne(bot, 7, pending)
+        second = BroadcastConfirmTwo(bot, 7, pending)
+        third = BroadcastConfirmThree(bot, 7, pending)
+        # Every step offers a way out, and only the last one can send.
+        for view in (first, second, third):
+            labels = [child.label for child in view.children]
+            self.assertTrue(any("Cancel" in label for label in labels), labels)
+        self.assertIn("Send it now", [child.label for child in third.children])
+        self.assertNotIn("Send it now", [child.label for child in first.children])
+        self.assertNotIn("Send it now", [child.label for child in second.children])
+
+    async def test_somebody_else_cannot_press_the_owners_buttons(self):
+        from minecraft_bot.announce import BroadcastConfirmOne
+
+        view = BroadcastConfirmOne(SimpleNamespace(), owner_id=7, pending=self._pending())
+        interaction = SimpleNamespace(
+            user=SimpleNamespace(id=99),
+            response=SimpleNamespace(send_message=AsyncMock()),
+        )
+        self.assertFalse(await view.interaction_check(interaction))
+        interaction.response.send_message.assert_awaited()
+
+    async def test_the_owner_may_press_their_own(self):
+        from minecraft_bot.announce import BroadcastConfirmOne
+
+        view = BroadcastConfirmOne(SimpleNamespace(), owner_id=7, pending=self._pending())
+        interaction = SimpleNamespace(
+            user=SimpleNamespace(id=7),
+            response=SimpleNamespace(send_message=AsyncMock()),
+        )
+        self.assertTrue(await view.interaction_check(interaction))
+
+    def test_the_estimate_is_the_real_pace_not_a_guess(self):
+        from minecraft_bot.announce import SEND_INTERVAL_SECONDS
+
+        pending = self._pending()
+        self.assertEqual(
+            max(1, round(240 * SEND_INTERVAL_SECONDS / 60)), pending.minutes
+        )
