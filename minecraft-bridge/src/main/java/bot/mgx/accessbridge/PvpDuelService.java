@@ -536,6 +536,14 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         return fighting.containsKey(playerId);
     }
 
+    /** True only when both players are the paired fighters in one accepted duel. */
+    boolean areOpponents(UUID first, UUID second) {
+        Fight fight = fighting.get(first);
+        return fight != null
+                && fight == fighting.get(second)
+                && fight.opponent(first).equals(second);
+    }
+
     boolean isParticipant(UUID playerId) {
         return isFighter(playerId) || spectators.containsKey(playerId);
     }

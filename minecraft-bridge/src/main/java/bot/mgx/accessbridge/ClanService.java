@@ -551,6 +551,12 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
         if (attacker == null || !(event.getEntity() instanceof Player victim)) {
             return;
         }
+        // Accepting /pvp is explicit permission for this exact pair to fight. The
+        // duel handler still blocks countdown, aftermath and third-party damage;
+        // this only keeps clan/alliance protection from cancelling their live hits.
+        if (plugin.arePvpOpponents(attacker, victim)) {
+            return;
+        }
         // pvpBlocked rather than two clanOf calls: this fires for every arrow and
         // every swing, and building a ClanView rebuilds both rosters to answer a
         // question the member index already knows.
