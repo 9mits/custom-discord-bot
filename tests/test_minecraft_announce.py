@@ -16,6 +16,7 @@ from minecraft_bot.announce import (
 )
 from minecraft_bot.updatenotice import (
     ConfirmUpdateOptOutView,
+    FinalUpdateOptOutView,
     UpdateNoticeView,
     build_notice_embed,
     build_notice_embeds,
@@ -362,40 +363,45 @@ class UpdateTemplateTests(unittest.TestCase):
         self.assertIsNotNone(template)
         self.assertEqual("update-7", template.slug)
 
-    def test_amethyst_update_selects_the_dragon_preview_not_the_old_collage(self):
+    def test_the_amethyst_notice_is_the_banner_then_the_collage(self):
         # This workstation has the private Update 7 post beside the published Update
         # 5 post with this exact old title. The stable alias must still select the new
-        # sectioned comeback draft—the production checkout has no private post at all.
+        # comeback draft—the production checkout has no private post at all.
         template = find_template("Amethyst Update")
         self.assertIsNotNone(template)
         self.assertEqual("update-7", template.slug)
         self.assertTrue(template.draft)
+
         embeds = build_notice_embeds(template)
-        self.assertEqual(5, len(embeds))
-        self.assertEqual("New Mysterious SMP X update! - Amethyst Dragon", embeds[0].title)
-        self.assertEqual(0xB531FF, embeds[0].colour.value)
-        # This update's own banner, not a reach into the previous post's folder.
+        self.assertEqual(2, len(embeds))
+
+        lead, showcase = embeds
+        self.assertEqual("New Mysterious SMP X update! - Amethyst Dragon", lead.title)
+        self.assertEqual(0xB531FF, lead.colour.value)
         self.assertEqual(
-            "https://mysterioussmpx.blog/media/update-7/banner.png",
-            embeds[0].image.url,
+            "https://mysterioussmpx.blog/media/update-7/banner.png", lead.image.url
         )
-        self.assertEqual("Amethyst Dragon", embeds[1].title)
-        self.assertEqual(0xFF8808, embeds[1].colour.value)
+        self.assertEqual(template.url, lead.url)
+
         self.assertEqual(
-            "https://mysterioussmpx.blog/media/update-7/dragon-victory.png",
-            embeds[1].image.url,
+            "https://mysterioussmpx.blog/media/update-7/notice-collage.png",
+            showcase.image.url,
         )
-        self.assertEqual(
-            ["Rewards Worth Chasing", "Ranked PvP", "The Server Has Changed"],
-            [embed.title for embed in embeds[2:]],
-        )
-        # Trimming the cards is only honest if the rest is still acknowledged.
-        self.assertEqual("Also in this update", embeds[-1].fields[-1].name)
-        self.assertIn("Bigger Amethyst Blocks", embeds[-1].fields[-1].value)
-        self.assertTrue(all(embed.image.url for embed in embeds))
-        self.assertEqual(template.url, embeds[0].url)
-        self.assertTrue(all(embed.url is None for embed in embeds[1:]))
+        self.assertIsNone(showcase.url, "only the lead links the article")
+        self.assertEqual(template.details, showcase.description)
+        # It has to end by sending them somewhere, or the notice is the whole update.
+        self.assertIn("on the site", showcase.description.lower())
         self.assertLessEqual(sum(len(embed) for embed in embeds), 6000)
+
+    def test_the_collage_the_notice_points_at_actually_exists(self):
+        # A notice referring to a missing image is a broken notice, and the composer
+        # writes this file rather than a human remembering to.
+        template = find_template("Amethyst Update")
+        collage = (
+            Path(__file__).resolve().parent.parent
+            / "devblog" / "media" / template.slug / template.notice_collage
+        )
+        self.assertTrue(collage.is_file(), f"{collage} is missing")
 
     def test_a_draft_is_carried_through_and_labelled(self):
         directory = self._posts(**{"2026-09-08-update-7.md": self.POST})
@@ -440,22 +446,6 @@ class UpdateTemplateTests(unittest.TestCase):
         self.assertEqual(
             [">>> Fight people.\nClimb the ranks.", ">>> Griefing is over.\nBuild safely."],
             [field.value for field in embeds[2].fields],
-        )
-
-    def test_the_amethyst_preview_cards_read_one_beat_per_line(self):
-        template = find_template("Amethyst Update")
-        self.assertIsNotNone(template)
-        values = [
-            field.value
-            for embed in build_notice_embeds(template)
-            for field in embed.fields
-        ]
-        self.assertTrue(values)
-        self.assertTrue(all(value.startswith(">>> ") for value in values))
-        self.assertIn(
-            ">>> Permanent rainbow versions of the full Amethyst set, same power "
-            "and no timer.\nEach Eternal item is 2 in 100,000.",
-            values,
         )
 
     def test_the_lead_card_always_opens_the_notice(self):
@@ -543,22 +533,62 @@ class UpdateNoticeViewTests(unittest.IsolatedAsyncioTestCase):
 
         await button.callback(interaction)
 
-        self.assertEqual({}, recorded)
-        confirmation = interaction.response.send_message.await_args.kwargs["view"]
-        self.assertIsInstance(confirmation, ConfirmUpdateOptOutView)
+        self.assertEqual({}, recorded, "one press must never silence anything")
+        first = interaction.response.send_message.await_args.kwargs["view"]
+        self.assertIsInstance(first, ConfirmUpdateOptOutView)
+        self.assertTrue(interaction.response.send_message.await_args.kwargs["ephemeral"])
+
+        # Every step offers staying first, and staying is the green one.
+        self.assertEqual("Keep them on", first.children[0].label)
+        self.assertIs(discord.ButtonStyle.success, first.children[0].style)
+
+        second_interaction = SimpleNamespace(
+            user=SimpleNamespace(id=77),
+            response=SimpleNamespace(edit_message=AsyncMock()),
+        )
+        await first.children[1].callback(second_interaction)
+        self.assertEqual({}, recorded, "two presses must not silence anything either")
+        second = second_interaction.response.edit_message.await_args.kwargs["view"]
+        self.assertIsInstance(second, FinalUpdateOptOutView)
+        self.assertEqual("Actually, keep them on", second.children[0].label)
 
         confirm_interaction = SimpleNamespace(
             user=SimpleNamespace(id=77),
             response=SimpleNamespace(edit_message=AsyncMock()),
         )
-        await confirmation.children[0].callback(confirm_interaction)
+        await second.children[1].callback(confirm_interaction)
 
         self.assertEqual({"user_id": 77, "opted_out": True}, recorded)
         reply = confirm_interaction.response.edit_message.await_args.kwargs["embed"]
         # The promise that matters: this silences updates, not the bot.
         self.assertIn("update notices only", reply.description.lower())
-        self.assertTrue(interaction.response.send_message.await_args.kwargs["ephemeral"])
+        # And the way back has to be advertised at the moment they leave.
+        self.assertIn("one press", reply.description.lower())
         self.assertEqual("Update DMs Disabled", send_log.await_args.args[1].title)
+
+    async def test_backing_out_at_either_step_leaves_them_subscribed(self):
+        recorded = {}
+
+        async def set_update_optout(user_id, opted_out=True):
+            recorded["user_id"] = user_id
+
+        bot = SimpleNamespace(
+            data=SimpleNamespace(
+                is_update_opted_out=AsyncMock(return_value=False),
+                set_update_optout=set_update_optout,
+            ),
+            settings=SimpleNamespace(command_log_channel_id=91, log_routes={}),
+            _send_configured_log=AsyncMock(return_value=True),
+        )
+        for view in (ConfirmUpdateOptOutView(bot), FinalUpdateOptOutView(bot)):
+            interaction = SimpleNamespace(
+                user=SimpleNamespace(id=77),
+                response=SimpleNamespace(edit_message=AsyncMock()),
+            )
+            await view.children[0].callback(interaction)
+            embed = interaction.response.edit_message.await_args.kwargs["embed"]
+            self.assertEqual("Nothing Changed", embed.title)
+        self.assertEqual({}, recorded)
 
     async def test_the_same_button_turns_update_dms_back_on_in_one_click(self):
         set_update_optout = AsyncMock()
