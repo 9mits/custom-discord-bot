@@ -537,18 +537,9 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
             entity.setRemoveWhenFarAway(false);
             entity.setPhase(EnderDragon.Phase.CIRCLING);
         });
-        hideVanillaDragonBar();
         clearVanillaExitPortal();
         scheduleVanillaExitPortalCleanup();
-        dragonBar = BossBar.bossBar(
-                Component.text(render(render(variables.string("dragon-event.fight-bossbar-text"),
-                        "hp", String.valueOf(Math.round(dragonHealth))), "time",
-                        duration(phaseEndsAt - System.currentTimeMillis())), AMETHYST, TextDecoration.BOLD),
-                1f, variables.barColour("dragon-event.fight-bossbar-color", BossBar.Color.PURPLE),
-                BossBar.Overlay.NOTCHED_20
-        );
-        entrants.stream().map(Bukkit::getPlayer).filter(java.util.Objects::nonNull)
-                .forEach(player -> plugin.bossBars().showExclusive(player, dragonBar));
+        updateDragonBar();
         lastAggressiveAttackAt = 0L;
         lastMinionWaveAt = System.currentTimeMillis();
         lastChaosAt = 0L;
@@ -1992,11 +1983,12 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         }
     }
 
-    /** Runs after the Dragon's own tracking pass, which otherwise adds its bar back. */
+    /** Runs after the Dragon's own tracking pass so our title, clock and viewers win. */
     @EventHandler
     public void onServerTickEnd(ServerTickEndEvent event) {
         if (arena == null) return;
-        hideVanillaDragonBar();
+        if (phase == Phase.FIGHT) updateDragonBar();
+        else hideVanillaDragonBar();
         rescueFallenPlayers();
         trailVisualKeys();
     }
@@ -2583,6 +2575,12 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         }
     }
 
+    private org.bukkit.boss.BossBar nativeDragonBar() {
+        if (dragon != null && dragon.getBossBar() != null) return dragon.getBossBar();
+        return arena == null || arena.getEnderDragonBattle() == null
+                ? null : arena.getEnderDragonBattle().getBossBar();
+    }
+
     private static void hideVanillaBar(org.bukkit.boss.BossBar vanilla) {
         if (vanilla == null) return;
         vanilla.removeAll();
@@ -2623,17 +2621,53 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     }
 
     private void updateDragonBar() {
-        if (dragonBar == null || dragonMaximumHealth <= 0d) return;
-        dragonBar.name(Component.text(render(render(
-                        variables.string("dragon-event.fight-bossbar-text"), "hp",
-                        String.valueOf(Math.max(0L, Math.round(dragonHealth)))), "time",
-                        duration(phaseEndsAt - System.currentTimeMillis())), AMETHYST,
-                TextDecoration.BOLD));
-        dragonBar.progress((float) Math.clamp(dragonHealth / dragonMaximumHealth, 0d, 1d));
-        for (Player player : arena.getPlayers()) {
-            if (entrants.contains(player.getUniqueId()) && !departed.contains(player.getUniqueId())) {
-                plugin.bossBars().showExclusive(player, dragonBar);
+        if (dragonMaximumHealth <= 0d || arena == null) return;
+        String title = render(render(
+                variables.string("dragon-event.fight-bossbar-text"), "hp",
+                String.valueOf(Math.max(0L, Math.round(dragonHealth)))), "time",
+                duration(phaseEndsAt - System.currentTimeMillis()));
+        double progress = Math.clamp(dragonHealth / dragonMaximumHealth, 0d, 1d);
+        List<Player> viewers = arena.getPlayers().stream()
+                .filter(player -> entrants.contains(player.getUniqueId())
+                        && !departed.contains(player.getUniqueId()))
+                .toList();
+
+        // A real Ender Dragon already owns the boss-bar channel on both Java and
+        // Geyser. Hiding that bar every tick and adding a second Adventure bar can
+        // leave the client with neither. Drive Paper's native bar after its tracking
+        // pass instead; the separate bar below remains a fallback for unusual worlds
+        // where Paper exposes no Dragon battle bar.
+        org.bukkit.boss.BossBar nativeBar = nativeDragonBar();
+        if (nativeBar != null) {
+            hideCustomDragonBar();
+            nativeBar.setTitle("§d§l" + title);
+            try {
+                nativeBar.setColor(org.bukkit.boss.BarColor.valueOf(
+                        variables.string("dragon-event.fight-bossbar-color")));
+            } catch (IllegalArgumentException ignored) {
+                nativeBar.setColor(org.bukkit.boss.BarColor.PURPLE);
             }
+            nativeBar.setStyle(org.bukkit.boss.BarStyle.SEGMENTED_20);
+            nativeBar.setProgress(progress);
+            for (Player player : List.copyOf(nativeBar.getPlayers())) {
+                if (!viewers.contains(player)) nativeBar.removePlayer(player);
+            }
+            for (Player player : viewers) {
+                if (!nativeBar.getPlayers().contains(player)) nativeBar.addPlayer(player);
+            }
+            nativeBar.setVisible(true);
+            return;
+        }
+
+        if (dragonBar == null) {
+            dragonBar = BossBar.bossBar(Component.empty(), 1f,
+                    variables.barColour("dragon-event.fight-bossbar-color", BossBar.Color.PURPLE),
+                    BossBar.Overlay.NOTCHED_20);
+        }
+        dragonBar.name(Component.text(title, AMETHYST, TextDecoration.BOLD));
+        dragonBar.progress((float) progress);
+        for (Player player : viewers) {
+            plugin.bossBars().showExclusive(player, dragonBar);
         }
     }
 
@@ -2712,8 +2746,15 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     }
 
     private void hideDragonBar() {
+        hideCustomDragonBar();
+        hideVanillaDragonBar();
+    }
+
+    private void hideCustomDragonBar() {
         if (dragonBar == null) return;
-        for (Player player : Bukkit.getOnlinePlayers()) plugin.bossBars().hideExclusive(player, dragonBar);
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            plugin.bossBars().hideExclusive(player, dragonBar);
+        }
         dragonBar = null;
     }
 
