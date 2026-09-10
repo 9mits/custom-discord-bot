@@ -4449,7 +4449,9 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private void maybeExplainBlocked(Player attacker) {
-        maybeNotice(attacker, "PvP is disabled. Use /pvp to fight.");
+        maybeNotice(attacker, plugin.combatHold() != null && plugin.combatHold().active()
+                ? "Open-world PvP is off while the clan battle runs. Use /pvp to fight."
+                : "PvP is disabled. Use /pvp to fight.");
     }
 
     private boolean teleport(Player player, Location location) {
