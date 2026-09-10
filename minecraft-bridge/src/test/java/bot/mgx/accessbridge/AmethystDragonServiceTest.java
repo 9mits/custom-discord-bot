@@ -48,6 +48,22 @@ final class AmethystDragonServiceTest {
     }
 
     @Test
+    void dragonDifficultyScalesWithLockedAttendanceAndKeepsItsCap() {
+        assertEquals(1200, AmethystDragonService.scaledDragonHealth(1200, 600, 6000, 0));
+        assertEquals(1200, AmethystDragonService.scaledDragonHealth(1200, 600, 6000, 1));
+        assertEquals(1800, AmethystDragonService.scaledDragonHealth(1200, 600, 6000, 2));
+        assertEquals(3000, AmethystDragonService.scaledDragonHealth(1200, 600, 6000, 4));
+        assertEquals(6000, AmethystDragonService.scaledDragonHealth(1200, 600, 6000, 9));
+        assertEquals(6000, AmethystDragonService.scaledDragonHealth(1200, 600, 6000, 40));
+
+        assertEquals(6, AmethystDragonService.scaledEncounterAmount(30, 0.2d));
+        assertEquals(15, AmethystDragonService.scaledEncounterAmount(30, 0.5d));
+        assertEquals(30, AmethystDragonService.scaledEncounterAmount(30, 1d));
+        assertEquals(0, AmethystDragonService.scaledEncounterAmount(0, 0.2d));
+        assertEquals(1, AmethystDragonService.scaledEncounterAmount(1, 0.2d));
+    }
+
+    @Test
     void vanillaExitFountainMaterialsAreRemovedFromTheArenaCentre() {
         for (Material material : new Material[]{
                 Material.END_PORTAL, Material.END_GATEWAY, Material.END_PORTAL_FRAME,

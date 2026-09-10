@@ -309,6 +309,13 @@ final class AmethystCrateCatalogTest {
     }
 
     @Test
+    void everyCrateThatPromisesSixteenAmethystArrowsActuallyAwardsSixteen() {
+        assertEquals(16, CrateCatalog.find("amethyst_arrows").orElseThrow().amount());
+        assertEquals(16, CrateCatalog.find("dragon_amethyst_arrows").orElseThrow().amount());
+        assertEquals(16, CrateCatalog.find("shard_amethyst_arrows").orElseThrow().amount());
+    }
+
+    @Test
     void dragonPoolSurvivesSustainedOpeningWithoutFloodingChaseItems() {
         int commonWeight = CrateCatalog.dragon().stream()
                 .filter(reward -> !reward.cosmetic())

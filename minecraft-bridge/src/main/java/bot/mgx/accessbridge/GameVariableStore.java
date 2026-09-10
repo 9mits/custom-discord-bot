@@ -202,9 +202,15 @@ final class GameVariableStore {
         integer("dragon-event.crate-minutes", "Dragon Crate phase", "Dragon Event",
                 "Minutes the Dragon Crate remains after the kill.", 60, 1, 240,
                 "minutes", false);
-        integer("dragon-event.maximum-health", "Dragon health", "Dragon Event",
-                "Maximum health assigned to the Amethyst Dragon.", 6000, 100, 1000000,
+        integer("dragon-event.maximum-health", "Dragon health cap", "Dragon Event",
+                "Maximum health the attendance-scaled Amethyst Dragon may receive.", 6000, 100, 1000000,
                 "HP", false);
+        integer("dragon-event.solo-health", "Solo Dragon health", "Dragon Event",
+                "Health assigned when one player attends, before the Dragon health cap.",
+                1200, 100, 1000000, "HP", false);
+        integer("dragon-event.health-per-additional-player", "Dragon health per extra player",
+                "Dragon Event", "Health added for each attendee after the first, up to the Dragon health cap.",
+                600, 0, 1000000, "HP", false);
         integer("dragon-event.border-size", "Dragon arena border", "Dragon Event",
                 "Width of the square event arena.", 384, 64, 2048, "blocks", false);
         integer("dragon-event.crystals", "End Crystals", "Dragon Event",
@@ -317,8 +323,8 @@ final class GameVariableStore {
                 "World time used while the Dragon fight is active with the PHASED sky.",
                 18000, 0, 24000, "ticks", false);
         text("dragon-event.started-message", "Dragon start announcement", "Dragon Presentation",
-                "Broadcast after the pillars finish rising and the Dragon appears.",
-                "The Amethyst Dragon has awakened! The fight begins now!", 180);
+                "Broadcast after the Dragon appears. Supports <hp> and <fighters>.",
+                "The Amethyst Dragon has awakened with <hp> HP for <fighters>!", 180);
         text("dragon-event.victory-message", "Dragon victory announcement", "Dragon Presentation",
                 "Broadcast when the Dragon is defeated. Supports <player>.",
                 "The Amethyst Dragon has fallen! <player> landed the final blow.", 180);
@@ -553,7 +559,7 @@ final class GameVariableStore {
                 "Seconds between targeted Dragon fireball volleys.", 2, 1, 120,
                 "seconds", false);
         integer("dragon-event.fireball-volley", "Dragon fireball volley", "Dragon Mechanics",
-                "Fireballs launched during each targeted attack.", 7, 1, 20,
+                "Maximum fireballs per targeted attack; smaller fights scale this down with Dragon health.", 7, 1, 20,
                 "fireballs", false);
         decimal("dragon-event.aggression-speed", "Dragon charge speed", "Dragon Mechanics",
                 "Velocity applied toward the selected player during an aggressive attack.", 2.4,
@@ -579,10 +585,10 @@ final class GameVariableStore {
                 "Dragon Breath particles emitted before each targeted attack.", 80, 0, 10000,
                 "particles", false);
         integer("dragon-event.minions-per-wave", "Amethyst mobs per wave", "Dragon Mechanics",
-                "Amethyst Zombies, Skeletons, and hostile Golems spawned in each arena wave.", 30, 0, 100,
+                "Maximum mobs spawned per wave; smaller fights scale this down with Dragon health.", 30, 0, 100,
                 "mobs", false);
         integer("dragon-event.minion-maximum-alive", "Maximum arena mobs", "Dragon Mechanics",
-                "Maximum Dragon minions alive at once.", 80, 0, 200,
+                "Full-pressure mob cap; smaller fights scale this down with Dragon health.", 80, 0, 200,
                 "mobs", false);
         integer("dragon-event.minion-wave-seconds", "Amethyst mob wave interval", "Dragon Mechanics",
                 "Seconds between minion reinforcement checks.", 25, 5, 1800,
@@ -606,7 +612,8 @@ final class GameVariableStore {
         integer("dragon-event.chaos-interval-seconds", "Chaos strike interval", "Dragon Mechanics",
                 "Seconds between targeted lightning barrages during the fight.", 8, 1, 120, "seconds", false);
         integer("dragon-event.chaos-strikes", "Chaos strikes", "Dragon Mechanics",
-                "Targeted lightning markers created in each barrage.", 6, 1, 50, "strikes", false);
+                "Maximum lightning markers per barrage; smaller fights scale this down with Dragon health.",
+                6, 1, 50, "strikes", false);
         decimal("dragon-event.chaos-strike-spread", "Chaos strike spread", "Dragon Mechanics",
                 "Maximum horizontal offset around each targeted player.", 4, 0, 30, "blocks");
         integer("dragon-event.chaos-warning-ticks", "Chaos warning time", "Dragon Mechanics",

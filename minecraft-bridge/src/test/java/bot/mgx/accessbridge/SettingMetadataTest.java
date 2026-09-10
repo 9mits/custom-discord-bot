@@ -226,11 +226,13 @@ final class SettingMetadataTest {
                         "dragon-event.arena-radius",
                         "dragon-event.border-size",
                         "dragon-event.crystals",
+                        "dragon-event.health-per-additional-player",
                         "dragon-event.maximum-health",
                         "dragon-event.pillar-base-height",
                         "dragon-event.pillar-height-step",
                         "dragon-event.pillar-radius",
                         "dragon-event.sky-style",
+                        "dragon-event.solo-health",
                         "giant-amethyst.maximum-health",
                         "giant-amethyst.size",
                         "huge-amethyst.lifetime-minutes",
@@ -270,7 +272,7 @@ final class SettingMetadataTest {
                         Map.entry("airdrops", 119),
                         Map.entry("online_rewards", 68),
                         Map.entry("amethyst_blocks", 49),
-                        Map.entry("dragon_event", 245),
+                        Map.entry("dragon_event", 247),
                         Map.entry("permissions", 4),
                         Map.entry("shop", 21),
                         Map.entry("admin_events", 17),
@@ -298,7 +300,7 @@ final class SettingMetadataTest {
                 perGroup,
                 "the catalogue moved between panel pages"
         );
-        assertEquals(954, perGroup.values().stream().mapToInt(Integer::intValue).sum(),
+        assertEquals(956, perGroup.values().stream().mapToInt(Integer::intValue).sum(),
                 "group counts no longer add up to the catalogue");
     }
 
