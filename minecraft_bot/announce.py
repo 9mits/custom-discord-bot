@@ -22,7 +22,7 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Optional, Sequence
+from typing import Any, Awaitable, Callable, Iterable, Optional, Sequence
 
 import discord
 
@@ -45,6 +45,11 @@ FAILURE_LIMIT = 0.5
 
 #: A recipient reached this recently is skipped, so a double-click cannot double-send.
 RECIPIENT_COOLDOWN_SECONDS = 6 * 60 * 60
+
+#: How often a live progress report may fire. Editing a message costs a request of
+#: its own, and a broadcast that spends its budget narrating itself is slower for no
+#: benefit. Start and finish always report regardless of this.
+PROGRESS_INTERVAL_SECONDS = 5.0
 
 #: The house orange, used when a draft names no colour of its own.
 DEFAULT_COLOUR = 0xF06000
@@ -151,6 +156,28 @@ def announcer_for(bot: Any) -> UpdateAnnouncer:
 
 
 @dataclass
+class BroadcastProgress:
+    """One live reading of a broadcast in flight."""
+
+    processed: int
+    total: int
+    delivered: int
+    refused: int
+    skipped: int
+    seconds_left: float
+
+    @property
+    def percent(self) -> int:
+        if self.total <= 0:
+            return 100
+        return min(100, round(self.processed * 100 / self.total))
+
+    @property
+    def remaining(self) -> int:
+        return max(0, self.total - self.processed)
+
+
+@dataclass
 class BroadcastResult:
     """What actually happened, in the terms an owner needs to see."""
 
@@ -254,6 +281,7 @@ class UpdateAnnouncer:
         actor: str = "owner",
         targets: Optional[Iterable[discord.Member]] = None,
         view: Optional[discord.ui.View] = None,
+        progress: Optional[Callable[[BroadcastProgress], Awaitable[None]]] = None,
     ) -> BroadcastResult:
         result = BroadcastResult()
         if self._running:
@@ -273,11 +301,44 @@ class UpdateAnnouncer:
 
         self._running = True
         attempted = 0
+        total = len(members)
+        processed = 0
+        last_report = 0.0
+
+        async def report(force: bool = False) -> None:
+            """Tell the caller where we are, without letting it derail the send.
+
+            A progress reporter is a nicety; a broadcast that dies because a status
+            message could not be edited would be a much worse failure than a stale
+            percentage.
+            """
+            nonlocal last_report
+            if progress is None:
+                return
+            now = time.monotonic()
+            if not force and now - last_report < PROGRESS_INTERVAL_SECONDS:
+                return
+            last_report = now
+            try:
+                await progress(BroadcastProgress(
+                    processed=processed,
+                    total=total,
+                    delivered=result.delivered,
+                    refused=result.refused,
+                    skipped=result.skipped,
+                    seconds_left=max(0, total - processed) * SEND_INTERVAL_SECONDS,
+                ))
+            except Exception:
+                logger.warning("Progress report failed; the send continues", exc_info=True)
+
         try:
+            await report(force=True)
             for member in members:
                 now = time.time()
                 if now - self._last_sent.get(member.id, 0.0) < RECIPIENT_COOLDOWN_SECONDS:
                     result.skipped += 1
+                    processed += 1
+                    await report()
                     continue
                 try:
                     payload = self._embed_payload(embed=embed, embeds=embeds)
@@ -301,6 +362,8 @@ class UpdateAnnouncer:
                     result.refused += 1
                     result.failures.append(f"{member}: {exc}")
                 attempted += 1
+                processed += 1
+                await report()
 
                 if (
                     attempted >= FAILURE_SAMPLE
@@ -317,6 +380,7 @@ class UpdateAnnouncer:
                 await asyncio.sleep(SEND_INTERVAL_SECONDS)
         finally:
             self._running = False
+            await report(force=True)
 
         logger.info(
             "Announcement by %s: %d delivered, %d refused, %d skipped",
@@ -340,3 +404,196 @@ class UpdateAnnouncer:
         if embed is None:
             raise ValueError("An announcement needs at least one embed.")
         return {"embed": embed}
+
+
+# --- sending it from Discord ------------------------------------------------
+
+def progress_embed(reading: "BroadcastProgress", *, title: str, done: bool = False) -> discord.Embed:
+    """The live card an owner watches while a broadcast runs."""
+    filled = round(reading.percent / 5)
+    bar = "▰" * filled + "▱" * (20 - filled)
+    if done:
+        headline = "Finished."
+    elif reading.seconds_left >= 60:
+        headline = f"About {round(reading.seconds_left / 60)} minute(s) left."
+    else:
+        headline = f"About {round(reading.seconds_left)} second(s) left."
+    return discord.Embed(
+        title=title,
+        description=(
+            f"`{bar}`  **{reading.percent}%**\n\n"
+            f"**Delivered:** {reading.delivered}\n"
+            f"**Refused (DMs closed):** {reading.refused}\n"
+            f"**Skipped (already had it):** {reading.skipped}\n"
+            f"**Remaining:** {reading.remaining} of {reading.total}\n\n"
+            f"{headline}"
+        ),
+        colour=discord.Colour(0x57F287 if done else DEFAULT_COLOUR),
+    )
+
+
+class ProgressReporter:
+    """Keeps one status message current for the whole of a broadcast.
+
+    An interaction token dies after fifteen minutes, and at the deliberate pace
+    above that is only a few hundred recipients — so a long announcement would lose
+    its progress display exactly when it is most worth watching. The first failure
+    to edit moves the display into a direct message to whoever started it, which the
+    bot can keep editing for as long as the send runs.
+    """
+
+    def __init__(self, interaction: discord.Interaction, title: str) -> None:
+        self.interaction = interaction
+        self.title = title
+        self.fallback: Optional[discord.Message] = None
+
+    async def __call__(self, reading: "BroadcastProgress") -> None:
+        await self.show(progress_embed(reading, title=self.title))
+
+    async def show(self, embed: discord.Embed) -> None:
+        if self.fallback is not None:
+            await self.fallback.edit(embed=embed, view=None)
+            return
+        try:
+            await self.interaction.edit_original_response(embed=embed, view=None)
+        except discord.HTTPException:
+            # The token has expired. Carry on somewhere the bot can still write.
+            self.fallback = await self.interaction.user.send(embed=embed)
+
+
+@dataclass
+class PendingBroadcast:
+    """Everything the confirmation steps have to carry to the send."""
+
+    title: str
+    embeds: list
+    view: Any = None
+    content: Optional[str] = None
+    actor: str = "owner"
+    recipients: int = 0
+
+    @property
+    def minutes(self) -> int:
+        return max(1, round(self.recipients * SEND_INTERVAL_SECONDS / 60))
+
+
+class _BroadcastStep(discord.ui.View):
+    """One door of the three. Only the owner who opened it may press anything."""
+
+    def __init__(self, bot: Any, owner_id: int, pending: PendingBroadcast) -> None:
+        super().__init__(timeout=300)
+        self.bot = bot
+        self.owner_id = owner_id
+        self.pending = pending
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message(
+                "This confirmation belongs to somebody else.", ephemeral=True
+            )
+            return False
+        return True
+
+    async def cancel(self, interaction: discord.Interaction) -> None:
+        await interaction.response.edit_message(
+            embed=discord.Embed(
+                title="Nothing Was Sent",
+                description="> The announcement was cancelled. Nobody was messaged.",
+                colour=discord.Colour(0x57F287),
+            ),
+            view=None,
+        )
+
+
+class BroadcastConfirmOne(_BroadcastStep):
+    """First of three. States the size of the thing before anything else."""
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.success)
+    async def stop_here(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await self.cancel(interaction)
+
+    @discord.ui.button(label="Continue (1 of 3)", style=discord.ButtonStyle.secondary)
+    async def go(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.response.edit_message(
+            embed=discord.Embed(
+                title="Confirmation 2 of 3 — This Reaches Real People",
+                description=(
+                    f"> **{self.pending.title}** would be sent as a direct message to "
+                    f"**{self.pending.recipients} member(s)**.\n\n"
+                    "A direct message cannot be recalled, edited or deleted for the "
+                    "person who received it. Everyone on that list gets a notification "
+                    "on every device they are signed in to.\n\n"
+                    f"The send takes about **{self.pending.minutes} minute(s)** and "
+                    "cannot be sped up — the pace is what keeps the bot from looking "
+                    "like a spammer to Discord."
+                ),
+                colour=discord.Colour(0xF06000),
+            ),
+            view=BroadcastConfirmTwo(self.bot, self.owner_id, self.pending),
+        )
+
+
+class BroadcastConfirmTwo(_BroadcastStep):
+    """Second of three. The one that names the actual risk."""
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.success)
+    async def stop_here(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await self.cancel(interaction)
+
+    @discord.ui.button(label="Continue (2 of 3)", style=discord.ButtonStyle.secondary)
+    async def go(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.response.edit_message(
+            embed=discord.Embed(
+                title="Confirmation 3 of 3 — Last Chance",
+                description=(
+                    f"> Press the red button and **{self.pending.recipients} member(s)** "
+                    "start receiving this immediately.\n\n"
+                    "Send the wrong thing and the only fix is another announcement, "
+                    "which is worse than the mistake.\n\n"
+                    "**Preview it first** with `/mgxadmin announce-preview` if you have "
+                    "not already read it as a member would."
+                ),
+                colour=discord.Colour(0xED4245),
+            ),
+            view=BroadcastConfirmThree(self.bot, self.owner_id, self.pending),
+        )
+
+
+class BroadcastConfirmThree(_BroadcastStep):
+    """The last door, and the one that actually sends."""
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.success)
+    async def stop_here(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await self.cancel(interaction)
+
+    @discord.ui.button(label="Send it now", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        announcer = announcer_for(self.bot)
+        title = f"Sending — {self.pending.title}"
+        await interaction.response.edit_message(
+            embed=discord.Embed(
+                title=title,
+                description="> Starting...",
+                colour=discord.Colour(DEFAULT_COLOUR),
+            ),
+            view=None,
+        )
+        reporter = ProgressReporter(interaction, title)
+        result = await announcer.send(
+            embeds=self.pending.embeds or None,
+            content=self.pending.content,
+            actor=self.pending.actor,
+            view=self.pending.view,
+            progress=reporter,
+        )
+        summary = discord.Embed(
+            title=f"Announcement Finished — {self.pending.title}",
+            description=(
+                f"**Delivered:** {result.delivered}\n"
+                f"**Refused (DMs closed):** {result.refused}\n"
+                f"**Skipped (already had it):** {result.skipped}\n"
+                + (f"\n**Stopped early:** {result.reason}" if result.stopped_early else "")
+            ),
+            colour=discord.Colour(0xED4245 if result.stopped_early else 0x57F287),
+        )
+        await reporter.show(summary)
