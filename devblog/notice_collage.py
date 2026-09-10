@@ -52,9 +52,9 @@ DEFAULT_TILES = {
         ("eternal-gear.png", "contain", ""),
     ],
 }
-#: Tiles per row under the hero, and how wide each row's cells sit. World shots
-#: want something near 16:9; designed panels are far wider than that.
-DEFAULT_ROWS = ((3, 1.60), (2, 2.45))
+#: How many tiles sit in each row under the hero. Their widths come from the
+#: pictures themselves, so nothing has to be told what shape it is.
+DEFAULT_ROWS = (3, 2)
 
 
 def _trim(image: Image.Image) -> Image.Image:
@@ -132,43 +132,67 @@ def _caption(tile: Image.Image, text: str) -> None:
     draw.text((x, y), text, font=font, fill=CAPTION_INK)
 
 
+def _load(source: Path, name: str, mode: str) -> Image.Image:
+    """The picture a tile will hold, with any dead margin already gone."""
+    path = source / name
+    if not path.exists():
+        raise SystemExit(f"{path} is missing; a collage never invents a screenshot.")
+    with Image.open(path) as raw:
+        image = raw.convert("RGB")
+    return _trim(image) if mode == "contain" else image
+
+
 def build(
     slug: str,
     tiles: list[tuple[str, str, str]],
     out: Path,
-    rows: tuple[tuple[int, float], ...] = DEFAULT_ROWS,
+    rows: tuple[int, ...] = DEFAULT_ROWS,
 ) -> Path:
-    """Write the collage for one update and return where it landed."""
+    """Write the collage for one update and return where it landed.
+
+    Rows are justified: every tile in a row shares one height, and each is as wide
+    as its own picture wants to be at that height. Fixed cells were the mistake —
+    a 3.6:1 rank ladder in a 2.45:1 cell is a third padding, and the eye reads the
+    inconsistent bands as broken spacing rather than as design.
+    """
     source = MEDIA / slug
     if len(tiles) < 2:
         raise SystemExit("A collage is a hero plus at least one tile.")
-
-    hero_width = WIDTH - 2 * MARGIN
-    boxes = [(MARGIN, MARGIN, hero_width, HERO_HEIGHT)]
-    y = MARGIN + HERO_HEIGHT
-    for count, aspect in rows:
-        cell_width = (hero_width - (count - 1) * GUTTER) // count
-        cell_height = round(cell_width / aspect)
-        y += GUTTER
-        boxes.extend(
-            (MARGIN + index * (cell_width + GUTTER), y, cell_width, cell_height)
-            for index in range(count)
-        )
-        y += cell_height
-    if len(boxes) != len(tiles):
+    if len(tiles) != 1 + sum(rows):
         raise SystemExit(
-            f"{len(tiles)} tiles will not fill {len(boxes)} places; adjust --rows."
+            f"{len(tiles)} tiles will not fill 1 hero plus {sum(rows)} places."
         )
+
+    usable = WIDTH - 2 * MARGIN
+    hero = _load(source, tiles[0][0], tiles[0][1])
+    placed: list[tuple[Image.Image, str, tuple[int, int, int, int]]] = [
+        (hero, tiles[0][2], (MARGIN, MARGIN, usable, HERO_HEIGHT))
+    ]
+
+    y = MARGIN + HERO_HEIGHT
+    index = 1
+    for count in rows:
+        row = [_load(source, name, mode) for name, mode, _ in tiles[index:index + count]]
+        aspects = [image.width / image.height for image in row]
+        span = usable - (count - 1) * GUTTER
+        height = round(span / sum(aspects))
+        widths = [round(aspect * height) for aspect in aspects]
+        # Rounding each tile independently leaves the row a pixel or two short of
+        # the margin; the last tile absorbs it so both edges line up exactly.
+        widths[-1] += span - sum(widths)
+        y += GUTTER
+        x = MARGIN
+        for image, width, (_, _, label) in zip(row, widths, tiles[index:index + count]):
+            placed.append((image, label, (x, y, width, height)))
+            x += width + GUTTER
+        y += height
+        index += count
 
     sheet = Image.new("RGB", (WIDTH, y + MARGIN), BACKDROP)
-    for (name, mode, label), (x, y, width, box_height) in zip(tiles, boxes):
-        path = source / name
-        if not path.exists():
-            raise SystemExit(f"{path} is missing; a collage never invents a screenshot.")
-        with Image.open(path) as raw:
-            tile = _fit(raw.convert("RGB"), (width, box_height), mode)
+    for image, label, (x, top, width, height) in placed:
+        tile = _fit(image, (width, height), "cover")
         _caption(tile, label)
-        sheet.paste(_rounded(tile, RADIUS), (x, y))
+        sheet.paste(_rounded(tile, RADIUS), (x, top))
 
     out.parent.mkdir(parents=True, exist_ok=True)
     sheet.save(out, optimize=True)
@@ -188,18 +212,12 @@ def main() -> int:
     parser.add_argument(
         "--rows",
         nargs="+",
-        metavar="COUNT:ASPECT",
-        help="tiles per row under the hero, e.g. 3:1.6 2:2.45",
+        metavar="COUNT",
+        help="tiles per row under the hero, e.g. 3 2",
     )
     args = parser.parse_args()
 
-    rows = DEFAULT_ROWS
-    if args.rows:
-        parsed = []
-        for entry in args.rows:
-            count, _, aspect = entry.partition(":")
-            parsed.append((int(count), float(aspect or 1.6)))
-        rows = tuple(parsed)
+    rows = tuple(int(entry) for entry in args.rows) if args.rows else DEFAULT_ROWS
 
     if args.tiles:
         tiles = []
