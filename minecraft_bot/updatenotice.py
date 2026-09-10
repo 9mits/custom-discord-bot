@@ -92,6 +92,11 @@ class UpdateTemplate:
     #: One line naming what the trimmed cards left out. A shorter notice is only
     #: honest if the features it does not have room for are still acknowledged.
     also: str = ""
+    #: One composed image standing in for a column of screenshots, and the copy
+    #: that sits under it. With these set the notice is two cards: the banner, and
+    #: the collage with just enough detail to make the article worth opening.
+    notice_collage: str = ""
+    details: str = ""
 
     @property
     def url(self) -> str:
@@ -143,6 +148,18 @@ def _built_in_preview_templates() -> tuple[UpdateTemplate, ...]:
             ),
             draft=True,
             notice_cover="banner.png",
+            notice_collage="notice-collage.png",
+            details=(
+                "**The Amethyst Dragon is awake.**\n"
+                "The whole server fights it at once — break the crystals, claim the "
+                "**Egg**, and crack the **Dragon Crate** before its timer dies.\n\n"
+                "**Ranked PvP** is live. Wager money, items, even cosmetics.\n"
+                "**Eternal gear** never expires — **2 in 100,000**.\n"
+                "**Griefing is over.** Your base is finally safe.\n\n"
+                "⏳ **The Amethyst Crate closes 12 September, 15:00 UTC.**\n\n"
+                "**Every reward, every drop rate, every screenshot is on the site.**\n"
+                "*Go look before somebody beats you to it.*"
+            ),
             also=(
                 "Bigger Amethyst Blocks, Dragon leaderboards and clan battles, "
                 "Sharpness VII gear, a faster Elytra, nine Amethyst cosmetics, "
@@ -506,6 +523,20 @@ def build_notice_embeds(template: UpdateTemplate) -> list[discord.Embed]:
     if cover:
         lead.set_image(url=cover)
     embeds = [lead]
+
+    if template.notice_collage:
+        # One composed image beats a column of them: the reader takes the update in
+        # at a glance and the copy only has to be interesting enough to earn a click.
+        showcase = discord.Embed(
+            description=template.details or template.tagline,
+            colour=discord.Colour(0xFF8808),
+        )
+        showcase.set_image(url=_media_url(template, template.notice_collage))
+        showcase.set_footer(
+            text="Sent once for this update. Read everything or change update DMs below."
+        )
+        return [lead, showcase]
+
     image_count = int(bool(cover))
 
     if template.spotlight is not None and len(embeds) < MAX_NOTICE_EMBEDS:
@@ -605,29 +636,94 @@ class UpdateNoticeView(discord.ui.View):
             return
 
         await interaction.response.send_message(
-            embed=discord.Embed(
-                title="Stop Future Update DMs?",
-                description=(
-                    "> This stops future server-update announcements. It does not stop "
-                    "account, verification, or necessary staff messages.\n\n"
-                    "Press the red confirmation below to finish. You can turn updates "
-                    "back on later from this same **Update DM settings** button."
-                ),
-                colour=discord.Colour(0xF06000),
-            ),
+            embed=_leaving_embed(),
             view=ConfirmUpdateOptOutView(self.bot),
             ephemeral=True,
         )
 
 
+#: Coming back is one press; leaving is three. The asymmetry is deliberate — most
+#: people who reach for this button are reacting to one DM, not deciding forever,
+#: and a step that says what they lose turns most of them around. It stays a real
+#: exit at the end of it, because a bot nobody can leave gets blocked instead,
+#: which costs more reach than the opt-outs ever would.
+def _leaving_embed() -> discord.Embed:
+    return discord.Embed(
+        title="Wait — you would miss the next one",
+        description=(
+            "> Update DMs are how you hear a new update landed. One message, once "
+            "per update.\n\n"
+            "Turn these off and you will not be told about the next Dragon, the next "
+            "crate, the next event, or anything limited that closes on a timer. "
+            "Players who miss the window do not get another one.\n\n"
+            "This never affected account, verification, or staff messages — those "
+            "are separate and always arrive."
+        ),
+        colour=discord.Colour(0xF06000),
+    )
+
+
 class ConfirmUpdateOptOutView(discord.ui.View):
-    """One deliberate confirmation before a member silences future update notices."""
+    """Two more deliberate steps before a member silences future update notices."""
 
     def __init__(self, bot: Any) -> None:
         super().__init__(timeout=180)
         self.bot = bot
 
-    @discord.ui.button(label="Yes, stop future update DMs", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="Keep them on", style=discord.ButtonStyle.success)
+    async def keep(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
+        await interaction.response.edit_message(
+            embed=discord.Embed(
+                title="Nothing Changed",
+                description="> You are still on the list. See you at the next update.",
+                colour=discord.Colour(0x57F287),
+            ),
+            view=None,
+        )
+
+    @discord.ui.button(label="Continue", style=discord.ButtonStyle.secondary)
+    async def proceed(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
+        await interaction.response.edit_message(
+            embed=discord.Embed(
+                title="Last Step",
+                description=(
+                    "> You are about to stop **every** future update announcement.\n\n"
+                    "Nothing will tell you when the next update goes live. You will "
+                    "find out by logging in and noticing, or not at all.\n\n"
+                    "One press of **Update DM settings** on any notice turns them "
+                    "straight back on — no confirmation, no waiting."
+                ),
+                colour=discord.Colour(0xED4245),
+            ),
+            view=FinalUpdateOptOutView(self.bot),
+        )
+
+
+class FinalUpdateOptOutView(discord.ui.View):
+    """The last door. Still openable, still weighted towards staying."""
+
+    def __init__(self, bot: Any) -> None:
+        super().__init__(timeout=180)
+        self.bot = bot
+
+    @discord.ui.button(label="Actually, keep them on", style=discord.ButtonStyle.success)
+    async def keep(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
+        await interaction.response.edit_message(
+            embed=discord.Embed(
+                title="Nothing Changed",
+                description="> You are still on the list. See you at the next update.",
+                colour=discord.Colour(0x57F287),
+            ),
+            view=None,
+        )
+
+    @discord.ui.button(label="Stop update DMs", style=discord.ButtonStyle.danger)
     async def confirm(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ) -> None:
@@ -640,7 +736,8 @@ class ConfirmUpdateOptOutView(discord.ui.View):
                 description=(
                     "> You will not be sent another server-update announcement.\n\n"
                     "This affects update notices only. Press **Update DM settings** on "
-                    "any previous notice to turn them back on instantly."
+                    "any previous notice to turn them back on instantly — one press, "
+                    "nothing to confirm."
                 ),
                 colour=discord.Colour(0xF06000),
             ),
