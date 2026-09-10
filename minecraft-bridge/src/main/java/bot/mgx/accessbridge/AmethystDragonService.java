@@ -162,6 +162,8 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     private double dragonMaximumHealth;
     private double dragonHealth;
     private double dragonHealthScale = 1d;
+    /** Locked with attendance at fight start so disconnects cannot lower the pressure. */
+    private double dragonPressureScale = 1d;
     private BossBar admissionBar;
     private BossBar dragonBar;
     private BossBar rewardBar;
@@ -472,6 +474,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         dragonMaximumHealth = 0d;
         dragonHealth = 0d;
         dragonHealthScale = 1d;
+        dragonPressureScale = 1d;
         lastDragonAttacker = null;
         nextPerchAt = 0L;
         perchUntil = 0L;
@@ -523,8 +526,16 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         applyArenaSky();
         phaseEndsAt = System.currentTimeMillis()
                 + variables.integer("dragon-event.fight-minutes") * 60_000L;
-        dragonMaximumHealth = variables.integer("dragon-event.maximum-health");
+        int attendees = currentAttendeeCount();
+        int healthCap = variables.integer("dragon-event.maximum-health");
+        dragonMaximumHealth = scaledDragonHealth(
+                variables.integer("dragon-event.solo-health"),
+                variables.integer("dragon-event.health-per-additional-player"),
+                healthCap,
+                attendees
+        );
         dragonHealth = dragonMaximumHealth;
+        dragonPressureScale = Math.clamp(dragonMaximumHealth / Math.max(1d, healthCap), 0d, 1d);
         dragon = arena.spawn(new Location(arena, 0.5, 92, 0.5), EnderDragon.class, entity -> {
             entity.addScoreboardTag(DRAGON_TAG);
             var max = entity.getAttribute(Attribute.MAX_HEALTH);
@@ -550,8 +561,14 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         spawnMinionWave();
         scheduledAt = nextEvent(Instant.now().plusSeconds(30));
         CrateKind.dragonAvailableSource(() -> crateAvailable());
-        announce(variables.string("dragon-event.started-message"),
+        String fighters = attendees + (attendees == 1 ? " fighter" : " fighters");
+        announce(render(render(variables.string("dragon-event.started-message"),
+                        "hp", String.valueOf(Math.round(dragonMaximumHealth))),
+                        "fighters", fighters),
                 configuredSound("dragon-event.start-sound", Sound.ENTITY_ENDER_DRAGON_GROWL));
+        plugin.getLogger().info("Amethyst Dragon scaled to " + Math.round(dragonMaximumHealth)
+                + " HP and " + Math.round(dragonPressureScale * 100d)
+                + "% encounter pressure for " + fighters + ".");
         refreshPortalDisplay();
         if (variables.bool("dragon-event.effects-enabled")) {
             spawnPresentationParticle(Particle.DRAGON_BREATH, dragon.getLocation(),
@@ -782,6 +799,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         dragonMaximumHealth = 0d;
         dragonHealth = 0d;
         dragonHealthScale = 1d;
+        dragonPressureScale = 1d;
         nextPerchAt = 0L;
         perchUntil = 0L;
         nextRagePercent = 0d;
@@ -1362,8 +1380,11 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         if (arena == null || (phase != Phase.SUMMONING && phase != Phase.FIGHT)) return;
         int alive = (int) arena.getEntities().stream()
                 .filter(entity -> entity.getScoreboardTags().contains(MINION_TAG)).count();
-        int cap = variables.integer("dragon-event.minion-maximum-alive");
-        int wanted = Math.min(variables.integer("dragon-event.minions-per-wave"), Math.max(0, cap - alive));
+        int cap = scaledEncounterAmount(
+                variables.integer("dragon-event.minion-maximum-alive"), dragonPressureScale);
+        int perWave = scaledEncounterAmount(
+                variables.integer("dragon-event.minions-per-wave"), dragonPressureScale);
+        int wanted = Math.min(perWave, Math.max(0, cap - alive));
         EntityType[] types = {EntityType.HUSK, EntityType.STRAY, EntityType.IRON_GOLEM};
         for (int index = 0; index < wanted; index++) {
             double angle = Math.PI * 2d * index / Math.max(1, wanted) + ThreadLocalRandom.current().nextDouble(.6);
@@ -1422,6 +1443,29 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                 .min(Comparator.comparingDouble(player -> player.getLocation().distanceSquared(from)));
     }
 
+    /** Attendance is frozen when combat starts; leaving later never weakens a live fight. */
+    private int currentAttendeeCount() {
+        if (arena == null) return 0;
+        return (int) arena.getPlayers().stream()
+                .filter(player -> entrants.contains(player.getUniqueId())
+                        && !departed.contains(player.getUniqueId()))
+                .count();
+    }
+
+    static int scaledDragonHealth(int solo, int perAdditional, int cap, int attendees) {
+        int safeCap = Math.max(1, cap);
+        long players = Math.max(1, attendees);
+        long scaled = Math.max(1, solo) + (players - 1L) * Math.max(0, perAdditional);
+        return (int) Math.min(safeCap, scaled);
+    }
+
+    /** Scales simultaneous hazards with the same locked ratio as Dragon health. */
+    static int scaledEncounterAmount(int configured, double pressureScale) {
+        if (configured <= 0) return 0;
+        double scale = Math.clamp(pressureScale, 0d, 1d);
+        return Math.max(1, (int) Math.ceil(configured * scale));
+    }
+
     private void aggressiveAttack(long now) {
         if (dragon == null || !dragon.isValid()) return;
         if (now < perchUntil) return;
@@ -1435,7 +1479,8 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         Player target = targets.get(ThreadLocalRandom.current().nextInt(targets.size()));
         org.bukkit.util.Vector direction = target.getEyeLocation().toVector()
                 .subtract(dragon.getEyeLocation().toVector()).normalize();
-        int shots = variables.integer("dragon-event.fireball-volley");
+        int shots = scaledEncounterAmount(
+                variables.integer("dragon-event.fireball-volley"), dragonPressureScale);
         for (int index = 0; index < shots; index++) {
             DragonFireball fireball = arena.spawn(dragon.getEyeLocation().add(direction.clone().multiply(3d)),
                     DragonFireball.class);
@@ -1539,7 +1584,8 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                 .toList();
         if (targets.isEmpty()) return;
         lastChaosAt = now;
-        int strikes = variables.integer("dragon-event.chaos-strikes");
+        int strikes = scaledEncounterAmount(
+                variables.integer("dragon-event.chaos-strikes"), dragonPressureScale);
         for (int index = 0; index < strikes; index++) {
             Player target = targets.get(index % targets.size());
             double spread = variables.decimal("dragon-event.chaos-strike-spread");

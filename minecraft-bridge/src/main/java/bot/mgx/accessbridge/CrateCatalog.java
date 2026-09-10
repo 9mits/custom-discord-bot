@@ -887,7 +887,8 @@ final class CrateCatalog {
         rewards.add(amethystItem("amethyst_boots", "Amethyst Boots", Category.TREASURE, 6,
                 "DIAMOND_BOOTS", "mgx:amethyst_boots", "Part of the 24-hour Dragon Guard set."));
         rewards.add(amethystItem("amethyst_arrows", "16 Amethyst Arrows", Category.TREASURE, 252,
-                "TIPPED_ARROW", "mgx:amethyst_arrow", "Permanent consumable crystal arrows."));
+                "TIPPED_ARROW", 16, "mgx:amethyst_arrow",
+                "Permanent consumable crystal arrows."));
         rewards.add(amethystItem("amethyst_apple", "Amethyst Apple", Category.TREASURE, 100,
                 "ENCHANTED_GOLDEN_APPLE", "mgx:amethyst_apple", "Permanent crystal combat consumable."));
         for (CosmeticCatalog.Definition cosmetic : CosmeticCatalog.amethystRewards()) {
@@ -1165,8 +1166,23 @@ final class CrateCatalog {
             String modelKey,
             String description
     ) {
+        return amethystItem(
+                id, displayName, category, weight, material, 1, modelKey, description
+        );
+    }
+
+    private static Reward amethystItem(
+            String id,
+            String displayName,
+            Category category,
+            int weight,
+            String material,
+            int amount,
+            String modelKey,
+            String description
+    ) {
         return new Reward(
-                id, displayName, category, weight, material, 1,
+                id, displayName, category, weight, material, amount,
                 modelKey, null, description
         );
     }
