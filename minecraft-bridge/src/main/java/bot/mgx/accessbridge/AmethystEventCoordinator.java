@@ -188,8 +188,27 @@ final class AmethystEventCoordinator {
         return accepted;
     }
 
+    /** Unix millis at which the whole Amethyst expansion stops. */
+    long eventEndMillis() {
+        return (long) (variables.decimal("amethyst-events.ends-at") * 1000d);
+    }
+
+    boolean eventOver(long now) {
+        long endsAt = eventEndMillis();
+        return endsAt > 0L && now >= endsAt;
+    }
+
     private void tryStart() {
         if (stopped || reserved) {
+            return;
+        }
+        // One clock ends the whole expansion. The Dragon, the limited crate and both
+        // leaderboards already stop at it; without this the Airdrop and Amethyst Block
+        // rotation would have carried on paying event currency forever afterwards.
+        // Keep checking rather than cancelling, so moving the deadline out from the
+        // control panel starts the rotation again without a restart.
+        if (eventOver(System.currentTimeMillis())) {
+            schedule(RETRY_MILLIS, this::tryStart);
             return;
         }
         reserved = true;
