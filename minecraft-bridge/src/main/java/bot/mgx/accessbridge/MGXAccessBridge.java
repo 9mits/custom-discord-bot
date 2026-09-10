@@ -945,6 +945,12 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getCommand("mgx").setTabCompleter(router);
         launchService = new LaunchService(this, getDataFolder().toPath());
         launchService.restoreOnEnable();
+        if (combatHold != null && combatHold.active()) {
+            // The pin the line above reports is the game rule, which a hold keeps on
+            // deliberately. Saying only "PvP is pinned on" after a restart would tell
+            // the operator the opposite of what players are experiencing.
+            getLogger().info(combatHold.describe(System.currentTimeMillis()));
+        }
         activityLog = new ActivityLogService(this, getConfig().getConfigurationSection("activity-log"));
         getServer().getPluginManager().registerEvents(activityLog, this);
         activityLog.start();
