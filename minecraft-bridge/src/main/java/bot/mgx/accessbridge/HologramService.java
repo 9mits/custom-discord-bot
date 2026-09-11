@@ -23,10 +23,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 import static bot.mgx.accessbridge.MenuItems.ORANGE;
@@ -133,6 +135,16 @@ final class HologramService {
     private final PvpRecordStore duelRecords;
     private final Gson gson = new GsonBuilder().disableHtmlEscaping().create();
     private final List<Placement> placements = new ArrayList<>();
+    /**
+     * Live lines keyed by their persistent placement.
+     *
+     * <p>Leaderboard snapshots can be published once a second while players use the
+     * economy. Recreating every line for every snapshot used to send a destroy, spawn
+     * and metadata burst for the whole spawn display each time. Keeping the entities
+     * stable means a refresh sends only the names that actually changed.
+     */
+    private final Map<Placement, List<ArmorStand>> renderedLines = new HashMap<>();
+    private boolean rendered;
     private boolean migratedRetiredBoards;
 
     HologramService(
@@ -165,7 +177,7 @@ final class HologramService {
         placements.removeIf(row -> row.board() == board);
         placements.add(new Placement(board, world.getUID(), at.getX(), at.getY(), at.getZ()));
         persistOrRestore(before);
-        refresh();
+        rebuild();
     }
 
     void removeNearby(Player player) throws IOException {
@@ -179,7 +191,7 @@ final class HologramService {
             throw new IllegalArgumentException("No hologram within 4 blocks.");
         }
         persistOrRestore(before);
-        refresh();
+        rebuild();
     }
 
     /** Every placed board, for the directory listing. */
@@ -201,20 +213,102 @@ final class HologramService {
             return false;
         }
         persistOrRestore(before);
-        refresh();
+        rebuild();
         return true;
     }
 
     void refresh() {
-        clearStands();
+        // One rebuild at startup also removes tagged lines abandoned by an old or
+        // deleted placement. Every routine standings refresh after that is in-place.
+        if (!rendered) {
+            rebuild();
+            return;
+        }
         Map<String, Integer> colours = clanColours();
         for (Placement placement : List.copyOf(placements)) {
             World world = Bukkit.getWorld(placement.worldId());
-            if (world == null) {
+            if (world == null || !world.isChunkLoaded(
+                    ((int) Math.floor(placement.x())) >> 4,
+                    ((int) Math.floor(placement.z())) >> 4
+            )) {
                 continue;
             }
-            spawn(world, placement, colours);
+            List<Component> expected = lines(placement.board(), colours);
+            List<ArmorStand> stands = liveLines(world, placement, expected.size());
+            for (int index = 0; index < expected.size(); index++) {
+                ArmorStand stand = stands.get(index);
+                Component line = expected.get(index);
+                if (!Objects.equals(stand.customName(), line)) {
+                    stand.customName(line);
+                }
+            }
         }
+    }
+
+    /** Full replacement is reserved for the rare admin placement/removal path. */
+    private void rebuild() {
+        clearStands();
+        renderedLines.clear();
+        Map<String, Integer> colours = clanColours();
+        for (Placement placement : List.copyOf(placements)) {
+            World world = Bukkit.getWorld(placement.worldId());
+            if (world != null) {
+                renderedLines.put(placement, spawn(world, placement, colours));
+            }
+        }
+        rendered = true;
+    }
+
+    /**
+     * Recovers stable references after a chunk unload without duplicating its
+     * persistent armor stands. A malformed or partial column is replaced once.
+     */
+    private List<ArmorStand> liveLines(World world, Placement placement, int expectedCount) {
+        List<ArmorStand> cached = renderedLines.get(placement);
+        if (matchesLayout(cached, placement, expectedCount)) {
+            return cached;
+        }
+        double middleY = placement.y() - (expectedCount - 1) * LINE_GAP / 2d;
+        double radius = (expectedCount - 1) * LINE_GAP / 2d + 0.15d;
+        Location middle = new Location(world, placement.x(), middleY, placement.z());
+        List<ArmorStand> found = world.getNearbyEntitiesByType(
+                        ArmorStand.class, middle, radius
+                ).stream()
+                .filter(stand -> stand.getScoreboardTags().contains(TAG))
+                .filter(stand -> sameColumn(stand.getLocation(), placement))
+                .sorted(Comparator.comparingDouble((ArmorStand stand) -> stand.getY()).reversed())
+                .toList();
+        if (matchesLayout(found, placement, expectedCount)) {
+            renderedLines.put(placement, found);
+            return found;
+        }
+        found.forEach(ArmorStand::remove);
+        List<ArmorStand> replacement = spawn(world, placement, clanColours());
+        renderedLines.put(placement, replacement);
+        return replacement;
+    }
+
+    private static boolean matchesLayout(
+            List<ArmorStand> stands, Placement placement, int expectedCount
+    ) {
+        if (stands == null || stands.size() != expectedCount) {
+            return false;
+        }
+        for (int index = 0; index < stands.size(); index++) {
+            ArmorStand stand = stands.get(index);
+            if (!stand.isValid() || !sameColumn(stand.getLocation(), placement)
+                    || Math.abs(stand.getY() - (placement.y() - index * LINE_GAP)) > 0.02d) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean sameColumn(Location at, Placement placement) {
+        return at.getWorld() != null
+                && at.getWorld().getUID().equals(placement.worldId())
+                && Math.abs(at.getX() - placement.x()) <= 0.02d
+                && Math.abs(at.getZ() - placement.z()) <= 0.02d;
     }
 
     /**
@@ -247,8 +341,11 @@ final class HologramService {
         }
     }
 
-    private void spawn(World world, Placement placement, Map<String, Integer> colours) {
+    private List<ArmorStand> spawn(
+            World world, Placement placement, Map<String, Integer> colours
+    ) {
         List<Component> lines = lines(placement.board(), colours);
+        List<ArmorStand> spawned = new ArrayList<>(lines.size());
         for (int index = 0; index < lines.size(); index++) {
             Location at = new Location(
                     world,
@@ -257,18 +354,20 @@ final class HologramService {
                     placement.z()
             );
             Component line = lines.get(index);
-            world.spawn(at, ArmorStand.class, stand -> {
-                stand.setInvisible(true);
-                stand.setMarker(true);
-                stand.setGravity(false);
-                stand.setInvulnerable(true);
-                stand.setSilent(true);
-                stand.setCustomNameVisible(true);
-                stand.customName(line);
-                stand.addScoreboardTag(TAG);
-                stand.setPersistent(true);
+            ArmorStand stand = world.spawn(at, ArmorStand.class, entity -> {
+                entity.setInvisible(true);
+                entity.setMarker(true);
+                entity.setGravity(false);
+                entity.setInvulnerable(true);
+                entity.setSilent(true);
+                entity.setCustomNameVisible(true);
+                entity.customName(line);
+                entity.addScoreboardTag(TAG);
+                entity.setPersistent(true);
             });
+            spawned.add(stand);
         }
+        return List.copyOf(spawned);
     }
 
     private List<Component> lines(Board board, Map<String, Integer> colours) {
