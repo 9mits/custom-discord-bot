@@ -168,6 +168,9 @@ final class PvpCompetitionService implements Listener {
     private final Map<UUID, PartyInvite> partyInvites = new HashMap<>();
     private final Map<UUID, Match> matches = new LinkedHashMap<>();
     private final Map<UUID, Match> matchByPlayer = new HashMap<>();
+    /** When each mode's queue was last called out, so the shout cannot become spam. */
+    private final Map<PvpMode, Long> announcedQueues = new EnumMap<>(PvpMode.class);
+    private int boardTick;
     private final Map<UUID, Match> viewing = new HashMap<>();
     private final Map<UUID, PendingStart> preparing = new HashMap<>();
     private final Set<UUID> internalTeleports = new HashSet<>();
@@ -489,7 +492,16 @@ final class PvpCompetitionService implements Listener {
 
     private void tick() {
         long now = System.currentTimeMillis();
-        lobbyStore.lobby().ifPresent(PvpLobbyBuilder::pulse);
+        lobbyStore.lobby().ifPresent(lobby -> {
+            PvpLobbyBuilder.pulse(lobby);
+            PvpLobbyBuilder.refreshStatus(lobby, this::gateStatus);
+            // The boards move far more slowly than a queue count; every fifth tick is
+            // plenty and keeps the entity work off the other four.
+            if (boardTick++ % 5 == 0) {
+                PvpLobbyBuilder.refreshBoards(lobby, ratingBoard(), liveBoard());
+            }
+        });
+        announceWaiting(now);
         partyInvites.entrySet().removeIf(row -> row.getValue().expiresAt() <= now);
         validateQueues();
         for (PvpMode mode : PvpMode.values()) {
@@ -497,6 +509,140 @@ final class PvpCompetitionService implements Listener {
         }
         for (Match match : List.copyOf(matches.values())) {
             tickMatch(match, now);
+        }
+    }
+
+    /**
+     * How many players could actually take part right now.
+     *
+     * <p>Counts everybody online who is not already in a match, because that is the
+     * number that decides whether a queue can ever fill. On a server whose busiest hour
+     * holds single figures this is the fact that matters most, and until now it was the
+     * one thing the lobby never said.
+     */
+    private int availablePlayers() {
+        int available = 0;
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            if (!isParticipant(player.getUniqueId())) available++;
+        }
+        return available;
+    }
+
+    private int queuedFor(PvpMode mode) {
+        return queues.getOrDefault(mode, List.of()).stream()
+                .mapToInt(entry -> entry.members().size()).sum();
+    }
+
+    int requiredPlayers(PvpMode mode) {
+        return mode.minimumPlayers(integer("pvp-competitive.ffa-minimum-players"));
+    }
+
+    /** True when this mode cannot start however long anybody waits. */
+    boolean shortStaffed(PvpMode mode) {
+        return availablePlayers() < requiredPlayers(mode);
+    }
+
+    /** One line of plain truth, written on the arch and repeated in the menu. */
+    String queueSummary(PvpMode mode) {
+        if (!enabled()) return "PvP is closed right now";
+        int required = requiredPlayers(mode);
+        int queued = queuedFor(mode);
+        int available = availablePlayers();
+        if (available < required) {
+            return "Needs " + required + " players - " + available + " free online";
+        }
+        if (queued == 0) return "Nobody waiting - be the first";
+        int missing = Math.max(0, required - queued);
+        return missing == 0
+                ? queued + " waiting - starting now"
+                : queued + " waiting - needs " + missing + " more";
+    }
+
+    /** The top of the ladder, for the pavilion that promises it. */
+    private List<Component> ratingBoard() {
+        List<PvpRankLeaderboard.Row> top = PvpRankLeaderboard.top(
+                records.all(), PvpCompetitionService::name, PvpLobbyBuilder.boardLines());
+        if (top.isEmpty()) {
+            return List.of(Component.text("No rated fights yet - the first one names you",
+                    NamedTextColor.GRAY));
+        }
+        List<Component> lines = new ArrayList<>();
+        for (int index = 0; index < top.size(); index++) {
+            PvpRankLeaderboard.Row row = top.get(index);
+            lines.add(Component.text((index + 1) + ". ", ORANGE, TextDecoration.BOLD)
+                    .append(Component.text(row.username() + " ", NamedTextColor.WHITE))
+                    .append(BadgeIcons.glyph(row.record().rank().glyph()))
+                    .append(Component.text(" " + row.record().rank().display()
+                            + " (" + row.record().rating() + ")", NamedTextColor.GRAY)));
+        }
+        return List.copyOf(lines);
+    }
+
+    /** What is happening right now, for the pavilion that promises that. */
+    private List<Component> liveBoard() {
+        List<Component> lines = new ArrayList<>();
+        int fights = matches.size() + plugin.liveDuelCount();
+        lines.add(Component.text(fights == 0 ? "No fights in progress"
+                        : fights + (fights == 1 ? " fight in progress" : " fights in progress"),
+                fights == 0 ? NamedTextColor.GRAY : NamedTextColor.GREEN, TextDecoration.BOLD));
+        for (PvpMode mode : PvpMode.values()) {
+            if (!mode.queueable()) continue;
+            int queued = queuedFor(mode);
+            if (queued == 0) continue;
+            lines.add(Component.text(mode.display() + ": ", NamedTextColor.WHITE)
+                    .append(Component.text(queued + " waiting", ORANGE)));
+        }
+        if (lines.size() == 1) {
+            lines.add(Component.text(availablePlayers() + " player(s) free to fight",
+                    NamedTextColor.GRAY));
+            lines.add(Component.text("Nobody is queued - walk into a gateway",
+                    NamedTextColor.GRAY));
+        }
+        return lines.size() > PvpLobbyBuilder.boardLines()
+                ? lines.subList(0, PvpLobbyBuilder.boardLines()) : List.copyOf(lines);
+    }
+
+    private Component gateStatus(PvpMode mode) {
+        String line = queueSummary(mode);
+        NamedTextColor colour = !enabled() || shortStaffed(mode) ? NamedTextColor.RED
+                : queuedFor(mode) > 0 ? NamedTextColor.GREEN : NamedTextColor.GRAY;
+        return Component.text(line, colour);
+    }
+
+    /**
+     * Tells the server when somebody starts waiting.
+     *
+     * <p>A queue nobody can see is a queue nobody joins. With a handful of players
+     * online, one person waiting in silence is the single most common way a fight fails
+     * to happen, so the first entry into an empty queue is announced once, and then not
+     * again for that mode until the cooldown passes.
+     */
+    private void announceWaiting(long now) {
+        if (!enabled() || !plugin.gameVariables().bool("pvp-competitive.announce-queues")) return;
+        long cooldown = integer("pvp-competitive.queue-announce-cooldown-seconds") * 1_000L;
+        for (PvpMode mode : PvpMode.values()) {
+            if (!mode.queueable()) continue;
+            int queued = queuedFor(mode);
+            if (queued == 0) {
+                announcedQueues.remove(mode);
+                continue;
+            }
+            if (shortStaffed(mode)) continue;
+            Long announcedAt = announcedQueues.get(mode);
+            if (announcedAt != null && now - announcedAt < cooldown) continue;
+            announcedQueues.put(mode, now);
+            Component line = Component.text("PVP ", ORANGE, TextDecoration.BOLD)
+                    .append(Component.text(queued + " waiting for " + mode.display()
+                            + " - use /pvp to join", NamedTextColor.WHITE));
+            for (Player player : Bukkit.getOnlinePlayers()) {
+                if (isParticipant(player.getUniqueId())
+                        || queuedPlayers.containsKey(player.getUniqueId())
+                        || plugin.inPvpDuel(player)) {
+                    continue;
+                }
+                player.sendMessage(line);
+                player.playSound(player, Sound.BLOCK_NOTE_BLOCK_BELL, 0.4f, 1.6f);
+            }
         }
     }
 
@@ -1149,11 +1295,16 @@ final class PvpCompetitionService implements Listener {
         List<MenuAction> actions = new ArrayList<>();
         for (PvpMode mode : PvpMode.values()) {
             if (!mode.queueable()) continue;
-            actions.add(new MenuAction(modeSprite(mode), mode.display(), modeHint(mode),
+            // The live count, not just the description: whether a queue can fill is
+            // the thing a player is deciding, and it changes minute to minute here.
+            actions.add(new MenuAction(modeSprite(mode),
+                    mode.display() + (shortStaffed(mode) ? " (not enough players)" : ""),
+                    queueSummary(mode) + " - " + modeHint(mode),
                     p -> openMode(p, mode)));
         }
         String body = "Choose a mode. Every match uses your own survival loadout"
-                + " in untouched overworld terrain.";
+                + " in untouched overworld terrain.\n"
+                + availablePlayers() + " player(s) free to fight right now.";
         showMenu(player, "Choose PvP Mode", body, actions, this::openHub);
     }
 
@@ -1161,8 +1312,15 @@ final class PvpCompetitionService implements Listener {
         Party party = parties.get(player.getUniqueId());
         int team = party == null ? 1 : party.members.size();
         String body = modeHint(mode) + "\n\n"
+                + queueSummary(mode) + "\n"
                 + "Party: " + team + "/" + mode.teamSize() + "\n"
                 + "Loadout: your current inventory and armour";
+        if (shortStaffed(mode)) {
+            // Said plainly rather than hiding the button: players do arrange to come
+            // online together, and a queue they chose to sit in is their call.
+            body += "\n\nThis mode needs " + requiredPlayers(mode)
+                    + " players and cannot start yet. You can still wait here.";
+        }
         List<MenuAction> actions = new ArrayList<>();
         if (mode.teamSize() == 1 && !mode.freeForAll()) {
             actions.add(new MenuAction("item/lime_dye", "Join Queue",

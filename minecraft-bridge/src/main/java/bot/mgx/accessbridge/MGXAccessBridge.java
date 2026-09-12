@@ -1459,6 +1459,11 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     }
 
     /** True while this player is fighting in either private or competitive PvP. */
+    /** Arranged private fights running right now, for the lobby's live board. */
+    int liveDuelCount() {
+        return pvpDuels == null ? 0 : pvpDuels.liveFightCount();
+    }
+
     boolean inPvpDuel(Player player) {
         return (pvpDuels != null && pvpDuels.isFighter(player.getUniqueId()))
                 || (pvpCompetition != null && pvpCompetition.isFighter(player.getUniqueId()));
