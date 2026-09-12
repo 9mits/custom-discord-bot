@@ -169,6 +169,8 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     private BossBar rewardBar;
     /** Server-wide while the gateway stands open, the way an Airdrop announces itself. */
     private BossBar portalBar;
+    /** The second mark the open-portal reminder last fired on, so a tick cannot repeat it. */
+    private long lastPortalReminderSecond = -1L;
     private long lastAggressiveAttackAt;
     private long lastMinionWaveAt;
     private long lastChaosAt;
@@ -393,7 +395,10 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         } else if (phase == Phase.REWARDS && now >= phaseEndsAt) {
             closeRewards();
         }
-        if (phase == Phase.PORTAL_OPEN) updateAdmissionBar();
+        if (phase == Phase.PORTAL_OPEN) {
+            updateAdmissionBar();
+            portalReminders(now);
+        }
         if (phase == Phase.REWARDS) {
             updateRewardBar();
             repairReturnGate();
@@ -448,15 +453,155 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         refreshPortalDisplay();
         setPortalLit(true);
         createAdmissionBar();
+        lastPortalReminderSecond = -1L;
         openPortalBar();
-        announce(render(variables.string("dragon-event.portal-open-message"),
-                "minutes", String.valueOf(variables.integer("dragon-event.portal-open-minutes"))),
-                configuredSound("dragon-event.portal-open-sound", Sound.BLOCK_BEACON_ACTIVATE));
-        broadcastSound(
-                "dragon-event.portal-open-secondary-sound", Sound.ENTITY_ENDER_DRAGON_GROWL,
-                "dragon-event.portal-open-secondary-pitch"
-        );
+        announcePortalOpen();
         portalTransition(true);
+    }
+
+    /**
+     * The opening. Deliberately every channel at once.
+     *
+     * <p>A single chat line is invisible to anyone whose chat is scrolling, mid-fight or
+     * in a menu, and the window is only a few minutes long — a player who misses the one
+     * line has effectively missed the event. So the same fact arrives as a framed chat
+     * card, a title, the action bar, a server-wide boss bar and a three-layer sound.
+     */
+    private void announcePortalOpen() {
+        int minutes = variables.integer("dragon-event.portal-open-minutes");
+        String message = render(variables.string("dragon-event.portal-open-message"),
+                "minutes", String.valueOf(minutes));
+        String title = variables.string("dragon-event.portal-open-title");
+        String subtitle = render(variables.string("dragon-event.portal-open-subtitle"),
+                "minutes", String.valueOf(minutes));
+        List<Player> online = List.copyOf(Bukkit.getOnlinePlayers());
+        Component body = Component.text("  " + message, AMETHYST, TextDecoration.BOLD);
+        int factor = dragonEventFactor();
+        if (factor > 1) {
+            // Worth its own line: a multiplier event is the reason to drop what you are
+            // doing for this particular run rather than catch the next one.
+            body = body.append(Component.newline()).append(Component.text(
+                    "  " + ServerEventType.AMETHYST_DRAGON.displayName(factor)
+                            + " is live - every Dragon reward pays " + factor + "x!",
+                    NamedTextColor.GOLD, TextDecoration.BOLD));
+        }
+        plugin.broadcasts().announceBanner(online, title, body);
+        for (Player player : online) {
+            showPortalTitle(player, title, subtitle);
+            player.sendActionBar(Component.text(subtitle, AMETHYST, TextDecoration.BOLD));
+        }
+        portalFanfare();
+        Bukkit.getConsoleSender().sendMessage("[Amethyst Dragon] " + message);
+    }
+
+    /** The three layers that make the opening unmissable through a wall of other noise. */
+    private void portalFanfare() {
+        float volume = (float) variables.decimal("dragon-event.portal-alert-volume");
+        Sound primary = configuredSound("dragon-event.portal-open-sound", Sound.BLOCK_BEACON_ACTIVATE);
+        Sound secondary = configuredSound("dragon-event.portal-open-secondary-sound",
+                Sound.ENTITY_ENDER_DRAGON_GROWL);
+        Sound fanfare = configuredSound("dragon-event.portal-open-fanfare-sound",
+                Sound.UI_TOAST_CHALLENGE_COMPLETE);
+        float secondaryPitch = (float) variables.decimal("dragon-event.portal-open-secondary-pitch");
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            playPortalSound(player, primary, volume,
+                    (float) variables.decimal("dragon-event.announcement-pitch"));
+            playPortalSound(player, secondary, volume, secondaryPitch);
+            playPortalSound(player, fanfare, volume, 1f);
+        }
+    }
+
+    /**
+     * Plays a sound to one player from their own position.
+     *
+     * <p>Volume above 1 buys range rather than amplitude, and the source is the listener,
+     * so the audible difference comes from layering and repetition. The figure stays
+     * configurable because an owner may want the range in a world where these are also
+     * heard positionally.
+     */
+    private void playPortalSound(Player player, Sound sound, float volume, float pitch) {
+        player.playSound(player.getLocation(), sound, Math.max(0f, volume), pitch);
+    }
+
+    private void showPortalTitle(Player player, String title, String subtitle) {
+        player.showTitle(net.kyori.adventure.title.Title.title(
+                Component.text(title, AMETHYST, TextDecoration.BOLD),
+                Component.text(subtitle, NamedTextColor.WHITE, TextDecoration.BOLD),
+                net.kyori.adventure.title.Title.Times.times(
+                        Duration.ofMillis(200), Duration.ofSeconds(4), Duration.ofMillis(600))
+        ));
+    }
+
+    /**
+     * Keeps saying it while the gateway is open.
+     *
+     * <p>The open window is the only part of the Dragon event a player has to act on, and
+     * one announcement at the start reaches nobody who was away from the keyboard, in a
+     * menu or not yet connected. A reminder on the interval plus a per-second finish is
+     * what turns "there was a message" into "everybody knew".
+     */
+    private void portalReminders(long now) {
+        if (scheduledAt == null) return;
+        long remaining = Math.max(0L, scheduledAt.toEpochMilli() - now);
+        long seconds = (remaining + 999L) / 1_000L;
+        if (seconds <= 0L) return;
+        int interval = variables.integer("dragon-event.portal-reminder-interval-seconds");
+        int finalCountdown = variables.integer("dragon-event.portal-final-countdown-seconds");
+        boolean lastSeconds = seconds <= finalCountdown;
+        if (!portalReminderDue(seconds, interval, finalCountdown)) return;
+        if (seconds == lastPortalReminderSecond) return;
+        lastPortalReminderSecond = seconds;
+        String countdown = portalCountdown(remaining);
+        Component actionBar = Component.text(
+                render(variables.string("dragon-event.portal-reminder-actionbar"), "time", countdown),
+                AMETHYST, TextDecoration.BOLD);
+        Component chat = prefix().append(Component.text(
+                render(variables.string("dragon-event.portal-reminder-message"), "time", countdown),
+                NamedTextColor.WHITE));
+        float volume = (float) variables.decimal("dragon-event.portal-alert-volume");
+        Sound sound = configuredSound("dragon-event.portal-reminder-sound",
+                Sound.BLOCK_NOTE_BLOCK_PLING);
+        float pitch = (float) variables.decimal("dragon-event.portal-reminder-pitch");
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            // Anyone already inside has the admission bar and does not need chasing.
+            if (isArena(player.getWorld())) continue;
+            player.sendActionBar(actionBar);
+            playPortalSound(player, sound, volume, lastSeconds ? Math.min(2f, pitch + 0.3f) : pitch);
+            if (lastSeconds) {
+                showPortalTitle(player,
+                        variables.string("dragon-event.portal-final-title"), countdown);
+            } else {
+                player.sendMessage(chat);
+            }
+        }
+    }
+
+    /**
+     * What a player sees when they connect during the open window.
+     *
+     * <p>Without this the gateway is invisible to them: the opening announcement is gone,
+     * and the server-wide bar was only handed to the players who were online when it was
+     * created. From their side the portal closes the moment they arrive.
+     */
+    private void greetOpenPortal(Player player) {
+        if (phase != Phase.PORTAL_OPEN || scheduledAt == null || isArena(player.getWorld())) return;
+        long remaining = Math.max(0L, scheduledAt.toEpochMilli() - System.currentTimeMillis());
+        if (remaining <= 0L) return;
+        String countdown = portalCountdown(remaining);
+        if (portalBar != null) plugin.bossBars().show(player, portalBar);
+        plugin.broadcasts().announceBanner(List.of(player),
+                variables.string("dragon-event.portal-open-title"),
+                Component.text("  " + render(variables.string("dragon-event.portal-join-message"),
+                        "time", countdown), AMETHYST, TextDecoration.BOLD));
+        showPortalTitle(player, variables.string("dragon-event.portal-open-title"), countdown);
+        player.sendActionBar(Component.text(
+                render(variables.string("dragon-event.portal-reminder-actionbar"), "time", countdown),
+                AMETHYST, TextDecoration.BOLD));
+        float volume = (float) variables.decimal("dragon-event.portal-alert-volume");
+        playPortalSound(player, configuredSound("dragon-event.portal-open-sound",
+                Sound.BLOCK_BEACON_ACTIVATE), volume, 1f);
+        playPortalSound(player, configuredSound("dragon-event.portal-open-fanfare-sound",
+                Sound.UI_TOAST_CHALLENGE_COMPLETE), volume, 1f);
     }
 
     private void prepareRun() {
@@ -2305,6 +2450,12 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                 applyArenaSky(player);
             }
         });
+        // Delayed like the multiplier-event banner: a title sent while the client is
+        // still drawing the world is a title nobody reads.
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+            Player player = event.getPlayer();
+            if (player.isOnline()) greetOpenPortal(player);
+        }, variables.integer("dragon-event.portal-join-delay-ticks"));
     }
 
     private RunStats active(Player player) {
@@ -2326,19 +2477,37 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         return result;
     }
 
+    /**
+     * The Dragon event's own factor.
+     *
+     * <p>Applied here rather than at each of the four reward sites so a crystal, a
+     * damage wave, the kill and a shard roll cannot drift apart, and so the figure the
+     * boss bar advertises is the figure every payout goes through.
+     */
+    private int dragonEventFactor() {
+        return plugin.serverEventMultiplier(ServerEventType.AMETHYST_DRAGON);
+    }
+
     private void giveKeys(UUID playerId, int amount) {
         if (amount <= 0) return;
         Player player = Bukkit.getPlayer(playerId);
         if (player == null || !player.isOnline()) return;
-        if (items.giveKeysOrDrop(player, amount)) {
-            stats.computeIfAbsent(playerId, ignored -> new RunStats()).keys += amount;
+        int paid = Math.max(amount, amount * dragonEventFactor());
+        if (items.giveKeysOrDrop(player, paid)) {
+            stats.computeIfAbsent(playerId, ignored -> new RunStats()).keys += paid;
         }
     }
 
     private void giveShards(Player player, int amount) {
         if (amount <= 0) return;
-        player.getInventory().addItem(items.shard(amount)).values().forEach(left ->
-                player.getWorld().dropItemNaturally(player.getLocation(), left));
+        int paid = Math.max(amount, amount * dragonEventFactor());
+        // items.shard() clamps to one stack, so a multiplied roll is handed over as
+        // however many full stacks it comes to rather than quietly losing the rest.
+        for (int left = paid; left > 0; left -= 64) {
+            player.getInventory().addItem(items.shard(Math.min(64, left))).values()
+                    .forEach(spill -> player.getWorld()
+                            .dropItemNaturally(player.getLocation(), spill));
+        }
     }
 
     private void flushDamageStats() {
@@ -2732,24 +2901,34 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     private void openPortalBar() {
         hidePortalBar();
         if (portal == null || portal.location() == null) return;
+        if (!variables.bool("dragon-event.portal-bossbar-enabled")) return;
         portalBar = BossBar.bossBar(Component.empty(), 1f,
                 variables.barColour("dragon-event.portal-bossbar-color", BossBar.Color.PURPLE),
                 BossBar.Overlay.PROGRESS);
         updatePortalBar();
-        for (Player player : Bukkit.getOnlinePlayers()) {
-            plugin.bossBars().show(player, portalBar);
-        }
     }
 
+    /**
+     * Redraws the gateway bar and hands it to everybody who is online right now.
+     *
+     * <p>Showing it once when the portal opened missed every player who connected during
+     * the window — the bar is per-player, so a late arrival simply never received one.
+     * Reasserting it each second costs nothing (the display tracks what a player already
+     * wants) and means the countdown is on screen for whoever is actually there.
+     */
     private void updatePortalBar() {
         if (portalBar == null || scheduledAt == null) return;
         long remaining = Math.max(0L, scheduledAt.toEpochMilli() - System.currentTimeMillis());
         long total = Math.max(1L, variables.integer("dragon-event.portal-open-minutes") * 60_000L);
-        portalBar.name(Component.text("AMETHYST DRAGON PORTAL", AMETHYST, TextDecoration.BOLD)
-                .append(Component.text("  CLOSES IN ", NamedTextColor.GRAY))
-                .append(Component.text(portalCountdown(remaining), NamedTextColor.WHITE,
-                        TextDecoration.BOLD)));
+        portalBar.name(Component.text(
+                render(variables.string("dragon-event.portal-bossbar-text"),
+                        "time", portalCountdown(remaining)),
+                AMETHYST, TextDecoration.BOLD));
         portalBar.progress((float) Math.clamp((double) remaining / total, 0d, 1d));
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            if (isArena(player.getWorld())) continue;
+            plugin.bossBars().show(player, portalBar);
+        }
     }
 
     private void hidePortalBar() {
@@ -3588,6 +3767,21 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
 
     static String portalCountdown(long remainingMillis) {
         return AirdropService.formatCountdown(remainingMillis);
+    }
+
+    /**
+     * Whether the open gateway should say so again at this many seconds remaining.
+     *
+     * <p>On the interval for most of the window, then every second once the closing
+     * countdown starts. Pure so the cadence can be asserted without a server.
+     *
+     * @param interval seconds between repeats, or 0 for no repeats
+     * @param finalCountdown length of the per-second finish
+     */
+    static boolean portalReminderDue(long secondsRemaining, int interval, int finalCountdown) {
+        if (secondsRemaining <= 0L) return false;
+        if (finalCountdown > 0 && secondsRemaining <= finalCountdown) return true;
+        return interval > 0 && secondsRemaining % interval == 0L;
     }
 
     private static String render(String source, String key, String value) {

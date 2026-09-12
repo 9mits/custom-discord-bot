@@ -95,6 +95,25 @@ final class AmethystDragonServiceTest {
         }
     }
 
+    /**
+     * The open gateway has to keep saying so. One announcement at the start reached
+     * nobody who joined during the window, which is what "it closed immediately" was.
+     */
+    @Test
+    void theOpenPortalRemindsOnTheIntervalThenEverySecondAtTheEnd() {
+        assertTrue(AmethystDragonService.portalReminderDue(240L, 60, 10));
+        assertTrue(AmethystDragonService.portalReminderDue(60L, 60, 10));
+        assertFalse(AmethystDragonService.portalReminderDue(59L, 60, 10));
+        assertFalse(AmethystDragonService.portalReminderDue(11L, 60, 10));
+        assertTrue(AmethystDragonService.portalReminderDue(10L, 60, 10));
+        assertTrue(AmethystDragonService.portalReminderDue(1L, 60, 10));
+        // Nothing is due once the gateway has sealed.
+        assertFalse(AmethystDragonService.portalReminderDue(0L, 60, 10));
+        // Both repeats are switchable from the control panel.
+        assertFalse(AmethystDragonService.portalReminderDue(120L, 0, 0));
+        assertTrue(AmethystDragonService.portalReminderDue(120L, 0, 600));
+    }
+
     @Test
     void portalClosingCounterRunsFromFiveMinutesAndRoundsUp() {
         assertEquals("05:00", AmethystDragonService.portalCountdown(

@@ -76,6 +76,11 @@ final class ServerEventService implements Listener {
         return store.multiplier(type, System.currentTimeMillis());
     }
 
+    /** The factor this event is configured to pay, running or not. */
+    int factor(ServerEventType type) {
+        return store.factor(type);
+    }
+
     boolean active(ServerEventType type) {
         return store.active(type, System.currentTimeMillis());
     }
@@ -159,7 +164,7 @@ final class ServerEventService implements Listener {
                 return;
             }
             BossBar current = barFor();
-            current.name(Component.text(stackedTitle(running), NamedTextColor.WHITE,
+            current.name(Component.text(stackedTitle(running, store::factor), NamedTextColor.WHITE,
                     TextDecoration.BOLD));
             plugin.bossBars().show(player, current);
             plugin.broadcasts().announceBanner(List.of(player), "EVENT LIVE", bannerBody(running));
@@ -203,7 +208,7 @@ final class ServerEventService implements Listener {
     }
 
     private Component eventActionBar(List<ServerEventType> running) {
-        String names = running.stream().map(ServerEventType::motdLabel)
+        String names = running.stream().map(type -> type.motdLabel(store.factor(type)))
                 .reduce((left, right) -> left + " + " + right)
                 .orElse("EVENT LIVE");
         return Component.text(names + "  •  Live now", NamedTextColor.GOLD, TextDecoration.BOLD);
@@ -234,14 +239,28 @@ final class ServerEventService implements Listener {
         }
         visible.addAll(running);
         BossBar current = barFor();
-        current.name(Component.text(stackedTitle(running), NamedTextColor.WHITE,
+        current.name(Component.text(stackedTitle(running, store::factor), NamedTextColor.WHITE,
                 TextDecoration.BOLD));
         plugin.getServer().getOnlinePlayers()
                 .forEach(player -> plugin.bossBars().show(player, current));
     }
 
+    /** The catalogue figure, for a caller with no live registry behind it. */
     static String stackedTitle(List<ServerEventType> running) {
-        return running.stream().map(ServerEventType::displayName)
+        return stackedTitle(running, ServerEventType::baseMultiplier);
+    }
+
+    /**
+     * One line naming every live event at the factor actually in force.
+     *
+     * <p>The factor is editable from the control panel, so the bar has to read it
+     * rather than the figure the event shipped with — a bar promising 2x above a
+     * payout of 5x is the same lie in the other direction.
+     */
+    static String stackedTitle(
+            List<ServerEventType> running, java.util.function.ToIntFunction<ServerEventType> factors
+    ) {
+        return running.stream().map(type -> type.displayName(factors.applyAsInt(type)))
                 .reduce((left, right) -> left + " - " + right)
                 .orElse("EVENT LIVE");
     }
@@ -283,6 +302,7 @@ final class ServerEventService implements Listener {
             case AIRDROP -> TextColor.color(0xB56CFF);
             case AMETHYST_BLOCK -> TextColor.color(0x9C5BE8);
             case MEGA_KEY -> TextColor.color(0x00E5FF);
+            case AMETHYST_DRAGON -> TextColor.color(0xD16BFF);
         };
     }
 

@@ -1773,7 +1773,11 @@ final class PvpCompetitionService implements Listener {
             match.lastAction.put(victimId, System.currentTimeMillis());
             match.damage.merge(source, event.getFinalDamage(), Double::sum);
         }
-        double remaining = victim.getHealth() + victim.getAbsorptionAmount();
+        // getFinalDamage() has already had absorption taken out of it, so the health a
+        // hit actually removes is that figure against the health bar alone. Adding
+        // absorption on top of the remaining health made a lethal blow on a golden-apple
+        // player read as survivable, and the elimination path was skipped for a real death.
+        double remaining = victim.getHealth();
         if (event.getFinalDamage() + 1.0e-6d >= remaining) {
             event.setCancelled(true);
             UUID killer = source != null ? source : recentAttacker(match, victimId);
@@ -1782,14 +1786,30 @@ final class PvpCompetitionService implements Listener {
         }
     }
 
+    /**
+     * Whether this death belongs to the competitive layer, whatever caused it.
+     *
+     * <p>The old test was "in a match that is still FIGHTING", which is another way of
+     * saying "killed cleanly by an opponent". A crystal chain decides the match on its
+     * first detonation and kills the rest of the lobby on the following ticks, by which
+     * point the phase has moved on and those players lost everything they were carrying.
+     */
+    private boolean insidePvpGamemode(Player player) {
+        UUID playerId = player.getUniqueId();
+        return isParticipant(playerId)
+                || queuedPlayers.containsKey(playerId)
+                || preparing.containsKey(playerId)
+                || inLobbyArea(player.getLocation());
+    }
+
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onDeath(PlayerDeathEvent event) {
         Match match = matchByPlayer.get(event.getPlayer().getUniqueId());
-        if (match == null || match.phase != Phase.FIGHTING) return;
-        event.setKeepInventory(true);
-        event.setKeepLevel(true);
-        event.setDroppedExp(0);
-        event.getDrops().clear();
+        if (match == null || match.phase != Phase.FIGHTING) {
+            if (insidePvpGamemode(event.getPlayer())) PvpDuelService.keepEverything(event);
+            return;
+        }
+        PvpDuelService.keepEverything(event);
         event.deathMessage(null);
         UUID victim = event.getPlayer().getUniqueId();
         UUID killer = recentAttacker(match, victim);

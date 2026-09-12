@@ -32,10 +32,37 @@ final class ServerEventTypeMultiplierTest {
         assertEquals(2, ServerEventType.AIRDROP.multiplier());
         assertEquals(2, ServerEventType.AMETHYST_BLOCK.multiplier());
         assertEquals(4, ServerEventType.MEGA_KEY.multiplier());
+        assertEquals(5, ServerEventType.AMETHYST_DRAGON.multiplier());
         assertEquals(ServerEventType.MEGA_KEY, ServerEventType.resolve("megakey").orElseThrow());
         assertEquals(ServerEventType.AIRDROP, ServerEventType.resolve("drops").orElseThrow());
         assertEquals(ServerEventType.AMETHYST_BLOCK,
                 ServerEventType.resolve("amethyst").orElseThrow());
+        assertEquals(ServerEventType.AMETHYST_DRAGON,
+                ServerEventType.resolve("dragon").orElseThrow());
+        assertEquals(ServerEventType.AMETHYST_DRAGON,
+                ServerEventType.resolve(" AmethystDragon ").orElseThrow());
+    }
+
+    /** The Dragon event is announced exactly like the rest of the multiplier family. */
+    @Test
+    void theDragonEventIsAnnouncedLikeEveryOtherMultiplier() {
+        assertEquals("5x Amethyst Dragon", ServerEventType.AMETHYST_DRAGON.displayName());
+        assertEquals("5X AMETHYST DRAGON EVENT!", ServerEventType.AMETHYST_DRAGON.motdLabel());
+        assertEquals("Amethyst Dragon", ServerEventType.AMETHYST_DRAGON.baseDisplayName());
+    }
+
+    /** The factor is editable, so every rendered name has to follow it. */
+    @Test
+    void anEditedFactorRenamesTheEventEverywhere() {
+        assertEquals("8x Amethyst Dragon", ServerEventType.AMETHYST_DRAGON.displayName(8));
+        assertEquals("8X AMETHYST DRAGON EVENT!", ServerEventType.AMETHYST_DRAGON.motdLabel(8));
+        assertEquals(
+                "8x Amethyst Dragon - 3x Money",
+                ServerEventService.stackedTitle(
+                        List.of(ServerEventType.AMETHYST_DRAGON, ServerEventType.MONEY),
+                        type -> type == ServerEventType.AMETHYST_DRAGON ? 8 : 3
+                )
+        );
     }
 
     /** 2x and 4x keys must not compound into 8x behind a bar that promises 4x. */

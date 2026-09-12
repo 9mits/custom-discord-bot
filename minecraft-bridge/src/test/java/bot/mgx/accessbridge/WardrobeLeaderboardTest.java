@@ -2,6 +2,8 @@ package bot.mgx.accessbridge;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -56,5 +58,38 @@ class WardrobeLeaderboardTest {
         assertEquals("solar_imperium", CosmeticEffectService.selectedLeaderboardReward(
                 standing, CosmeticCatalog.Category.AURA, "solar_imperium"
         ).orElseThrow().id());
+    }
+
+    /**
+     * The Dragon boards award their own podium set. Resolving a Dragon placement
+     * through the general list returned Solar Imperium, so Dragon's First Crown never
+     * matched, never rendered, and was cleared off the player.
+     */
+    @Test
+    void dragonPodiumCosmeticsRenderForTheDragonBoardsThatAwardThem() {
+        for (LeaderboardType board : List.of(
+                LeaderboardType.DRAGON_CRYSTALS, LeaderboardType.DRAGON_DAMAGE)) {
+            LeaderboardStandings.Standing standing =
+                    new LeaderboardStandings.Standing(board, 1, 9_000);
+
+            assertEquals("dragon_podium_1", WardrobeService.podiumRewardForMenu(
+                    standing, CosmeticCatalog.Category.AURA, false
+            ).orElseThrow().id());
+            assertEquals("dragon_podium_1", CosmeticEffectService.selectedLeaderboardReward(
+                    standing, CosmeticCatalog.Category.AURA, "dragon_podium_1"
+            ).orElseThrow().id());
+        }
+    }
+
+    /** A Dragon placement still does not hand out the ordinary podium aura. */
+    @Test
+    void aDragonPlacementDoesNotEntitleTheOrdinaryPodiumAura() {
+        LeaderboardStandings.Standing standing = new LeaderboardStandings.Standing(
+                LeaderboardType.DRAGON_CRYSTALS, 1, 9_000
+        );
+
+        assertTrue(CosmeticEffectService.selectedLeaderboardReward(
+                standing, CosmeticCatalog.Category.AURA, "solar_imperium"
+        ).isEmpty());
     }
 }

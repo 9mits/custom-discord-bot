@@ -26,7 +26,18 @@ enum ServerEventType {
     AMETHYST_BLOCK("amethystblock", 2, "2x Amethyst Blocks", "2X AMETHYST BLOCK EVENT!",
             "block", "amethyst"),
     /** The big one. Stacks with nothing: the largest key factor in play wins. */
-    MEGA_KEY("megakey", 4, "4x Keys", "4X KEY EVENT!", "megakeys", "bigkey");
+    MEGA_KEY("megakey", 4, "4x Keys", "4X KEY EVENT!", "megakeys", "bigkey"),
+    /**
+     * Multiplies what the Amethyst Dragon itself pays: crystal keys, damage-wave keys,
+     * the kill reward and the shard drops.
+     *
+     * <p>Frequency is not the lever here the way it is for Airdrops and Huge Blocks. The
+     * Dragon runs on three fixed UTC times a day that players plan around, so "5x Dragon"
+     * has to mean five times the loot from the fight rather than five times as many
+     * fights.
+     */
+    AMETHYST_DRAGON("dragon", 5, "5x Amethyst Dragon", "5X AMETHYST DRAGON EVENT!",
+            "amethystdragon", "dragons");
 
     /** The factor an event carries when no per-type figure applies. */
     static final int MULTIPLIER = 2;

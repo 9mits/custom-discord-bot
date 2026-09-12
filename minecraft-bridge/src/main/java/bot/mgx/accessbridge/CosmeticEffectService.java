@@ -1243,9 +1243,8 @@ final class CosmeticEffectService implements Listener {
                 playerId, category.name()
         ).orElse(null);
         if (selectedLeaderboard != null) {
-            Optional<CosmeticCatalog.Definition> entitled = selectedLeaderboardReward(
-                    leaderboard.standing(playerId).orElse(null), category, selectedLeaderboard
-            );
+            Optional<CosmeticCatalog.Definition> entitled =
+                    entitledLeaderboardReward(playerId, category, selectedLeaderboard);
             if (entitled.isPresent()) {
                 failedSelectionClears.remove(playerId + ":LEADERBOARD:" + category.name());
                 return entitled;
@@ -1302,8 +1301,39 @@ final class CosmeticEffectService implements Listener {
                 || selectedCosmeticId.isBlank()) {
             return Optional.empty();
         }
-        return CosmeticCatalog.leaderboardReward(standing.placement(), category)
+        // The wardrobe decides what a placement entitles somebody to, and the Dragon
+        // boards award their own podium set. Resolving through the general list here
+        // instead meant a Dragon #1 who equipped Dragon's First Crown was checked
+        // against Solar Imperium, failed, rendered nothing, and had the selection
+        // cleared out from under them.
+        return WardrobeService.podiumRewardForMenu(standing, category, false)
                 .filter(definition -> definition.id().equals(selectedCosmeticId));
+    }
+
+    /**
+     * The standing that actually entitles this player to the cosmetic they picked.
+     *
+     * <p>A player can hold a place on a Dragon board and on an ordinary board at the
+     * same time, and each board awards a different podium set. Asking for one "best"
+     * standing therefore answers the wrong question: what matters is whether any
+     * placement they currently hold grants the thing they equipped.
+     */
+    private Optional<CosmeticCatalog.Definition> entitledLeaderboardReward(
+            UUID playerId, CosmeticCatalog.Category category, String selectedCosmeticId
+    ) {
+        List<Optional<LeaderboardStandings.Standing>> candidates = List.of(
+                leaderboard.dragonStanding(playerId),
+                leaderboard.standardStanding(playerId)
+        );
+        for (Optional<LeaderboardStandings.Standing> candidate : candidates) {
+            Optional<CosmeticCatalog.Definition> entitled = selectedLeaderboardReward(
+                    candidate.orElse(null), category, selectedCosmeticId
+            );
+            if (entitled.isPresent()) {
+                return entitled;
+            }
+        }
+        return Optional.empty();
     }
 
     private void drawAura(Player owner, CosmeticCatalog.Definition definition, boolean moving) {
