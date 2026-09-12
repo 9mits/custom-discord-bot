@@ -95,8 +95,14 @@ final class PvpCompetitionSafetyTest {
         assertTrue(source.contains("inLobbyArea(victim.getLocation())"));
         String lobby = Files.readString(SOURCE.getParent().resolve("PvpLobbyBuilder.java"),
                 StandardCharsets.UTF_8);
+        // Bedrock sees an armour-stand nametag and not much else, so the lobby's
+        // lettering has to stay armour stands however tempting a TextDisplay is.
+        assertTrue(lobby.contains("CrateDisplayService.spawnStyledLabel"));
         assertTrue(lobby.contains("ArmorStand.class"));
-        assertTrue(lobby.contains("WALK THROUGH TO CHOOSE"));
+        // Every gateway still says how to use it. The instruction is "stand on the
+        // pad" now because the pad is what actually opens the queue; walking through
+        // the arch never did anything, which is what the old wording promised.
+        assertTrue(lobby.contains("Stand on the pad"));
         assertTrue(!lobby.contains("Material.OAK_SIGN"));
     }
 

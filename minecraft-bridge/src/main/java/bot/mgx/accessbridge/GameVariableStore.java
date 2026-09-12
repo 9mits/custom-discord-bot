@@ -1229,6 +1229,14 @@ final class GameVariableStore {
         integer("pvp-competitive.ffa-start-wait-seconds", "FFA queue wait",
                 "PvP Competitive", "Wait after the minimum joins before an FFA starts early.",
                 60, 5, 600, "seconds", false);
+        bool("pvp-competitive.announce-queues", "Announce PvP queues", "PvP Competitive",
+                "Tell everybody online when somebody starts waiting in a queue that could"
+                        + " still fill. A queue nobody can see is a queue nobody joins.",
+                true);
+        integer("pvp-competitive.queue-announce-cooldown-seconds", "Queue announce cooldown",
+                "PvP Competitive",
+                "Shortest gap between two announcements of the same queue.",
+                240, 30, 3_600, "seconds", false);
         integer("pvp-competitive.afk-seconds", "Competitive AFK limit", "PvP Competitive",
                 "Seconds without moving or fighting before an active player is eliminated.",
                 75, 20, 600, "seconds", false);

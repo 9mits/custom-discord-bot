@@ -18,7 +18,11 @@ import java.util.UUID;
 
 /** Persistent PvP lobby and main-world entrance; combat arenas are never stored here. */
 final class PvpLobbyStore {
-    private static final int FORMAT_VERSION = 2;
+    /**
+     * Bumped to 3 for the Amethyst Terrace, which replaced the blackstone citadel.
+     * A newer format rebuilds the lobby once on the next start and re-saves the spawn.
+     */
+    private static final int FORMAT_VERSION = 3;
 
     record Point(
             String worldId,
@@ -95,6 +99,12 @@ final class PvpLobbyStore {
 
     synchronized void installGenerated(Point lobby) {
         state.lobby = lobby;
+        // Stamp the format the lobby was just built to. Without this the file keeps the
+        // older number it was read with, needsLobbyBuild stays true, and the island is
+        // demolished and rebuilt on every single start. It went unnoticed through the
+        // 1 to 2 bump only because version-1 files predated the field entirely and so
+        // took the current default when Gson read them.
+        state.version = FORMAT_VERSION;
         persist();
     }
 
