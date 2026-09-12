@@ -595,16 +595,19 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 args.length > 3 ? args[3] : (args.length > 2 && !args[2].equalsIgnoreCase("on")
                         ? args[2] : null)
         ) : 0L;
+        // Every message names the factor actually in force, not the one the event
+        // shipped with: the owner can change it from the control panel.
+        String name = type.displayName(events.factor(type));
         if (!events.set(type, enabled, seconds)) {
-            success(sender, type.displayName() + " was already "
+            success(sender, name + " was already "
                     + (enabled ? "running" : "off") + ".");
             return;
         }
         String summary = enabled
-                ? type.displayName() + " is live"
+                ? name + " is live"
                 + (seconds > 0 ? " for " + ServerEventService.humanDuration(seconds * 1_000L)
                                : " until turned off")
-                : type.displayName() + " has ended";
+                : name + " has ended";
         success(sender, summary + ".");
         report(sender, "server_event", summary)
                 .detail("event", type.id())
@@ -618,7 +621,8 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         for (ServerEventType type : ServerEventType.values()) {
             boolean live = events.active(type);
             sender.sendMessage(Component.text("  " + type.id() + "  ", ORANGE)
-                    .append(Component.text(type.displayName(), NamedTextColor.WHITE))
+                    .append(Component.text(type.displayName(events.factor(type)),
+                            NamedTextColor.WHITE))
                     .append(Component.text(live ? "  LIVE" : "  off",
                             live ? NamedTextColor.GREEN : NamedTextColor.GRAY)));
         }

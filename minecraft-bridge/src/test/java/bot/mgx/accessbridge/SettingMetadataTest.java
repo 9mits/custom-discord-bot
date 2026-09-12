@@ -272,7 +272,7 @@ final class SettingMetadataTest {
                         Map.entry("airdrops", 119),
                         Map.entry("online_rewards", 68),
                         Map.entry("amethyst_blocks", 49),
-                        Map.entry("dragon_event", 247),
+                        Map.entry("dragon_event", 262),
                         Map.entry("permissions", 4),
                         Map.entry("shop", 21),
                         Map.entry("admin_events", 17),
@@ -280,7 +280,7 @@ final class SettingMetadataTest {
                         Map.entry("potions", 13),
                         Map.entry("cosmetics", 13),
                         Map.entry("players", 12),
-                        Map.entry("event_multipliers", 9),
+                        Map.entry("event_multipliers", 10),
                         Map.entry("pvp_duels", 25),
                         Map.entry("pvp_competitive", 30),
                         Map.entry("crate_balance", 8),
@@ -301,7 +301,7 @@ final class SettingMetadataTest {
                 perGroup,
                 "the catalogue moved between panel pages"
         );
-        assertEquals(986, perGroup.values().stream().mapToInt(Integer::intValue).sum(),
+        assertEquals(1002, perGroup.values().stream().mapToInt(Integer::intValue).sum(),
                 "group counts no longer add up to the catalogue");
     }
 

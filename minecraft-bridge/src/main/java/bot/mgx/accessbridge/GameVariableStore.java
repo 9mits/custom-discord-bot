@@ -296,6 +296,45 @@ final class GameVariableStore {
         choice("dragon-event.portal-bossbar-color", "Portal gateway bar colour", "Dragon Presentation",
                 "Colour of the server-wide bar shown while the gateway is open.", "PURPLE",
                 List.of("PINK", "BLUE", "RED", "GREEN", "YELLOW", "PURPLE", "WHITE"));
+        bool("dragon-event.portal-bossbar-enabled", "Portal gateway bar", "Dragon Presentation",
+                "Whether the server-wide countdown bar is shown while the gateway is open.",
+                true);
+        text("dragon-event.portal-bossbar-text", "Portal gateway bar text", "Dragon Presentation",
+                "Server-wide bar shown to everyone while the gateway is open. Supports <time>.",
+                "AMETHYST DRAGON PORTAL OPEN  -  CLOSES IN <time>", 100);
+        text("dragon-event.portal-open-title", "Portal open title", "Dragon Presentation",
+                "On-screen title and chat banner heading when the gateway opens.",
+                "AMETHYST DRAGON PORTAL", 60);
+        text("dragon-event.portal-open-subtitle", "Portal open subtitle", "Dragon Presentation",
+                "On-screen subtitle when the gateway opens. Supports <minutes>.",
+                "OPEN FOR <minutes> MINUTES - GET TO THE PORTAL", 100);
+        text("dragon-event.portal-reminder-message", "Portal reminder chat line", "Dragon Presentation",
+                "Repeated chat reminder while the gateway is open. Supports <time>.",
+                "The Amethyst Dragon Portal closes in <time>. Enter it now to fight!", 180);
+        text("dragon-event.portal-reminder-actionbar", "Portal reminder action bar",
+                "Dragon Presentation",
+                "Repeated action bar reminder while the gateway is open. Supports <time>.",
+                "AMETHYST DRAGON PORTAL OPEN  -  <time> LEFT", 100);
+        text("dragon-event.portal-final-title", "Portal closing title", "Dragon Presentation",
+                "On-screen title during the final seconds before the gateway seals.",
+                "PORTAL CLOSING", 60);
+        text("dragon-event.portal-join-message", "Portal join notice", "Dragon Presentation",
+                "Shown to a player who connects while the gateway is open. Supports <time>.",
+                "The Amethyst Dragon Portal is OPEN - <time> left to enter!", 180);
+        integer("dragon-event.portal-reminder-interval-seconds", "Portal reminder interval",
+                "Dragon Presentation",
+                "Seconds between repeated portal reminders. 0 turns the repeats off.",
+                60, 0, 600, "seconds", false);
+        integer("dragon-event.portal-final-countdown-seconds", "Portal final countdown",
+                "Dragon Presentation",
+                "Seconds before the gateway seals during which the countdown is called out"
+                        + " every second.",
+                10, 0, 60, "seconds", false);
+        integer("dragon-event.portal-join-delay-ticks", "Portal join notice delay",
+                "Dragon Presentation",
+                "Ticks to wait after a player joins before showing them the open gateway,"
+                        + " so the notice does not land while the world is still drawing.",
+                50, 0, 200, "ticks", false);
         text("dragon-event.fight-bossbar-text", "Dragon fight boss bar", "Dragon Presentation",
                 "Boss bar during combat. Supports <hp> and <time>.",
                 "AMETHYST DRAGON  •  <hp> HP  •  <time>", 120);
@@ -341,6 +380,18 @@ final class GameVariableStore {
                 "Second sound played server-wide when the portal opens.", "ENTITY_ENDER_DRAGON_GROWL",
                 List.of("ENTITY_ENDER_DRAGON_GROWL", "BLOCK_END_PORTAL_SPAWN",
                         "BLOCK_RESPAWN_ANCHOR_CHARGE", "BLOCK_AMETHYST_BLOCK_RESONATE"));
+        choice("dragon-event.portal-open-fanfare-sound", "Portal open fanfare", "Dragon Presentation",
+                "Third sound played server-wide when the portal opens, layered over the other"
+                        + " two so the opening is audible through whatever else is happening.",
+                "UI_TOAST_CHALLENGE_COMPLETE",
+                List.of("UI_TOAST_CHALLENGE_COMPLETE", "ENTITY_ENDER_DRAGON_GROWL",
+                        "ITEM_TOTEM_USE", "BLOCK_BELL_USE", "ENTITY_WITHER_SPAWN"));
+        choice("dragon-event.portal-reminder-sound", "Portal reminder sound", "Dragon Presentation",
+                "Sound played with each repeated reminder while the gateway is open.",
+                "BLOCK_NOTE_BLOCK_PLING",
+                List.of("BLOCK_NOTE_BLOCK_PLING", "BLOCK_NOTE_BLOCK_BELL",
+                        "BLOCK_AMETHYST_BLOCK_CHIME", "ENTITY_EXPERIENCE_ORB_PICKUP",
+                        "BLOCK_BELL_USE"));
         choice("dragon-event.portal-closed-sound", "Portal close sound", "Dragon Presentation",
                 "Sound played server-wide when the portal seals and pillar summoning begins.",
                 "BLOCK_END_PORTAL_SPAWN",
@@ -843,6 +894,12 @@ final class GameVariableStore {
                 "Volume of server-wide Dragon event announcement sounds.", 1.15, 0.0, 10.0, "volume");
         decimal("dragon-event.announcement-pitch", "Dragon announcement pitch", "Dragon Presentation",
                 "Pitch of server-wide Dragon event announcement sounds.", 1.0, 0.5, 2.0, "pitch");
+        decimal("dragon-event.portal-alert-volume", "Portal alert volume", "Dragon Presentation",
+                "Volume of the gateway opening fanfare and its repeated reminders.",
+                4.0, 0.0, 10.0, "volume");
+        decimal("dragon-event.portal-reminder-pitch", "Portal reminder pitch", "Dragon Presentation",
+                "Pitch of the repeated reminder sound while the gateway is open.",
+                1.6, 0.5, 2.0, "pitch");
         decimal("dragon-event.portal-open-secondary-pitch", "Portal open layer pitch", "Dragon Presentation",
                 "Pitch of the second server-wide portal opening sound.", 0.75, 0.5, 2.0, "pitch");
         decimal("dragon-event.portal-closed-secondary-pitch", "Portal close layer pitch", "Dragon Presentation",

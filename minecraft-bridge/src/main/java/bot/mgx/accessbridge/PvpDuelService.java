@@ -3550,17 +3550,50 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         fight.hits.merge(opponentId, 1, Integer::sum);
     }
 
+    /**
+     * Everything the PvP gamemode holds back from a death.
+     *
+     * <p>Static and shared so the queued competitive layer keeps exactly what an
+     * arranged duel keeps; two copies of this drifted apart once already.
+     */
+    static void keepEverything(PlayerDeathEvent event) {
+        event.setKeepInventory(true);
+        event.setKeepLevel(true);
+        event.setDroppedExp(0);
+        event.getDrops().clear();
+    }
+
+    /**
+     * Whether this death belongs to the PvP gamemode, whatever killed them.
+     *
+     * <p>Keeping the inventory used to depend on being in a fight that was still in its
+     * FIGHTING phase, which quietly meant "killed cleanly by your opponent". An end
+     * crystal does not cooperate: a chain detonates across a tick, the first death ends
+     * the fight, and the second player then died in an arena belonging to a fight that
+     * had already moved to its aftermath — losing everything. Anyone standing in a ring,
+     * in the lobby, queued, spectating or still attached to a fight is inside the
+     * gamemode, and the gamemode never takes a player's items.
+     */
+    boolean insidePvpGamemode(Player player) {
+        UUID playerId = player.getUniqueId();
+        return fighting.containsKey(playerId)
+                || spectators.containsKey(playerId)
+                || PvpLobbyBuilder.WORLD_NAME.equals(player.getWorld().getName())
+                || insideAnyArena(player.getLocation());
+    }
+
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onDeath(PlayerDeathEvent event) {
         Player victim = event.getPlayer();
         Fight fight = fighting.get(victim.getUniqueId());
         if (fight == null || fight.phase != Phase.FIGHTING) {
+            // Not a clean duel kill, but still a PvP-gamemode death: a crystal chain
+            // landing after the fight was decided, a fall in the lobby, a spectator
+            // caught by a blast. None of those may cost a player their gear.
+            if (insidePvpGamemode(victim)) keepEverything(event);
             return;
         }
-        event.setKeepInventory(true);
-        event.setKeepLevel(true);
-        event.setDroppedExp(0);
-        event.getDrops().clear();
+        keepEverything(event);
         UUID winner = fight.opponent(victim.getUniqueId());
         Player winnerPlayer = Bukkit.getPlayer(winner);
         event.deathMessage(Component.text(

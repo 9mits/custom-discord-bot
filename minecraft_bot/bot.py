@@ -2939,19 +2939,26 @@ class MinecraftAccessBot(commands.Bot):
 
         @admin_group.command(
             name="event",
-            description="Start or stop a server-wide 2x event.",
+            description="Start or stop a server-wide multiplier event.",
         )
         @app_commands.describe(
             event="Which multiplier to run.",
             state="Start it or stop it.",
             minutes="How long to run for. Leave empty to run until you stop it.",
         )
+        # The factor each event pays is editable from the control panel
+        # (events.<id>.multiplier), so these names quote the shipped default and the
+        # server announces whatever the figure actually is.
         @app_commands.choices(
             event=[
                 app_commands.Choice(name="2x Crate Luck", value="crateluck"),
                 app_commands.Choice(name="2x Fortune", value="fortune"),
                 app_commands.Choice(name="2x Keys", value="key"),
                 app_commands.Choice(name="2x Money", value="money"),
+                app_commands.Choice(name="2x Airdrops", value="airdrop"),
+                app_commands.Choice(name="2x Amethyst Blocks", value="amethystblock"),
+                app_commands.Choice(name="4x Keys", value="megakey"),
+                app_commands.Choice(name="5x Amethyst Dragon", value="dragon"),
             ],
             state=[
                 app_commands.Choice(name="Start", value="on"),
