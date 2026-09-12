@@ -6,24 +6,23 @@ import java.util.Optional;
 
 /** Competitive queues offered by the PvP lobby. */
 enum PvpMode {
-    CASUAL_DUEL("casual", "Casual 1v1", "duel", 1, 2, false, false, false,
+    CASUAL_DUEL("casual", "Casual 1v1", 1, 2, false, false, false,
             List.of("casual", "casual-1v1", "1v1-casual")),
-    RANKED_DUEL("ranked", "Ranked 1v1", "duel", 1, 2, true, false, false,
+    RANKED_DUEL("ranked", "Ranked 1v1", 1, 2, true, false, false,
             List.of("ranked", "ranked-1v1", "1v1", "1v1-ranked")),
-    DOUBLES("2v2", "Ranked 2v2", "2v2", 2, 4, true, false, false,
+    DOUBLES("2v2", "Ranked 2v2", 2, 4, true, false, false,
             List.of("2v2", "doubles", "duos")),
-    TRIPLES("3v3", "Ranked 3v3", "3v3", 3, 6, true, false, false,
+    TRIPLES("3v3", "Ranked 3v3", 3, 6, true, false, false,
             List.of("3v3", "triples", "trios")),
-    CLAN_BATTLE("clan", "Clan vs Clan", "clan", 3, 6, false, true, false,
+    CLAN_BATTLE("clan", "Clan vs Clan", 3, 6, false, true, false,
             List.of("clan", "clans", "clan-v-clan", "clan-vs-clan")),
-    FFA("ffa", "Last Player Standing", "ffa", 1, 12, false, false, true,
+    FFA("ffa", "Last Player Standing", 1, 12, false, false, true,
             List.of("ffa", "last-player-standing", "lps")),
-    PRIVATE_DUEL("private", "Private Duel", "duel", 1, 2, false, false, false,
+    PRIVATE_DUEL("private", "Private Duel", 1, 2, false, false, false,
             List.of("private", "challenge"));
 
     private final String key;
     private final String display;
-    private final String arenaGroup;
     private final int teamSize;
     private final int maximumPlayers;
     private final boolean rated;
@@ -34,7 +33,6 @@ enum PvpMode {
     PvpMode(
             String key,
             String display,
-            String arenaGroup,
             int teamSize,
             int maximumPlayers,
             boolean rated,
@@ -44,7 +42,6 @@ enum PvpMode {
     ) {
         this.key = key;
         this.display = display;
-        this.arenaGroup = arenaGroup;
         this.teamSize = teamSize;
         this.maximumPlayers = maximumPlayers;
         this.rated = rated;
@@ -59,10 +56,6 @@ enum PvpMode {
 
     String display() {
         return display;
-    }
-
-    String arenaGroup() {
-        return arenaGroup;
     }
 
     int teamSize() {

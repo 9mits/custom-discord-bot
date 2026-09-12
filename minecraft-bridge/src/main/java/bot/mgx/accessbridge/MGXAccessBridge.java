@@ -568,8 +568,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         }
         try {
             pvpCompetition = new PvpCompetitionService(
-                    this, economyStore, clientSupport, bedrockForms, identityService,
-                    clanStore, perkService, pvpRecords,
+                    this, pvpDuels, economyStore, clientSupport, bedrockForms, identityService,
+                    clanStore, pvpRecords,
                     getDataFolder().toPath().resolve("pvp-arenas.json"),
                     getDataFolder().toPath().resolve("pvp-clan-records.json"),
                     getDataFolder().toPath().resolve("pvp-competitive-recovery.json")
@@ -581,7 +581,6 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             return;
         }
         pvpDuels.useCompetition(pvpCompetition);
-        perkService.useCompetitivePlayers(pvpCompetition::isFighter);
         getCommand("pvp").setExecutor(pvpDuels);
         getCommand("pvp").setTabCompleter(pvpDuels);
         pvpRankRewards.useBusyPlayers(playerId -> pvpDuels.isParticipant(playerId)

@@ -95,7 +95,7 @@ final class PvpDuelSafetyTest {
         assertTrue(flow.contains("fightAt(event.getBlock().getLocation()) != null"));
 
         // The budget is a ceiling on damage, not on the fight.
-        assertTrue(source.contains("arenaRestore.size(fight.id) >= maximumArenaEdits()"));
+        assertTrue(source.contains("arenaRestore.size(fight.arenaId()) >= maximumArenaEdits()"));
         assertTrue(source.contains("warnArenaFull(fight)"));
     }
 
@@ -104,7 +104,7 @@ final class PvpDuelSafetyTest {
     void anExplosionIsCreditedToWhoeverSetItOff() throws Exception {
         String source = source();
         String resolver = source.substring(
-                source.indexOf("private static UUID fightingSource("),
+                source.indexOf("static UUID fightingSource("),
                 source.indexOf("private static boolean samePosition"));
 
         assertTrue(resolver.contains("TNTPrimed tnt"));
@@ -319,7 +319,8 @@ final class PvpDuelSafetyTest {
         String physics = source.substring(
                 source.indexOf("public void onPhysics(BlockPhysicsEvent event)"),
                 source.indexOf("private boolean insideArena"));
-        assertTrue(physics.indexOf("fights.isEmpty()") < physics.indexOf("fightAt("));
+        assertTrue(physics.indexOf("fights.isEmpty() && competitiveArenas.isEmpty()")
+                < physics.indexOf("fightAt("));
     }
 
     @Test
@@ -344,7 +345,7 @@ final class PvpDuelSafetyTest {
         String source = source();
         assertTrue(source.contains("insideAnyArena(event.getLocation())) event.setCancelled(true)"));
         String sweep = source.substring(
-                source.indexOf("private void sweepArena(Fight fight, boolean teardown)"),
+                source.indexOf("private void sweepArena(ArenaContext fight, boolean teardown)"),
                 source.indexOf("private boolean insideArena"));
         assertTrue(sweep.contains("entity instanceof org.bukkit.entity.Item"));
         assertTrue(sweep.contains("entity instanceof Player"));

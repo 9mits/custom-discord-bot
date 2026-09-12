@@ -97,6 +97,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -129,9 +130,11 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     private static final int BOARD_SIZE = 54;
     private static final int PAGE_SIZE = 45;
     private static final int HUB_START = 11;
+    private static final int HUB_QUEUE = 10;
     private static final int HUB_INCOMING = 13;
     private static final int HUB_LIVE = 15;
-    private static final int HUB_RANKS = 4;
+    private static final int HUB_RULES = 16;
+    private static final int HUB_STATS = 4;
     private static final int RANK_ROWS = 10;
     private static final ClickCallback.Options RANK_CALLBACK_OPTIONS = ClickCallback.Options.builder()
             .uses(ClickCallback.UNLIMITED_USES)
@@ -239,7 +242,49 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         }
     }
 
-    private record Arena(Location center, Location first, Location second, double diameter) {
+    record Arena(Location center, Location first, Location second, double diameter) {
+    }
+
+    /**
+     * One untouched-overworld ring prepared by the original /pvp arena finder.
+     * Competitive queues receive this exact lease instead of inventing a second
+     * arena implementation or moving combat into the lobby world.
+     */
+    record PreparedArena(
+            UUID id,
+            Arena arena,
+            List<Location> spawns,
+            Location spectator,
+            List<Chunk> held
+    ) {
+        PreparedArena {
+            spawns = spawns.stream().map(Location::clone).toList();
+            spectator = spectator.clone();
+            held = new ArrayList<>(held);
+        }
+    }
+
+    private interface ArenaContext {
+        UUID arenaId();
+        Arena arenaBounds();
+        Collection<UUID> arenaPlayers();
+        boolean arenaActive();
+    }
+
+    private static final class CompetitiveArena implements ArenaContext {
+        final PreparedArena prepared;
+        final Set<UUID> players;
+        boolean active;
+
+        CompetitiveArena(PreparedArena prepared, Collection<UUID> players) {
+            this.prepared = prepared;
+            this.players = Set.copyOf(players);
+        }
+
+        @Override public UUID arenaId() { return prepared.id(); }
+        @Override public Arena arenaBounds() { return prepared.arena(); }
+        @Override public Collection<UUID> arenaPlayers() { return players; }
+        @Override public boolean arenaActive() { return active; }
     }
 
     /**
@@ -273,7 +318,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     private record PlayerState(PvpDuelStore.Recovery recovery, WorldBorder previousBorder) {
     }
 
-    private static final class Fight {
+    private static final class Fight implements ArenaContext {
         final UUID id;
         final UUID first;
         final UUID second;
@@ -320,6 +365,11 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         String label() {
             return firstName + " vs " + secondName;
         }
+
+        @Override public UUID arenaId() { return id; }
+        @Override public Arena arenaBounds() { return arena; }
+        @Override public Collection<UUID> arenaPlayers() { return List.of(first, second); }
+        @Override public boolean arenaActive() { return phase == Phase.FIGHTING; }
     }
 
     private record SpectatorState(Fight fight, PlayerState player, Location anchor) {
@@ -393,6 +443,9 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     private final Set<UUID> resultViewers = new HashSet<>();
     /** Chunk tickets held open for each live arena, released when it is put back. */
     private final Map<UUID, List<Chunk>> arenaChunks = new HashMap<>();
+    /** Competitive matches registered against the same arena/revert engine. */
+    private final Map<UUID, CompetitiveArena> competitiveArenas = new LinkedHashMap<>();
+    private final Map<UUID, CompetitiveArena> competitiveArenaByPlayer = new HashMap<>();
     private final PvpFarmGuard farmGuard = new PvpFarmGuard();
     private PvpCompetitionService competition;
     /** Arenas already told they have taken as much damage as can be undone. */
@@ -560,6 +613,256 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         this.competition = competition;
     }
 
+    /**
+     * Finds and prepares competitive ground through the original /pvp arena path.
+     * The lobby is only a lobby; every fight takes place in fresh overworld terrain.
+     */
+    void prepareCompetitiveArena(
+            PvpMode mode,
+            List<Player> first,
+            List<Player> second,
+            Consumer<PreparedArena> ready,
+            Consumer<String> failed
+    ) {
+        List<Player> players = new ArrayList<>(first);
+        players.addAll(second);
+        if (players.size() < 2 || players.stream().anyMatch(player -> !player.isOnline())) {
+            failed.accept("The match could not start because somebody left.");
+            return;
+        }
+        World world = overworld();
+        if (world == null) {
+            failed.accept("The overworld is unavailable.");
+            return;
+        }
+        for (Player player : players) {
+            info(player, "Finding a fight location...");
+        }
+        int diameter = competitiveDiameter(mode);
+        findCompetitiveArena(world, mode, first, second, players, diameter, 0, ready, failed);
+    }
+
+    private int competitiveDiameter(PvpMode mode) {
+        String key = switch (mode) {
+            case CASUAL_DUEL, RANKED_DUEL, PRIVATE_DUEL -> "pvp-competitive.duel-arena-diameter";
+            case DOUBLES -> "pvp-competitive.2v2-arena-diameter";
+            case TRIPLES -> "pvp-competitive.3v3-arena-diameter";
+            case CLAN_BATTLE -> "pvp-competitive.clan-arena-diameter";
+            case FFA -> "pvp-competitive.ffa-arena-diameter";
+        };
+        return plugin.gameVariables().integer(key);
+    }
+
+    private void findCompetitiveArena(
+            World world,
+            PvpMode mode,
+            List<Player> first,
+            List<Player> second,
+            List<Player> players,
+            int diameter,
+            int attempted,
+            Consumer<PreparedArena> ready,
+            Consumer<String> failed
+    ) {
+        int attempts = plugin.gameVariables().integer("pvp-duels.location-attempts");
+        if (attempted >= attempts) {
+            failed.accept("No fight location was found. Try again shortly.");
+            return;
+        }
+        Candidate candidate = candidate(world, diameter);
+        if (candidate == null) {
+            findCompetitiveArena(world, mode, first, second, players, diameter,
+                    attempted + 1, ready, failed);
+            return;
+        }
+        List<int[]> positions = competitiveSpawnPositions(
+                candidate.x(), candidate.z(), diameter, mode, first.size(), second.size());
+        Set<Long> chunks = new HashSet<>();
+        chunks.add((((long) (candidate.x() >> 4)) << 32) ^ ((candidate.z() >> 4) & 0xffffffffL));
+        for (int[] position : positions) {
+            chunks.add((((long) (position[0] >> 4)) << 32) ^ ((position[1] >> 4) & 0xffffffffL));
+        }
+        List<CompletableFuture<Chunk>> probes = chunks.stream().map(packed -> {
+            long value = packed;
+            return world.getChunkAtAsync((int) (value >> 32), (int) value, true);
+        }).toList();
+        CompletableFuture.allOf(probes.toArray(CompletableFuture[]::new))
+                .whenComplete((ignored, failure) -> plugin.getServer().getScheduler()
+                        .runTask(plugin, () -> {
+                            if (failure != null || players.stream().anyMatch(player -> !player.isOnline())) {
+                                findCompetitiveArena(world, mode, first, second, players, diameter,
+                                        attempted + 1, ready, failed);
+                                return;
+                            }
+                            List<Location> spawns = new ArrayList<>();
+                            for (int index = 0; index < positions.size(); index++) {
+                                int[] position = positions.get(index);
+                                float yaw = facing(position[0], position[1], candidate.x(), candidate.z());
+                                Location spawn = safeLocation(world, position[0], position[1], yaw);
+                                if (spawn == null) {
+                                    findCompetitiveArena(world, mode, first, second, players, diameter,
+                                            attempted + 1, ready, failed);
+                                    return;
+                                }
+                                spawns.add(spawn);
+                            }
+                            Location middle = safeLocation(world, candidate.x(), candidate.z(), 0f);
+                            if (middle == null) {
+                                findCompetitiveArena(world, mode, first, second, players, diameter,
+                                        attempted + 1, ready, failed);
+                                return;
+                            }
+                            Arena arena = new Arena(middle, spawns.get(0), spawns.get(1), diameter);
+                            prepareCompetitiveChunks(players, arena, held -> {
+                                double highest = spawns.stream().mapToDouble(Location::getY)
+                                        .max().orElse(middle.getY());
+                                Location spectator = middle.clone().add(0d,
+                                        Math.max(10d, highest - middle.getY() + 10d), 0d);
+                                ready.accept(new PreparedArena(
+                                        UUID.randomUUID(), arena, spawns, spectator, held));
+                            }, failed);
+                        }));
+    }
+
+    static List<int[]> competitiveSpawnPositions(
+            int centerX, int centerZ, int diameter, PvpMode mode, int first, int second
+    ) {
+        List<int[]> positions = new ArrayList<>();
+        double radius = Math.max(8d, diameter * (mode.freeForAll() ? 0.34d : 0.22d));
+        if (mode.freeForAll()) {
+            for (int index = 0; index < first; index++) {
+                double angle = Math.PI * 2d * index / first - Math.PI / 2d;
+                positions.add(new int[]{
+                        (int) Math.round(centerX + Math.cos(angle) * radius),
+                        (int) Math.round(centerZ + Math.sin(angle) * radius)
+                });
+            }
+            return positions;
+        }
+        addTeamPositions(positions, centerX - (int) radius, centerZ, first, true);
+        addTeamPositions(positions, centerX + (int) radius, centerZ, second, false);
+        return positions;
+    }
+
+    private static void addTeamPositions(
+            List<int[]> positions, int x, int centerZ, int count, boolean first
+    ) {
+        for (int index = 0; index < count; index++) {
+            int offset = (index * 2 - (count - 1)) * 3;
+            positions.add(new int[]{x, centerZ + (first ? offset : -offset)});
+        }
+    }
+
+    private static float facing(int x, int z, int centerX, int centerZ) {
+        return (float) Math.toDegrees(Math.atan2(centerZ - z, centerX - x)) - 90f;
+    }
+
+    private void prepareCompetitiveChunks(
+            List<Player> players,
+            Arena arena,
+            Consumer<List<Chunk>> ready,
+            Consumer<String> failed
+    ) {
+        World world = arena.center().getWorld();
+        if (world == null) {
+            failed.accept("The overworld is unavailable.");
+            return;
+        }
+        for (Player player : players) info(player, "Getting things ready...");
+        int radius = Math.max(preloadChunkRadius(),
+                (int) Math.ceil(arena.diameter() / 32d) + 1);
+        int centerX = arena.center().getBlockX() >> 4;
+        int centerZ = arena.center().getBlockZ() >> 4;
+        List<long[]> wanted = new ArrayList<>();
+        for (int dx = -radius; dx <= radius; dx++) {
+            for (int dz = -radius; dz <= radius; dz++) {
+                wanted.add(new long[]{centerX + dx, centerZ + dz});
+            }
+        }
+        wanted.sort(Comparator.comparingLong(at ->
+                (at[0] - centerX) * (at[0] - centerX) + (at[1] - centerZ) * (at[1] - centerZ)));
+        loadCompetitiveChunks(players, world, wanted, new ArrayList<>(), 0, ready, failed);
+    }
+
+    private void loadCompetitiveChunks(
+            List<Player> players,
+            World world,
+            List<long[]> wanted,
+            List<Chunk> held,
+            int from,
+            Consumer<List<Chunk>> ready,
+            Consumer<String> failed
+    ) {
+        if (players.stream().anyMatch(player -> !player.isOnline())) {
+            releaseArenaChunks(held);
+            failed.accept("The fight was called off before it started.");
+            return;
+        }
+        if (from >= wanted.size()) {
+            for (Player player : players) info(player, "You will be teleported shortly...");
+            plugin.getServer().getScheduler().runTaskLater(plugin, () -> ready.accept(held), 25L);
+            return;
+        }
+        int until = Math.min(wanted.size(), from + ARENA_CHUNKS_PER_BATCH);
+        List<CompletableFuture<Chunk>> batch = new ArrayList<>();
+        for (int index = from; index < until; index++) {
+            long[] at = wanted.get(index);
+            batch.add(world.getChunkAtAsync((int) at[0], (int) at[1], true));
+        }
+        int progress = (int) Math.round(until * 100d / wanted.size());
+        for (Player player : players) {
+            player.sendActionBar(Component.text("Preparing the arena  ", NamedTextColor.GRAY)
+                    .append(Component.text(progress + "%", ORANGE, TextDecoration.BOLD)));
+        }
+        CompletableFuture.allOf(batch.toArray(CompletableFuture[]::new))
+                .whenComplete((ignored, failure) -> plugin.getServer().getScheduler()
+                        .runTask(plugin, () -> {
+                            if (failure != null) {
+                                releaseArenaChunks(held);
+                                failed.accept("The fight location could not be loaded. Try again shortly.");
+                                return;
+                            }
+                            for (CompletableFuture<Chunk> loading : batch) {
+                                Chunk chunk = loading.getNow(null);
+                                if (chunk != null && chunk.addPluginChunkTicket(plugin)) held.add(chunk);
+                            }
+                            loadCompetitiveChunks(players, world, wanted, held, until, ready, failed);
+                        }));
+    }
+
+    void activateCompetitiveArena(PreparedArena prepared, Collection<UUID> players) {
+        CompetitiveArena arena = new CompetitiveArena(prepared, players);
+        competitiveArenas.put(prepared.id(), arena);
+        arenaChunks.put(prepared.id(), prepared.held());
+        for (UUID player : players) competitiveArenaByPlayer.put(player, arena);
+        sweepArena(arena, false);
+    }
+
+    /** Same five-second mob/spill pass used by a private fight. */
+    void maintainCompetitiveArena(UUID arenaId) {
+        CompetitiveArena arena = competitiveArenas.get(arenaId);
+        if (arena != null) sweepArena(arena, false);
+    }
+
+    void discardCompetitiveArena(PreparedArena prepared) {
+        releaseArenaChunks(prepared.held());
+    }
+
+    void setCompetitiveArenaActive(UUID arenaId, boolean active) {
+        CompetitiveArena arena = competitiveArenas.get(arenaId);
+        if (arena != null) arena.active = active;
+    }
+
+    void releaseCompetitiveArena(UUID arenaId) {
+        CompetitiveArena arena = competitiveArenas.remove(arenaId);
+        if (arena == null) return;
+        for (UUID player : arena.players) competitiveArenaByPlayer.remove(player, arena);
+        for (UUID player : arena.players) returnPlacedBlocks(player);
+        arenaFullWarned.remove(arenaId);
+        sweepArena(arena, true);
+        if (!restoreArena(arenaId)) releaseArenaChunks(arenaId);
+    }
+
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         args = CommandArgs.withoutEchoedSender(sender.getName(), args);
@@ -660,31 +963,45 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         int incoming = incoming(player.getUniqueId()).size();
         String record = recordLine(player.getUniqueId());
         if (!clientSupport.supportsDialogs(player)) {
-            List<BedrockForms.Button> buttons = List.of(
-                    new BedrockForms.Button("Start a Fight", () -> openTargets(player)),
+            List<BedrockForms.Button> buttons = new ArrayList<>();
+            if (competition != null) {
+                buttons.add(new BedrockForms.Button("Find a Fight", () -> competition.openModes(player)));
+            }
+            buttons.addAll(List.of(
+                    new BedrockForms.Button("Private Fight", () -> openTargets(player)),
                     new BedrockForms.Button("Incoming (" + incoming + ")", () -> openIncoming(player)),
-                    new BedrockForms.Button("Watch Live Fights (" + fights.size() + ")", () -> openLive(player)),
-                    new BedrockForms.Button("Competitive Rankings", () -> openRankLeaderboard(player)),
+                    new BedrockForms.Button("Watch Private Fights (" + fights.size() + ")", () -> openLive(player)),
                     new BedrockForms.Button("How It Works", () -> openRules(player))
-            );
-            if (!forms.menu(player, "Private PvP", hubBody() + "\n" + record, buttons)) {
+            ));
+            if (competition != null) {
+                buttons.add(new BedrockForms.Button(
+                        "PvP Statistics", () -> competition.openStats(player)));
+            }
+            if (!forms.menu(player, "PvP", hubBody() + "\n" + record, buttons)) {
                 openChestHub(player);
             }
             return;
         }
-        List<ActionButton> buttons = List.of(
-                Screens.button("item/diamond_sword", "Start a Fight",
+        List<ActionButton> buttons = new ArrayList<>();
+        if (competition != null) {
+            buttons.add(Screens.button("item/netherite_sword", "Find a Fight",
+                    "Choose a queue.", competition::openModes));
+        }
+        buttons.addAll(List.of(
+                Screens.button("item/diamond_sword", "Private Fight",
                         "Choose a player.", this::openTargets),
                 Screens.button("item/writable_book", "Incoming (" + incoming + ")",
                         "View your challenges.", this::openIncoming),
-                Screens.button("item/spyglass", "Watch Live Fights (" + fights.size() + ")",
-                        "Watch a fight.", this::openLive),
-                Screens.button("item/nether_star", "Competitive Rankings",
-                        "See the automatic-queue ladder.", this::openRankLeaderboard),
+                Screens.button("item/spyglass", "Watch Private Fights (" + fights.size() + ")",
+                        "Watch an arranged fight.", this::openLive),
                 Screens.button("item/book", "How It Works",
                         "See the fight rules.", this::openRules)
-        );
-        Screens.show(player, "Private PvP", List.of(
+        ));
+        if (competition != null) {
+            buttons.add(Screens.button("item/nether_star", "PvP Statistics",
+                    "Ranks and records.", competition::openStats));
+        }
+        Screens.show(player, "PvP", List.of(
                 DialogBody.plainMessage(MenuText.body(hubBody()), 400),
                 DialogBody.plainMessage(Component.empty(), 400),
                 DialogBody.plainMessage(MenuText.muted(record), 400)
@@ -798,8 +1115,8 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private String hubBody() {
-        return "Challenge another player in a private unrated fight.\n"
-                + "KEEP INVENTORY is always on, and you return when it ends.";
+        return "Fight in untouched overworld terrain with the gear you earned.\n"
+                + "Choose matchmaking or arrange a private wager. KEEP INVENTORY is always on.";
     }
 
     /**
@@ -1557,6 +1874,13 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     private boolean separatedFromFights(World world, int x, int z, double distance) {
         for (Fight fight : fights.values()) {
             Location center = fight.arena.center();
+            if (center.getWorld() != null && center.getWorld().equals(world)
+                    && !PvpDuelRules.separated(x, z, center.getX(), center.getZ(), distance)) {
+                return false;
+            }
+        }
+        for (CompetitiveArena arena : competitiveArenas.values()) {
+            Location center = arena.prepared.arena().center();
             if (center.getWorld() != null && center.getWorld().equals(world)
                     && !PvpDuelRules.separated(x, z, center.getX(), center.getZ(), distance)) {
                 return false;
@@ -2689,14 +3013,23 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
 
     private void openChestHub(Player player) {
         DuelBoard holder = board(Board.HUB, null, 27, "PvP");
-        holder.inventory.setItem(HUB_RANKS, MenuItems.button(
-                Material.NETHER_STAR, "Competitive Rankings", "See the automatic-queue ladder."));
+        if (competition != null) {
+            holder.inventory.setItem(HUB_STATS, MenuItems.button(
+                    Material.NETHER_STAR, "PvP Statistics", "Ranks and records."));
+            holder.inventory.setItem(HUB_QUEUE, MenuItems.button(
+                    Material.NETHERITE_SWORD, "Find a Fight", "Choose a queue."));
+        } else {
+            holder.inventory.setItem(HUB_STATS, MenuItems.button(
+                    Material.NETHER_STAR, "Competitive Rankings", "See the ranked ladder."));
+        }
         holder.inventory.setItem(HUB_START, MenuItems.button(
-                Material.DIAMOND_SWORD, "Start a Fight", "Choose a player."));
+                Material.DIAMOND_SWORD, "Private Fight", "Choose a player."));
         holder.inventory.setItem(HUB_INCOMING, MenuItems.button(
                 Material.WRITABLE_BOOK, "Incoming", "Review your challenges."));
         holder.inventory.setItem(HUB_LIVE, MenuItems.button(
-                Material.SPYGLASS, "Watch Live Fights", "Watch from the viewing stand."));
+                Material.SPYGLASS, "Watch Private Fights", "Watch an arranged fight."));
+        holder.inventory.setItem(HUB_RULES, MenuItems.button(
+                Material.BOOK, "How It Works", "See the fight rules."));
         MenuItems.back(holder.inventory);
         MenuItems.show(plugin, player, holder.inventory);
     }
@@ -2945,10 +3278,15 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         }
         switch (holder.board) {
             case HUB -> {
-                if (slot == HUB_RANKS) runLater(player, this::openRankLeaderboard);
+                if (slot == HUB_QUEUE && competition != null) {
+                    runLater(player, competition::openModes);
+                }
+                if (slot == HUB_STATS) runLater(player, competition == null
+                        ? this::openRankLeaderboard : competition::openStats);
                 if (slot == HUB_START) runLater(player, this::openTargets);
                 if (slot == HUB_INCOMING) runLater(player, this::openIncoming);
                 if (slot == HUB_LIVE) runLater(player, this::openLive);
+                if (slot == HUB_RULES) runLater(player, this::openRules);
             }
             case TARGETS -> {
                 UUID id = holder.choices.get(slot);
@@ -3406,7 +3744,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
      */
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onBreak(BlockBreakEvent event) {
-        Fight fight = fighting.get(event.getPlayer().getUniqueId());
+        ArenaContext fight = playerArena(event.getPlayer().getUniqueId());
         if (fight == null) {
             // A spectator, or a passer-by who found somebody's ring. Neither one's
             // digging is recorded against the fight, so neither one may dig.
@@ -3416,7 +3754,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             }
             return;
         }
-        if (fight.phase != Phase.FIGHTING || !insideArena(fight, event.getBlock().getLocation())) {
+        if (!fight.arenaActive() || !insideArena(fight, event.getBlock().getLocation())) {
             event.setCancelled(true);
             return;
         }
@@ -3432,7 +3770,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onPlace(BlockPlaceEvent event) {
-        Fight fight = fighting.get(event.getPlayer().getUniqueId());
+        ArenaContext fight = playerArena(event.getPlayer().getUniqueId());
         if (fight == null) {
             if (isParticipant(event.getPlayer().getUniqueId())
                     || insideAnyArena(event.getBlockPlaced().getLocation())) {
@@ -3440,7 +3778,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             }
             return;
         }
-        if (fight.phase != Phase.FIGHTING
+        if (!fight.arenaActive()
                 || !insideArena(fight, event.getBlockPlaced().getLocation())) {
             event.setCancelled(true);
             return;
@@ -3484,7 +3822,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
      */
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onEntityChangeBlock(EntityChangeBlockEvent event) {
-        Fight fight = fightAt(event.getBlock().getLocation());
+        ArenaContext fight = fightAt(event.getBlock().getLocation());
         if (fight != null && !remember(fight, event.getBlock())) {
             event.setCancelled(true);
         }
@@ -3509,7 +3847,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
      */
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onFlow(BlockFromToEvent event) {
-        Fight into = fightAt(event.getToBlock().getLocation());
+        ArenaContext into = fightAt(event.getToBlock().getLocation());
         if (into != null) {
             if (!remember(into, event.getToBlock())) {
                 event.setCancelled(true);
@@ -3524,7 +3862,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onForm(BlockFormEvent event) {
-        Fight fight = fightAt(event.getBlock().getLocation());
+        ArenaContext fight = fightAt(event.getBlock().getLocation());
         if (fight != null && !remember(fight, event.getBlock())) {
             event.setCancelled(true);
         }
@@ -3532,7 +3870,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onSpread(BlockSpreadEvent event) {
-        Fight into = fightAt(event.getBlock().getLocation());
+        ArenaContext into = fightAt(event.getBlock().getLocation());
         if (into != null) {
             if (!remember(into, event.getBlock())) {
                 event.setCancelled(true);
@@ -3548,7 +3886,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onFade(BlockFadeEvent event) {
-        Fight fight = fightAt(event.getBlock().getLocation());
+        ArenaContext fight = fightAt(event.getBlock().getLocation());
         if (fight != null && !remember(fight, event.getBlock())) {
             event.setCancelled(true);
         }
@@ -3557,7 +3895,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     /** Fire eating a block is a block change like any other, and it is put back. */
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onBurn(BlockBurnEvent event) {
-        Fight fight = fightAt(event.getBlock().getLocation());
+        ArenaContext fight = fightAt(event.getBlock().getLocation());
         if (fight != null && !remember(fight, event.getBlock())) {
             event.setCancelled(true);
         }
@@ -3565,7 +3903,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onLeavesDecay(LeavesDecayEvent event) {
-        Fight fight = fightAt(event.getBlock().getLocation());
+        ArenaContext fight = fightAt(event.getBlock().getLocation());
         if (fight != null && !remember(fight, event.getBlock())) {
             event.setCancelled(true);
         }
@@ -3584,13 +3922,13 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
      */
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPhysics(BlockPhysicsEvent event) {
-        if (fights.isEmpty()) {
+        if (fights.isEmpty() && competitiveArenas.isEmpty()) {
             return;
         }
         if (!physicsCanChange(event.getBlock())) {
             return;
         }
-        Fight fight = fightAt(event.getBlock().getLocation());
+        ArenaContext fight = fightAt(event.getBlock().getLocation());
         if (fight != null && !remember(fight, event.getBlock())) {
             event.setCancelled(true);
         }
@@ -3639,15 +3977,15 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
      * half of leaving no trace: an undetonated end crystal or an abandoned minecart
      * standing in restored terrain is exactly the trace this promises not to leave.
      */
-    private void sweepArena(Fight fight, boolean teardown) {
-        Location center = fight.arena.center();
+    private void sweepArena(ArenaContext fight, boolean teardown) {
+        Location center = fight.arenaBounds().center();
         World world = center.getWorld();
         if (world == null) {
             return;
         }
         // The arena is a cylinder, so the box only needs its radius across, and a
         // generous but bounded height rather than the whole column.
-        double reach = fight.arena.diameter() / 2d + 4d;
+        double reach = fight.arenaBounds().diameter() / 2d + 4d;
         for (Entity entity : world.getNearbyEntities(center, reach, 160d, reach)) {
             if (!insideArena(fight, entity.getLocation())) {
                 continue;
@@ -3692,16 +4030,16 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 || entity instanceof org.bukkit.entity.ExperienceOrb;
     }
 
-    private boolean insideArena(Fight fight, Location location) {
-        Location center = fight.arena.center();
+    private boolean insideArena(ArenaContext fight, Location location) {
+        Location center = fight.arenaBounds().center();
         return center.getWorld() != null && center.getWorld().equals(location.getWorld())
                 && PvpDuelRules.inside(location.getX(), location.getZ(),
-                        center.getX(), center.getZ(), fight.arena.diameter());
+                        center.getX(), center.getZ(), fight.arenaBounds().diameter());
     }
 
     /** The live fight whose ring holds this block, or null. */
-    private Fight fightAt(Location location) {
-        if (fights.isEmpty() || location.getWorld() == null) {
+    private ArenaContext fightAt(Location location) {
+        if ((fights.isEmpty() && competitiveArenas.isEmpty()) || location.getWorld() == null) {
             return null;
         }
         for (Fight fight : fights.values()) {
@@ -3709,10 +4047,17 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 return fight;
             }
         }
+        for (CompetitiveArena arena : competitiveArenas.values()) {
+            if (insideArena(arena, location)) return arena;
+        }
         return null;
     }
 
-    /** Writes down what a position held, once, before anything changes it. */
+    private ArenaContext playerArena(UUID playerId) {
+        Fight duel = fighting.get(playerId);
+        return duel == null ? competitiveArenaByPlayer.get(playerId) : duel;
+    }
+
     /**
      * Writes down what a block was, and answers whether it may be changed.
      *
@@ -3724,17 +4069,17 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
      *
      * @return true when the block's original state is known and the change may stand
      */
-    private boolean remember(Fight fight, Block block) {
-        Location center = fight.arena.center();
+    private boolean remember(ArenaContext fight, Block block) {
+        Location center = fight.arenaBounds().center();
         if (center.getWorld() == null) {
             return false;
         }
         // Cheapest answer first. The same position is offered many times a second
         // once physics and fire are recording, and only the first state is kept.
-        if (arenaRestore.contains(fight.id, block.getX(), block.getY(), block.getZ())) {
+        if (arenaRestore.contains(fight.arenaId(), block.getX(), block.getY(), block.getZ())) {
             return true;
         }
-        if (arenaRestore.size(fight.id) >= maximumArenaEdits()) {
+        if (arenaRestore.size(fight.arenaId()) >= maximumArenaEdits()) {
             warnArenaFull(fight);
             return false;
         }
@@ -3743,7 +4088,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             contents = encodeItems(container.getInventory().getContents());
         }
         try {
-            arenaRestore.remember(fight.id, center.getWorld().getUID(),
+            arenaRestore.remember(fight.arenaId(), center.getWorld().getUID(),
                     center.getWorld().getName(), new ArenaRestoreStore.Snapshot(
                             block.getX(), block.getY(), block.getZ(),
                             block.getBlockData().getAsString(), contents));
@@ -3756,14 +4101,14 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     }
 
     /** Said once per fight: from here on the ring stops taking damage. */
-    private void warnArenaFull(Fight fight) {
-        if (!arenaFullWarned.add(fight.id)) {
+    private void warnArenaFull(ArenaContext fight) {
+        if (!arenaFullWarned.add(fight.arenaId())) {
             return;
         }
         plugin.getLogger().warning("A PvP arena reached its recorded-block limit of "
                 + maximumArenaEdits() + "; further terrain damage is being refused so"
                 + " the revert stays complete.");
-        for (UUID playerId : List.of(fight.first, fight.second)) {
+        for (UUID playerId : fight.arenaPlayers()) {
             Player player = Bukkit.getPlayer(playerId);
             if (player != null) {
                 info(player, "This arena has taken as much damage as can be undone."
@@ -3895,12 +4240,12 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
      * ring — a lava bucket emptied over the border is somebody else's world.
      */
     private boolean bucketAllowed(Player player, Block block) {
-        Fight fight = fighting.get(player.getUniqueId());
+        ArenaContext fight = playerArena(player.getUniqueId());
         if (fight == null) {
             return !isParticipant(player.getUniqueId())
                     && !insideAnyArena(block.getLocation());
         }
-        return fight.phase == Phase.FIGHTING
+        return fight.arenaActive()
                 && insideArena(fight, block.getLocation())
                 && remember(fight, block);
     }
@@ -3912,7 +4257,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             return;
         }
         Block clicked = event.getClickedBlock();
-        if (isFighter(event.getPlayer().getUniqueId()) && clicked != null
+        if (playerArena(event.getPlayer().getUniqueId()) != null && clicked != null
                 && refusedInFight(clicked)) {
             // Nearly everything is usable now — buttons, levers, flint and steel, a
             // respawn anchor being charged. The exceptions both outlive the fight: a
@@ -4005,11 +4350,11 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private boolean placingAllowed(Player player, Location at) {
-        Fight fight = fighting.get(player.getUniqueId());
+        ArenaContext fight = playerArena(player.getUniqueId());
         if (fight == null) {
             return !isParticipant(player.getUniqueId()) && !insideAnyArena(at);
         }
-        return fight.phase == Phase.FIGHTING && insideArena(fight, at);
+        return fight.arenaActive() && insideArena(fight, at);
     }
 
     /** Marks an entity as this fight's, for blame and for the tidy-up afterwards. */
@@ -4078,13 +4423,13 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
      * @return whether any of the blast landed in an arena at all
      */
     private boolean containExplosion(List<Block> blocks) {
-        if (fights.isEmpty()) {
+        if (fights.isEmpty() && competitiveArenas.isEmpty()) {
             return false;
         }
         boolean touchedArena = false;
         for (java.util.Iterator<Block> blast = blocks.iterator(); blast.hasNext(); ) {
             Block block = blast.next();
-            Fight fight = fightAt(block.getLocation());
+            ArenaContext fight = fightAt(block.getLocation());
             if (fight == null) {
                 // Either ordinary world, which is none of this feature's business,
                 // or the far side of a border a blast must not cross.
@@ -4106,7 +4451,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
      */
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onIgnite(BlockIgniteEvent event) {
-        Fight fight = fightAt(event.getBlock().getLocation());
+        ArenaContext fight = fightAt(event.getBlock().getLocation());
         if (fight != null) {
             if (!remember(fight, event.getBlock())) {
                 event.setCancelled(true);
@@ -4171,6 +4516,10 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         resultViewers.clear();
         arenaFullWarned.clear();
         farmGuard.clear();
+        for (UUID arenaId : List.copyOf(competitiveArenas.keySet())) {
+            releaseCompetitiveArena(arenaId);
+        }
+        competitiveArenaByPlayer.clear();
         releaseAllArenaChunks();
         starting.clear();
     }
@@ -4479,6 +4828,9 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 return true;
             }
         }
+        for (CompetitiveArena arena : competitiveArenas.values()) {
+            if (insideArena(arena, location)) return true;
+        }
         return false;
     }
 
@@ -4527,7 +4879,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 .findFirst().orElse(null);
     }
 
-    private static Player attackingPlayer(EntityDamageByEntityEvent event) {
+    static Player attackingPlayer(EntityDamageByEntityEvent event) {
         Entity source = event.getDamager();
         if (source instanceof Projectile projectile && projectile.getShooter() instanceof Entity shooter) {
             source = shooter;
@@ -4555,7 +4907,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
      * duel would be an anonymous explosion, and anonymous damage to a fighter is
      * cancelled, which is to say crystal PvP would silently not work.
      */
-    private static UUID fightingSource(EntityDamageByEntityEvent event) {
+    static UUID fightingSource(EntityDamageByEntityEvent event) {
         Entity source = event.getDamager();
         if (source instanceof Projectile projectile && projectile.getShooter() instanceof Entity shooter) {
             source = shooter;

@@ -1190,12 +1190,21 @@ final class GameVariableStore {
         integer("pvp-competitive.repeat-opponent-rest-seconds", "Competitive pairing rest",
                 "PvP Competitive", "Seconds a repeatedly matched pair is kept apart.",
                 900, 0, 86_400, "seconds", false);
-        integer("pvp-competitive.kit-golden-apples", "Competitive golden apples",
-                "PvP Competitive", "Ordinary golden apples in each standardized loadout.",
-                2, 0, 16, "items", false);
-        integer("pvp-competitive.kit-arrows", "Competitive arrows", "PvP Competitive",
-                "Arrows in each standardized loadout.",
-                16, 0, 64, "items", false);
+        integer("pvp-competitive.duel-arena-diameter", "1v1 arena border",
+                "PvP Competitive", "Width of the untouched overworld ring used by queued 1v1s.",
+                160, 64, 600, "blocks", false);
+        integer("pvp-competitive.2v2-arena-diameter", "2v2 arena border",
+                "PvP Competitive", "Width of the untouched overworld ring used by 2v2s.",
+                208, 64, 600, "blocks", false);
+        integer("pvp-competitive.3v3-arena-diameter", "3v3 arena border",
+                "PvP Competitive", "Width of the larger untouched overworld ring used by 3v3s.",
+                240, 64, 600, "blocks", false);
+        integer("pvp-competitive.clan-arena-diameter", "Clan battle arena border",
+                "PvP Competitive", "Width of the larger untouched overworld clan battle ring.",
+                256, 64, 600, "blocks", false);
+        integer("pvp-competitive.ffa-arena-diameter", "FFA arena border",
+                "PvP Competitive", "Starting width of the largest untouched overworld FFA ring.",
+                288, 64, 600, "blocks", false);
         integer("pvp-competitive.maximum-spectators", "Competitive spectator capacity",
                 "PvP Competitive", "Most outside spectators allowed in one arena.",
                 16, 0, 64, "players", false);
