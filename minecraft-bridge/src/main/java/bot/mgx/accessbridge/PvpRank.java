@@ -15,41 +15,46 @@ import java.util.Locale;
  * you reach the top, which makes the number at the top mean nothing.
  */
 enum PvpRank {
-    BRONZE_I("Bronze", "I", 0),
-    BRONZE_II("Bronze", "II", 100),
-    BRONZE_III("Bronze", "III", 200),
-    SILVER_I("Silver", "I", 300),
-    SILVER_II("Silver", "II", 400),
-    SILVER_III("Silver", "III", 500),
-    GOLD_I("Gold", "I", 600),
-    GOLD_II("Gold", "II", 700),
-    GOLD_III("Gold", "III", 800),
-    PLATINUM_I("Platinum", "I", 900),
-    PLATINUM_II("Platinum", "II", 1_000),
-    PLATINUM_III("Platinum", "III", 1_100),
-    DIAMOND_I("Diamond", "I", 1_200),
-    DIAMOND_II("Diamond", "II", 1_300),
-    DIAMOND_III("Diamond", "III", 1_400),
-    ELITE("Elite", "", 1_500),
-    CHAMPION("Champion", "", 1_650),
-    UNREAL("Unreal", "", 1_800);
+    BRONZE_I("Bronze", "I", 0d),
+    BRONZE_II("Bronze", "II", 1d),
+    BRONZE_III("Bronze", "III", 2d),
+    SILVER_I("Silver", "I", 3d),
+    SILVER_II("Silver", "II", 4d),
+    SILVER_III("Silver", "III", 5d),
+    GOLD_I("Gold", "I", 6d),
+    GOLD_II("Gold", "II", 7d),
+    GOLD_III("Gold", "III", 8d),
+    PLATINUM_I("Platinum", "I", 9d),
+    PLATINUM_II("Platinum", "II", 10d),
+    PLATINUM_III("Platinum", "III", 11d),
+    DIAMOND_I("Diamond", "I", 12d),
+    DIAMOND_II("Diamond", "II", 13d),
+    DIAMOND_III("Diamond", "III", 14d),
+    ELITE("Elite", "", 15d),
+    CHAMPION("Champion", "", 16.5d),
+    UNREAL("Unreal", "", 18d);
 
     /**
      * How hard one result can move a rating.
      *
-     * <p>40 puts a win over an equal at +20, so a division is about five of them and
-     * the whole ladder is a season's work rather than an evening's.
+     * <p>The default win factor pays 28 for an even win while the lower loss factor
+     * costs 16 for an even loss. With 75-point divisions, an active player sees
+     * progress quickly without making the upper ladder automatic.
      */
-    static final int K_FACTOR = 40;
+    static final int K_FACTOR = 56;
+    static final int LOSS_K_FACTOR = 32;
+    static final int DIVISION_SIZE = 75;
+
+    private static volatile java.util.function.ToDoubleFunction<String> tuning = key -> Double.NaN;
 
     private final String tier;
     private final String division;
-    private final long floor;
+    private final double floorSteps;
 
-    PvpRank(String tier, String division, long floor) {
+    PvpRank(String tier, String division, double floorSteps) {
         this.tier = tier;
         this.division = division;
-        this.floor = floor;
+        this.floorSteps = floorSteps;
     }
 
     String tier() {
@@ -57,7 +62,7 @@ enum PvpRank {
     }
 
     long floor() {
-        return floor;
+        return Math.round(floorSteps * tuned("pvp-ranked.division-size", DIVISION_SIZE));
     }
 
     /** {@code Gold II}, or just {@code Unreal} where a tier has no divisions. */
@@ -73,7 +78,7 @@ enum PvpRank {
     static PvpRank of(long rating) {
         PvpRank found = BRONZE_I;
         for (PvpRank rank : values()) {
-            if (rating >= rank.floor) {
+            if (rating >= rank.floor()) {
                 found = rank;
             }
         }
@@ -90,16 +95,16 @@ enum PvpRank {
     long tierFloor() {
         PvpRank lowest = this;
         for (PvpRank rank : values()) {
-            if (rank.tier.equals(tier) && rank.floor < lowest.floor) {
+            if (rank.tier.equals(tier) && rank.floor() < lowest.floor()) {
                 lowest = rank;
             }
         }
-        return lowest.floor;
+        return lowest.floor();
     }
 
     /** The rating at which the next division begins, or this one's floor at the top. */
     long nextFloor() {
-        return this == UNREAL ? floor : values()[ordinal() + 1].floor;
+        return this == UNREAL ? floor() : values()[ordinal() + 1].floor();
     }
 
     /** How far through the current division a rating sits, 0 to 1. */
@@ -107,6 +112,7 @@ enum PvpRank {
         if (this == UNREAL) {
             return 1d;
         }
+        long floor = floor();
         long span = nextFloor() - floor;
         return span <= 0L ? 1d
                 : Math.max(0d, Math.min(1d, (double) (rating - floor) / span));
@@ -119,7 +125,10 @@ enum PvpRank {
      */
     static int change(long rating, long opponentRating, double score) {
         double expected = 1d / (1d + Math.pow(10d, (opponentRating - rating) / 400d));
-        long change = Math.round(K_FACTOR * (score - expected));
+        int factor = score < 0.5d
+                ? tuned("pvp-ranked.loss-k-factor", LOSS_K_FACTOR)
+                : tuned("pvp-ranked.win-k-factor", K_FACTOR);
+        long change = Math.round(factor * (score - expected));
         // A win always pays and a loss always costs, however lopsided the pairing —
         // otherwise beating somebody far below you is free, and so is losing to
         // somebody far above.
@@ -149,5 +158,14 @@ enum PvpRank {
 
     String key() {
         return name().toLowerCase(Locale.ROOT);
+    }
+
+    static void tuningSource(java.util.function.ToDoubleFunction<String> source) {
+        tuning = source == null ? key -> Double.NaN : source;
+    }
+
+    private static int tuned(String key, int fallback) {
+        double value = tuning.applyAsDouble(key);
+        return Double.isFinite(value) ? Math.max(1, (int) Math.round(value)) : fallback;
     }
 }

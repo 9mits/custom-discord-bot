@@ -25,7 +25,8 @@ final class PvpDuelStoreTest {
                 duel, PvpDuelStore.Role.FIGHTER, world, "world",
                 12.5d, 70d, -40.5d, 90f, 4f, "SURVIVAL",
                 false, false, false, 13d, 17, 2.5f, 0.4f,
-                20, 1.5f, 280, 4, 7_500L, "wager-items", ""
+                20, 1.5f, 280, 4, 7_500L, "wager-items", "",
+                "effects", 12, 0.4f, 350, true, false, true
         );
         PvpDuelStore first = new PvpDuelStore(file);
         first.putAll(Map.of(player, recovery));
@@ -65,7 +66,7 @@ final class PvpDuelStoreTest {
                 duel, role, world, "world", 0d, 64d, 0d, 0f, 0f,
                 "SURVIVAL", false, false, false, 20d, 20, 5f, 0f,
                 0, 0f, 300, 0, 100L, "", role == PvpDuelStore.Role.SPECTATOR
-                ? "inventory" : ""
+                ? "inventory" : "", "", 0, 0f, 0, true, false, true
         );
     }
 }

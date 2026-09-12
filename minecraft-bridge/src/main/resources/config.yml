@@ -116,8 +116,10 @@ rtp:
   maximum-radius: 25000
   attempts: 24
 
-# /pvp fights use untouched real Overworld terrain and return everyone afterwards.
-# Cash is per player; either fighter may also wager items and wardrobe cosmetics.
+# Private /pvp challenges use untouched real Overworld terrain and return everyone
+# afterwards. Competitive queues, kits, ratings, rewards, and arena timing live in
+# the live GameVariableStore instead of this restart-bound file.
+# Cash is per player; either private fighter may wager items and wardrobe cosmetics.
 pvp-duels:
   enabled: true
   invite-seconds: 120

@@ -1146,15 +1146,98 @@ final class GameVariableStore {
                 config.getLong("pvp-duels.maximum-spectators", 8),
                 0, 64, "players", false);
 
+        bool("pvp-competitive.enabled", "Competitive PvP enabled", "PvP Competitive",
+                "Whether the lobby queues and arena matches may start.", true);
+        integer("pvp-competitive.countdown-seconds", "Match countdown", "PvP Competitive",
+                "Seconds players are frozen in their arena before combat begins.",
+                5, 1, 30, "seconds", false);
+        integer("pvp-competitive.match-minutes", "Match time limit", "PvP Competitive",
+                "Minutes before a surviving competitive match is recorded as a draw.",
+                8, 1, 20, "minutes", false);
+        integer("pvp-competitive.return-seconds", "Results time", "PvP Competitive",
+                "Seconds results remain visible before players return to the PvP lobby.",
+                8, 0, 30, "seconds", false);
+        integer("pvp-competitive.matchmaking-base-range", "Initial rating range",
+                "PvP Competitive", "Rating difference accepted when a ranked queue begins.",
+                150, 0, 2_000, "rating", false);
+        integer("pvp-competitive.matchmaking-widen-per-second", "Rating range widening",
+                "PvP Competitive", "Rating points added to the acceptable range per second waited.",
+                4, 0, 100, "rating/second", false);
+        integer("pvp-competitive.matchmaking-maximum-range", "Maximum rating range",
+                "PvP Competitive", "Largest rating difference accepted by ranked matchmaking.",
+                600, 0, 10_000, "rating", false);
+        integer("pvp-competitive.ffa-minimum-players", "FFA minimum players",
+                "PvP Competitive", "Fewest players that can start Last Player Standing.",
+                3, 2, PvpMode.FFA.maximumPlayers(), "players", false);
+        integer("pvp-competitive.ffa-start-wait-seconds", "FFA queue wait",
+                "PvP Competitive", "Wait after the minimum joins before an FFA starts early.",
+                60, 5, 600, "seconds", false);
+        integer("pvp-competitive.afk-seconds", "Competitive AFK limit", "PvP Competitive",
+                "Seconds without moving or fighting before an active player is eliminated.",
+                75, 20, 600, "seconds", false);
+        integer("pvp-competitive.minimum-reward-seconds", "Minimum rewarded match",
+                "PvP Competitive", "Combat time required before participation money is paid.",
+                45, 0, 600, "seconds", false);
+        integer("pvp-competitive.participation-reward", "Participation reward",
+                "PvP Competitive", "Money paid to an eligible match participant.",
+                50, 0, 100_000, "dollars", false);
+        integer("pvp-competitive.win-reward", "Winner reward", "PvP Competitive",
+                "Additional money paid to each eligible winner.",
+                150, 0, 100_000, "dollars", false);
+        integer("pvp-competitive.repeat-opponent-limit", "Competitive repeat limit",
+                "PvP Competitive", "Consecutive matches before the same pairing must rest.",
+                3, 0, 20, "matches", false);
+        integer("pvp-competitive.repeat-opponent-rest-seconds", "Competitive pairing rest",
+                "PvP Competitive", "Seconds a repeatedly matched pair is kept apart.",
+                900, 0, 86_400, "seconds", false);
+        integer("pvp-competitive.kit-golden-apples", "Competitive golden apples",
+                "PvP Competitive", "Ordinary golden apples in each standardized loadout.",
+                2, 0, 16, "items", false);
+        integer("pvp-competitive.kit-arrows", "Competitive arrows", "PvP Competitive",
+                "Arrows in each standardized loadout.",
+                16, 0, 64, "items", false);
+        integer("pvp-competitive.maximum-spectators", "Competitive spectator capacity",
+                "PvP Competitive", "Most outside spectators allowed in one arena.",
+                16, 0, 64, "players", false);
+        integer("pvp-competitive.ffa-shrink-delay-seconds", "FFA first shrink",
+                "PvP Competitive", "Seconds of combat before the FFA border starts shrinking.",
+                60, 10, 600, "seconds", false);
+        integer("pvp-competitive.ffa-shrink-interval-seconds", "FFA shrink interval",
+                "PvP Competitive", "Seconds between FFA border reductions.",
+                30, 5, 300, "seconds", false);
+        decimal("pvp-competitive.ffa-shrink-blocks", "FFA shrink amount",
+                "PvP Competitive", "Blocks removed from the personal border each reduction.",
+                10.0, 1.0, 100.0, "blocks");
+        decimal("pvp-competitive.ffa-minimum-border", "FFA final border",
+                "PvP Competitive", "Smallest FFA border width.",
+                18.0, 8.0, 100.0, "blocks");
+
+        integer("pvp-ranked.division-size", "PvP division size", "PvP Ranking",
+                "Rating points between ordinary PvP rank divisions.",
+                PvpRank.DIVISION_SIZE, 25, 250, "rating", false);
+        integer("pvp-ranked.win-k-factor", "PvP win factor", "PvP Ranking",
+                "Maximum Elo factor used for ranked wins.",
+                PvpRank.K_FACTOR, 8, 100, "rating", false);
+        integer("pvp-ranked.loss-k-factor", "PvP loss factor", "PvP Ranking",
+                "Maximum Elo factor used for ranked losses.",
+                PvpRank.LOSS_K_FACTOR, 4, 100, "rating", false);
+
+        decimal("pvp-combat.armored-max-final-damage", "Armored PvP hit cap",
+                "PvP Balance", "Most final damage one direct PvP hit deals to an armored player.",
+                3.0, 0.5, 20.0, "damage");
+        decimal("pvp-combat.armor-threshold", "PvP hit-cap armor threshold",
+                "PvP Balance", "Armor points required before the armored PvP damage cap applies.",
+                16.0, 0.0, 30.0, "armor");
+
         decimal("pvp-rank-rewards.first-bonus-damage", "#1 Scythe bonus damage",
                 "PvP Rank Rewards", "Damage added beyond a Sharpness V Netherite Sword.",
-                1.5, 0.0, 10.0, "damage");
+                0.35, 0.0, 3.0, "damage");
         decimal("pvp-rank-rewards.second-bonus-damage", "#2 Scythe bonus damage",
                 "PvP Rank Rewards", "Damage added beyond a Sharpness V Netherite Sword.",
-                1.0, 0.0, 10.0, "damage");
+                0.20, 0.0, 3.0, "damage");
         decimal("pvp-rank-rewards.third-bonus-damage", "#3 Scythe bonus damage",
                 "PvP Rank Rewards", "Damage added beyond a Sharpness V Netherite Sword.",
-                0.5, 0.0, 10.0, "damage");
+                0.10, 0.0, 3.0, "damage");
         decimal("pvp-rank-rewards.sweep-radius", "Scythe sweep radius",
                 "PvP Rank Rewards", "Visual radius of the two-layer leaderboard Scythe swing.",
                 3.75, 0.5, 12.0, "blocks");
@@ -2732,6 +2815,25 @@ final class GameVariableStore {
                         && number.longValue() == 1_789_192_800L) {
                     value = 1_789_225_200L;
                     migrated = true;
+                }
+                // These were the shipped Scythe bonuses before competitive PvP was
+                // rebalanced around final damage. Move only those exact old defaults;
+                // an owner-custom value remains an intentional override.
+                if (value instanceof Number number) {
+                    double old = number.doubleValue();
+                    if (canonical.equals("pvp-rank-rewards.first-bonus-damage")
+                            && Double.compare(old, 1.5d) == 0) {
+                        value = 0.35d;
+                        migrated = true;
+                    } else if (canonical.equals("pvp-rank-rewards.second-bonus-damage")
+                            && Double.compare(old, 1.0d) == 0) {
+                        value = 0.20d;
+                        migrated = true;
+                    } else if (canonical.equals("pvp-rank-rewards.third-bonus-damage")
+                            && Double.compare(old, 0.5d) == 0) {
+                        value = 0.10d;
+                        migrated = true;
+                    }
                 }
                 parse(definition, String.valueOf(value));
                 if (canonical.equals(entry.getKey())) {

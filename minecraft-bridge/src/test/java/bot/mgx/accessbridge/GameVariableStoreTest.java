@@ -220,6 +220,20 @@ final class GameVariableStoreTest {
     }
 
     @Test
+    void shippedScytheBonusesMigrateButCustomBalanceSurvives() throws Exception {
+        Path file = temporary.resolve("game-variables.json");
+        Files.writeString(file, "{\"pvp-rank-rewards.first-bonus-damage\":1.5,"
+                + "\"pvp-rank-rewards.second-bonus-damage\":0.42,"
+                + "\"pvp-rank-rewards.third-bonus-damage\":0.5}");
+
+        GameVariableStore variables = store();
+
+        assertEquals(0.35d, variables.decimal("pvp-rank-rewards.first-bonus-damage"));
+        assertEquals(0.42d, variables.decimal("pvp-rank-rewards.second-bonus-damage"));
+        assertEquals(0.10d, variables.decimal("pvp-rank-rewards.third-bonus-damage"));
+    }
+
+    @Test
     void incorrectAmethystDeadlineMigratesToSundayMidnightJst() throws Exception {
         Path file = temporary.resolve("game-variables.json");
         Files.writeString(file, "{\"amethyst-events.ends-at\":1789192800}");

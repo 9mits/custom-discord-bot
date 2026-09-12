@@ -22,7 +22,7 @@ final class PvpRankLeaderboard {
     ) {
         List<Row> ranked = new ArrayList<>();
         records.forEach((playerId, record) -> {
-            if (record == null || record.isEmpty()) {
+            if (record == null || record.isEmpty() || record.rankedMatches() == 0L) {
                 return;
             }
             String resolved = names.apply(playerId);
@@ -34,9 +34,9 @@ final class PvpRankLeaderboard {
         ranked.sort(Comparator
                 .comparingLong((Row row) -> row.record().rating()).reversed()
                 .thenComparing(Comparator.comparingLong(
-                        (Row row) -> row.record().wins()).reversed())
+                        (Row row) -> row.record().rankedWins()).reversed())
                 .thenComparing(Comparator.comparingLong(
-                        (Row row) -> row.record().kills()).reversed())
+                        (Row row) -> row.record().rankedKills()).reversed())
                 .thenComparing(Row::username, String.CASE_INSENSITIVE_ORDER)
                 .thenComparing(row -> row.playerId().toString()));
         int shown = Math.min(Math.max(0, limit), ranked.size());

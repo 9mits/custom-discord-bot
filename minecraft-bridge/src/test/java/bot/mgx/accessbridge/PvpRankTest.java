@@ -11,10 +11,10 @@ final class PvpRankTest {
     @Test
     void everyRatingLandsOnExactlyOneRank() {
         assertSame(PvpRank.BRONZE_I, PvpRank.of(0));
-        assertSame(PvpRank.BRONZE_I, PvpRank.of(99));
-        assertSame(PvpRank.BRONZE_II, PvpRank.of(100));
-        assertSame(PvpRank.GOLD_I, PvpRank.of(600));
-        assertSame(PvpRank.UNREAL, PvpRank.of(1_800));
+        assertSame(PvpRank.BRONZE_I, PvpRank.of(74));
+        assertSame(PvpRank.BRONZE_II, PvpRank.of(75));
+        assertSame(PvpRank.GOLD_I, PvpRank.of(450));
+        assertSame(PvpRank.UNREAL, PvpRank.of(1_350));
         assertSame(PvpRank.UNREAL, PvpRank.of(9_999));
         // Nothing sits below the bottom of the ladder.
         assertSame(PvpRank.BRONZE_I, PvpRank.of(-500));
@@ -80,9 +80,9 @@ final class PvpRankTest {
 
     @Test
     void progressReadsAcrossADivisionAndPinsAtTheTop() {
-        assertEquals(0d, PvpRank.GOLD_I.progress(600));
-        assertEquals(0.5d, PvpRank.GOLD_I.progress(650));
-        assertEquals(1d, PvpRank.UNREAL.progress(1_800));
+        assertEquals(0d, PvpRank.GOLD_I.progress(450));
+        assertEquals(0.5d, PvpRank.GOLD_I.progress(488), 0.01d);
+        assertEquals(1d, PvpRank.UNREAL.progress(1_350));
         assertEquals(1d, PvpRank.UNREAL.progress(50_000));
     }
 

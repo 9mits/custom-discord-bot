@@ -97,7 +97,6 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -395,6 +394,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     /** Chunk tickets held open for each live arena, released when it is put back. */
     private final Map<UUID, List<Chunk>> arenaChunks = new HashMap<>();
     private final PvpFarmGuard farmGuard = new PvpFarmGuard();
+    private PvpCompetitionService competition;
     /** Arenas already told they have taken as much damage as can be undone. */
     private final Set<UUID> arenaFullWarned = new HashSet<>();
     /** When the restore file was last written, so a big arena does not thrash it. */
@@ -556,6 +556,10 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         this.statsDialogs = statsDialogs;
     }
 
+    void useCompetition(PvpCompetitionService competition) {
+        this.competition = competition;
+    }
+
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         args = CommandArgs.withoutEchoedSender(sender.getName(), args);
@@ -583,11 +587,15 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             }
             return true;
         }
+        if (competition != null && competition.handleCommand(player, args)) {
+            return true;
+        }
         if (args.length == 0) {
             openHub(player);
             return true;
         }
         switch (args[0].toLowerCase(Locale.ROOT)) {
+            case "private" -> openHub(player);
             case "accept" -> acceptByName(player, args.length >= 2 ? args[1] : "");
             case "decline", "deny" -> declineByName(player, args.length >= 2 ? args[1] : "");
             case "spectate", "watch" -> {
@@ -626,9 +634,15 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     ) {
         if (args.length == 1) {
             String prefix = args[0].toLowerCase(Locale.ROOT);
-            return List.of("challenge", "accept", "decline", "spectate", "leave",
-                            "forfeit", "giveup")
-                    .stream().filter(option -> option.startsWith(prefix)).toList();
+            Set<String> options = new java.util.TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+            options.addAll(List.of("challenge", "accept", "decline", "spectate", "leave",
+                    "forfeit", "giveup", "private"));
+            if (competition != null) options.addAll(competition.tabComplete(sender, args));
+            return options.stream().filter(option -> option.startsWith(prefix)).toList();
+        }
+        if (competition != null) {
+            List<String> competitive = competition.tabComplete(sender, args);
+            if (!competitive.isEmpty()) return competitive;
         }
         if (args.length == 2 && List.of("challenge", "accept", "decline", "spectate")
                 .contains(args[0].toLowerCase(Locale.ROOT))) {
@@ -650,12 +664,10 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                     new BedrockForms.Button("Start a Fight", () -> openTargets(player)),
                     new BedrockForms.Button("Incoming (" + incoming + ")", () -> openIncoming(player)),
                     new BedrockForms.Button("Watch Live Fights (" + fights.size() + ")", () -> openLive(player)),
-                    new BedrockForms.Button("Rank Leaderboard", () -> openRankLeaderboard(player)),
+                    new BedrockForms.Button("Competitive Rankings", () -> openRankLeaderboard(player)),
                     new BedrockForms.Button("How It Works", () -> openRules(player))
             );
-            if (!forms.menu(player, "PvP", hubBody() + "\n"
-                    + rankProgress(duelRecords.of(player.getUniqueId()))
-                    + "\n" + record, buttons)) {
+            if (!forms.menu(player, "Private PvP", hubBody() + "\n" + record, buttons)) {
                 openChestHub(player);
             }
             return;
@@ -667,18 +679,14 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                         "View your challenges.", this::openIncoming),
                 Screens.button("item/spyglass", "Watch Live Fights (" + fights.size() + ")",
                         "Watch a fight.", this::openLive),
-                Screens.button("item/nether_star", "Rank Leaderboard",
-                        "See the highest PvP ranks.", this::openRankLeaderboard),
+                Screens.button("item/nether_star", "Competitive Rankings",
+                        "See the automatic-queue ladder.", this::openRankLeaderboard),
                 Screens.button("item/book", "How It Works",
                         "See the fight rules.", this::openRules)
         );
-        PvpRecordStore.Record standing = duelRecords.of(player.getUniqueId());
-        Screens.show(player, "PvP", List.of(
+        Screens.show(player, "Private PvP", List.of(
                 DialogBody.plainMessage(MenuText.body(hubBody()), 400),
                 DialogBody.plainMessage(Component.empty(), 400),
-                DialogBody.plainMessage(MenuText.stat("Rank",
-                        BadgeIcons.glyph(standing.rank().glyph()),
-                        rankProgress(standing)), 400),
                 DialogBody.plainMessage(MenuText.muted(record), 400)
         ), buttons, 1, null);
     }
@@ -695,7 +703,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                     .toList();
             if (!forms.menu(player, "PvP Rank Leaderboard",
                     rows.isEmpty()
-                            ? "No ranked fights yet."
+                            ? "No ranked matches yet."
                             : "Tap a player to view their stats.",
                     buttons, this::openHub)) {
                 openChestRanks(player, rows);
@@ -705,7 +713,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         List<DialogBody> body = new ArrayList<>();
         if (rows.isEmpty()) {
             body.add(DialogBody.plainMessage(
-                    MenuText.body("No ranked fights yet. Start a fight to enter the board."), 500));
+                    MenuText.body("No ranked matches yet. Join an automatic ranked queue to enter."), 500));
         }
         for (PvpRankLeaderboard.Row row : rows) {
             PvpRecordStore.Record record = row.record();
@@ -746,10 +754,10 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private static String rankStats(PvpRecordStore.Record record) {
-        return record.wins() + "W  " + record.losses() + "L"
-                + (record.draws() > 0 ? "  " + record.draws() + "D" : "")
-                + "  ·  " + record.kills() + " kills"
-                + "  ·  " + Math.round(record.winRate() * 100d) + "% won";
+        return record.rankedWins() + "W  " + record.rankedLosses() + "L"
+                + (record.rankedDraws() > 0 ? "  " + record.rankedDraws() + "D" : "")
+                + "  ·  " + record.rankedKills() + " kills"
+                + "  ·  " + Math.round(record.rankedWinRate() * 100d) + "% won";
     }
 
     /**
@@ -790,7 +798,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private String hubBody() {
-        return "Challenge another player in a private ranked fight.\n"
+        return "Challenge another player in a private unrated fight.\n"
                 + "KEEP INVENTORY is always on, and you return when it ends.";
     }
 
@@ -822,7 +830,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 new String[] {"item/clock_00", "The Clock",
                         durationMinutes() + " minutes, then it is a draw."},
                 new String[] {"item/golden_apple", "Winning",
-                        "Wins raise your PvP rating and award a trophy head."},
+                        "Private wins update your record. Rating changes only in competitive queues."},
                 new String[] {"item/barrier", "Giving Up",
                         "/pvp, or logging out. Your opponent wins."},
                 new String[] {"item/spyglass", "Spectators",
@@ -830,7 +838,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 new String[] {"item/gold_ingot", "Optional Wager",
                         "Leave it empty to fight for free, or add money, items, or cosmetics."},
                 new String[] {"item/name_tag", "Fair Fights",
-                        "Anti-farming checks protect the ranked ladder."}
+                        "Anti-farming checks protect records, wagers and rematches."}
         );
         if (!clientSupport.supportsDialogs(player)) {
             StringBuilder text = new StringBuilder();
@@ -871,8 +879,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         List<ActionButton> buttons = new ArrayList<>();
         for (Player target : targets) {
             buttons.add(Screens.playerButton(target.getUniqueId(), target.getName(),
-                    duelRecords.of(target.getUniqueId()).rank().display() + "  •  "
-                            + recordLine(target.getUniqueId(), "No fights yet."), viewer -> {
+                    recordLine(target.getUniqueId(), "No private fights yet."), viewer -> {
                         Player current = Bukkit.getPlayer(target.getUniqueId());
                         if (current == null) {
                             error(viewer, "They went offline.");
@@ -926,7 +933,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         }
         List<ActionButton> buttons = List.of(
                 Screens.button("item/diamond_sword", "Send Challenge",
-                        "Start a ranked fight. No wager is required.",
+                        "Start an unrated private fight. No wager is required.",
                         viewer -> reopenSetup(viewer, targetId,
                                 sendChallenge(viewer, targetId, draft))),
                 Screens.button("item/gold_ingot", "Optional Wager",
@@ -938,9 +945,8 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private String setupBody(DuelDraft draft, String problem) {
-        PvpRecordStore.Record theirs = duelRecords.of(draft.subject);
         return (problem == null ? "" : problem + "\n")
-                + "They are " + theirs.rank().display() + " on " + theirs.rating() + " RP."
+                + "Their record: " + recordLine(draft.subject, "No private fights yet.")
                 + "\nKEEP INVENTORY is always on."
                 + (hasWager(draft)
                         ? "\nOptional wager: " + stakeSummary(
@@ -1159,7 +1165,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                     name(invitation.challenger()),
                     wager ? "Optional wager: " + stakeSummary(
                             invitation.moneyEach(), invitation.challengerItems().size(),
-                            invitation.challengerCosmetics().size()) : "Ranked fight",
+                            invitation.challengerCosmetics().size()) : "Private unrated fight",
                     viewer -> openInvitation(viewer, invitation)));
         }
         Screens.show(player, "Challenges", Screens.body(incoming.isEmpty()
@@ -1268,11 +1274,11 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private String acceptBody(Invitation invitation, DuelDraft draft) {
-        PvpRecordStore.Record theirs = duelRecords.of(invitation.challenger());
-        String heading = theirs.rank().display() + " on " + theirs.rating() + " RP.";
+        String heading = "Their record: "
+                + recordLine(invitation.challenger(), "No private fights yet.");
         if (invitation.moneyEach() <= 0L && invitation.challengerItems().isEmpty()
                 && invitation.challengerCosmetics().isEmpty() && !hasWager(draft)) {
-            return heading + "\nNo wager was added. This is a normal ranked fight.";
+            return heading + "\nNo wager was added. This is an unrated private fight.";
         }
         return heading + "\nOptional wager:"
                 + "\nThey add " + stakeSummary(
@@ -1928,9 +1934,8 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         } else if (winner != null) {
             returnStake(winner, fight.states.get(fight.first));
             returnStake(winner, fight.states.get(fight.second));
-            // Deliberately no trophy head. A duel is meant to cost the loser nothing
-            // but rating and whatever bounty was on them, and a head is a thing they
-            // watched somebody walk away with.
+            // Deliberately no trophy head. A private duel costs the loser only the
+            // optional wager they accepted; permanent rating belongs to fair queues.
             receivedPhysicalCustody.add(fight.first);
             receivedPhysicalCustody.add(fight.second);
             winner.saveData();
@@ -2185,10 +2190,13 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             Fight fight, UUID winnerId, Ending ending
     ) {
         try {
-            return winnerId == null
-                    ? duelRecords.drew(fight.first, fight.second)
-                    : duelRecords.settle(winnerId, fight.opponent(winnerId),
-                            ending == Ending.KILL);
+            if (winnerId == null) {
+                duelRecords.drewCasual(fight.first, fight.second);
+            } else {
+                duelRecords.settleCasual(winnerId, fight.opponent(winnerId),
+                        ending == Ending.KILL);
+            }
+            return Map.of();
         } catch (RuntimeException failure) {
             plugin.getLogger().warning(
                     "Could not save a PvP record: " + failure.getMessage());
@@ -2600,7 +2608,8 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             error(player, "Close screenshot mode before watching a fight.");
             return;
         }
-        if (isParticipant(player.getUniqueId()) || starting.contains(player.getUniqueId())) {
+        if (isParticipant(player.getUniqueId()) || starting.contains(player.getUniqueId())
+                || (competition != null && competition.busy(player.getUniqueId()))) {
             error(player, "You are already busy with a fight.");
             return;
         }
@@ -2681,7 +2690,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     private void openChestHub(Player player) {
         DuelBoard holder = board(Board.HUB, null, 27, "PvP");
         holder.inventory.setItem(HUB_RANKS, MenuItems.button(
-                Material.NETHER_STAR, "Rank Leaderboard", "See the highest PvP ranks."));
+                Material.NETHER_STAR, "Competitive Rankings", "See the automatic-queue ladder."));
         holder.inventory.setItem(HUB_START, MenuItems.button(
                 Material.DIAMOND_SWORD, "Start a Fight", "Choose a player."));
         holder.inventory.setItem(HUB_INCOMING, MenuItems.button(
@@ -2703,7 +2712,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         }
         if (rows.isEmpty()) {
             holder.inventory.setItem(22, MenuItems.button(
-                    Material.BARRIER, "No ranked fights yet", "Start a fight to enter the board."));
+                    Material.BARRIER, "No ranked matches yet", "Join a ranked queue to enter."));
         }
         MenuItems.back(holder.inventory);
         MenuItems.show(plugin, player, holder.inventory);
@@ -2817,7 +2826,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                                     ? "Optional wager: " + stakeSummary(
                                             invite.moneyEach(), invite.challengerItems().size(),
                                             invite.challengerCosmetics().size())
-                                    : "Ranked fight")));
+                                    : "Private unrated fight")));
             holder.choices.put(slot, invite.id());
         }
         MenuItems.back(holder.inventory);
@@ -3165,10 +3174,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             if (event instanceof EntityDamageByEntityEvent byEntity) {
                 UUID opponentId = victimFight.opponent(victim.getUniqueId());
                 UUID source = fightingSource(byEntity);
-                if (opponentId.equals(source)) {
-                    victimFight.damage.merge(opponentId, event.getFinalDamage(), Double::sum);
-                    victimFight.hits.merge(opponentId, 1, Integer::sum);
-                } else if (!victim.getUniqueId().equals(source)) {
+                if (!opponentId.equals(source) && !victim.getUniqueId().equals(source)) {
                     // Not the opponent and not their own doing, so not part of this
                     // fight. Somebody's own crystal going off in their face is.
                     event.setCancelled(true);
@@ -3183,12 +3189,27 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         if (attacker == null) {
             return;
         }
+        if (plugin.arePvpOpponents(attacker, victim)) {
+            return;
+        }
         if (!isFighter(attacker.getUniqueId()) && plugin.openWorldPvpEnabled()) {
             return;
         }
         event.setCancelled(true);
         maybeExplainBlocked(attacker);
         clearCombatLog(attacker, victim);
+    }
+
+    /** Records the resolved hit after custom weapons and the final-damage cap. */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onResolvedDuelDamage(EntityDamageByEntityEvent event) {
+        if (!(event.getEntity() instanceof Player victim)) return;
+        Fight fight = fighting.get(victim.getUniqueId());
+        if (fight == null || fight.phase != Phase.FIGHTING) return;
+        UUID opponentId = fight.opponent(victim.getUniqueId());
+        if (!opponentId.equals(fightingSource(event))) return;
+        fight.damage.merge(opponentId, event.getFinalDamage(), Double::sum);
+        fight.hits.merge(opponentId, 1, Integer::sum);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
@@ -4213,7 +4234,10 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 player.getExhaustion(), player.getFireTicks(), player.getFallDistance(),
                 player.getRemainingAir(), player.getInventory().getHeldItemSlot(),
                 economy.balance(player.getUniqueId()), encodeStakeItems(stakes),
-                inventory ? encodeItems(player.getInventory().getContents()) : ""
+                inventory ? encodeItems(player.getInventory().getContents()) : "",
+                PvpStateCodec.encodeEffects(player.getActivePotionEffects()),
+                player.getLevel(), player.getExp(), player.getTotalExperience(),
+                player.isCollidable(), player.isInvisible(), player.getCanPickupItems()
         );
     }
 
@@ -4315,6 +4339,8 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         } else if (plugin.inScreenshotMode(challenger) || plugin.inScreenshotMode(target)) {
             problem = "Close screenshot mode before fighting.";
         } else if (isParticipant(challenger.getUniqueId()) || isParticipant(target.getUniqueId())
+                || (competition != null && (competition.busy(challenger.getUniqueId())
+                        || competition.busy(target.getUniqueId())))
                 || starting.contains(challenger.getUniqueId()) || starting.contains(target.getUniqueId())) {
             problem = "One of you is already busy with a fight.";
         } else if (store.find(challenger.getUniqueId()).isPresent()
@@ -4782,11 +4808,11 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private static String encodeItem(ItemStack item) {
-        return empty(item) ? "" : Base64.getEncoder().encodeToString(item.serializeAsBytes());
+        return empty(item) ? "" : PvpStateCodec.encodeItem(item);
     }
 
     private static ItemStack decodeItem(String encoded) {
-        return ItemStack.deserializeBytes(Base64.getDecoder().decode(encoded));
+        return PvpStateCodec.decodeItem(encoded);
     }
 
     private static String encodeStakeItems(List<ItemStack> items) {
@@ -4804,18 +4830,15 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private static String encodeItems(ItemStack[] items) {
-        return Base64.getEncoder().encodeToString(ItemStack.serializeItemsAsBytes(items));
+        return PvpStateCodec.encodeItems(items);
     }
 
     private static ItemStack[] decodeItems(String encoded) {
-        return ItemStack.deserializeItemsFromBytes(Base64.getDecoder().decode(encoded));
+        return PvpStateCodec.decodeItems(encoded);
     }
 
     private static ItemStack[] sized(ItemStack[] items, int size) {
-        if (items.length == size) return items;
-        ItemStack[] result = new ItemStack[size];
-        System.arraycopy(items, 0, result, 0, Math.min(items.length, size));
-        return result;
+        return PvpStateCodec.sized(items, size);
     }
 
     private void restoreEscrow(Player player, List<ItemStack> stakes) {
