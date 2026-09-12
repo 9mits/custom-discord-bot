@@ -19,6 +19,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.function.Predicate;
 
 final class PlayerPerkService implements Listener {
     static final double ELITE_DAMAGE_BONUS = 0.15;
@@ -69,6 +70,11 @@ final class PlayerPerkService implements Listener {
 
     private final Map<UUID, PlayerProfile> profiles = new HashMap<>();
     private final Map<UUID, ClanLevel.Perks> clanPerks = new HashMap<>();
+    private Predicate<UUID> competitivePlayers = ignored -> false;
+
+    void useCompetitivePlayers(Predicate<UUID> players) {
+        competitivePlayers = players == null ? ignored -> false : players;
+    }
 
     PlayerProfile profile(UUID playerId) {
         return profiles.getOrDefault(playerId, PlayerProfile.NONE);
@@ -104,6 +110,24 @@ final class PlayerPerkService implements Listener {
         }
         profiles.clear();
         clanPerks.clear();
+    }
+
+    /** Temporarily removes every gameplay advantage while a fair-loadout match runs. */
+    void suspendForCompetitive(Player player) {
+        applyHearts(player, HEART_MODIFIER_KEY, 0);
+        applyHearts(player, CLAN_HEART_KEY, 0);
+        applyScalar(player, Attribute.MOVEMENT_SPEED, CLAN_SPEED_KEY, 0);
+        applyScalar(player, Attribute.BLOCK_BREAK_SPEED, CLAN_DIG_KEY, 0);
+    }
+
+    /** Reapplies the exact cached profile and clan perks after competitive PvP. */
+    void restoreAfterCompetitive(Player player) {
+        PlayerProfile profile = profile(player.getUniqueId());
+        ClanLevel.Perks clan = clanPerks(player.getUniqueId());
+        applyHearts(player, HEART_MODIFIER_KEY, profile.totalExtraHearts());
+        applyHearts(player, CLAN_HEART_KEY, clan.extraHearts());
+        applyScalar(player, Attribute.MOVEMENT_SPEED, CLAN_SPEED_KEY, clan.speed());
+        applyScalar(player, Attribute.BLOCK_BREAK_SPEED, CLAN_DIG_KEY, clan.diggingSpeed());
     }
 
     private void applyHearts(Player player, NamespacedKey key, int extraHearts) {
@@ -149,6 +173,7 @@ final class PlayerPerkService implements Listener {
     @EventHandler(priority = EventPriority.NORMAL, ignoreCancelled = true)
     public void onPerkDamage(EntityDamageByEntityEvent event) {
         if (event.getDamager() instanceof Player player) {
+            if (competitivePlayers.test(player.getUniqueId())) return;
             // Clan strength joins elite and booster additively, matching how those two
             // already stack, so the figures on the perk pages add up as written.
             double multiplier = profile(player.getUniqueId()).damageMultiplier()
@@ -168,6 +193,7 @@ final class PlayerPerkService implements Listener {
         if (!(event.getEntity() instanceof Player player)) {
             return;
         }
+        if (competitivePlayers.test(player.getUniqueId())) return;
         double resistance = clanPerks(player.getUniqueId()).resistance();
         if (resistance > 0) {
             event.setDamage(event.getDamage() * (1.0 - resistance));
@@ -179,6 +205,7 @@ final class PlayerPerkService implements Listener {
         if (!(event.getEntity() instanceof Player player)) {
             return;
         }
+        if (competitivePlayers.test(player.getUniqueId())) return;
         float exhaustion = event.getExhaustion();
         if (profile(player.getUniqueId()).booster()) {
             exhaustion *= boosterExhaustion();

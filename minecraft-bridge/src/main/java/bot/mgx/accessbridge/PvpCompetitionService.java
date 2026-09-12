@@ -1,0 +1,2395 @@
+package bot.mgx.accessbridge;
+
+import io.papermc.paper.event.player.AsyncChatEvent;
+import io.papermc.paper.registry.data.dialog.ActionButton;
+import io.papermc.paper.registry.data.dialog.body.DialogBody;
+import net.kyori.adventure.bossbar.BossBar;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextColor;
+import net.kyori.adventure.text.format.TextDecoration;
+import net.kyori.adventure.title.Title;
+import org.bukkit.Bukkit;
+import org.bukkit.GameMode;
+import org.bukkit.Location;
+import org.bukkit.Material;
+import org.bukkit.Sound;
+import org.bukkit.World;
+import org.bukkit.WorldBorder;
+import org.bukkit.attribute.Attribute;
+import org.bukkit.block.Block;
+import org.bukkit.command.Command;
+import org.bukkit.command.CommandSender;
+import org.bukkit.entity.Entity;
+import org.bukkit.entity.Item;
+import org.bukkit.entity.Player;
+import org.bukkit.entity.Projectile;
+import org.bukkit.entity.Tameable;
+import org.bukkit.event.Event;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
+import org.bukkit.event.Listener;
+import org.bukkit.event.block.BlockBreakEvent;
+import org.bukkit.event.block.BlockExplodeEvent;
+import org.bukkit.event.block.BlockPlaceEvent;
+import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.entity.EntityExplodeEvent;
+import org.bukkit.event.entity.EntityPickupItemEvent;
+import org.bukkit.event.entity.FoodLevelChangeEvent;
+import org.bukkit.event.entity.PlayerDeathEvent;
+import org.bukkit.event.entity.ProjectileLaunchEvent;
+import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
+import org.bukkit.event.inventory.InventoryOpenEvent;
+import org.bukkit.event.player.PlayerCommandPreprocessEvent;
+import org.bukkit.event.player.PlayerDropItemEvent;
+import org.bukkit.event.player.PlayerInteractEntityEvent;
+import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerMoveEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerRespawnEvent;
+import org.bukkit.event.player.PlayerTeleportEvent;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.potion.PotionEffect;
+import org.bukkit.scheduler.BukkitTask;
+
+import java.io.IOException;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.EnumMap;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
+
+/**
+ * Queue-driven PvP: fair loadouts, concurrent configured arenas, teams, FFA,
+ * anchored spectating, durable recovery, rating, mode records, and conservative
+ * economy rewards.
+ *
+ * <p>The older {@link PvpDuelService} remains the private survival-inventory wager
+ * path. It delegates the main {@code /pvp} experience here so private agreements can
+ * never be used to farm the competitive ladder.
+ */
+final class PvpCompetitionService implements Listener {
+    private static final TextColor ORANGE = TextColor.color(0xFF9900);
+    private static final long INVITE_MILLIS = 120_000L;
+    private static final long PAD_COOLDOWN_MILLIS = 1_500L;
+    private static final List<String> PLAYER_COMMANDS = List.of(
+            "queue", "leave", "status", "party", "lobby", "return", "spectate",
+            "stats", "rankings", "rewards", "private", "forfeit", "giveup"
+    );
+
+    private enum Phase { COUNTDOWN, FIGHTING, AFTERMATH, ENDING }
+
+    private static final class Party {
+        UUID leader;
+        final LinkedHashSet<UUID> members = new LinkedHashSet<>();
+
+        Party(UUID leader) {
+            this.leader = leader;
+            members.add(leader);
+        }
+    }
+
+    private record PartyInvite(UUID leader, long expiresAt) { }
+
+    private static final class Match {
+        final UUID id = UUID.randomUUID();
+        final PvpMode mode;
+        final PvpArenaStore.Arena arena;
+        final List<UUID> first;
+        final List<UUID> second;
+        final List<UUID> players;
+        final Map<UUID, Integer> team = new HashMap<>();
+        final Set<UUID> alive = new LinkedHashSet<>();
+        final Set<UUID> eliminated = new LinkedHashSet<>();
+        final Set<UUID> spectators = new LinkedHashSet<>();
+        final Set<UUID> rewardBlocked = new HashSet<>();
+        final Map<UUID, Integer> kills = new HashMap<>();
+        final Map<UUID, Double> damage = new HashMap<>();
+        final Map<UUID, UUID> lastHitBy = new HashMap<>();
+        final Map<UUID, Long> lastHitAt = new HashMap<>();
+        final Map<UUID, Long> lastAction = new HashMap<>();
+        final Map<UUID, Location> assigned = new HashMap<>();
+        final Map<UUID, WorldBorder> previousBorders = new HashMap<>();
+        BossBar bar;
+        Phase phase = Phase.COUNTDOWN;
+        long fightingSince;
+        long endsAt;
+        long nextShrinkAt;
+        double borderSize;
+        boolean shrinkWarned;
+        BukkitTask countdown;
+        BukkitTask returnTask;
+
+        Match(PvpMode mode, PvpArenaStore.Arena arena, List<UUID> first, List<UUID> second) {
+            this.mode = mode;
+            this.arena = arena;
+            this.first = List.copyOf(first);
+            this.second = List.copyOf(second);
+            List<UUID> combined = new ArrayList<>(first);
+            combined.addAll(second);
+            this.players = List.copyOf(combined);
+            for (UUID player : first) team.put(player, 0);
+            for (UUID player : second) team.put(player, mode.freeForAll() ? team.size() : 1);
+            alive.addAll(players);
+        }
+    }
+
+    private final MGXAccessBridge plugin;
+    private final EconomyStore economy;
+    private final SettingsClientSupport clientSupport;
+    private final BedrockForms forms;
+    private final DiscordIdentityService identities;
+    private final ClanStore clans;
+    private final PlayerPerkService perks;
+    private final PvpRecordStore records;
+    private final PvpArenaStore arenas;
+    private final PvpClanRecordStore clanRecords;
+    private final PvpDuelStore recovery;
+    private final Map<PvpMode, List<PvpMatchmaking.Entry>> queues = new EnumMap<>(PvpMode.class);
+    private final Map<UUID, PvpMatchmaking.Entry> queuedPlayers = new HashMap<>();
+    private final Map<UUID, PvpMode> queuedModes = new HashMap<>();
+    private final Map<UUID, Party> parties = new HashMap<>();
+    private final Map<UUID, PartyInvite> partyInvites = new HashMap<>();
+    private final Map<UUID, Match> matches = new LinkedHashMap<>();
+    private final Map<UUID, Match> matchByPlayer = new HashMap<>();
+    private final Map<UUID, Match> viewing = new HashMap<>();
+    private final Set<String> arenasInUse = new HashSet<>();
+    private final Set<UUID> internalTeleports = new HashSet<>();
+    private final Map<UUID, Long> padCooldowns = new HashMap<>();
+    private final PvpFarmGuard farmGuard = new PvpFarmGuard();
+    private BukkitTask clock;
+    private boolean stopping;
+
+    PvpCompetitionService(
+            MGXAccessBridge plugin,
+            EconomyStore economy,
+            SettingsClientSupport clientSupport,
+            BedrockForms forms,
+            DiscordIdentityService identities,
+            ClanStore clans,
+            PlayerPerkService perks,
+            PvpRecordStore records,
+            java.nio.file.Path arenaFile,
+            java.nio.file.Path clanRecordFile,
+            java.nio.file.Path recoveryFile
+    ) throws IOException {
+        this.plugin = plugin;
+        this.economy = economy;
+        this.clientSupport = clientSupport;
+        this.forms = forms;
+        this.identities = identities;
+        this.clans = clans;
+        this.perks = perks;
+        this.records = records;
+        this.arenas = new PvpArenaStore(arenaFile);
+        this.clanRecords = new PvpClanRecordStore(clanRecordFile);
+        this.recovery = new PvpDuelStore(recoveryFile);
+        loadConfiguredWorld();
+        if (arenas.lobby().isEmpty() && arenas.all().isEmpty()) {
+            plugin.getServer().getScheduler().runTaskLater(plugin, this::installStarterLobby, 40L);
+        }
+        clock = plugin.getServer().getScheduler().runTaskTimer(plugin, this::tick, 20L, 20L);
+    }
+
+    private boolean enabled() {
+        return plugin.gameVariables().bool("pvp-competitive.enabled");
+    }
+
+    boolean isParticipant(UUID playerId) {
+        return matchByPlayer.containsKey(playerId) || viewing.containsKey(playerId);
+    }
+
+    boolean isFighter(UUID playerId) {
+        return matchByPlayer.containsKey(playerId);
+    }
+
+    boolean busy(UUID playerId) {
+        return isParticipant(playerId) || queuedPlayers.containsKey(playerId);
+    }
+
+    boolean areOpponents(UUID first, UUID second) {
+        Match match = matchByPlayer.get(first);
+        if (match == null || match != matchByPlayer.get(second) || first.equals(second)) return false;
+        return match.mode.freeForAll() || !match.team.get(first).equals(match.team.get(second));
+    }
+
+    /** Returns true when this command belongs to the competitive layer. */
+    boolean handleCommand(Player player, String[] original) {
+        String[] args = original == null ? new String[0] : original;
+        if (isParticipant(player.getUniqueId())) {
+            handleParticipantCommand(player, args);
+            return true;
+        }
+        if (args.length == 0) {
+            openHub(player);
+            return true;
+        }
+        String root = args[0].toLowerCase(Locale.ROOT);
+        switch (root) {
+            case "queue", "play" -> {
+                if (args.length < 2) openModes(player);
+                else PvpMode.from(args[1]).filter(PvpMode::queueable)
+                        .ifPresentOrElse(mode -> joinQueue(player, mode,
+                                        args.length < 3 || !args[2].equalsIgnoreCase("nofill")),
+                                () -> error(player, "Choose casual, ranked, 2v2, 3v3, clan, or ffa."));
+                return true;
+            }
+            case "leave" -> {
+                if (!leaveQueue(player.getUniqueId(), true)) {
+                    error(player, "You are not in a competitive queue.");
+                }
+                return true;
+            }
+            case "status" -> {
+                showStatus(player);
+                return true;
+            }
+            case "party" -> {
+                handleParty(player, slice(args, 1));
+                return true;
+            }
+            case "lobby", "hub" -> {
+                enterLobby(player);
+                return true;
+            }
+            case "return", "exit" -> {
+                returnToServer(player);
+                return true;
+            }
+            case "stats" -> {
+                openStats(player);
+                return true;
+            }
+            case "rank", "ranks", "ranking", "rankings", "leaderboard" -> {
+                openRankings(player);
+                return true;
+            }
+            case "rewards" -> {
+                openRewards(player);
+                return true;
+            }
+            case "spectate", "watch" -> {
+                if (args.length >= 2) spectate(player, args[1]);
+                else openLive(player);
+                return true;
+            }
+            case "portal" -> {
+                handleAdmin(player, args);
+                return true;
+            }
+            case "arena" -> {
+                handleAdmin(player, args);
+                return true;
+            }
+            case "admin" -> {
+                handleAdmin(player, slice(args, 1));
+                return true;
+            }
+            case "private", "challenge", "fight", "accept", "decline", "deny" -> {
+                return false;
+            }
+            case "forfeit", "giveup", "surrender", "ff" -> {
+                error(player, "You are not in a competitive match.");
+                return true;
+            }
+            default -> {
+                return false;
+            }
+        }
+    }
+
+    List<String> tabComplete(CommandSender sender, String[] args) {
+        if (args.length == 1) {
+            List<String> roots = new ArrayList<>(PLAYER_COMMANDS);
+            if (isAdmin(sender)) roots.addAll(List.of("portal", "arena", "admin"));
+            return partial(args[0], roots);
+        }
+        if (args.length == 2 && List.of("queue", "play").contains(args[0].toLowerCase(Locale.ROOT))) {
+            return partial(args[1], List.of("casual", "ranked", "2v2", "3v3", "clan", "ffa"));
+        }
+        if (args.length == 3 && List.of("queue", "play").contains(args[0].toLowerCase(Locale.ROOT))) {
+            return partial(args[2], List.of("fill", "nofill"));
+        }
+        if (args.length == 2 && args[0].equalsIgnoreCase("party")) {
+            return partial(args[1], List.of("invite", "accept", "leave", "kick", "disband"));
+        }
+        if (args.length == 3 && args[0].equalsIgnoreCase("party")
+                && List.of("invite", "kick").contains(args[1].toLowerCase(Locale.ROOT))) {
+            return partial(args[2], Bukkit.getOnlinePlayers().stream().map(Player::getName).toList());
+        }
+        if (args.length == 2 && args[0].equalsIgnoreCase("spectate")) {
+            return partial(args[1], matchByPlayer.keySet().stream().map(PvpCompetitionService::name).toList());
+        }
+        if (isAdmin(sender)) return adminTabs(args);
+        return List.of();
+    }
+
+    private void handleParticipantCommand(Player player, String[] args) {
+        Match match = matchByPlayer.get(player.getUniqueId());
+        if (match != null) {
+            if (args.length > 0 && List.of("forfeit", "giveup", "surrender", "ff", "leave")
+                    .contains(args[0].toLowerCase(Locale.ROOT))) {
+                if (match.phase == Phase.FIGHTING) {
+                    match.rewardBlocked.add(player.getUniqueId());
+                    eliminate(match, player.getUniqueId(), null, "forfeited");
+                } else if (match.phase == Phase.COUNTDOWN) {
+                    abortStart(match, "A player left before the fight began.");
+                } else {
+                    info(player, "Your result is already decided.");
+                }
+            } else {
+                info(player, matchSummary(match));
+            }
+            return;
+        }
+        if (viewing.containsKey(player.getUniqueId())) {
+            if (args.length == 0 || args[0].equalsIgnoreCase("leave")) leaveSpectator(player, true);
+            else error(player, "Use /pvp leave to stop spectating.");
+        }
+    }
+
+    private void joinQueue(Player player, PvpMode mode, boolean fill) {
+        UUID playerId = player.getUniqueId();
+        if (!enabled()) {
+            error(player, "Competitive PvP is currently disabled.");
+            return;
+        }
+        if (plugin.inPvpDuel(player)) {
+            error(player, "Finish your private fight first.");
+            return;
+        }
+        if (queuedPlayers.containsKey(playerId)) {
+            error(player, "Leave your current queue before joining another one.");
+            return;
+        }
+        if (recovery.find(playerId).isPresent()) {
+            recover(player, true);
+            return;
+        }
+        List<PvpArenaStore.Arena> ready = arenas.ready(mode);
+        if (ready.isEmpty()) {
+            error(player, "No enabled " + mode.display() + " arena is ready yet.");
+            return;
+        }
+
+        Party party = parties.get(playerId);
+        List<UUID> members = party == null ? List.of(playerId) : List.copyOf(party.members);
+        if (party != null && !party.leader.equals(playerId)) {
+            error(player, "Only the party leader can queue the team.");
+            return;
+        }
+        if (mode.freeForAll() && members.size() != 1) {
+            error(player, "FFA is a solo queue. Leave your party first.");
+            return;
+        }
+        if (members.size() > mode.teamSize()) {
+            error(player, mode.display() + " allows at most " + mode.teamSize() + " player(s) per team.");
+            return;
+        }
+        if (!fill && members.size() != mode.teamSize()) {
+            error(player, "No-fill requires a complete team of " + mode.teamSize() + ".");
+            return;
+        }
+        if (mode.clan()) {
+            if (members.size() != mode.teamSize()) {
+                error(player, "Clan vs Clan requires a complete party of " + mode.teamSize() + ".");
+                return;
+            }
+            Optional<ClanStore.ClanView> clan = clans.clanOf(playerId);
+            if (clan.isEmpty() || members.stream().anyMatch(id -> !clan.get().members().containsKey(id))) {
+                error(player, "Every party member must belong to the same clan.");
+                return;
+            }
+        }
+        for (UUID memberId : members) {
+            Player member = Bukkit.getPlayer(memberId);
+            if (member == null || !member.isOnline()) {
+                error(player, "Every party member must be online.");
+                return;
+            }
+            if (busy(memberId) || plugin.inPvpDuel(member)) {
+                error(player, name(memberId) + " is already busy with PvP.");
+                return;
+            }
+            if (VerificationLobbyService.isLobbyWorld(member.getWorld())
+                    || plugin.inScreenshotMode(member)) {
+                error(player, name(memberId) + " cannot queue from their current mode.");
+                return;
+            }
+        }
+        UUID clanId = mode.clan() ? clans.clanOf(playerId).orElseThrow().id() : null;
+        long totalRating = members.stream().mapToLong(id -> records.of(id).rating()).sum();
+        PvpMatchmaking.Entry entry = new PvpMatchmaking.Entry(
+                party == null ? playerId : party.leader,
+                members, fill, System.currentTimeMillis(), totalRating / members.size(), clanId
+        );
+        queues.computeIfAbsent(mode, ignored -> new ArrayList<>()).add(entry);
+        for (UUID memberId : members) {
+            queuedPlayers.put(memberId, entry);
+            queuedModes.put(memberId, mode);
+            Player member = Bukkit.getPlayer(memberId);
+            if (member != null) {
+                info(member, "Queued for " + mode.display() + (fill ? " with fill." : " with no-fill."));
+                teleportToLobbyIfReady(member);
+            }
+        }
+        tryMatch(mode, System.currentTimeMillis());
+    }
+
+    private boolean leaveQueue(UUID playerId, boolean announce) {
+        PvpMatchmaking.Entry entry = queuedPlayers.get(playerId);
+        if (entry == null) return false;
+        PvpMode mode = queuedModes.get(playerId);
+        List<PvpMatchmaking.Entry> queue = mode == null ? null : queues.get(mode);
+        if (queue != null) queue.remove(entry);
+        for (UUID memberId : entry.members()) {
+            queuedPlayers.remove(memberId);
+            queuedModes.remove(memberId);
+            if (announce) {
+                Player member = Bukkit.getPlayer(memberId);
+                if (member != null) info(member, "Left the " + (mode == null ? "PvP" : mode.display()) + " queue.");
+            }
+        }
+        return true;
+    }
+
+    private void tick() {
+        long now = System.currentTimeMillis();
+        partyInvites.entrySet().removeIf(row -> row.getValue().expiresAt() <= now);
+        validateQueues();
+        for (PvpMode mode : PvpMode.values()) {
+            if (mode.queueable()) tryMatch(mode, now);
+        }
+        for (Match match : List.copyOf(matches.values())) {
+            tickMatch(match, now);
+        }
+    }
+
+    private void validateQueues() {
+        for (Map.Entry<PvpMode, List<PvpMatchmaking.Entry>> row : queues.entrySet()) {
+            for (PvpMatchmaking.Entry entry : List.copyOf(row.getValue())) {
+                boolean valid = entry.members().stream().allMatch(id -> {
+                    Player player = Bukkit.getPlayer(id);
+                    return player != null && player.isOnline() && queuedPlayers.get(id) == entry;
+                });
+                if (valid && row.getKey().clan()) {
+                    valid = entry.clanId() != null && entry.members().stream().allMatch(id ->
+                            clans.clanOf(id).map(ClanStore.ClanView::id)
+                                    .filter(entry.clanId()::equals).isPresent());
+                }
+                if (!valid) removeEntry(row.getKey(), entry,
+                        "Your PvP queue ended because a teammate left or the clan roster changed.");
+            }
+        }
+    }
+
+    private void tryMatch(PvpMode mode, long now) {
+        if (!enabled()) return;
+        while (availableArena(mode).isPresent()) {
+            List<PvpMatchmaking.Entry> queue = queues.getOrDefault(mode, List.of());
+            if (queue.isEmpty()) return;
+            if (mode.freeForAll()) {
+                if (!tryFfa(mode, queue, now)) return;
+                continue;
+            }
+            if (mode.clan()) {
+                if (!tryClan(mode, queue, now)) return;
+                continue;
+            }
+            long base = mode.rated() ? integer("pvp-competitive.matchmaking-base-range") : 10_000_000L;
+            long widen = mode.rated() ? integer("pvp-competitive.matchmaking-widen-per-second") : 0L;
+            long maximum = mode.rated() ? integer("pvp-competitive.matchmaking-maximum-range") : 10_000_000L;
+            Optional<PvpMatchmaking.Plan> plan = PvpMatchmaking.teams(
+                    queue, mode.teamSize(), now, base, widen, maximum,
+                    (first, second) -> opponentsAllowed(first, second, now)
+            );
+            if (plan.isEmpty()) return;
+            PvpArenaStore.Arena arena = availableArena(mode).orElse(null);
+            if (arena == null) return;
+            startPlan(mode, arena, plan.get().firstEntries(), plan.get().secondEntries());
+        }
+    }
+
+    private boolean tryClan(PvpMode mode, List<PvpMatchmaking.Entry> queue, long now) {
+        List<PvpMatchmaking.Entry> sorted = queue.stream()
+                .sorted(Comparator.comparingLong(PvpMatchmaking.Entry::joinedAt)).toList();
+        for (int first = 0; first < sorted.size(); first++) {
+            for (int second = first + 1; second < sorted.size(); second++) {
+                PvpMatchmaking.Entry left = sorted.get(first);
+                PvpMatchmaking.Entry right = sorted.get(second);
+                if (left.clanId() != null && right.clanId() != null
+                        && !left.clanId().equals(right.clanId())
+                        && opponentsAllowed(left.members(), right.members(), now)) {
+                    PvpArenaStore.Arena arena = availableArena(mode).orElse(null);
+                    if (arena == null) return false;
+                    startPlan(mode, arena, List.of(left), List.of(right));
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean tryFfa(PvpMode mode, List<PvpMatchmaking.Entry> queue, long now) {
+        int minimum = mode.minimumPlayers(integer("pvp-competitive.ffa-minimum-players"));
+        if (queue.size() < minimum) return false;
+        List<PvpMatchmaking.Entry> sorted = queue.stream()
+                .sorted(Comparator.comparingLong(PvpMatchmaking.Entry::joinedAt)).toList();
+        long waited = now - sorted.get(0).joinedAt();
+        if (queue.size() < mode.maximumPlayers()
+                && waited < integer("pvp-competitive.ffa-start-wait-seconds") * 1_000L) return false;
+        List<PvpMatchmaking.Entry> selected = new ArrayList<>();
+        for (PvpMatchmaking.Entry candidate : sorted) {
+            if (selected.size() >= mode.maximumPlayers()) break;
+            boolean blockedPair = selected.stream().anyMatch(existing ->
+                    !opponentsAllowed(existing.members(), candidate.members(), now));
+            if (!blockedPair) selected.add(candidate);
+        }
+        if (selected.size() < minimum) return false;
+        PvpArenaStore.Arena arena = availableArena(mode).orElse(null);
+        if (arena == null) return false;
+        List<UUID> first = selected.stream().flatMap(entry -> entry.members().stream()).toList();
+        startPlan(mode, arena, selected, List.of(), first, List.of());
+        return true;
+    }
+
+    private void startPlan(
+            PvpMode mode,
+            PvpArenaStore.Arena arena,
+            List<PvpMatchmaking.Entry> firstEntries,
+            List<PvpMatchmaking.Entry> secondEntries
+    ) {
+        startPlan(mode, arena, firstEntries, secondEntries,
+                flatten(firstEntries), flatten(secondEntries));
+    }
+
+    private void startPlan(
+            PvpMode mode,
+            PvpArenaStore.Arena arena,
+            List<PvpMatchmaking.Entry> firstEntries,
+            List<PvpMatchmaking.Entry> secondEntries,
+            List<UUID> first,
+            List<UUID> second
+    ) {
+        List<PvpMatchmaking.Entry> allEntries = new ArrayList<>(firstEntries);
+        allEntries.addAll(secondEntries);
+        for (PvpMatchmaking.Entry entry : allEntries) removeEntry(mode, entry, null);
+        if (!playersReady(first) || !playersReady(second)) {
+            notifyPlayers(concat(first, second), "The match could not start because somebody left.");
+            return;
+        }
+        startMatch(mode, arena, first, second);
+    }
+
+    private void startMatch(
+            PvpMode mode, PvpArenaStore.Arena arena, List<UUID> first, List<UUID> second
+    ) {
+        Match match = new Match(mode, arena, first, second);
+        List<UUID> all = match.players;
+        Map<UUID, PvpDuelStore.Recovery> snapshots = new LinkedHashMap<>();
+        for (UUID playerId : all) {
+            Player player = Bukkit.getPlayer(playerId);
+            if (player == null || recovery.find(playerId).isPresent()) {
+                notifyPlayers(all, "The match could not save every player's state.");
+                return;
+            }
+            snapshots.put(playerId, snapshot(match.id, PvpDuelStore.Role.FIGHTER, player));
+        }
+        try {
+            recovery.putAll(snapshots);
+        } catch (RuntimeException failure) {
+            plugin.getLogger().warning("Could not save competitive PvP recovery: " + failure.getMessage());
+            notifyPlayers(all, "The match could not safely save player inventories.");
+            return;
+        }
+        matches.put(match.id, match);
+        arenasInUse.add(arena.id());
+        for (UUID playerId : all) matchByPlayer.put(playerId, match);
+        for (UUID playerId : all) {
+            Player player = Bukkit.getPlayer(playerId);
+            if (player == null) continue;
+            String opponents = (mode.freeForAll() ? all.stream().filter(id -> !id.equals(playerId))
+                    : (match.team.get(playerId) == 0 ? second.stream() : first.stream()))
+                    .map(PvpCompetitionService::name).reduce((a, b) -> a + ", " + b)
+                    .orElse("the field");
+            info(player, "MATCH FOUND — " + mode.display() + " in " + arena.id()
+                    + ". Opponent" + (opponents.contains(",") ? "s: " : ": ") + opponents + ".");
+        }
+        try {
+            int slot = 0;
+            for (UUID playerId : all) {
+                Player player = Bukkit.getPlayer(playerId);
+                Location start = arena.spawns().get(slot++).resolve();
+                if (player == null || start == null || !prepareFighter(match, player, start)) {
+                    throw new IllegalStateException("An arena spawn was unavailable.");
+                }
+            }
+        } catch (RuntimeException failure) {
+            abortStart(match, "The arena could not prepare safely.");
+            plugin.getLogger().warning("Competitive PvP start failed: " + failure.getMessage());
+            return;
+        }
+        match.borderSize = arena.diameter();
+        match.bar = BossBar.bossBar(
+                Component.text(mode.display() + "  •  GET READY", NamedTextColor.GOLD),
+                1f, BossBar.Color.RED, BossBar.Overlay.PROGRESS
+        );
+        forEachOnline(match.players, player -> plugin.bossBars().showExclusive(player, match.bar));
+        startCountdown(match, integer("pvp-competitive.countdown-seconds"));
+    }
+
+    private boolean prepareFighter(Match match, Player player, Location start) {
+        UUID playerId = player.getUniqueId();
+        match.previousBorders.put(playerId, player.getWorldBorder());
+        match.assigned.put(playerId, start.clone());
+        match.lastAction.put(playerId, System.currentTimeMillis());
+        plugin.bossBars().suppress(player);
+        player.closeInventory();
+        player.closeDialog();
+        perks.suspendForCompetitive(player);
+        clearEffects(player);
+        player.getInventory().clear();
+        player.getInventory().setArmorContents(new ItemStack[4]);
+        player.getInventory().setItemInOffHand(new ItemStack(Material.AIR));
+        installKit(player);
+        player.setGameMode(GameMode.ADVENTURE);
+        player.setAllowFlight(false);
+        player.setFlying(false);
+        player.setInvulnerable(true);
+        player.setInvisible(false);
+        player.setCollidable(true);
+        player.setCanPickupItems(false);
+        player.setFireTicks(0);
+        player.setFallDistance(0f);
+        player.setFoodLevel(20);
+        player.setSaturation(20f);
+        player.setExhaustion(0f);
+        player.setAbsorptionAmount(0d);
+        player.setLevel(0);
+        player.setExp(0f);
+        player.setTotalExperience(0);
+        if (player.getAttribute(Attribute.MAX_HEALTH) != null) {
+            player.setHealth(player.getAttribute(Attribute.MAX_HEALTH).getValue());
+        }
+        player.setWorldBorder(personalBorder(match, match.arena.diameter()));
+        boolean moved = teleport(player, start);
+        if (moved) {
+            player.playSound(player, Sound.BLOCK_BEACON_ACTIVATE, 0.8f, 1.4f);
+            player.sendMessage(prefix().append(Component.text(
+                    "Standard loadout equipped. Inventory, perks, custom abilities and outside commands are isolated.",
+                    NamedTextColor.GREEN)));
+        }
+        return moved;
+    }
+
+    private void installKit(Player player) {
+        player.getInventory().setItem(0, kitItem(Material.NETHERITE_SWORD, "Competitive Sword"));
+        player.getInventory().setItem(1, kitItem(Material.BOW, "Competitive Bow"));
+        int apples = integer("pvp-competitive.kit-golden-apples");
+        int arrows = integer("pvp-competitive.kit-arrows");
+        if (apples > 0) player.getInventory().setItem(2, new ItemStack(Material.GOLDEN_APPLE, apples));
+        if (arrows > 0) player.getInventory().setItem(8, new ItemStack(Material.ARROW, arrows));
+        player.getInventory().setItemInOffHand(kitItem(Material.SHIELD, "Competitive Shield"));
+        player.getInventory().setHelmet(kitItem(Material.NETHERITE_HELMET, "Competitive Helmet"));
+        player.getInventory().setChestplate(kitItem(Material.NETHERITE_CHESTPLATE, "Competitive Chestplate"));
+        player.getInventory().setLeggings(kitItem(Material.NETHERITE_LEGGINGS, "Competitive Leggings"));
+        player.getInventory().setBoots(kitItem(Material.NETHERITE_BOOTS, "Competitive Boots"));
+        player.getInventory().setHeldItemSlot(0);
+    }
+
+    private static ItemStack kitItem(Material material, String name) {
+        ItemStack item = new ItemStack(material);
+        ItemMeta meta = item.getItemMeta();
+        meta.displayName(Component.text(name, NamedTextColor.GOLD)
+                .decoration(TextDecoration.ITALIC, false));
+        meta.lore(List.of(Component.text("Temporary fair-play loadout", NamedTextColor.GRAY)
+                .decoration(TextDecoration.ITALIC, false)));
+        meta.setUnbreakable(true);
+        item.setItemMeta(meta);
+        return item;
+    }
+
+    private void startCountdown(Match match, int seconds) {
+        final int[] remaining = {Math.max(1, seconds)};
+        match.countdown = plugin.getServer().getScheduler().runTaskTimer(plugin, () -> {
+            if (match.phase != Phase.COUNTDOWN) {
+                if (match.countdown != null) match.countdown.cancel();
+                return;
+            }
+            if (remaining[0] <= 0) {
+                match.countdown.cancel();
+                match.countdown = null;
+                beginFight(match);
+                return;
+            }
+            match.bar.name(Component.text(
+                    match.mode.display() + "  •  STARTS IN " + remaining[0], NamedTextColor.GOLD));
+            forEachOnline(match.players, player -> {
+                player.showTitle(Title.title(
+                        Component.text(String.valueOf(remaining[0]), NamedTextColor.GOLD,
+                                TextDecoration.BOLD),
+                        Component.text(teamLabel(match, player.getUniqueId()), NamedTextColor.GRAY),
+                        Title.Times.times(Duration.ZERO, Duration.ofMillis(850), Duration.ofMillis(100))
+                ));
+                player.playSound(player, Sound.BLOCK_NOTE_BLOCK_HAT, 0.8f,
+                        0.8f + (seconds - remaining[0]) * 0.08f);
+            });
+            remaining[0]--;
+        }, 0L, 20L);
+    }
+
+    private void beginFight(Match match) {
+        match.phase = Phase.FIGHTING;
+        match.fightingSince = System.currentTimeMillis();
+        match.endsAt = match.fightingSince
+                + integer("pvp-competitive.match-minutes") * 60_000L;
+        match.nextShrinkAt = match.fightingSince
+                + integer("pvp-competitive.ffa-shrink-delay-seconds") * 1_000L;
+        forEachOnline(match.players, player -> {
+            player.setInvulnerable(false);
+            match.lastAction.put(player.getUniqueId(), match.fightingSince);
+            player.showTitle(Title.title(
+                    Component.text("FIGHT!", NamedTextColor.RED, TextDecoration.BOLD),
+                    Component.text(match.mode.display(), NamedTextColor.GOLD),
+                    Title.Times.times(Duration.ZERO, Duration.ofSeconds(1), Duration.ofMillis(300))
+            ));
+            player.playSound(player, Sound.ENTITY_ENDER_DRAGON_GROWL, 0.65f, 1.35f);
+        });
+        updateBar(match, match.fightingSince);
+    }
+
+    private void tickMatch(Match match, long now) {
+        if (match.phase != Phase.FIGHTING) return;
+        if (now >= match.endsAt) {
+            finish(match, List.of(), "Time expired — draw", false);
+            return;
+        }
+        long afkMillis = integer("pvp-competitive.afk-seconds") * 1_000L;
+        List<UUID> inactive = match.alive.stream().filter(playerId ->
+                now - match.lastAction.getOrDefault(playerId, match.fightingSince) >= afkMillis
+        ).toList();
+        if (!inactive.isEmpty() && inactive.size() == match.alive.size()) {
+            match.rewardBlocked.addAll(inactive);
+            match.eliminated.addAll(inactive);
+            match.alive.clear();
+            notifyMatch(match, "Every remaining player was inactive — draw.", NamedTextColor.GRAY);
+            finish(match, List.of(), "Inactivity — draw", false);
+            return;
+        }
+        for (UUID playerId : inactive) {
+            match.rewardBlocked.add(playerId);
+            eliminate(match, playerId, null, "was eliminated for inactivity");
+            if (match.phase != Phase.FIGHTING) return;
+        }
+        if (match.mode.freeForAll()) {
+            double minimum = decimal("pvp-competitive.ffa-minimum-border");
+            if (match.borderSize > minimum + 1.0e-6d && !match.shrinkWarned
+                    && now >= match.nextShrinkAt - 10_000L) {
+                match.shrinkWarned = true;
+                long warningSeconds = Math.max(1L,
+                        (match.nextShrinkAt - now + 999L) / 1_000L);
+                forEachOnline(concat(match.players, List.copyOf(match.spectators)), player -> {
+                    player.sendActionBar(Component.text(
+                            "Border shrinks in " + warningSeconds + " seconds!", NamedTextColor.RED));
+                    player.playSound(player, Sound.BLOCK_NOTE_BLOCK_PLING, 0.8f, 0.7f);
+                });
+            }
+            if (now >= match.nextShrinkAt) shrinkBorder(match, now);
+        }
+        updateBar(match, now);
+    }
+
+    private void updateBar(Match match, long now) {
+        long duration = integer("pvp-competitive.match-minutes") * 60_000L;
+        long remaining = Math.max(0L, match.endsAt - now);
+        float progress = duration <= 0L ? 0f
+                : (float) Math.max(0d, Math.min(1d, (double) remaining / duration));
+        match.bar.progress(progress);
+        String text = match.mode.display() + "  •  " + match.alive.size() + " alive  •  "
+                + formatSeconds((remaining + 999L) / 1_000L);
+        if (!match.mode.freeForAll()) {
+            long firstAlive = aliveOnTeam(match, 0);
+            long secondAlive = aliveOnTeam(match, 1);
+            text = match.mode.display() + "  •  " + firstAlive + "–" + secondAlive
+                    + " alive  •  " + formatSeconds((remaining + 999L) / 1_000L);
+        }
+        match.bar.name(Component.text(text, NamedTextColor.GOLD));
+    }
+
+    private void shrinkBorder(Match match, long now) {
+        double minimum = decimal("pvp-competitive.ffa-minimum-border");
+        double next = Math.max(minimum,
+                match.borderSize - decimal("pvp-competitive.ffa-shrink-blocks"));
+        match.nextShrinkAt = now
+                + integer("pvp-competitive.ffa-shrink-interval-seconds") * 1_000L;
+        match.shrinkWarned = false;
+        if (next >= match.borderSize - 1.0e-6d) {
+            match.nextShrinkAt = Long.MAX_VALUE;
+            return;
+        }
+        match.borderSize = next;
+        forEachOnline(match.alive, player -> {
+            WorldBorder border = player.getWorldBorder();
+            if (border != null) {
+                border.setWarningDistance(6);
+                border.changeSize(next, 100L);
+            }
+            player.sendActionBar(Component.text(
+                    "Border shrinking to " + Math.round(next) + " blocks!", NamedTextColor.RED));
+            player.playSound(player, Sound.BLOCK_BEACON_DEACTIVATE, 0.8f, 1.1f);
+        });
+    }
+
+    private void eliminate(Match match, UUID victimId, UUID killerId, String reason) {
+        if (match.phase != Phase.FIGHTING || !match.alive.remove(victimId)) return;
+        match.eliminated.add(victimId);
+        if (killerId != null && !killerId.equals(victimId) && areOpponents(killerId, victimId)) {
+            match.kills.merge(killerId, 1, Integer::sum);
+        }
+        Player victim = Bukkit.getPlayer(victimId);
+        if (victim != null) prepareEliminated(match, victim);
+        String line = name(victimId) + " " + reason + ".";
+        notifyMatch(match, line, NamedTextColor.GRAY);
+
+        List<UUID> winners = winnersIfDecided(match);
+        if (!winners.isEmpty()) finish(match, winners, winnerText(match, winners), true);
+    }
+
+    private void prepareEliminated(Match match, Player player) {
+        player.setInvulnerable(true);
+        player.getInventory().clear();
+        player.getInventory().setArmorContents(new ItemStack[4]);
+        player.getInventory().setItemInOffHand(new ItemStack(Material.AIR));
+        player.setGameMode(GameMode.ADVENTURE);
+        player.setAllowFlight(true);
+        player.setFlying(true);
+        player.setInvisible(true);
+        player.setCollidable(false);
+        player.setCanPickupItems(false);
+        Location stand = match.arena.spectator().resolve();
+        if (stand != null) {
+            match.assigned.put(player.getUniqueId(), stand);
+            teleport(player, stand);
+        }
+        player.sendMessage(prefix().append(Component.text(
+                "Eliminated — you are anchored above the arena until the result.",
+                NamedTextColor.GRAY)));
+    }
+
+    private List<UUID> winnersIfDecided(Match match) {
+        if (match.mode.freeForAll()) {
+            return match.alive.size() == 1 ? List.copyOf(match.alive) : List.of();
+        }
+        Set<Integer> aliveTeams = new LinkedHashSet<>();
+        for (UUID player : match.alive) aliveTeams.add(match.team.get(player));
+        if (aliveTeams.size() != 1) return List.of();
+        int winner = aliveTeams.iterator().next();
+        return match.players.stream().filter(id -> match.team.get(id) == winner).toList();
+    }
+
+    private void finish(Match match, List<UUID> winners, String reason, boolean decided) {
+        if (match.phase == Phase.AFTERMATH || match.phase == Phase.ENDING) return;
+        match.phase = Phase.AFTERMATH;
+        if (match.countdown != null) match.countdown.cancel();
+        match.countdown = null;
+        long endedAt = System.currentTimeMillis();
+        Set<UUID> deaths = Set.copyOf(match.eliminated);
+        List<UUID> losers = decided
+                ? match.players.stream().filter(id -> !winners.contains(id)).toList()
+                : List.of();
+        Map<UUID, PvpRecordStore.RatingChange> changes = Map.of();
+        try {
+            changes = decided
+                    ? records.settleMatch(match.mode, winners, losers, match.kills, deaths,
+                            match.mode.rated())
+                    : records.drawMatch(match.mode, match.players, match.kills, deaths,
+                            match.mode.rated());
+            if (decided && match.mode.clan()) settleClanMatch(match, winners, losers);
+        } catch (RuntimeException failure) {
+            plugin.getLogger().warning("Could not save competitive PvP result: " + failure.getMessage());
+        }
+        recordOpponentRuns(match);
+        payRewards(match, winners, endedAt);
+
+        for (UUID playerId : match.players) {
+            Player player = Bukkit.getPlayer(playerId);
+            if (player == null) continue;
+            player.setInvulnerable(true);
+            player.setAllowFlight(false);
+            player.setFlying(false);
+            PvpRecordStore.RatingChange change = changes.get(playerId);
+            String rating = change == null || change.delta() == 0 ? ""
+                    : "  •  Rating " + (change.delta() > 0 ? "+" : "") + change.delta();
+            boolean won = winners.contains(playerId);
+            String heading = decided ? (won ? "VICTORY" : "DEFEAT") : "DRAW";
+            NamedTextColor colour = decided ? (won ? NamedTextColor.GREEN : NamedTextColor.RED)
+                    : NamedTextColor.YELLOW;
+            player.showTitle(Title.title(
+                    Component.text(heading, colour, TextDecoration.BOLD),
+                    Component.text(reason + rating, NamedTextColor.GOLD),
+                    Title.Times.times(Duration.ZERO, Duration.ofSeconds(3), Duration.ofMillis(400))
+            ));
+            player.sendMessage(prefix().append(Component.text(
+                    resultLine(match, playerId, reason, rating), colour)));
+            player.playSound(player, won ? Sound.UI_TOAST_CHALLENGE_COMPLETE
+                    : Sound.BLOCK_BEACON_DEACTIVATE, 0.8f, won ? 1.1f : 0.8f);
+        }
+        int delay = integer("pvp-competitive.return-seconds");
+        match.bar.name(Component.text(reason + "  •  Returning in " + delay + "s",
+                NamedTextColor.GOLD));
+        match.bar.progress(0f);
+        match.returnTask = plugin.getServer().getScheduler().runTaskLater(
+                plugin, () -> closeMatch(match), Math.max(1L, delay * 20L));
+    }
+
+    private void settleClanMatch(Match match, List<UUID> winners, List<UUID> losers) {
+        if (winners.isEmpty() || losers.isEmpty()) return;
+        UUID winner = clans.clanOf(winners.get(0)).map(ClanStore.ClanView::id).orElse(null);
+        UUID loser = clans.clanOf(losers.get(0)).map(ClanStore.ClanView::id).orElse(null);
+        if (winner != null && loser != null && !winner.equals(loser)) clanRecords.settle(winner, loser);
+    }
+
+    private void payRewards(Match match, List<UUID> winners, long endedAt) {
+        if (match.fightingSince == 0L || endedAt - match.fightingSince
+                < integer("pvp-competitive.minimum-reward-seconds") * 1_000L) return;
+        long participation = integer("pvp-competitive.participation-reward");
+        long victory = integer("pvp-competitive.win-reward");
+        for (UUID playerId : match.players) {
+            if (match.rewardBlocked.contains(playerId)) continue;
+            long amount = participation + (winners.contains(playerId) ? victory : 0L);
+            if (amount <= 0L) continue;
+            try {
+                economy.deposit(playerId, amount);
+            } catch (RuntimeException failure) {
+                plugin.getLogger().warning("Could not pay PvP reward to " + playerId + ": "
+                        + failure.getMessage());
+            }
+        }
+    }
+
+    private void recordOpponentRuns(Match match) {
+        long now = System.currentTimeMillis();
+        int limit = integer("pvp-competitive.repeat-opponent-limit");
+        long rest = integer("pvp-competitive.repeat-opponent-rest-seconds") * 1_000L;
+        if (match.mode.freeForAll()) {
+            for (int first = 0; first < match.players.size(); first++) {
+                for (int second = first + 1; second < match.players.size(); second++) {
+                    farmGuard.recordFight(match.players.get(first), match.players.get(second),
+                            now, limit, rest);
+                }
+            }
+            return;
+        }
+        for (UUID first : match.first) {
+            for (UUID second : match.second) {
+                farmGuard.recordFight(first, second, now, limit, rest);
+            }
+        }
+    }
+
+    private void closeMatch(Match match) {
+        if (match.phase == Phase.ENDING) return;
+        match.phase = Phase.ENDING;
+        if (match.returnTask != null) match.returnTask.cancel();
+        match.returnTask = null;
+        for (UUID playerId : match.players) {
+            Player player = Bukkit.getPlayer(playerId);
+            if (player != null) restore(player, true);
+            matchByPlayer.remove(playerId);
+        }
+        for (UUID spectatorId : List.copyOf(match.spectators)) {
+            Player spectator = Bukkit.getPlayer(spectatorId);
+            if (spectator != null) restore(spectator, false);
+            viewing.remove(spectatorId);
+        }
+        forEachOnline(concat(match.players, List.copyOf(match.spectators)),
+                player -> plugin.bossBars().hideExclusive(player, match.bar));
+        cleanupArena(match);
+        matches.remove(match.id);
+        arenasInUse.remove(match.arena.id());
+    }
+
+    private void abortStart(Match match, String reason) {
+        if (match.phase == Phase.ENDING) return;
+        match.phase = Phase.ENDING;
+        if (match.countdown != null) match.countdown.cancel();
+        notifyPlayers(match.players, reason);
+        for (UUID playerId : match.players) {
+            Player player = Bukkit.getPlayer(playerId);
+            if (player != null) restore(player, false);
+            matchByPlayer.remove(playerId);
+        }
+        if (match.bar != null) forEachOnline(match.players,
+                player -> plugin.bossBars().hideExclusive(player, match.bar));
+        cleanupArena(match);
+        matches.remove(match.id);
+        arenasInUse.remove(match.arena.id());
+    }
+
+    private void cleanupArena(Match match) {
+        PvpArenaStore.Point centerPoint = match.arena.center();
+        Location center = centerPoint == null ? null : centerPoint.resolve();
+        if (center == null) return;
+        double radius = match.arena.diameter() / 2d + 4d;
+        for (Entity entity : center.getWorld().getNearbyEntities(center, radius, 24d, radius)) {
+            if (entity instanceof Item || entity instanceof Projectile) entity.remove();
+        }
+    }
+
+    private void restore(Player player, boolean returnLobby) {
+        PvpDuelStore.Recovery saved = recovery.find(player.getUniqueId()).orElse(null);
+        if (saved == null) return;
+        player.closeInventory();
+        clearEffects(player);
+        player.getInventory().clear();
+        player.getInventory().setContents(PvpStateCodec.sized(
+                PvpStateCodec.decodeItems(saved.encodedInventory()),
+                player.getInventory().getContents().length));
+        for (PotionEffect effect : PvpStateCodec.decodeEffects(saved.encodedEffects())) {
+            player.addPotionEffect(effect);
+        }
+        try {
+            player.setGameMode(GameMode.valueOf(saved.gameMode()));
+        } catch (IllegalArgumentException unknown) {
+            player.setGameMode(GameMode.SURVIVAL);
+        }
+        player.setInvulnerable(saved.invulnerable());
+        player.setAllowFlight(saved.allowFlight());
+        player.setFlying(saved.allowFlight() && saved.flying());
+        player.setInvisible(saved.invisible());
+        player.setCollidable(saved.collidable());
+        player.setCanPickupItems(saved.canPickupItems());
+        player.setFoodLevel(saved.food());
+        player.setSaturation(saved.saturation());
+        player.setExhaustion(saved.exhaustion());
+        player.setFireTicks(saved.fireTicks());
+        player.setFallDistance(saved.fallDistance());
+        player.setRemainingAir(saved.remainingAir());
+        player.setLevel(saved.level());
+        player.setExp(saved.experience());
+        player.setTotalExperience(saved.totalExperience());
+        player.getInventory().setHeldItemSlot(Math.max(0, Math.min(8, saved.heldSlot())));
+        perks.restoreAfterCompetitive(player);
+        if (!player.isDead() && player.getAttribute(Attribute.MAX_HEALTH) != null) {
+            player.setHealth(Math.max(0.1d, Math.min(saved.health(),
+                    player.getAttribute(Attribute.MAX_HEALTH).getValue())));
+        }
+        Location destination = returnLobby ? arenas.lobby().map(PvpArenaStore.Point::resolve).orElse(null)
+                : origin(saved);
+        if (destination == null) destination = origin(saved);
+        if (destination == null && !Bukkit.getWorlds().isEmpty()) {
+            destination = Bukkit.getWorlds().get(0).getSpawnLocation();
+        }
+        if (destination != null) teleport(player, destination);
+        Match match = matchByPlayer.get(player.getUniqueId());
+        if (match == null) match = viewing.get(player.getUniqueId());
+        if (match != null && match.bar != null) plugin.bossBars().hideExclusive(player, match.bar);
+        player.setWorldBorder(match == null ? null : match.previousBorders.get(player.getUniqueId()));
+        plugin.bossBars().restore(player);
+        safeRemoveRecovery(player.getUniqueId());
+        player.saveData();
+    }
+
+    private PvpDuelStore.Recovery snapshot(UUID matchId, PvpDuelStore.Role role, Player player) {
+        Location at = player.getLocation();
+        return new PvpDuelStore.Recovery(
+                matchId, role, at.getWorld().getUID(), at.getWorld().getName(),
+                at.getX(), at.getY(), at.getZ(), at.getYaw(), at.getPitch(),
+                player.getGameMode().name(), player.isInvulnerable(), player.getAllowFlight(),
+                player.isFlying(), player.getHealth(), player.getFoodLevel(), player.getSaturation(),
+                player.getExhaustion(), player.getFireTicks(), player.getFallDistance(),
+                player.getRemainingAir(), player.getInventory().getHeldItemSlot(),
+                economy.balance(player.getUniqueId()), "",
+                PvpStateCodec.encodeItems(player.getInventory().getContents()),
+                PvpStateCodec.encodeEffects(player.getActivePotionEffects()),
+                player.getLevel(), player.getExp(), player.getTotalExperience(),
+                player.isCollidable(), player.isInvisible(), player.getCanPickupItems()
+        );
+    }
+
+    private void recover(Player player, boolean announce) {
+        if (recovery.find(player.getUniqueId()).isEmpty()) return;
+        restore(player, false);
+        if (announce) info(player, "An interrupted competitive match was recovered as a draw.");
+    }
+
+    private void safeRemoveRecovery(UUID playerId) {
+        try {
+            recovery.remove(playerId);
+        } catch (RuntimeException failure) {
+            plugin.getLogger().warning("Could not clear PvP recovery for " + playerId + ": "
+                    + failure.getMessage());
+        }
+    }
+
+    private void openHub(Player player) {
+        PvpRecordStore.Record record = records.of(player.getUniqueId());
+        String queue = queuedModes.containsKey(player.getUniqueId())
+                ? "Queued: " + queuedModes.get(player.getUniqueId()).display()
+                : "Not currently queued";
+        String body = "Automatic arena matchmaking with equal loadouts.\n"
+                + "Rank: " + record.rank().display() + " (" + record.rating() + ")\n"
+                + "Record: " + record.wins() + "W / " + record.losses() + "L / "
+                + record.draws() + "D\n" + queue;
+        List<MenuAction> actions = new ArrayList<>();
+        actions.add(new MenuAction("item/netherite_sword", "Play",
+                "Choose an available competitive mode.", this::openModes));
+        if (queuedPlayers.containsKey(player.getUniqueId())) {
+            actions.add(new MenuAction("item/barrier", "Leave Queue",
+                    "Leave with every queued party member.", p -> leaveQueue(p.getUniqueId(), true)));
+        }
+        actions.add(new MenuAction("item/writable_book", "Party",
+                "Invite teammates for 2v2, 3v3, or Clan vs Clan.", this::openParty));
+        actions.add(new MenuAction("item/spyglass", "Live Matches",
+                "Watch a match from its anchored viewing point.", this::openLive));
+        actions.add(new MenuAction("item/writable_book", "Stats & Rankings",
+                "Your mode records and the rating leaderboard.", this::openStats));
+        actions.add(new MenuAction("item/gold_ingot", "Rewards & Rules",
+                "See fair-play loadouts, rewards, and anti-farming rules.", this::openRewards));
+        actions.add(new MenuAction("item/wooden_sword", "Private Duel",
+                "Open the unrated survival-inventory challenge system.",
+                p -> p.performCommand("pvp private")));
+        if (arenas.lobby().isPresent() && !inLobbyArea(player.getLocation())) {
+            actions.add(new MenuAction("item/ender_pearl", "Enter PvP Lobby",
+                    "Travel to the dedicated PvP hub.", this::enterLobby));
+        } else if (inLobbyArea(player.getLocation())) {
+            actions.add(new MenuAction("item/ender_pearl", "Return to Server",
+                    "Leave the PvP hub.", this::returnToServer));
+        }
+        showMenu(player, "PvP", body, actions, null);
+    }
+
+    private record MenuAction(
+            String sprite, String label, String hint, java.util.function.Consumer<Player> action
+    ) { }
+
+    private void openModes(Player player) {
+        List<MenuAction> actions = new ArrayList<>();
+        for (PvpMode mode : PvpMode.values()) {
+            if (!mode.queueable() || arenas.ready(mode).isEmpty()) continue;
+            actions.add(new MenuAction(modeSprite(mode), mode.display(), modeHint(mode),
+                    p -> openMode(p, mode)));
+        }
+        String body = actions.isEmpty()
+                ? "No competitive arenas are enabled. An administrator can run /pvp admin setup confirm."
+                : "Choose a mode. Ranked queues start near your rating and widen gradually.";
+        showMenu(player, "Choose PvP Mode", body, actions, this::openHub);
+    }
+
+    private void openMode(Player player, PvpMode mode) {
+        if (arenas.ready(mode).isEmpty()) {
+            error(player, "That mode has no ready arena.");
+            openModes(player);
+            return;
+        }
+        Party party = parties.get(player.getUniqueId());
+        int team = party == null ? 1 : party.members.size();
+        String body = modeHint(mode) + "\n\n"
+                + "Party: " + team + "/" + mode.teamSize() + "\n"
+                + "Ready arenas: " + arenas.ready(mode).size();
+        List<MenuAction> actions = new ArrayList<>();
+        if (mode.teamSize() == 1 && !mode.freeForAll()) {
+            actions.add(new MenuAction("item/lime_dye", "Join Queue",
+                    "Find an opponent automatically.", p -> joinQueue(p, mode, true)));
+        } else if (!mode.clan()) {
+            actions.add(new MenuAction("item/lime_dye", "Queue with Fill",
+                    "Match missing teammate slots automatically.", p -> joinQueue(p, mode, true)));
+        }
+        if (mode.teamSize() > 1 && team == mode.teamSize()) {
+            actions.add(new MenuAction("item/red_dye", "Queue No-Fill",
+                    "Keep this complete party together.", p -> joinQueue(p, mode, false)));
+        }
+        if (mode.freeForAll()) {
+            actions = new ArrayList<>(List.of(new MenuAction("item/lime_dye", "Join FFA Queue",
+                    "Start full or after the minimum-player wait.", p -> joinQueue(p, mode, true))));
+        }
+        showMenu(player, mode.display(), body, actions, this::openModes);
+    }
+
+    private void openStats(Player player) {
+        PvpRecordStore.Record record = records.of(player.getUniqueId());
+        String kd = record.deaths() == 0L
+                ? (record.kills() == 0L ? "0.00" : "∞")
+                : String.format(Locale.ROOT, "%.2f", (double) record.kills() / record.deaths());
+        StringBuilder body = new StringBuilder()
+                .append("Rank: ").append(record.rank().display()).append(" • ")
+                .append(record.rating()).append(" rating\n")
+                .append("Highest: ").append(record.bestRank().display()).append('\n')
+                .append("Matches: ").append(record.matchesPlayed()).append(" • Win rate: ")
+                .append(Math.round(record.winRate() * 100d)).append("%\n")
+                .append("Overall: ").append(record.wins()).append("W / ")
+                .append(record.losses()).append("L / ").append(record.draws()).append("D\n")
+                .append("Kills / Deaths: ").append(record.kills()).append(" / ")
+                .append(record.deaths()).append(" • K/D: ").append(kd)
+                .append("\nStreak: ").append(record.streak())
+                .append(" • Best streak: ").append(record.bestStreak());
+        for (PvpMode mode : PvpMode.values()) {
+            PvpRecordStore.ModeRecord row = record.mode(mode);
+            if (row.matches() == 0L) continue;
+            body.append("\n\n").append(mode.display()).append(": ")
+                    .append(row.wins()).append("W / ").append(row.losses()).append("L / ")
+                    .append(row.draws()).append("D • ").append(row.kills()).append("K / ")
+                    .append(row.deaths()).append("D");
+        }
+        clans.clanOf(player.getUniqueId()).ifPresent(clan -> {
+            PvpClanRecordStore.Record row = clanRecords.of(clan.id());
+            body.append("\n\nClan PvP — ").append(clan.name()).append(": ")
+                    .append(row.wins()).append("W / ").append(row.losses()).append("L")
+                    .append(" • best streak ").append(row.bestStreak());
+        });
+        List<MenuAction> actions = List.of(new MenuAction("item/nether_star", "Rating Leaderboard",
+                "See the highest current ratings.", this::openRankings));
+        showMenu(player, "PvP Statistics", body.toString(), actions, this::openHub);
+    }
+
+    private void openRankings(Player player) {
+        List<PvpRankLeaderboard.Row> top = PvpRankLeaderboard.top(
+                records.all(), PvpCompetitionService::name, 10);
+        StringBuilder body = new StringBuilder("Ranked results from automatic fair-loadout queues only.\n");
+        if (top.isEmpty()) body.append("\nNo ranked matches have been completed yet.");
+        for (int index = 0; index < top.size(); index++) {
+            PvpRankLeaderboard.Row row = top.get(index);
+            body.append("\n").append(index + 1).append(". ").append(row.username())
+                    .append(" — ").append(row.record().rank().display())
+                    .append(" (").append(row.record().rating()).append(")");
+        }
+        List<Map.Entry<UUID, PvpClanRecordStore.Record>> clanTop = clanRecords.all().entrySet()
+                .stream().filter(row -> row.getValue().wins() + row.getValue().losses() > 0L)
+                .sorted(Map.Entry.<UUID, PvpClanRecordStore.Record>comparingByValue(
+                        Comparator.comparingLong(PvpClanRecordStore.Record::wins)
+                                .thenComparingLong(PvpClanRecordStore.Record::bestStreak)).reversed())
+                .limit(5).toList();
+        if (!clanTop.isEmpty()) {
+            body.append("\n\nClan vs Clan");
+            for (int index = 0; index < clanTop.size(); index++) {
+                Map.Entry<UUID, PvpClanRecordStore.Record> row = clanTop.get(index);
+                String clanName = clans.findClanById(row.getKey()).map(ClanStore.ClanView::name)
+                        .orElse(row.getKey().toString().substring(0, 8));
+                body.append("\n").append(index + 1).append(". ").append(clanName)
+                        .append(" — ").append(row.getValue().wins()).append("W / ")
+                        .append(row.getValue().losses()).append("L");
+            }
+        }
+        showMenu(player, "PvP Rankings", body.toString(), List.of(), this::openStats);
+    }
+
+    private void openRewards(Player player) {
+        String body = "Every competitive mode uses the same temporary Netherite loadout.\n"
+                + "Custom weapons, item abilities, Discord perks, clan perks, normal inventory, drops,"
+                + " teleports and escape commands are isolated.\n\n"
+                + "Eligible participation: " + EconomyFormat.dollars(integer(
+                        "pvp-competitive.participation-reward")) + "\n"
+                + "Additional win reward: " + EconomyFormat.dollars(integer(
+                        "pvp-competitive.win-reward")) + "\n"
+                + "Minimum rewarded combat: " + integer(
+                        "pvp-competitive.minimum-reward-seconds") + " seconds\n\n"
+                + "Same-owner accounts cannot match. Repeated opponents are rested."
+                + " Forfeits, disconnects and AFK eliminations lose normally and do not earn rewards.";
+        showMenu(player, "PvP Rewards & Fair Play", body, List.of(), this::openHub);
+    }
+
+    private void openLive(Player player) {
+        List<Match> live = matches.values().stream()
+                .filter(match -> match.phase == Phase.FIGHTING || match.phase == Phase.COUNTDOWN)
+                .toList();
+        List<MenuAction> actions = live.stream().map(match -> new MenuAction(
+                "item/spyglass", match.mode.display() + " • " + match.alive.size() + " alive",
+                match.arena.id(), viewer -> spectate(viewer, match))).toList();
+        showMenu(player, "Live PvP Matches",
+                live.isEmpty() ? "No competitive matches are live." : "Choose a match to watch.",
+                actions, this::openHub);
+    }
+
+    private void openParty(Player player) {
+        Party party = parties.get(player.getUniqueId());
+        String body;
+        if (party == null) {
+            body = "You are not in a PvP party. Invite an online player to create one."
+                    + " Parties are only used for competitive team queues.";
+        } else {
+            body = "Leader: " + name(party.leader) + "\nMembers (" + party.members.size()
+                    + "/3): " + party.members.stream().map(PvpCompetitionService::name)
+                    .reduce((a, b) -> a + ", " + b).orElse("None");
+        }
+        List<MenuAction> actions = new ArrayList<>();
+        if (party == null || party.leader.equals(player.getUniqueId())) {
+            actions.add(new MenuAction("item/writable_book", "Invite Player",
+                    "Choose an online player.", this::openPartyInvites));
+        }
+        if (party != null) {
+            actions.add(new MenuAction("item/barrier", party.leader.equals(player.getUniqueId())
+                    ? "Disband Party" : "Leave Party", "End this team arrangement.",
+                    p -> leaveParty(p, party.leader.equals(p.getUniqueId()))));
+        }
+        PartyInvite invite = partyInvites.get(player.getUniqueId());
+        if (invite != null && invite.expiresAt() > System.currentTimeMillis()) {
+            actions.add(new MenuAction("item/lime_dye", "Accept " + name(invite.leader()),
+                    "Join this PvP party.", p -> acceptParty(p, name(invite.leader()))));
+        }
+        showMenu(player, "PvP Party", body, actions, this::openHub);
+    }
+
+    private void openPartyInvites(Player player) {
+        List<MenuAction> actions = Bukkit.getOnlinePlayers().stream()
+                .filter(target -> !target.equals(player) && !parties.containsKey(target.getUniqueId()))
+                .sorted(Comparator.comparing(Player::getName, String.CASE_INSENSITIVE_ORDER))
+                .map(target -> new MenuAction(null, target.getName(), "Invite to your PvP party.",
+                        ignored -> inviteParty(player, target.getName()))).toList();
+        showMenu(player, "Invite Teammate",
+                actions.isEmpty() ? "No available players are online." : "Choose a teammate.",
+                actions, this::openParty);
+    }
+
+    private void showMenu(
+            Player player, String title, String body, List<MenuAction> actions,
+            java.util.function.Consumer<Player> back
+    ) {
+        if (!clientSupport.supportsDialogs(player)) {
+            List<BedrockForms.Button> buttons = actions.stream()
+                    .map(action -> new BedrockForms.Button(action.label(),
+                            () -> action.action().accept(player))).toList();
+            if (forms.menu(player, title, body, buttons, back)) return;
+            player.sendMessage(prefix().append(Component.text(title + ": " + body,
+                    NamedTextColor.GRAY)));
+            return;
+        }
+        List<ActionButton> buttons = actions.stream().map(action -> Screens.button(
+                action.sprite(), action.label(), action.hint(), action.action())).toList();
+        Screens.show(player, title, List.of(DialogBody.plainMessage(MenuText.body(body), 500)),
+                buttons, Math.min(2, Math.max(1, buttons.size())), back);
+    }
+
+    private static String modeSprite(PvpMode mode) {
+        return switch (mode) {
+            case CASUAL_DUEL -> "item/iron_sword";
+            case RANKED_DUEL -> "item/netherite_sword";
+            case DOUBLES -> "item/diamond_sword";
+            case TRIPLES -> "item/trident";
+            case CLAN_BATTLE -> "item/red_dye";
+            case FFA -> "item/ender_eye";
+            default -> "item/wooden_sword";
+        };
+    }
+
+    private static String modeHint(PvpMode mode) {
+        return switch (mode) {
+            case CASUAL_DUEL -> "Automatic unrated 1v1 with the competitive loadout.";
+            case RANKED_DUEL -> "Skill-matched 1v1 that changes your PvP rating.";
+            case DOUBLES -> "Ranked 2v2. Bring a teammate or let fill create your team.";
+            case TRIPLES -> "Ranked 3v3. Parties stay together and open slots are filled.";
+            case CLAN_BATTLE -> "Three members of one existing clan eliminate another clan.";
+            case FFA -> "Solo elimination. The personal border shrinks until one player remains.";
+            default -> "Unrated private survival-inventory fight.";
+        };
+    }
+
+    private void handleParty(Player player, String[] args) {
+        if (args.length == 0) {
+            openParty(player);
+            return;
+        }
+        switch (args[0].toLowerCase(Locale.ROOT)) {
+            case "invite" -> {
+                if (args.length < 2) openPartyInvites(player);
+                else inviteParty(player, args[1]);
+            }
+            case "accept" -> acceptParty(player, args.length >= 2 ? args[1] : "");
+            case "leave" -> leaveParty(player, false);
+            case "disband" -> leaveParty(player, true);
+            case "kick" -> kickParty(player, args.length >= 2 ? args[1] : "");
+            default -> error(player, "Use /pvp party invite, accept, leave, kick, or disband.");
+        }
+    }
+
+    private void inviteParty(Player player, String typed) {
+        UUID playerId = player.getUniqueId();
+        Party party = parties.get(playerId);
+        if (party == null) {
+            party = new Party(playerId);
+            parties.put(playerId, party);
+        }
+        if (!party.leader.equals(playerId)) {
+            error(player, "Only the party leader can invite players.");
+            return;
+        }
+        if (party.members.size() >= 3) {
+            error(player, "PvP parties hold at most three players.");
+            return;
+        }
+        Player target = Bukkit.getPlayerExact(typed);
+        if (target == null || target.equals(player)) {
+            error(player, "Choose another online player.");
+            return;
+        }
+        if (parties.containsKey(target.getUniqueId()) || busy(target.getUniqueId())) {
+            error(player, target.getName() + " is already in a party or PvP activity.");
+            return;
+        }
+        partyInvites.put(target.getUniqueId(), new PartyInvite(playerId,
+                System.currentTimeMillis() + INVITE_MILLIS));
+        info(player, "Invited " + target.getName() + " to your PvP party.");
+        target.sendMessage(prefix().append(Component.text(
+                player.getName() + " invited you to a PvP party. Use /pvp party accept "
+                        + player.getName() + ".", NamedTextColor.GOLD)));
+    }
+
+    private void acceptParty(Player player, String leaderName) {
+        UUID playerId = player.getUniqueId();
+        PartyInvite invite = partyInvites.get(playerId);
+        if (invite == null || invite.expiresAt() <= System.currentTimeMillis()
+                || (!leaderName.isBlank() && !name(invite.leader()).equalsIgnoreCase(leaderName))) {
+            error(player, "That PvP party invite is no longer available.");
+            return;
+        }
+        Party party = parties.get(invite.leader());
+        if (party == null || party.members.size() >= 3 || parties.containsKey(playerId)
+                || busy(playerId)) {
+            error(player, "That PvP party can no longer be joined.");
+            return;
+        }
+        leaveQueue(invite.leader(), true);
+        party.members.add(playerId);
+        parties.put(playerId, party);
+        partyInvites.remove(playerId);
+        notifyPlayers(party.members, player.getName() + " joined the PvP party.");
+    }
+
+    private void leaveParty(Player player, boolean disband) {
+        Party party = parties.get(player.getUniqueId());
+        if (party == null) {
+            error(player, "You are not in a PvP party.");
+            return;
+        }
+        if (busy(player.getUniqueId()) && !queuedPlayers.containsKey(player.getUniqueId())) {
+            error(player, "Finish the current match before changing your party.");
+            return;
+        }
+        leaveQueue(player.getUniqueId(), true);
+        if (party.leader.equals(player.getUniqueId()) && (disband || party.members.size() == 1)) {
+            for (UUID member : party.members) parties.remove(member);
+            notifyPlayers(party.members, "The PvP party was disbanded.");
+            return;
+        }
+        party.members.remove(player.getUniqueId());
+        parties.remove(player.getUniqueId());
+        if (party.leader.equals(player.getUniqueId())) party.leader = party.members.iterator().next();
+        info(player, "You left the PvP party.");
+        notifyPlayers(party.members, player.getName() + " left the PvP party.");
+    }
+
+    private void kickParty(Player player, String typed) {
+        Party party = parties.get(player.getUniqueId());
+        if (party == null || !party.leader.equals(player.getUniqueId())) {
+            error(player, "Only the party leader can remove a teammate.");
+            return;
+        }
+        UUID target = party.members.stream().filter(id -> name(id).equalsIgnoreCase(typed))
+                .findFirst().orElse(null);
+        if (target == null || target.equals(player.getUniqueId())) {
+            error(player, "Choose one of your teammates.");
+            return;
+        }
+        leaveQueue(player.getUniqueId(), true);
+        party.members.remove(target);
+        parties.remove(target);
+        notifyPlayers(party.members, name(target) + " was removed from the PvP party.");
+        Player removed = Bukkit.getPlayer(target);
+        if (removed != null) info(removed, "You were removed from the PvP party.");
+    }
+
+    private void showStatus(Player player) {
+        Match match = matchByPlayer.get(player.getUniqueId());
+        if (match != null) {
+            info(player, matchSummary(match));
+            return;
+        }
+        Match watched = viewing.get(player.getUniqueId());
+        if (watched != null) {
+            info(player, "Watching " + watched.mode.display() + " in " + watched.arena.id() + ".");
+            return;
+        }
+        PvpMode mode = queuedModes.get(player.getUniqueId());
+        if (mode == null) {
+            info(player, "You are not queued. Use /pvp to choose a mode.");
+            return;
+        }
+        PvpMatchmaking.Entry entry = queuedPlayers.get(player.getUniqueId());
+        long waited = Math.max(0L, System.currentTimeMillis() - entry.joinedAt()) / 1_000L;
+        info(player, "Queued for " + mode.display() + " for " + formatSeconds(waited)
+                + " with " + entry.members().size() + " player(s).");
+    }
+
+    private void enterLobby(Player player) {
+        if (busy(player.getUniqueId()) || plugin.inPvpDuel(player)) {
+            error(player, "Leave your queue or finish the current fight first.");
+            return;
+        }
+        Location lobby = arenas.lobby().map(PvpArenaStore.Point::resolve).orElse(null);
+        if (lobby == null) {
+            error(player, "The PvP lobby is not configured yet.");
+            return;
+        }
+        teleport(player, lobby);
+        player.playSound(player, Sound.ENTITY_ENDERMAN_TELEPORT, 0.8f, 1.2f);
+        openHub(player);
+    }
+
+    private void teleportToLobbyIfReady(Player player) {
+        Location lobby = arenas.lobby().map(PvpArenaStore.Point::resolve).orElse(null);
+        if (lobby != null && !inLobbyArea(player.getLocation())) teleport(player, lobby);
+    }
+
+    private void returnToServer(Player player) {
+        if (isParticipant(player.getUniqueId())) {
+            error(player, "Use /pvp leave or forfeit while a match is active.");
+            return;
+        }
+        leaveQueue(player.getUniqueId(), true);
+        World target = Bukkit.getWorlds().stream().filter(world -> !isPvpWorld(world)).findFirst().orElse(null);
+        if (target == null) {
+            error(player, "The main world is unavailable.");
+            return;
+        }
+        teleport(player, target.getSpawnLocation());
+        player.playSound(player, Sound.ENTITY_ENDERMAN_TELEPORT, 0.8f, 0.9f);
+    }
+
+    private void spectate(Player viewer, String playerName) {
+        Player target = Bukkit.getPlayerExact(playerName);
+        Match match = target == null ? null : matchByPlayer.get(target.getUniqueId());
+        if (match == null) {
+            error(viewer, "That player is not in a live competitive match.");
+            return;
+        }
+        spectate(viewer, match);
+    }
+
+    private void spectate(Player viewer, Match match) {
+        UUID viewerId = viewer.getUniqueId();
+        if (busy(viewerId) || plugin.inPvpDuel(viewer)) {
+            error(viewer, "Leave your queue or current fight first.");
+            return;
+        }
+        if (match.phase != Phase.FIGHTING && match.phase != Phase.COUNTDOWN) {
+            error(viewer, "That match is already ending.");
+            return;
+        }
+        if (match.spectators.size() >= integer("pvp-competitive.maximum-spectators")) {
+            error(viewer, "That viewing point is full.");
+            return;
+        }
+        if (recovery.find(viewerId).isPresent()) {
+            recover(viewer, true);
+            return;
+        }
+        Location stand = match.arena.spectator().resolve();
+        if (stand == null) {
+            error(viewer, "That arena's viewing point is unavailable.");
+            return;
+        }
+        try {
+            recovery.putAll(Map.of(viewerId,
+                    snapshot(match.id, PvpDuelStore.Role.SPECTATOR, viewer)));
+        } catch (RuntimeException failure) {
+            error(viewer, "Your inventory could not be saved safely.");
+            return;
+        }
+        match.spectators.add(viewerId);
+        viewing.put(viewerId, match);
+        match.previousBorders.put(viewerId, viewer.getWorldBorder());
+        match.assigned.put(viewerId, stand);
+        plugin.bossBars().suppress(viewer);
+        clearEffects(viewer);
+        viewer.getInventory().clear();
+        viewer.getInventory().setArmorContents(new ItemStack[4]);
+        viewer.getInventory().setItemInOffHand(new ItemStack(Material.AIR));
+        viewer.setGameMode(GameMode.ADVENTURE);
+        viewer.setInvulnerable(true);
+        viewer.setAllowFlight(true);
+        viewer.setFlying(true);
+        viewer.setInvisible(true);
+        viewer.setCollidable(false);
+        viewer.setCanPickupItems(false);
+        viewer.setWorldBorder(personalBorder(match, match.borderSize));
+        teleport(viewer, stand);
+        plugin.bossBars().showExclusive(viewer, match.bar);
+        info(viewer, "Watching " + match.mode.display()
+                + ". You are anchored and cannot interact or coach. Use /pvp leave to return.");
+    }
+
+    private void leaveSpectator(Player player, boolean announce) {
+        Match match = viewing.get(player.getUniqueId());
+        if (match == null) return;
+        match.spectators.remove(player.getUniqueId());
+        plugin.bossBars().hideExclusive(player, match.bar);
+        restore(player, false);
+        viewing.remove(player.getUniqueId());
+        if (announce) info(player, "You stopped spectating.");
+    }
+
+    private void handleAdmin(Player player, String[] original) {
+        if (!isAdmin(player)) {
+            error(player, "You do not have permission to manage PvP.");
+            return;
+        }
+        String[] args = original;
+        if (args.length == 0) {
+            info(player, "Use /pvp admin setup confirm, lobby set, portal set|remove,"
+                    + " or arena create|corner1|corner2|spectator|spawn|addmode|enable|disable|delete|list.");
+            return;
+        }
+        String root = args[0].toLowerCase(Locale.ROOT);
+        if (root.equals("setup")) {
+            if (args.length < 2 || !args[1].equalsIgnoreCase("confirm")) {
+                error(player, "Use /pvp admin setup confirm. This installs the generated hub and starter arenas.");
+                return;
+            }
+            if (!matches.isEmpty()) {
+                error(player, "Wait for every competitive match to end first.");
+                return;
+            }
+            installStarterLobby();
+            info(player, "The generated PvP lobby and starter arenas are installed.");
+            return;
+        }
+        if (root.equals("lobby")) {
+            if (args.length >= 2 && args[1].equalsIgnoreCase("set")) {
+                arenas.setLobby(PvpArenaStore.Point.of(player.getLocation()));
+                info(player, "PvP lobby set to your position.");
+            } else error(player, "Use /pvp admin lobby set.");
+            return;
+        }
+        if (root.equals("portal")) {
+            if (args.length >= 2 && args[1].equalsIgnoreCase("remove")) {
+                arenas.clearPortal();
+                info(player, "PvP entrance removed.");
+            } else if (args.length >= 2 && args[1].equalsIgnoreCase("set")) {
+                double radius = args.length >= 3 ? parseDouble(args[2], 1d, 12d) : 2.5d;
+                if (!Double.isFinite(radius)) {
+                    error(player, "Portal radius must be 1-12 blocks.");
+                    return;
+                }
+                arenas.setPortal(PvpArenaStore.Point.of(player.getLocation()), radius);
+                info(player, "PvP entrance set with a " + oneDecimal(radius) + " block radius.");
+            } else error(player, "Use /pvp portal set [radius] or /pvp portal remove.");
+            return;
+        }
+        if (!root.equals("arena")) {
+            error(player, "Unknown PvP admin action.");
+            return;
+        }
+        handleArenaAdmin(player, slice(args, 1));
+    }
+
+    private void handleArenaAdmin(Player player, String[] args) {
+        if (args.length == 0 || args[0].equalsIgnoreCase("list")) {
+            String rows = arenas.all().stream().map(arena -> arena.id() + " ["
+                    + String.join(",", arena.groups()) + "] "
+                    + (arena.enabled() ? "enabled" : "disabled"))
+                    .reduce((a, b) -> a + "; " + b).orElse("No arenas configured");
+            info(player, rows);
+            return;
+        }
+        String action = args[0].toLowerCase(Locale.ROOT);
+        try {
+            switch (action) {
+                case "create" -> {
+                    if (args.length < 3) throw new IllegalArgumentException(
+                            "Use /pvp arena create <id> <mode>.");
+                    PvpMode mode = PvpMode.from(args[2]).filter(PvpMode::queueable)
+                            .orElseThrow(() -> new IllegalArgumentException("Unknown PvP mode."));
+                    arenas.create(args[1], mode);
+                    info(player, "Created disabled arena " + args[1] + ". Set its bounds, spectator and spawns.");
+                }
+                case "corner1", "corner2" -> {
+                    requireArgs(args, 2, "/pvp arena " + action + " <id>");
+                    arenas.setCorner(args[1], action.equals("corner1") ? 1 : 2,
+                            PvpArenaStore.Point.of(player.getLocation()));
+                    info(player, "Set " + action + " for " + args[1] + ".");
+                }
+                case "spectator" -> {
+                    requireArgs(args, 2, "/pvp arena spectator <id>");
+                    arenas.setSpectator(args[1], PvpArenaStore.Point.of(player.getLocation()));
+                    info(player, "Set the anchored spectator point for " + args[1] + ".");
+                }
+                case "spawn" -> {
+                    requireArgs(args, 3, "/pvp arena spawn <id> <slot>");
+                    int slot = Integer.parseInt(args[2]);
+                    arenas.setSpawn(args[1], slot, PvpArenaStore.Point.of(player.getLocation()));
+                    info(player, "Set spawn " + slot + " for " + args[1] + ".");
+                }
+                case "addmode" -> {
+                    requireArgs(args, 3, "/pvp arena addmode <id> <mode>");
+                    PvpMode mode = PvpMode.from(args[2]).filter(PvpMode::queueable)
+                            .orElseThrow(() -> new IllegalArgumentException("Unknown PvP mode."));
+                    arenas.addMode(args[1], mode);
+                    info(player, "Added " + mode.display() + " to " + args[1] + ".");
+                }
+                case "enable", "disable" -> {
+                    requireArgs(args, 2, "/pvp arena " + action + " <id>");
+                    PvpArenaStore.Arena arena = arenas.setEnabled(args[1], action.equals("enable"));
+                    if (arena.enabled() && java.util.Arrays.stream(PvpMode.values())
+                            .filter(PvpMode::queueable).noneMatch(arena::readyFor)) {
+                        arenas.setEnabled(args[1], false);
+                        throw new IllegalArgumentException(
+                                "Arena is incomplete for its assigned mode(s). It stayed disabled.");
+                    }
+                    info(player, (arena.enabled() ? "Enabled " : "Disabled ") + arena.id() + ".");
+                }
+                case "delete" -> {
+                    requireArgs(args, 3, "/pvp arena delete <id> confirm");
+                    if (!args[2].equalsIgnoreCase("confirm")) throw new IllegalArgumentException(
+                            "Add confirm to delete an arena definition.");
+                    if (arenasInUse.contains(args[1].toLowerCase(Locale.ROOT))) {
+                        throw new IllegalArgumentException("That arena is in use.");
+                    }
+                    arenas.delete(args[1]);
+                    info(player, "Deleted arena definition " + args[1] + ". Blocks were left untouched.");
+                }
+                default -> throw new IllegalArgumentException("Unknown arena action.");
+            }
+        } catch (IllegalArgumentException | java.io.UncheckedIOException failure) {
+            error(player, failure.getMessage());
+        }
+    }
+
+    private void installStarterLobby() {
+        if (stopping || !plugin.isEnabled() || !matches.isEmpty()) return;
+        try {
+            PvpLobbyBuilder.Built built = PvpLobbyBuilder.build(plugin);
+            arenas.installGenerated(built.lobby(), built.arenas());
+            plugin.getLogger().info("Installed generated PvP lobby with "
+                    + built.arenas().size() + " reusable arenas.");
+        } catch (RuntimeException failure) {
+            plugin.getLogger().severe("Could not install the PvP lobby: " + failure.getMessage());
+        }
+    }
+
+    private void loadConfiguredWorld() {
+        String name = arenas.lobby().map(PvpArenaStore.Point::worldName).orElse("");
+        if (PvpLobbyBuilder.WORLD_NAME.equals(name) && Bukkit.getWorld(name) == null) {
+            PvpLobbyBuilder.load(plugin);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onDamage(EntityDamageEvent event) {
+        if (!(event.getEntity() instanceof Player victim)) {
+            if (event instanceof EntityDamageByEntityEvent byEntity) {
+                Player attacker = attackingPlayer(byEntity);
+                if (attacker != null && isParticipant(attacker.getUniqueId())) event.setCancelled(true);
+            }
+            return;
+        }
+        UUID victimId = victim.getUniqueId();
+        if (!isParticipant(victimId) && inLobbyArea(victim.getLocation())) {
+            event.setCancelled(true);
+            return;
+        }
+        if (viewing.containsKey(victimId)) {
+            event.setCancelled(true);
+            return;
+        }
+        Match match = matchByPlayer.get(victimId);
+        if (match == null) {
+            if (event instanceof EntityDamageByEntityEvent byEntity) {
+                Player attacker = attackingPlayer(byEntity);
+                if (attacker != null && isParticipant(attacker.getUniqueId())) event.setCancelled(true);
+            }
+            return;
+        }
+        if (match.phase != Phase.FIGHTING || !match.alive.contains(victimId)) {
+            event.setCancelled(true);
+            return;
+        }
+        UUID source = event instanceof EntityDamageByEntityEvent byEntity
+                ? attackingSource(byEntity) : recentAttacker(match, victimId);
+        if (source != null) {
+            if (!areOpponents(source, victimId) || !match.alive.contains(source)) {
+                event.setCancelled(true);
+                return;
+            }
+            match.lastHitBy.put(victimId, source);
+            match.lastHitAt.put(victimId, System.currentTimeMillis());
+            match.lastAction.put(source, System.currentTimeMillis());
+            match.lastAction.put(victimId, System.currentTimeMillis());
+            match.damage.merge(source, event.getFinalDamage(), Double::sum);
+        }
+        double remaining = victim.getHealth() + victim.getAbsorptionAmount();
+        if (event.getFinalDamage() + 1.0e-6d >= remaining) {
+            event.setCancelled(true);
+            UUID killer = source != null ? source : recentAttacker(match, victimId);
+            plugin.getServer().getScheduler().runTask(plugin,
+                    () -> eliminate(match, victimId, killer, "was eliminated"));
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onDeath(PlayerDeathEvent event) {
+        Match match = matchByPlayer.get(event.getPlayer().getUniqueId());
+        if (match == null || match.phase != Phase.FIGHTING) return;
+        event.setKeepInventory(true);
+        event.setKeepLevel(true);
+        event.setDroppedExp(0);
+        event.getDrops().clear();
+        event.deathMessage(null);
+        UUID victim = event.getPlayer().getUniqueId();
+        UUID killer = recentAttacker(match, victim);
+        plugin.getServer().getScheduler().runTask(plugin,
+                () -> eliminate(match, victim, killer, "was eliminated"));
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onRespawn(PlayerRespawnEvent event) {
+        Player player = event.getPlayer();
+        Match match = matchByPlayer.get(player.getUniqueId());
+        if (match == null) return;
+        Location spectator = match.arena.spectator().resolve();
+        if (spectator != null) event.setRespawnLocation(spectator);
+        plugin.getServer().getScheduler().runTask(plugin, () -> {
+            if (match.eliminated.contains(player.getUniqueId())) prepareEliminated(match, player);
+        });
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onMove(PlayerMoveEvent event) {
+        Player player = event.getPlayer();
+        UUID playerId = player.getUniqueId();
+        Match match = matchByPlayer.get(playerId);
+        if (match == null) match = viewing.get(playerId);
+        if (match != null) {
+            Location anchor = match.assigned.get(playerId);
+            boolean anchored = viewing.containsKey(playerId) || match.eliminated.contains(playerId)
+                    || match.phase != Phase.FIGHTING;
+            if (anchored && anchor != null && movedPosition(event.getFrom(), event.getTo())) {
+                event.setTo(anchor);
+                return;
+            }
+            if (matchByPlayer.containsKey(playerId) && match.phase == Phase.FIGHTING
+                    && match.alive.contains(playerId)) {
+                if (!match.arena.contains(event.getTo())) {
+                    event.setTo(anchor == null ? event.getFrom() : anchor);
+                    player.sendActionBar(Component.text("Stay inside the PvP arena.", NamedTextColor.RED));
+                    return;
+                }
+                if (movedPosition(event.getFrom(), event.getTo())) {
+                    match.lastAction.put(playerId, System.currentTimeMillis());
+                }
+            }
+            return;
+        }
+        if (!movedBlock(event.getFrom(), event.getTo())) return;
+        long now = System.currentTimeMillis();
+        PvpArenaStore.Point lobby = arenas.lobby().orElse(null);
+        Location lobbyAt = lobby == null ? null : lobby.resolve();
+        if (lobbyAt != null && isPvpWorld(event.getPlayer().getWorld())
+                && event.getTo().getY() < lobbyAt.getY() - 8d) {
+            plugin.getServer().getScheduler().runTask(plugin,
+                    () -> teleport(event.getPlayer(), lobbyAt));
+            return;
+        }
+        if (padCooldowns.getOrDefault(playerId, 0L) > now) return;
+        PvpArenaStore.Point portal = arenas.portal().orElse(null);
+        Location portalAt = portal == null ? null : portal.resolve();
+        if (portalAt != null && sameWorld(portalAt, event.getTo())
+                && horizontalSquared(portalAt, event.getTo()) <= arenas.portalRadius() * arenas.portalRadius()
+                && Math.abs(portalAt.getY() - event.getTo().getY()) <= 3d) {
+            padCooldowns.put(playerId, now + PAD_COOLDOWN_MILLIS);
+            plugin.getServer().getScheduler().runTask(plugin, () -> enterLobby(player));
+            return;
+        }
+        PvpMode pad = PvpLobbyBuilder.modePad(lobby, event.getTo());
+        if (pad != null && pad.queueable()) {
+            padCooldowns.put(playerId, now + PAD_COOLDOWN_MILLIS);
+            plugin.getServer().getScheduler().runTask(plugin, () -> openMode(player, pad));
+        } else if (PvpLobbyBuilder.returnPad(lobby, event.getTo())) {
+            padCooldowns.put(playerId, now + PAD_COOLDOWN_MILLIS);
+            plugin.getServer().getScheduler().runTask(plugin, () -> returnToServer(player));
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onTeleport(PlayerTeleportEvent event) {
+        UUID playerId = event.getPlayer().getUniqueId();
+        if (internalTeleports.remove(playerId)) return;
+        if (isParticipant(playerId)) {
+            event.setCancelled(true);
+            event.getPlayer().sendActionBar(Component.text(
+                    "Teleporting is disabled during competitive PvP.", NamedTextColor.RED));
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onCommand(PlayerCommandPreprocessEvent event) {
+        if (!isParticipant(event.getPlayer().getUniqueId())) return;
+        String lower = event.getMessage().strip().toLowerCase(Locale.ROOT);
+        if (lower.equals("/pvp") || lower.startsWith("/pvp ")) return;
+        event.setCancelled(true);
+        error(event.getPlayer(), "Outside commands are disabled during competitive PvP.");
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onDrop(PlayerDropItemEvent event) {
+        if (isParticipant(event.getPlayer().getUniqueId())) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onPickup(EntityPickupItemEvent event) {
+        if (event.getEntity() instanceof Player player && isParticipant(player.getUniqueId())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onInventoryOpen(InventoryOpenEvent event) {
+        if (event.getPlayer() instanceof Player player && isParticipant(player.getUniqueId())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onInventoryClick(InventoryClickEvent event) {
+        if (event.getWhoClicked() instanceof Player player && isParticipant(player.getUniqueId())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onInventoryDrag(InventoryDragEvent event) {
+        if (event.getWhoClicked() instanceof Player player && isParticipant(player.getUniqueId())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onInteract(PlayerInteractEvent event) {
+        if (!isParticipant(event.getPlayer().getUniqueId())) return;
+        Match match = matchByPlayer.get(event.getPlayer().getUniqueId());
+        if (match == null || match.phase != Phase.FIGHTING || !match.alive.contains(event.getPlayer().getUniqueId())) {
+            event.setCancelled(true);
+            return;
+        }
+        if (event.getClickedBlock() != null) event.setUseInteractedBlock(Event.Result.DENY);
+        match.lastAction.put(event.getPlayer().getUniqueId(), System.currentTimeMillis());
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onInteractEntity(PlayerInteractEntityEvent event) {
+        if (isParticipant(event.getPlayer().getUniqueId())) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onProjectile(ProjectileLaunchEvent event) {
+        if (event.getEntity().getShooter() instanceof Player player) {
+            Match match = matchByPlayer.get(player.getUniqueId());
+            if (viewing.containsKey(player.getUniqueId()) || match == null
+                    || match.phase != Phase.FIGHTING || !match.alive.contains(player.getUniqueId())) {
+                if (isParticipant(player.getUniqueId())) event.setCancelled(true);
+            } else {
+                match.lastAction.put(player.getUniqueId(), System.currentTimeMillis());
+            }
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onHunger(FoodLevelChangeEvent event) {
+        if (event.getEntity() instanceof Player player && isParticipant(player.getUniqueId())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onBlockBreak(BlockBreakEvent event) {
+        if (isPvpWorld(event.getBlock().getWorld()) || inLobbyArea(event.getBlock().getLocation())
+                || isParticipant(event.getPlayer().getUniqueId())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onBlockPlace(BlockPlaceEvent event) {
+        if (isPvpWorld(event.getBlock().getWorld()) || inLobbyArea(event.getBlock().getLocation())
+                || isParticipant(event.getPlayer().getUniqueId())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onBlockExplode(BlockExplodeEvent event) {
+        event.blockList().removeIf(block -> activeArenaContains(block.getLocation()));
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onEntityExplode(EntityExplodeEvent event) {
+        event.blockList().removeIf(block -> activeArenaContains(block.getLocation()));
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onChat(AsyncChatEvent event) {
+        UUID playerId = event.getPlayer().getUniqueId();
+        Match match = viewing.get(playerId);
+        if (match == null) {
+            Match fighterMatch = matchByPlayer.get(playerId);
+            if (fighterMatch != null && fighterMatch.eliminated.contains(playerId)) match = fighterMatch;
+        }
+        if (match != null) {
+            event.setCancelled(true);
+            plugin.getServer().getScheduler().runTask(plugin,
+                    () -> error(event.getPlayer(), "Spectator chat is disabled to prevent coaching."));
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onJoin(PlayerJoinEvent event) {
+        UUID playerId = event.getPlayer().getUniqueId();
+        if (recovery.find(playerId).isPresent() && !isParticipant(playerId)) {
+            plugin.getServer().getScheduler().runTask(plugin, () -> recover(event.getPlayer(), true));
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onQuit(PlayerQuitEvent event) {
+        Player player = event.getPlayer();
+        UUID playerId = player.getUniqueId();
+        leaveQueue(playerId, true);
+        Party party = parties.get(playerId);
+        if (party != null) {
+            party.members.remove(playerId);
+            parties.remove(playerId);
+            if (party.members.isEmpty()) {
+                // nothing remains
+            } else if (party.leader.equals(playerId)) {
+                party.leader = party.members.iterator().next();
+            }
+            for (UUID member : party.members) parties.put(member, party);
+        }
+        Match watched = viewing.remove(playerId);
+        if (watched != null) watched.spectators.remove(playerId);
+        Match match = matchByPlayer.get(playerId);
+        if (match == null) return;
+        if (match.phase == Phase.COUNTDOWN) {
+            abortStart(match, "A player disconnected before combat began.");
+        } else if (match.phase == Phase.FIGHTING) {
+            match.rewardBlocked.add(playerId);
+            eliminate(match, playerId, null, "disconnected and forfeited");
+        }
+    }
+
+    void pauseAll(String reason) {
+        for (PvpMode mode : PvpMode.values()) {
+            for (PvpMatchmaking.Entry entry : List.copyOf(queues.getOrDefault(mode, List.of()))) {
+                removeEntry(mode, entry, reason);
+            }
+        }
+        for (Match match : List.copyOf(matches.values())) {
+            if (match.phase == Phase.COUNTDOWN) abortStart(match, reason);
+            else if (match.phase == Phase.FIGHTING) finish(match, List.of(), reason, false);
+        }
+    }
+
+    void stop() {
+        stopping = true;
+        if (clock != null) clock.cancel();
+        clock = null;
+        for (Match match : List.copyOf(matches.values())) {
+            if (match.countdown != null) match.countdown.cancel();
+            if (match.returnTask != null) match.returnTask.cancel();
+            match.phase = Phase.ENDING;
+            for (UUID playerId : match.players) {
+                Player player = Bukkit.getPlayer(playerId);
+                if (player != null) restore(player, false);
+                matchByPlayer.remove(playerId);
+            }
+            for (UUID spectatorId : match.spectators) {
+                Player player = Bukkit.getPlayer(spectatorId);
+                if (player != null) restore(player, false);
+                viewing.remove(spectatorId);
+            }
+            if (match.bar != null) forEachOnline(concat(match.players,
+                    List.copyOf(match.spectators)),
+                    player -> plugin.bossBars().hideExclusive(player, match.bar));
+            cleanupArena(match);
+        }
+        matches.clear();
+        arenasInUse.clear();
+        queues.clear();
+        queuedPlayers.clear();
+        queuedModes.clear();
+        partyInvites.clear();
+        parties.clear();
+        farmGuard.clear();
+    }
+
+    private Optional<PvpArenaStore.Arena> availableArena(PvpMode mode) {
+        return arenas.ready(mode).stream().filter(arena -> !arenasInUse.contains(arena.id())).findFirst();
+    }
+
+    private boolean opponentsAllowed(List<UUID> first, List<UUID> second, long now) {
+        for (UUID left : first) {
+            for (UUID right : second) {
+                if (identities != null && identities.sameOwner(left, right)) return false;
+                if (farmGuard.restRemaining(left, right, now) > 0L) return false;
+            }
+        }
+        return true;
+    }
+
+    private void removeEntry(PvpMode mode, PvpMatchmaking.Entry entry, String message) {
+        List<PvpMatchmaking.Entry> queue = queues.get(mode);
+        if (queue != null) queue.remove(entry);
+        for (UUID member : entry.members()) {
+            queuedPlayers.remove(member);
+            queuedModes.remove(member);
+        }
+        if (message != null) notifyPlayers(entry.members(), message);
+    }
+
+    private static List<UUID> flatten(List<PvpMatchmaking.Entry> entries) {
+        return entries.stream().flatMap(entry -> entry.members().stream()).toList();
+    }
+
+    private static List<UUID> concat(List<UUID> first, List<UUID> second) {
+        List<UUID> all = new ArrayList<>(first);
+        all.addAll(second);
+        return List.copyOf(all);
+    }
+
+    private static boolean playersReady(List<UUID> players) {
+        return players.stream().allMatch(id -> {
+            Player player = Bukkit.getPlayer(id);
+            return player != null && player.isOnline();
+        });
+    }
+
+    private static long aliveOnTeam(Match match, int team) {
+        return match.alive.stream().filter(id -> match.team.get(id) == team).count();
+    }
+
+    private static String teamLabel(Match match, UUID player) {
+        if (match.mode.freeForAll()) return "Every player for themselves";
+        return match.team.get(player) == 0 ? "Team Gold" : "Team Red";
+    }
+
+    private static String winnerText(Match match, List<UUID> winners) {
+        if (match.mode.freeForAll()) return name(winners.get(0)) + " is the last player standing";
+        return (match.team.get(winners.get(0)) == 0 ? "Team Gold" : "Team Red") + " wins";
+    }
+
+    private static String resultLine(Match match, UUID playerId, String reason, String rating) {
+        int kills = match.kills.getOrDefault(playerId, 0);
+        double damage = match.damage.getOrDefault(playerId, 0d);
+        return reason + rating + "  •  " + kills + " kills  •  " + Math.round(damage) + " damage";
+    }
+
+    private static String matchSummary(Match match) {
+        return match.mode.display() + " in " + match.arena.id() + " — " + match.alive.size()
+                + " alive. Use /pvp forfeit to concede.";
+    }
+
+    private UUID recentAttacker(Match match, UUID victim) {
+        long at = match.lastHitAt.getOrDefault(victim, 0L);
+        return System.currentTimeMillis() - at <= 10_000L ? match.lastHitBy.get(victim) : null;
+    }
+
+    private static UUID attackingSource(EntityDamageByEntityEvent event) {
+        Player player = attackingPlayer(event);
+        return player == null ? null : player.getUniqueId();
+    }
+
+    private static Player attackingPlayer(EntityDamageByEntityEvent event) {
+        if (event.getDamager() instanceof Player player) return player;
+        if (event.getDamager() instanceof Projectile projectile
+                && projectile.getShooter() instanceof Player player) return player;
+        if (event.getDamager() instanceof Tameable tameable
+                && tameable.getOwner() instanceof Player player) return player;
+        return null;
+    }
+
+    private WorldBorder personalBorder(Match match, double size) {
+        WorldBorder border = Bukkit.createWorldBorder();
+        PvpArenaStore.Point center = match.arena.center();
+        Location location = center == null ? null : center.resolve();
+        if (location != null) border.setCenter(location);
+        border.setSize(Math.max(1d, size));
+        border.setWarningDistance(5);
+        border.setDamageBuffer(0d);
+        border.setDamageAmount(2d);
+        return border;
+    }
+
+    private boolean teleport(Player player, Location target) {
+        internalTeleports.add(player.getUniqueId());
+        boolean moved = player.teleport(target);
+        if (!moved) internalTeleports.remove(player.getUniqueId());
+        return moved;
+    }
+
+    private static Location origin(PvpDuelStore.Recovery saved) {
+        World world = Bukkit.getWorld(saved.worldId());
+        if (world == null) world = Bukkit.getWorld(saved.worldName());
+        return world == null ? null : new Location(world, saved.x(), saved.y(), saved.z(),
+                saved.yaw(), saved.pitch());
+    }
+
+    private static void clearEffects(Player player) {
+        for (PotionEffect effect : List.copyOf(player.getActivePotionEffects())) {
+            player.removePotionEffect(effect.getType());
+        }
+    }
+
+    private boolean activeArenaContains(Location location) {
+        return matches.values().stream().anyMatch(match -> match.arena.contains(location));
+    }
+
+    private static boolean movedPosition(Location from, Location to) {
+        return to != null && (from.getX() != to.getX() || from.getY() != to.getY()
+                || from.getZ() != to.getZ());
+    }
+
+    private static boolean movedBlock(Location from, Location to) {
+        return to != null && (from.getBlockX() != to.getBlockX() || from.getBlockY() != to.getBlockY()
+                || from.getBlockZ() != to.getBlockZ() || !sameWorld(from, to));
+    }
+
+    private static boolean sameWorld(Location first, Location second) {
+        return first != null && second != null && first.getWorld() != null
+                && first.getWorld().equals(second.getWorld());
+    }
+
+    private static double horizontalSquared(Location first, Location second) {
+        double x = first.getX() - second.getX();
+        double z = first.getZ() - second.getZ();
+        return x * x + z * z;
+    }
+
+    private boolean isPvpWorld(World world) {
+        return world != null && PvpLobbyBuilder.WORLD_NAME.equals(world.getName());
+    }
+
+    private boolean inLobbyArea(Location at) {
+        Location lobby = arenas.lobby().map(PvpArenaStore.Point::resolve).orElse(null);
+        return lobby != null && sameWorld(lobby, at)
+                && horizontalSquared(lobby, at) <= 32d * 32d
+                && Math.abs(lobby.getY() - at.getY()) <= 16d;
+    }
+
+    private int integer(String key) {
+        return plugin.gameVariables().integer(key);
+    }
+
+    private double decimal(String key) {
+        return plugin.gameVariables().decimal(key);
+    }
+
+    private static boolean isAdmin(CommandSender sender) {
+        return sender.isOp() || sender.hasPermission(AdminCommandService.PERMISSION);
+    }
+
+    private static void requireArgs(String[] args, int count, String usage) {
+        if (args.length < count) throw new IllegalArgumentException("Use " + usage + ".");
+    }
+
+    private static double parseDouble(String value, double minimum, double maximum) {
+        try {
+            double parsed = Double.parseDouble(value);
+            return Double.isFinite(parsed) && parsed >= minimum && parsed <= maximum
+                    ? parsed : Double.NaN;
+        } catch (NumberFormatException ignored) {
+            return Double.NaN;
+        }
+    }
+
+    private static String oneDecimal(double value) {
+        return String.format(Locale.ROOT, "%.1f", value);
+    }
+
+    private static String[] slice(String[] args, int start) {
+        if (args.length <= start) return new String[0];
+        return java.util.Arrays.copyOfRange(args, start, args.length);
+    }
+
+    private static List<String> partial(String typed, Collection<String> choices) {
+        String prefix = typed == null ? "" : typed.toLowerCase(Locale.ROOT);
+        return choices.stream().filter(choice -> choice.toLowerCase(Locale.ROOT).startsWith(prefix))
+                .sorted(String.CASE_INSENSITIVE_ORDER).toList();
+    }
+
+    private List<String> adminTabs(String[] original) {
+        String[] args = original;
+        if (args.length > 0 && args[0].equalsIgnoreCase("admin")) args = slice(args, 1);
+        if (args.length == 1) return partial(args[0], List.of("setup", "lobby", "portal", "arena"));
+        if (args.length == 2 && args[0].equalsIgnoreCase("portal")) {
+            return partial(args[1], List.of("set", "remove"));
+        }
+        if (args.length == 2 && args[0].equalsIgnoreCase("lobby")) {
+            return partial(args[1], List.of("set"));
+        }
+        if (args.length == 2 && args[0].equalsIgnoreCase("arena")) {
+            return partial(args[1], List.of("create", "corner1", "corner2", "spectator",
+                    "spawn", "addmode", "enable", "disable", "delete", "list"));
+        }
+        if (args.length == 3 && args[0].equalsIgnoreCase("arena")
+                && List.of("corner1", "corner2", "spectator", "spawn", "addmode", "enable",
+                        "disable", "delete").contains(args[1].toLowerCase(Locale.ROOT))) {
+            return partial(args[2], arenas.all().stream().map(PvpArenaStore.Arena::id).toList());
+        }
+        return List.of();
+    }
+
+    private static String formatSeconds(long seconds) {
+        long minutes = seconds / 60L;
+        long remainder = seconds % 60L;
+        return minutes <= 0L ? remainder + "s" : minutes + "m " + remainder + "s";
+    }
+
+    private static String name(UUID playerId) {
+        Player online = Bukkit.getPlayer(playerId);
+        if (online != null) return online.getName();
+        String stored = Bukkit.getOfflinePlayer(playerId).getName();
+        return stored == null ? playerId.toString().substring(0, 8) : stored;
+    }
+
+    private static Component prefix() {
+        return Component.text("PVP  ", ORANGE, TextDecoration.BOLD);
+    }
+
+    private static void info(Player player, String message) {
+        player.sendMessage(prefix().append(Component.text(message, NamedTextColor.GRAY)));
+    }
+
+    private static void error(Player player, String message) {
+        player.sendMessage(prefix().append(Component.text(message, NamedTextColor.RED)));
+    }
+
+    private static void notifyPlayers(Collection<UUID> players, String message) {
+        forEachOnline(players, player -> info(player, message));
+    }
+
+    private static void notifyMatch(Match match, String message, NamedTextColor colour) {
+        forEachOnline(concat(match.players, List.copyOf(match.spectators)), player ->
+                player.sendMessage(prefix().append(Component.text(message, colour))));
+    }
+
+    private static void forEachOnline(
+            Collection<UUID> players, java.util.function.Consumer<Player> action
+    ) {
+        for (UUID playerId : players) {
+            Player player = Bukkit.getPlayer(playerId);
+            if (player != null && player.isOnline()) action.accept(player);
+        }
+    }
+}

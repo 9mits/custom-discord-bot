@@ -4,7 +4,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.nio.file.Files;
 import java.util.UUID;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -130,5 +134,54 @@ final class PvpRecordStoreTest {
         store.drew(WINNER, LOSER);
         store.settle(LOSER, WINNER, true);
         assertEquals(0.5d, store.of(WINNER).winRate());
+    }
+
+    @Test
+    void privateFightsUpdateStatsWithoutTouchingRating(@TempDir Path folder) throws Exception {
+        PvpRecordStore store = new PvpRecordStore(folder.resolve("records.json"));
+        Map<UUID, PvpRecordStore.RatingChange> changes =
+                store.settleCasual(WINNER, LOSER, true);
+
+        assertEquals(0, changes.get(WINNER).delta());
+        assertEquals(0, store.of(WINNER).rating());
+        assertEquals(1, store.of(WINNER).mode(PvpMode.PRIVATE_DUEL).wins());
+        assertEquals(0, store.of(WINNER).rankedMatches());
+        assertEquals(0d, store.of(WINNER).rankedWinRate());
+    }
+
+    @Test
+    void aRankedTeamResultWritesEveryPlayerAndModeTogether(@TempDir Path folder) throws Exception {
+        Path file = folder.resolve("teams.json");
+        PvpRecordStore store = new PvpRecordStore(file);
+        UUID teammate = UUID.randomUUID();
+        UUID opponent = UUID.randomUUID();
+        UUID opponentMate = UUID.randomUUID();
+        store.settleMatch(PvpMode.DOUBLES,
+                List.of(WINNER, teammate), List.of(opponent, opponentMate),
+                Map.of(WINNER, 2, teammate, 1), Set.of(opponent, opponentMate), true);
+
+        PvpRecordStore reopened = new PvpRecordStore(file);
+        assertEquals(1, reopened.of(WINNER).mode(PvpMode.DOUBLES).wins());
+        assertEquals(2, reopened.of(WINNER).mode(PvpMode.DOUBLES).kills());
+        assertEquals(1, reopened.of(opponent).mode(PvpMode.DOUBLES).losses());
+        assertEquals(1, reopened.of(WINNER).rankedMatches());
+        assertEquals(1d, reopened.of(WINNER).rankedWinRate());
+        assertTrue(reopened.of(WINNER).rating() > 0L);
+    }
+
+    @Test
+    void legacyRatedHistoryStaysRankedAfterANewPrivateFight(@TempDir Path folder) throws Exception {
+        Path file = folder.resolve("legacy.json");
+        Files.writeString(file, "{\"" + WINNER + "\":{\"kills\":4,\"deaths\":2,"
+                + "\"wins\":5,\"losses\":2,\"draws\":1,\"streak\":2,"
+                + "\"best_streak\":3,\"rating\":410,\"best_rank\":\"GOLD_II\"}}");
+        PvpRecordStore store = new PvpRecordStore(file);
+        assertEquals(8, store.of(WINNER).rankedMatches());
+
+        store.settleCasual(WINNER, LOSER, false);
+
+        PvpRecordStore reopened = new PvpRecordStore(file);
+        assertEquals(8, reopened.of(WINNER).rankedMatches());
+        assertEquals(1, reopened.of(WINNER).mode(PvpMode.PRIVATE_DUEL).wins());
     }
 }

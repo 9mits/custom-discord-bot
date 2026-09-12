@@ -75,6 +75,7 @@ record SettingMetadata(
         AMETHYST_MOBS("Amethyst Mobs"),
         EVENT_MULTIPLIERS("Event Multipliers"),
         PVP_DUELS("PvP Duels"),
+        PVP_COMPETITIVE("PvP Competitive"),
         PLAYERS("Players"),
         WORLD("World"),
         CLANS("Clans"),
@@ -257,6 +258,10 @@ record SettingMetadata(
         }
         if (key.startsWith("pvp-duels.") || key.startsWith("pvp-rank-rewards.")) {
             return Group.PVP_DUELS;
+        }
+        if (key.startsWith("pvp-competitive.") || key.startsWith("pvp-ranked.")
+                || key.startsWith("pvp-combat.")) {
+            return Group.PVP_COMPETITIVE;
         }
         if (key.startsWith("afk.") || key.startsWith("rtp.")
                 || key.startsWith("verification.") || key.startsWith("combat.")) {

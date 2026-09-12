@@ -142,6 +142,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private BroadcastDisplayService broadcastDisplayService;
     private TeleportWarmupService teleportWarmups;
     private PvpDuelService pvpDuels;
+    private PvpCompetitionService pvpCompetition;
     private PvpRankRewardService pvpRankRewards;
     private VerificationLobbyService verificationLobby;
     private final BossBarDisplay bossBars = new BossBarDisplay();
@@ -321,12 +322,14 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             AutoPayStore.tuningSource(tuning);
             ChaosTargeting.tuningSource(tuning);
             ActivityFeed.tuningSource(tuning);
+            PvpRank.tuningSource(tuning);
             CustomEnchants.capSource(
                     id -> gameVariables.integer("enchants." + id + ".maximum-level"));
             gameVariables.onChange(key -> {
                 if (key.startsWith("world.") || key.startsWith("spawn.")) {
                     getServer().getScheduler().runTask(this, () -> {
                         for (World world : getServer().getWorlds()) {
+                            if (managedLobbyWorld(world)) continue;
                             applyWorldMemory(world);
                             applyWorldLimits(world);
                             lockWorldSpawn(world);
@@ -563,13 +566,33 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
+        try {
+            pvpCompetition = new PvpCompetitionService(
+                    this, economyStore, clientSupport, bedrockForms, identityService,
+                    clanStore, perkService, pvpRecords,
+                    getDataFolder().toPath().resolve("pvp-arenas.json"),
+                    getDataFolder().toPath().resolve("pvp-clan-records.json"),
+                    getDataFolder().toPath().resolve("pvp-competitive-recovery.json")
+            );
+        } catch (java.io.IOException exception) {
+            getLogger().severe("MGXAccessBridge could not open competitive PvP data: "
+                    + exception.getMessage());
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        }
+        pvpDuels.useCompetition(pvpCompetition);
+        perkService.useCompetitivePlayers(pvpCompetition::isFighter);
         getCommand("pvp").setExecutor(pvpDuels);
         getCommand("pvp").setTabCompleter(pvpDuels);
-        pvpRankRewards.useBusyPlayers(pvpDuels::isParticipant);
+        pvpRankRewards.useBusyPlayers(playerId -> pvpDuels.isParticipant(playerId)
+                || pvpCompetition.busy(playerId));
         getServer().getPluginManager().registerEvents(pvpDuels, this);
         gameVariables.onChange(key -> {
             if (key.equals("pvp-duels.enabled") && !gameVariables.bool(key)) {
                 pvpDuels.pauseAll("/pvp was disabled — stakes returned");
+            }
+            if (key.equals("pvp-competitive.enabled") && !gameVariables.bool(key)) {
+                pvpCompetition.pauseAll("Competitive PvP was disabled.");
             }
         });
         installQuickMenuDatapack();
@@ -670,6 +693,12 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(specialItems, this);
         getServer().getPluginManager().registerEvents(amethystItems, this);
         getServer().getPluginManager().registerEvents(amethystDragon, this);
+        // Registered after every custom weapon modifier. The damage cap sees the
+        // value a victim would really receive, then the competition handler records
+        // and resolves that balanced hit.
+        getServer().getPluginManager().registerEvents(
+                new PvpCombatBalanceService(gameVariables), this);
+        getServer().getPluginManager().registerEvents(pvpCompetition, this);
         getCommand("dragonportal").setExecutor(amethystDragon);
         getCommand("dragonportal").setTabCompleter(amethystDragon);
         getServer().getPluginManager().registerEvents(enderChests, this);
@@ -1031,6 +1060,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         }
         if (teleportWarmups != null) {
             teleportWarmups.stop();
+        }
+        if (pvpCompetition != null) {
+            pvpCompetition.stop();
         }
         if (pvpDuels != null) {
             pvpDuels.stop();
@@ -1427,15 +1459,22 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         return launchService.pvpStatus() + duels;
     }
 
-    /** True only while this player is one of the two accepted duel fighters. */
+    /** True while this player is fighting in either private or competitive PvP. */
     boolean inPvpDuel(Player player) {
-        return pvpDuels != null && pvpDuels.isFighter(player.getUniqueId());
+        return (pvpDuels != null && pvpDuels.isFighter(player.getUniqueId()))
+                || (pvpCompetition != null && pvpCompetition.isFighter(player.getUniqueId()));
     }
 
-    /** Whether two players explicitly accepted the same arranged PvP fight. */
+    /** Whether two players are opponents in the same private or competitive fight. */
     boolean arePvpOpponents(Player first, Player second) {
-        return pvpDuels != null && pvpDuels.areOpponents(
-                first.getUniqueId(), second.getUniqueId());
+        return (pvpDuels != null && pvpDuels.areOpponents(
+                first.getUniqueId(), second.getUniqueId()))
+                || (pvpCompetition != null && pvpCompetition.areOpponents(
+                first.getUniqueId(), second.getUniqueId()));
+    }
+
+    boolean inCompetitivePvp(Player player) {
+        return pvpCompetition != null && pvpCompetition.isFighter(player.getUniqueId());
     }
 
     BossBarDisplay bossBars() {
@@ -2078,7 +2117,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
 
     private void lockLoadedWorldSpawns() {
         for (World world : getServer().getWorlds()) {
-            if (VerificationLobbyService.isLobbyWorld(world)) {
+            if (managedLobbyWorld(world)) {
                 continue;
             }
             lockWorldSpawn(world);
@@ -2090,7 +2129,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     }
 
     private void lockWorldSpawn(World world) {
-        if (world.getEnvironment() != World.Environment.NORMAL) {
+        if (world.getEnvironment() != World.Environment.NORMAL || managedLobbyWorld(world)) {
             return;
         }
         // The lock stays; what it locks to is now configurable. Moving spawn from the
@@ -2211,7 +2250,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
 
     @EventHandler
     public void onWorldLoad(WorldLoadEvent event) {
-        if (VerificationLobbyService.isLobbyWorld(event.getWorld())) {
+        if (managedLobbyWorld(event.getWorld())) {
             return;
         }
         lockWorldSpawn(event.getWorld());
@@ -2244,7 +2283,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
 
     @EventHandler(ignoreCancelled = true)
     public void onSpawnChange(SpawnChangeEvent event) {
-        if (VerificationLobbyService.isLobbyWorld(event.getWorld())) {
+        if (managedLobbyWorld(event.getWorld())) {
             return;
         }
         lockWorldSpawn(event.getWorld());
@@ -2257,7 +2296,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         if (world == null || world.getEnvironment() != World.Environment.NORMAL) {
             return;
         }
-        if (VerificationLobbyService.isLobbyWorld(world)) {
+        if (managedLobbyWorld(world)) {
             return;
         }
         Location spawn = exactWorldSpawn(world);
@@ -2288,6 +2327,10 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             return;
         }
         World world = event.getRespawnLocation().getWorld();
+        if (world != null && PvpLobbyBuilder.WORLD_NAME.equals(world.getName())) {
+            event.setRespawnLocation(world.getSpawnLocation());
+            return;
+        }
         if (world == null || world.getEnvironment() != World.Environment.NORMAL) {
             world = getServer().getWorlds().isEmpty() ? null : getServer().getWorlds().get(0);
         }
@@ -2296,6 +2339,11 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             loadChunk(spawn);
             event.setRespawnLocation(spawn);
         }
+    }
+
+    private static boolean managedLobbyWorld(World world) {
+        return VerificationLobbyService.isLobbyWorld(world)
+                || (world != null && PvpLobbyBuilder.WORLD_NAME.equals(world.getName()));
     }
 
     /**

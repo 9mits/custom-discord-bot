@@ -422,7 +422,8 @@ final class HologramService {
                 .append(Component.text(" " + row.username() + ": ", NamedTextColor.WHITE))
                 .append(Component.text(record.rank().display(), ORANGE))
                 .append(Component.text("  " + record.rating() + " RP", NamedTextColor.WHITE))
-                .append(Component.text("  " + record.wins() + "W " + record.losses() + "L",
+                .append(Component.text("  " + record.rankedWins() + "W "
+                                + record.rankedLosses() + "L",
                         NamedTextColor.GRAY));
     }
 

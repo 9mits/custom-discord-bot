@@ -139,6 +139,17 @@ final class PvpDuelSafetyTest {
     }
 
     @Test
+    void privateFightStatsUseFinalBalancedDamage() throws Exception {
+        String source = source();
+        int resolved = source.indexOf("public void onResolvedDuelDamage(");
+        assertTrue(resolved > 0);
+        String handler = source.substring(source.lastIndexOf("@EventHandler", resolved),
+                source.indexOf("\n    }", resolved));
+        assertTrue(handler.contains("EventPriority.MONITOR"));
+        assertTrue(handler.contains("event.getFinalDamage()"));
+    }
+
+    @Test
     void openWorldToggleDoesNotDisableArrangedFights() throws Exception {
         String plugin = Files.readString(SOURCE.getParent().resolve("MGXAccessBridge.java"),
                 StandardCharsets.UTF_8);
@@ -392,6 +403,10 @@ final class PvpDuelSafetyTest {
             for (Path file : files.filter(path -> path.toString().endsWith(".java")).toList()) {
                 if (file.getFileName().toString().equals("BossBarDisplay.java")) continue;
                 String candidate = Files.readString(file, StandardCharsets.UTF_8);
+                if (file.getFileName().toString().equals("PvpCompetitionService.java")) {
+                    assertTrue(candidate.contains("plugin.bossBars().showExclusive"));
+                    assertTrue(candidate.contains("plugin.bossBars().hideExclusive"));
+                }
                 assertFalse(candidate.contains(".showBossBar("), file + " bypasses the boss-bar gate");
                 assertFalse(candidate.contains(".hideBossBar("), file + " bypasses the boss-bar gate");
             }
@@ -404,7 +419,7 @@ final class PvpDuelSafetyTest {
         String rules = source.substring(
                 source.indexOf("private void openRules(Player player)"),
                 source.indexOf("private void openTargets(Player player)"));
-        assertTrue(rules.contains("Anti-farming checks protect the ranked ladder."));
+        assertTrue(rules.contains("Anti-farming checks protect records, wagers and rematches."));
         assertFalse(rules.contains("linked accounts"));
         assertFalse(rules.contains("repeatOpponentLimit()"));
         assertFalse(rules.contains("repeatOpponentRestMillis()"));
@@ -513,8 +528,8 @@ final class PvpDuelSafetyTest {
         assertTrue(board.contains("PvP Kills"));
 
         String source = source();
-        assertTrue(source.contains("duelRecords.settle(winnerId, fight.opponent(winnerId),"));
-        assertTrue(source.contains("duelRecords.drew(fight.first, fight.second)"));
+        assertTrue(source.contains("duelRecords.settleCasual(winnerId, fight.opponent(winnerId),"));
+        assertTrue(source.contains("duelRecords.drewCasual(fight.first, fight.second)"));
         // A surrender is a win, not a kill.
         assertTrue(source.contains("ending == Ending.KILL"));
         assertTrue(source.contains("player.getName() + \" gave up\", Ending.SURRENDER"));
@@ -533,11 +548,14 @@ final class PvpDuelSafetyTest {
         String store = Files.readString(SOURCE.getParent().resolve("PvpRecordStore.java"),
                 StandardCharsets.UTF_8);
         String settle = store.substring(
-                store.indexOf("synchronized Map<UUID, RatingChange> settle("),
-                store.indexOf("synchronized Map<UUID, RatingChange> drew("));
+                store.indexOf("synchronized Map<UUID, RatingChange> settleMatch("),
+                store.indexOf("synchronized Map<UUID, RatingChange> drawMatch("));
         // Both ratings are read before either is written, or every result inflates.
-        assertTrue(settle.indexOf("Record loser = of(loserId)")
-                < settle.indexOf("records.put(winnerId"));
+        assertTrue(settle.indexOf("long winnerAverage = averageRating(winners)")
+                < settle.indexOf("records.put(winner"));
+        assertTrue(settle.indexOf("long loserAverage = averageRating(losers)")
+                < settle.indexOf("records.put(winner"));
+        assertTrue(settle.contains("rated ? PvpRank.change"));
 
         String source = source();
         assertTrue(source.contains("rankChangeEffect(player, result.rating())"));

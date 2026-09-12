@@ -23,7 +23,7 @@ enum MainMenu {
     WARPS("Warps", "warp", "Public places worth knowing.", Material.LODESTONE, "block/lodestone_top"),
     TELEPORT("Teleport", "tpmenu", "Ask to teleport to another player.", Material.ENDER_PEARL, "item/ender_pearl"),
     RTP("Random Teleport", "rtp", "Drop somewhere new in the wild.", Material.COMPASS, "item/compass_00"),
-    PVP("PvP", "pvp", "Fight another player with KEEP INVENTORY.", Material.DIAMOND_SWORD, "item/diamond_sword"),
+    PVP("PvP", "pvp", "Queue for fair competitive modes or open a private fight.", Material.DIAMOND_SWORD, "item/diamond_sword"),
     CLANS("Clans", "clans", "Browse clans, or manage your own clan.", Material.IRON_CHESTPLATE, "item/iron_chestplate"),
     LEADERBOARDS("Leaderboards", "leaderboard", "Who is winning, and at what.", Material.GOLD_BLOCK, "block/gold_block"),
     STATS("Stats", "stats", "Your numbers, and anyone else's.", Material.BOOK, "item/book"),

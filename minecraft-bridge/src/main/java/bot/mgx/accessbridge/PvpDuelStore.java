@@ -51,14 +51,22 @@ final class PvpDuelStore {
             int heldSlot,
             long balanceBefore,
             String encodedStake,
-            String encodedInventory
+            String encodedInventory,
+            String encodedEffects,
+            int level,
+            float experience,
+            int totalExperience,
+            boolean collidable,
+            boolean invisible,
+            boolean canPickupItems
     ) {
         Recovery settled(long currentBalance) {
             return new Recovery(
                     duelId, role, worldId, worldName, x, y, z, yaw, pitch, gameMode,
                     invulnerable, allowFlight, flying, health, food, saturation,
                     exhaustion, fireTicks, fallDistance, remainingAir, heldSlot,
-                    currentBalance, "", encodedInventory
+                    currentBalance, "", encodedInventory, encodedEffects,
+                    level, experience, totalExperience, collidable, invisible, canPickupItems
             );
         }
     }
@@ -156,7 +164,14 @@ final class PvpDuelStore {
                 value.get("held_slot").getAsInt(),
                 value.get("balance_before").getAsLong(),
                 value.has("stake") ? value.get("stake").getAsString() : "",
-                value.has("inventory") ? value.get("inventory").getAsString() : ""
+                value.has("inventory") ? value.get("inventory").getAsString() : "",
+                value.has("effects") ? value.get("effects").getAsString() : "",
+                value.has("level") ? value.get("level").getAsInt() : 0,
+                value.has("experience") ? value.get("experience").getAsFloat() : 0f,
+                value.has("total_experience") ? value.get("total_experience").getAsInt() : 0,
+                !value.has("collidable") || value.get("collidable").getAsBoolean(),
+                value.has("invisible") && value.get("invisible").getAsBoolean(),
+                !value.has("can_pickup_items") || value.get("can_pickup_items").getAsBoolean()
         );
     }
 
@@ -188,6 +203,13 @@ final class PvpDuelStore {
             value.addProperty("balance_before", recovery.balanceBefore());
             value.addProperty("stake", recovery.encodedStake());
             value.addProperty("inventory", recovery.encodedInventory());
+            value.addProperty("effects", recovery.encodedEffects());
+            value.addProperty("level", recovery.level());
+            value.addProperty("experience", recovery.experience());
+            value.addProperty("total_experience", recovery.totalExperience());
+            value.addProperty("collidable", recovery.collidable());
+            value.addProperty("invisible", recovery.invisible());
+            value.addProperty("can_pickup_items", recovery.canPickupItems());
             root.add(playerId.toString(), value);
         });
         try {

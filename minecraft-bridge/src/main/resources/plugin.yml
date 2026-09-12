@@ -138,8 +138,8 @@ commands:
     aliases: [tpr]
     permission: mgx.rtp
   pvp:
-    description: Arrange a keep-inventory fight with another player.
-    usage: /pvp [challenge|accept|decline|spectate|leave|giveup] [player]
+    description: Enter competitive PvP queues, parties, arenas, statistics, and private fights.
+    usage: /pvp [queue|party|stats|rankings|spectate|lobby|private|leave]
     aliases: [duel]
     permission: mgx.pvp
   mgx:
@@ -182,7 +182,7 @@ permissions:
     description: Allows players to use random teleport.
     default: true
   mgx.pvp:
-    description: Allows players to arrange and watch PvP fights.
+    description: Allows players to queue, play, arrange, and watch PvP fights.
     default: true
   mgxaccessbridge.admin:
     description: Allows rank holds, administrative data resets, and joining while the server is held for maintenance when granted explicitly in LuckPerms.
