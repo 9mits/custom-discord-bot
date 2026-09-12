@@ -138,7 +138,7 @@ commands:
     aliases: [tpr]
     permission: mgx.rtp
   pvp:
-    description: Enter competitive PvP queues, parties, arenas, statistics, and private fights.
+    description: Fight with your own survival gear in private challenges or matchmaking queues.
     usage: /pvp [queue|party|stats|rankings|spectate|lobby|private|leave]
     aliases: [duel]
     permission: mgx.pvp

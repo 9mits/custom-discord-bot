@@ -117,7 +117,7 @@ rtp:
   attempts: 24
 
 # Private /pvp challenges use untouched real Overworld terrain and return everyone
-# afterwards. Competitive queues, kits, ratings, rewards, and arena timing live in
+# afterwards. Competitive queues, scaled arena borders, ratings, rewards, and timing live in
 # the live GameVariableStore instead of this restart-bound file.
 # Cash is per player; either private fighter may wager items and wardrobe cosmetics.
 pvp-duels:

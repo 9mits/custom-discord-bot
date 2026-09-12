@@ -18,14 +18,9 @@ import org.bukkit.World;
 import org.bukkit.WorldBorder;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.block.Block;
-import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
-import org.bukkit.entity.Entity;
-import org.bukkit.entity.Item;
+import org.bukkit.entity.EnderPearl;
 import org.bukkit.entity.Player;
-import org.bukkit.entity.Projectile;
-import org.bukkit.entity.Tameable;
-import org.bukkit.event.Event;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
@@ -46,13 +41,13 @@ import org.bukkit.event.player.PlayerCommandPreprocessEvent;
 import org.bukkit.event.player.PlayerDropItemEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.player.PlayerItemConsumeEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.scheduler.BukkitTask;
 
@@ -74,13 +69,13 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * Queue-driven PvP: fair loadouts, concurrent configured arenas, teams, FFA,
+ * Queue-driven PvP over the original survival-inventory /pvp arena engine: teams, FFA,
  * anchored spectating, durable recovery, rating, mode records, and conservative
  * economy rewards.
  *
- * <p>The older {@link PvpDuelService} remains the private survival-inventory wager
- * path. It delegates the main {@code /pvp} experience here so private agreements can
- * never be used to farm the competitive ladder.
+ * <p>{@link PvpDuelService} owns the real-world ring, terrain rollback and chunk
+ * lifecycle for both private and queued fights. This class adds only the queue,
+ * teams, mode results and lobby extension around that existing system.
  */
 final class PvpCompetitionService implements Listener {
     private static final TextColor ORANGE = TextColor.color(0xFF9900);
@@ -88,7 +83,7 @@ final class PvpCompetitionService implements Listener {
     private static final long PAD_COOLDOWN_MILLIS = 1_500L;
     private static final List<String> PLAYER_COMMANDS = List.of(
             "queue", "leave", "status", "party", "lobby", "return", "spectate",
-            "stats", "rankings", "rewards", "private", "forfeit", "giveup"
+            "live", "stats", "rankings", "rewards", "private", "forfeit", "giveup"
     );
 
     private enum Phase { COUNTDOWN, FIGHTING, AFTERMATH, ENDING }
@@ -105,10 +100,16 @@ final class PvpCompetitionService implements Listener {
 
     private record PartyInvite(UUID leader, long expiresAt) { }
 
+    private record PendingStart(PvpMode mode, List<UUID> players) {
+        PendingStart {
+            players = List.copyOf(players);
+        }
+    }
+
     private static final class Match {
         final UUID id = UUID.randomUUID();
         final PvpMode mode;
-        final PvpArenaStore.Arena arena;
+        final PvpDuelService.PreparedArena arena;
         final List<UUID> first;
         final List<UUID> second;
         final List<UUID> players;
@@ -129,12 +130,13 @@ final class PvpCompetitionService implements Listener {
         long fightingSince;
         long endsAt;
         long nextShrinkAt;
+        long nextArenaSweepAt;
         double borderSize;
         boolean shrinkWarned;
         BukkitTask countdown;
         BukkitTask returnTask;
 
-        Match(PvpMode mode, PvpArenaStore.Arena arena, List<UUID> first, List<UUID> second) {
+        Match(PvpMode mode, PvpDuelService.PreparedArena arena, List<UUID> first, List<UUID> second) {
             this.mode = mode;
             this.arena = arena;
             this.first = List.copyOf(first);
@@ -149,14 +151,14 @@ final class PvpCompetitionService implements Listener {
     }
 
     private final MGXAccessBridge plugin;
+    private final PvpDuelService duels;
     private final EconomyStore economy;
     private final SettingsClientSupport clientSupport;
     private final BedrockForms forms;
     private final DiscordIdentityService identities;
     private final ClanStore clans;
-    private final PlayerPerkService perks;
     private final PvpRecordStore records;
-    private final PvpArenaStore arenas;
+    private final PvpLobbyStore lobbyStore;
     private final PvpClanRecordStore clanRecords;
     private final PvpDuelStore recovery;
     private final Map<PvpMode, List<PvpMatchmaking.Entry>> queues = new EnumMap<>(PvpMode.class);
@@ -167,39 +169,42 @@ final class PvpCompetitionService implements Listener {
     private final Map<UUID, Match> matches = new LinkedHashMap<>();
     private final Map<UUID, Match> matchByPlayer = new HashMap<>();
     private final Map<UUID, Match> viewing = new HashMap<>();
-    private final Set<String> arenasInUse = new HashSet<>();
+    private final Map<UUID, PendingStart> preparing = new HashMap<>();
     private final Set<UUID> internalTeleports = new HashSet<>();
     private final Map<UUID, Long> padCooldowns = new HashMap<>();
+    private final Map<UUID, Location> lobbyOrigins = new HashMap<>();
     private final PvpFarmGuard farmGuard = new PvpFarmGuard();
     private BukkitTask clock;
     private boolean stopping;
 
     PvpCompetitionService(
             MGXAccessBridge plugin,
+            PvpDuelService duels,
             EconomyStore economy,
             SettingsClientSupport clientSupport,
             BedrockForms forms,
             DiscordIdentityService identities,
             ClanStore clans,
-            PlayerPerkService perks,
             PvpRecordStore records,
-            java.nio.file.Path arenaFile,
+            java.nio.file.Path lobbyFile,
             java.nio.file.Path clanRecordFile,
             java.nio.file.Path recoveryFile
     ) throws IOException {
         this.plugin = plugin;
+        this.duels = duels;
         this.economy = economy;
         this.clientSupport = clientSupport;
         this.forms = forms;
         this.identities = identities;
         this.clans = clans;
-        this.perks = perks;
         this.records = records;
-        this.arenas = new PvpArenaStore(arenaFile);
+        // Keep the legacy filename so version 8.0.0 lobby/portal coordinates migrate
+        // in place; PvpLobbyStore deliberately ignores its obsolete arena array.
+        this.lobbyStore = new PvpLobbyStore(lobbyFile);
         this.clanRecords = new PvpClanRecordStore(clanRecordFile);
         this.recovery = new PvpDuelStore(recoveryFile);
         loadConfiguredWorld();
-        if (arenas.lobby().isEmpty() && arenas.all().isEmpty()) {
+        if (lobbyStore.needsLobbyBuild()) {
             plugin.getServer().getScheduler().runTaskLater(plugin, this::installStarterLobby, 40L);
         }
         clock = plugin.getServer().getScheduler().runTaskTimer(plugin, this::tick, 20L, 20L);
@@ -218,7 +223,8 @@ final class PvpCompetitionService implements Listener {
     }
 
     boolean busy(UUID playerId) {
-        return isParticipant(playerId) || queuedPlayers.containsKey(playerId);
+        return isParticipant(playerId) || queuedPlayers.containsKey(playerId)
+                || preparing.containsKey(playerId);
     }
 
     boolean areOpponents(UUID first, UUID second) {
@@ -235,10 +241,20 @@ final class PvpCompetitionService implements Listener {
             return true;
         }
         if (args.length == 0) {
-            openHub(player);
-            return true;
+            if (queuedPlayers.containsKey(player.getUniqueId())
+                    || preparing.containsKey(player.getUniqueId())) {
+                openQueueStatus(player);
+                return true;
+            }
+            return false;
         }
         String root = args[0].toLowerCase(Locale.ROOT);
+        if ((queuedPlayers.containsKey(player.getUniqueId())
+                || preparing.containsKey(player.getUniqueId()))
+                && !List.of("leave", "status", "return", "exit").contains(root)) {
+            openQueueStatus(player);
+            return true;
+        }
         switch (root) {
             case "queue", "play" -> {
                 if (args.length < 2) openModes(player);
@@ -283,15 +299,17 @@ final class PvpCompetitionService implements Listener {
                 return true;
             }
             case "spectate", "watch" -> {
-                if (args.length >= 2) spectate(player, args[1]);
-                else openLive(player);
+                if (args.length < 2) return false;
+                Player target = Bukkit.getPlayerExact(args[1]);
+                if (target == null || !matchByPlayer.containsKey(target.getUniqueId())) return false;
+                spectate(player, target.getName());
+                return true;
+            }
+            case "live", "matches" -> {
+                openLive(player);
                 return true;
             }
             case "portal" -> {
-                handleAdmin(player, args);
-                return true;
-            }
-            case "arena" -> {
                 handleAdmin(player, args);
                 return true;
             }
@@ -315,7 +333,7 @@ final class PvpCompetitionService implements Listener {
     List<String> tabComplete(CommandSender sender, String[] args) {
         if (args.length == 1) {
             List<String> roots = new ArrayList<>(PLAYER_COMMANDS);
-            if (isAdmin(sender)) roots.addAll(List.of("portal", "arena", "admin"));
+            if (isAdmin(sender)) roots.addAll(List.of("portal", "admin"));
             return partial(args[0], roots);
         }
         if (args.length == 2 && List.of("queue", "play").contains(args[0].toLowerCase(Locale.ROOT))) {
@@ -330,9 +348,6 @@ final class PvpCompetitionService implements Listener {
         if (args.length == 3 && args[0].equalsIgnoreCase("party")
                 && List.of("invite", "kick").contains(args[1].toLowerCase(Locale.ROOT))) {
             return partial(args[2], Bukkit.getOnlinePlayers().stream().map(Player::getName).toList());
-        }
-        if (args.length == 2 && args[0].equalsIgnoreCase("spectate")) {
-            return partial(args[1], matchByPlayer.keySet().stream().map(PvpCompetitionService::name).toList());
         }
         if (isAdmin(sender)) return adminTabs(args);
         return List.of();
@@ -380,12 +395,6 @@ final class PvpCompetitionService implements Listener {
             recover(player, true);
             return;
         }
-        List<PvpArenaStore.Arena> ready = arenas.ready(mode);
-        if (ready.isEmpty()) {
-            error(player, "No enabled " + mode.display() + " arena is ready yet.");
-            return;
-        }
-
         Party party = parties.get(playerId);
         List<UUID> members = party == null ? List.of(playerId) : List.copyOf(party.members);
         if (party != null && !party.leader.equals(playerId)) {
@@ -430,6 +439,10 @@ final class PvpCompetitionService implements Listener {
                 error(player, name(memberId) + " cannot queue from their current mode.");
                 return;
             }
+            if (plugin.afkService() != null && plugin.afkService().inCombat(member)) {
+                error(player, name(memberId) + " must finish their current combat tag first.");
+                return;
+            }
         }
         UUID clanId = mode.clan() ? clans.clanOf(playerId).orElseThrow().id() : null;
         long totalRating = members.stream().mapToLong(id -> records.of(id).rating()).sum();
@@ -452,7 +465,14 @@ final class PvpCompetitionService implements Listener {
 
     private boolean leaveQueue(UUID playerId, boolean announce) {
         PvpMatchmaking.Entry entry = queuedPlayers.get(playerId);
-        if (entry == null) return false;
+        if (entry == null) {
+            PendingStart pending = preparing.get(playerId);
+            if (pending == null) return false;
+            clearPending(pending);
+            if (announce) notifyPlayers(pending.players(),
+                    "The " + pending.mode().display() + " match preparation was cancelled.");
+            return true;
+        }
         PvpMode mode = queuedModes.get(playerId);
         List<PvpMatchmaking.Entry> queue = mode == null ? null : queues.get(mode);
         if (queue != null) queue.remove(entry);
@@ -469,6 +489,7 @@ final class PvpCompetitionService implements Listener {
 
     private void tick() {
         long now = System.currentTimeMillis();
+        lobbyStore.lobby().ifPresent(PvpLobbyBuilder::pulse);
         partyInvites.entrySet().removeIf(row -> row.getValue().expiresAt() <= now);
         validateQueues();
         for (PvpMode mode : PvpMode.values()) {
@@ -499,7 +520,7 @@ final class PvpCompetitionService implements Listener {
 
     private void tryMatch(PvpMode mode, long now) {
         if (!enabled()) return;
-        while (availableArena(mode).isPresent()) {
+        while (true) {
             List<PvpMatchmaking.Entry> queue = queues.getOrDefault(mode, List.of());
             if (queue.isEmpty()) return;
             if (mode.freeForAll()) {
@@ -518,9 +539,7 @@ final class PvpCompetitionService implements Listener {
                     (first, second) -> opponentsAllowed(first, second, now)
             );
             if (plan.isEmpty()) return;
-            PvpArenaStore.Arena arena = availableArena(mode).orElse(null);
-            if (arena == null) return;
-            startPlan(mode, arena, plan.get().firstEntries(), plan.get().secondEntries());
+            startPlan(mode, plan.get().firstEntries(), plan.get().secondEntries());
         }
     }
 
@@ -534,9 +553,7 @@ final class PvpCompetitionService implements Listener {
                 if (left.clanId() != null && right.clanId() != null
                         && !left.clanId().equals(right.clanId())
                         && opponentsAllowed(left.members(), right.members(), now)) {
-                    PvpArenaStore.Arena arena = availableArena(mode).orElse(null);
-                    if (arena == null) return false;
-                    startPlan(mode, arena, List.of(left), List.of(right));
+                    startPlan(mode, List.of(left), List.of(right));
                     return true;
                 }
             }
@@ -560,26 +577,22 @@ final class PvpCompetitionService implements Listener {
             if (!blockedPair) selected.add(candidate);
         }
         if (selected.size() < minimum) return false;
-        PvpArenaStore.Arena arena = availableArena(mode).orElse(null);
-        if (arena == null) return false;
         List<UUID> first = selected.stream().flatMap(entry -> entry.members().stream()).toList();
-        startPlan(mode, arena, selected, List.of(), first, List.of());
+        startPlan(mode, selected, List.of(), first, List.of());
         return true;
     }
 
     private void startPlan(
             PvpMode mode,
-            PvpArenaStore.Arena arena,
             List<PvpMatchmaking.Entry> firstEntries,
             List<PvpMatchmaking.Entry> secondEntries
     ) {
-        startPlan(mode, arena, firstEntries, secondEntries,
+        startPlan(mode, firstEntries, secondEntries,
                 flatten(firstEntries), flatten(secondEntries));
     }
 
     private void startPlan(
             PvpMode mode,
-            PvpArenaStore.Arena arena,
             List<PvpMatchmaking.Entry> firstEntries,
             List<PvpMatchmaking.Entry> secondEntries,
             List<UUID> first,
@@ -592,19 +605,43 @@ final class PvpCompetitionService implements Listener {
             notifyPlayers(concat(first, second), "The match could not start because somebody left.");
             return;
         }
-        startMatch(mode, arena, first, second);
+        List<UUID> all = concat(first, second);
+        PendingStart pending = new PendingStart(mode, all);
+        for (UUID playerId : all) preparing.put(playerId, pending);
+        List<Player> firstPlayers = first.stream().map(Bukkit::getPlayer)
+                .filter(java.util.Objects::nonNull).toList();
+        List<Player> secondPlayers = second.stream().map(Bukkit::getPlayer)
+                .filter(java.util.Objects::nonNull).toList();
+        duels.prepareCompetitiveArena(mode, firstPlayers, secondPlayers,
+                arena -> {
+                    boolean current = all.stream().allMatch(id -> preparing.get(id) == pending);
+                    clearPending(pending);
+                    if (!current || !playersReady(all)) {
+                        duels.discardCompetitiveArena(arena);
+                        if (current) notifyPlayers(all,
+                                "The match could not start because somebody left.");
+                        return;
+                    }
+                    startMatch(mode, arena, first, second);
+                }, reason -> {
+                    boolean current = all.stream().anyMatch(id -> preparing.get(id) == pending);
+                    clearPending(pending);
+                    if (current) notifyPlayers(all, reason);
+                });
     }
 
     private void startMatch(
-            PvpMode mode, PvpArenaStore.Arena arena, List<UUID> first, List<UUID> second
+            PvpMode mode, PvpDuelService.PreparedArena arena, List<UUID> first, List<UUID> second
     ) {
         Match match = new Match(mode, arena, first, second);
         List<UUID> all = match.players;
+        duels.activateCompetitiveArena(arena, all);
         Map<UUID, PvpDuelStore.Recovery> snapshots = new LinkedHashMap<>();
         for (UUID playerId : all) {
             Player player = Bukkit.getPlayer(playerId);
             if (player == null || recovery.find(playerId).isPresent()) {
                 notifyPlayers(all, "The match could not save every player's state.");
+                duels.releaseCompetitiveArena(arena.id());
                 return;
             }
             snapshots.put(playerId, snapshot(match.id, PvpDuelStore.Role.FIGHTER, player));
@@ -614,10 +651,10 @@ final class PvpCompetitionService implements Listener {
         } catch (RuntimeException failure) {
             plugin.getLogger().warning("Could not save competitive PvP recovery: " + failure.getMessage());
             notifyPlayers(all, "The match could not safely save player inventories.");
+            duels.releaseCompetitiveArena(arena.id());
             return;
         }
         matches.put(match.id, match);
-        arenasInUse.add(arena.id());
         for (UUID playerId : all) matchByPlayer.put(playerId, match);
         for (UUID playerId : all) {
             Player player = Bukkit.getPlayer(playerId);
@@ -626,14 +663,14 @@ final class PvpCompetitionService implements Listener {
                     : (match.team.get(playerId) == 0 ? second.stream() : first.stream()))
                     .map(PvpCompetitionService::name).reduce((a, b) -> a + ", " + b)
                     .orElse("the field");
-            info(player, "MATCH FOUND — " + mode.display() + " in " + arena.id()
-                    + ". Opponent" + (opponents.contains(",") ? "s: " : ": ") + opponents + ".");
+            info(player, "Match found — " + mode.display() + ". Opponent"
+                    + (opponents.contains(",") ? "s: " : ": ") + opponents + ".");
         }
         try {
             int slot = 0;
             for (UUID playerId : all) {
                 Player player = Bukkit.getPlayer(playerId);
-                Location start = arena.spawns().get(slot++).resolve();
+                Location start = arena.spawns().get(slot++);
                 if (player == null || start == null || !prepareFighter(match, player, start)) {
                     throw new IllegalStateException("An arena spawn was unavailable.");
                 }
@@ -643,7 +680,7 @@ final class PvpCompetitionService implements Listener {
             plugin.getLogger().warning("Competitive PvP start failed: " + failure.getMessage());
             return;
         }
-        match.borderSize = arena.diameter();
+        match.borderSize = arena.arena().diameter();
         match.bar = BossBar.bossBar(
                 Component.text(mode.display() + "  •  GET READY", NamedTextColor.GOLD),
                 1f, BossBar.Color.RED, BossBar.Overlay.PROGRESS
@@ -660,67 +697,29 @@ final class PvpCompetitionService implements Listener {
         plugin.bossBars().suppress(player);
         player.closeInventory();
         player.closeDialog();
-        perks.suspendForCompetitive(player);
-        clearEffects(player);
-        player.getInventory().clear();
-        player.getInventory().setArmorContents(new ItemStack[4]);
-        player.getInventory().setItemInOffHand(new ItemStack(Material.AIR));
-        installKit(player);
-        player.setGameMode(GameMode.ADVENTURE);
+        player.setGameMode(GameMode.SURVIVAL);
         player.setAllowFlight(false);
         player.setFlying(false);
         player.setInvulnerable(true);
         player.setInvisible(false);
         player.setCollidable(true);
-        player.setCanPickupItems(false);
+        player.setCanPickupItems(true);
         player.setFireTicks(0);
         player.setFallDistance(0f);
         player.setFoodLevel(20);
         player.setSaturation(20f);
-        player.setExhaustion(0f);
-        player.setAbsorptionAmount(0d);
-        player.setLevel(0);
-        player.setExp(0f);
-        player.setTotalExperience(0);
         if (player.getAttribute(Attribute.MAX_HEALTH) != null) {
             player.setHealth(player.getAttribute(Attribute.MAX_HEALTH).getValue());
         }
-        player.setWorldBorder(personalBorder(match, match.arena.diameter()));
+        player.setWorldBorder(personalBorder(match, match.arena.arena().diameter()));
         boolean moved = teleport(player, start);
         if (moved) {
             player.playSound(player, Sound.BLOCK_BEACON_ACTIVATE, 0.8f, 1.4f);
             player.sendMessage(prefix().append(Component.text(
-                    "Standard loadout equipped. Inventory, perks, custom abilities and outside commands are isolated.",
+                    "KEEP INVENTORY is active. You are fighting with your own survival loadout.",
                     NamedTextColor.GREEN)));
         }
         return moved;
-    }
-
-    private void installKit(Player player) {
-        player.getInventory().setItem(0, kitItem(Material.NETHERITE_SWORD, "Competitive Sword"));
-        player.getInventory().setItem(1, kitItem(Material.BOW, "Competitive Bow"));
-        int apples = integer("pvp-competitive.kit-golden-apples");
-        int arrows = integer("pvp-competitive.kit-arrows");
-        if (apples > 0) player.getInventory().setItem(2, new ItemStack(Material.GOLDEN_APPLE, apples));
-        if (arrows > 0) player.getInventory().setItem(8, new ItemStack(Material.ARROW, arrows));
-        player.getInventory().setItemInOffHand(kitItem(Material.SHIELD, "Competitive Shield"));
-        player.getInventory().setHelmet(kitItem(Material.NETHERITE_HELMET, "Competitive Helmet"));
-        player.getInventory().setChestplate(kitItem(Material.NETHERITE_CHESTPLATE, "Competitive Chestplate"));
-        player.getInventory().setLeggings(kitItem(Material.NETHERITE_LEGGINGS, "Competitive Leggings"));
-        player.getInventory().setBoots(kitItem(Material.NETHERITE_BOOTS, "Competitive Boots"));
-        player.getInventory().setHeldItemSlot(0);
-    }
-
-    private static ItemStack kitItem(Material material, String name) {
-        ItemStack item = new ItemStack(material);
-        ItemMeta meta = item.getItemMeta();
-        meta.displayName(Component.text(name, NamedTextColor.GOLD)
-                .decoration(TextDecoration.ITALIC, false));
-        meta.lore(List.of(Component.text("Temporary fair-play loadout", NamedTextColor.GRAY)
-                .decoration(TextDecoration.ITALIC, false)));
-        meta.setUnbreakable(true);
-        item.setItemMeta(meta);
-        return item;
     }
 
     private void startCountdown(Match match, int seconds) {
@@ -754,11 +753,13 @@ final class PvpCompetitionService implements Listener {
 
     private void beginFight(Match match) {
         match.phase = Phase.FIGHTING;
+        duels.setCompetitiveArenaActive(match.arena.id(), true);
         match.fightingSince = System.currentTimeMillis();
         match.endsAt = match.fightingSince
                 + integer("pvp-competitive.match-minutes") * 60_000L;
         match.nextShrinkAt = match.fightingSince
                 + integer("pvp-competitive.ffa-shrink-delay-seconds") * 1_000L;
+        match.nextArenaSweepAt = match.fightingSince + 5_000L;
         forEachOnline(match.players, player -> {
             player.setInvulnerable(false);
             match.lastAction.put(player.getUniqueId(), match.fightingSince);
@@ -774,6 +775,10 @@ final class PvpCompetitionService implements Listener {
 
     private void tickMatch(Match match, long now) {
         if (match.phase != Phase.FIGHTING) return;
+        if (now >= match.nextArenaSweepAt) {
+            duels.maintainCompetitiveArena(match.arena.id());
+            match.nextArenaSweepAt = now + 5_000L;
+        }
         if (now >= match.endsAt) {
             finish(match, List.of(), "Time expired — draw", false);
             return;
@@ -871,16 +876,14 @@ final class PvpCompetitionService implements Listener {
 
     private void prepareEliminated(Match match, Player player) {
         player.setInvulnerable(true);
-        player.getInventory().clear();
-        player.getInventory().setArmorContents(new ItemStack[4]);
-        player.getInventory().setItemInOffHand(new ItemStack(Material.AIR));
         player.setGameMode(GameMode.ADVENTURE);
         player.setAllowFlight(true);
         player.setFlying(true);
         player.setInvisible(true);
         player.setCollidable(false);
         player.setCanPickupItems(false);
-        Location stand = match.arena.spectator().resolve();
+        forEachOnline(match.alive, fighter -> fighter.hidePlayer(plugin, player));
+        Location stand = match.arena.spectator();
         if (stand != null) {
             match.assigned.put(player.getUniqueId(), stand);
             teleport(player, stand);
@@ -904,6 +907,7 @@ final class PvpCompetitionService implements Listener {
     private void finish(Match match, List<UUID> winners, String reason, boolean decided) {
         if (match.phase == Phase.AFTERMATH || match.phase == Phase.ENDING) return;
         match.phase = Phase.AFTERMATH;
+        duels.setCompetitiveArenaActive(match.arena.id(), false);
         if (match.countdown != null) match.countdown.cancel();
         match.countdown = null;
         long endedAt = System.currentTimeMillis();
@@ -1004,23 +1008,23 @@ final class PvpCompetitionService implements Listener {
     private void closeMatch(Match match) {
         if (match.phase == Phase.ENDING) return;
         match.phase = Phase.ENDING;
+        duels.setCompetitiveArenaActive(match.arena.id(), false);
         if (match.returnTask != null) match.returnTask.cancel();
         match.returnTask = null;
         for (UUID playerId : match.players) {
             Player player = Bukkit.getPlayer(playerId);
-            if (player != null) restore(player, true);
+            if (player != null) restore(player);
             matchByPlayer.remove(playerId);
         }
         for (UUID spectatorId : List.copyOf(match.spectators)) {
             Player spectator = Bukkit.getPlayer(spectatorId);
-            if (spectator != null) restore(spectator, false);
+            if (spectator != null) restore(spectator);
             viewing.remove(spectatorId);
         }
         forEachOnline(concat(match.players, List.copyOf(match.spectators)),
                 player -> plugin.bossBars().hideExclusive(player, match.bar));
-        cleanupArena(match);
         matches.remove(match.id);
-        arenasInUse.remove(match.arena.id());
+        duels.releaseCompetitiveArena(match.arena.id());
     }
 
     private void abortStart(Match match, String reason) {
@@ -1030,37 +1034,33 @@ final class PvpCompetitionService implements Listener {
         notifyPlayers(match.players, reason);
         for (UUID playerId : match.players) {
             Player player = Bukkit.getPlayer(playerId);
-            if (player != null) restore(player, false);
+            if (player != null) restore(player);
             matchByPlayer.remove(playerId);
         }
         if (match.bar != null) forEachOnline(match.players,
                 player -> plugin.bossBars().hideExclusive(player, match.bar));
-        cleanupArena(match);
         matches.remove(match.id);
-        arenasInUse.remove(match.arena.id());
+        duels.releaseCompetitiveArena(match.arena.id());
     }
 
-    private void cleanupArena(Match match) {
-        PvpArenaStore.Point centerPoint = match.arena.center();
-        Location center = centerPoint == null ? null : centerPoint.resolve();
-        if (center == null) return;
-        double radius = match.arena.diameter() / 2d + 4d;
-        for (Entity entity : center.getWorld().getNearbyEntities(center, radius, 24d, radius)) {
-            if (entity instanceof Item || entity instanceof Projectile) entity.remove();
-        }
-    }
-
-    private void restore(Player player, boolean returnLobby) {
+    private void restore(Player player) {
         PvpDuelStore.Recovery saved = recovery.find(player.getUniqueId()).orElse(null);
         if (saved == null) return;
         player.closeInventory();
-        clearEffects(player);
-        player.getInventory().clear();
-        player.getInventory().setContents(PvpStateCodec.sized(
-                PvpStateCodec.decodeItems(saved.encodedInventory()),
-                player.getInventory().getContents().length));
-        for (PotionEffect effect : PvpStateCodec.decodeEffects(saved.encodedEffects())) {
-            player.addPotionEffect(effect);
+        if (saved.role() == PvpDuelStore.Role.SPECTATOR
+                || !saved.encodedInventory().isEmpty()) {
+            clearEffects(player);
+            player.getInventory().clear();
+            player.getInventory().setContents(PvpStateCodec.sized(
+                    PvpStateCodec.decodeItems(saved.encodedInventory()),
+                    player.getInventory().getContents().length));
+            for (PotionEffect effect : PvpStateCodec.decodeEffects(saved.encodedEffects())) {
+                player.addPotionEffect(effect);
+            }
+            player.setLevel(saved.level());
+            player.setExp(saved.experience());
+            player.setTotalExperience(saved.totalExperience());
+            player.getInventory().setHeldItemSlot(Math.max(0, Math.min(8, saved.heldSlot())));
         }
         try {
             player.setGameMode(GameMode.valueOf(saved.gameMode()));
@@ -1079,25 +1079,21 @@ final class PvpCompetitionService implements Listener {
         player.setFireTicks(saved.fireTicks());
         player.setFallDistance(saved.fallDistance());
         player.setRemainingAir(saved.remainingAir());
-        player.setLevel(saved.level());
-        player.setExp(saved.experience());
-        player.setTotalExperience(saved.totalExperience());
-        player.getInventory().setHeldItemSlot(Math.max(0, Math.min(8, saved.heldSlot())));
-        perks.restoreAfterCompetitive(player);
         if (!player.isDead() && player.getAttribute(Attribute.MAX_HEALTH) != null) {
             player.setHealth(Math.max(0.1d, Math.min(saved.health(),
                     player.getAttribute(Attribute.MAX_HEALTH).getValue())));
         }
-        Location destination = returnLobby ? arenas.lobby().map(PvpArenaStore.Point::resolve).orElse(null)
-                : origin(saved);
-        if (destination == null) destination = origin(saved);
+        Location destination = origin(saved);
         if (destination == null && !Bukkit.getWorlds().isEmpty()) {
             destination = Bukkit.getWorlds().get(0).getSpawnLocation();
         }
         if (destination != null) teleport(player, destination);
         Match match = matchByPlayer.get(player.getUniqueId());
         if (match == null) match = viewing.get(player.getUniqueId());
-        if (match != null && match.bar != null) plugin.bossBars().hideExclusive(player, match.bar);
+        if (match != null) {
+            forEachOnline(match.players, fighter -> fighter.showPlayer(plugin, player));
+            if (match.bar != null) plugin.bossBars().hideExclusive(player, match.bar);
+        }
         player.setWorldBorder(match == null ? null : match.previousBorders.get(player.getUniqueId()));
         plugin.bossBars().restore(player);
         safeRemoveRecovery(player.getUniqueId());
@@ -1114,7 +1110,8 @@ final class PvpCompetitionService implements Listener {
                 player.getExhaustion(), player.getFireTicks(), player.getFallDistance(),
                 player.getRemainingAir(), player.getInventory().getHeldItemSlot(),
                 economy.balance(player.getUniqueId()), "",
-                PvpStateCodec.encodeItems(player.getInventory().getContents()),
+                role == PvpDuelStore.Role.SPECTATOR
+                        ? PvpStateCodec.encodeItems(player.getInventory().getContents()) : "",
                 PvpStateCodec.encodeEffects(player.getActivePotionEffects()),
                 player.getLevel(), player.getExp(), player.getTotalExperience(),
                 player.isCollidable(), player.isInvisible(), player.getCanPickupItems()
@@ -1123,7 +1120,7 @@ final class PvpCompetitionService implements Listener {
 
     private void recover(Player player, boolean announce) {
         if (recovery.find(player.getUniqueId()).isEmpty()) return;
-        restore(player, false);
+        restore(player);
         if (announce) info(player, "An interrupted competitive match was recovered as a draw.");
     }
 
@@ -1137,70 +1134,35 @@ final class PvpCompetitionService implements Listener {
     }
 
     private void openHub(Player player) {
-        PvpRecordStore.Record record = records.of(player.getUniqueId());
-        String queue = queuedModes.containsKey(player.getUniqueId())
-                ? "Queued: " + queuedModes.get(player.getUniqueId()).display()
-                : "Not currently queued";
-        String body = "Automatic arena matchmaking with equal loadouts.\n"
-                + "Rank: " + record.rank().display() + " (" + record.rating() + ")\n"
-                + "Record: " + record.wins() + "W / " + record.losses() + "L / "
-                + record.draws() + "D\n" + queue;
-        List<MenuAction> actions = new ArrayList<>();
-        actions.add(new MenuAction("item/netherite_sword", "Play",
-                "Choose an available competitive mode.", this::openModes));
         if (queuedPlayers.containsKey(player.getUniqueId())) {
-            actions.add(new MenuAction("item/barrier", "Leave Queue",
-                    "Leave with every queued party member.", p -> leaveQueue(p.getUniqueId(), true)));
+            openQueueStatus(player);
+            return;
         }
-        actions.add(new MenuAction("item/writable_book", "Party",
-                "Invite teammates for 2v2, 3v3, or Clan vs Clan.", this::openParty));
-        actions.add(new MenuAction("item/spyglass", "Live Matches",
-                "Watch a match from its anchored viewing point.", this::openLive));
-        actions.add(new MenuAction("item/writable_book", "Stats & Rankings",
-                "Your mode records and the rating leaderboard.", this::openStats));
-        actions.add(new MenuAction("item/gold_ingot", "Rewards & Rules",
-                "See fair-play loadouts, rewards, and anti-farming rules.", this::openRewards));
-        actions.add(new MenuAction("item/wooden_sword", "Private Duel",
-                "Open the unrated survival-inventory challenge system.",
-                p -> p.performCommand("pvp private")));
-        if (arenas.lobby().isPresent() && !inLobbyArea(player.getLocation())) {
-            actions.add(new MenuAction("item/ender_pearl", "Enter PvP Lobby",
-                    "Travel to the dedicated PvP hub.", this::enterLobby));
-        } else if (inLobbyArea(player.getLocation())) {
-            actions.add(new MenuAction("item/ender_pearl", "Return to Server",
-                    "Leave the PvP hub.", this::returnToServer));
-        }
-        showMenu(player, "PvP", body, actions, null);
+        player.performCommand("pvp private");
     }
 
     private record MenuAction(
             String sprite, String label, String hint, java.util.function.Consumer<Player> action
     ) { }
 
-    private void openModes(Player player) {
+    void openModes(Player player) {
         List<MenuAction> actions = new ArrayList<>();
         for (PvpMode mode : PvpMode.values()) {
-            if (!mode.queueable() || arenas.ready(mode).isEmpty()) continue;
+            if (!mode.queueable()) continue;
             actions.add(new MenuAction(modeSprite(mode), mode.display(), modeHint(mode),
                     p -> openMode(p, mode)));
         }
-        String body = actions.isEmpty()
-                ? "No competitive arenas are enabled. An administrator can run /pvp admin setup confirm."
-                : "Choose a mode. Ranked queues start near your rating and widen gradually.";
+        String body = "Choose a mode. Every match uses your own survival loadout"
+                + " in untouched overworld terrain.";
         showMenu(player, "Choose PvP Mode", body, actions, this::openHub);
     }
 
     private void openMode(Player player, PvpMode mode) {
-        if (arenas.ready(mode).isEmpty()) {
-            error(player, "That mode has no ready arena.");
-            openModes(player);
-            return;
-        }
         Party party = parties.get(player.getUniqueId());
         int team = party == null ? 1 : party.members.size();
         String body = modeHint(mode) + "\n\n"
                 + "Party: " + team + "/" + mode.teamSize() + "\n"
-                + "Ready arenas: " + arenas.ready(mode).size();
+                + "Loadout: your current inventory and armour";
         List<MenuAction> actions = new ArrayList<>();
         if (mode.teamSize() == 1 && !mode.freeForAll()) {
             actions.add(new MenuAction("item/lime_dye", "Join Queue",
@@ -1217,10 +1179,14 @@ final class PvpCompetitionService implements Listener {
             actions = new ArrayList<>(List.of(new MenuAction("item/lime_dye", "Join FFA Queue",
                     "Start full or after the minimum-player wait.", p -> joinQueue(p, mode, true))));
         }
+        if (mode.teamSize() > 1 && !mode.freeForAll()) {
+            actions.add(new MenuAction("item/writable_book", "Manage Team",
+                    "Invite or remove teammates for this queue.", this::openParty));
+        }
         showMenu(player, mode.display(), body, actions, this::openModes);
     }
 
-    private void openStats(Player player) {
+    void openStats(Player player) {
         PvpRecordStore.Record record = records.of(player.getUniqueId());
         String kd = record.deaths() == 0L
                 ? (record.kills() == 0L ? "0.00" : "∞")
@@ -1259,7 +1225,7 @@ final class PvpCompetitionService implements Listener {
     private void openRankings(Player player) {
         List<PvpRankLeaderboard.Row> top = PvpRankLeaderboard.top(
                 records.all(), PvpCompetitionService::name, 10);
-        StringBuilder body = new StringBuilder("Ranked results from automatic fair-loadout queues only.\n");
+        StringBuilder body = new StringBuilder("Ranked results from automatic survival-loadout queues.\n");
         if (top.isEmpty()) body.append("\nNo ranked matches have been completed yet.");
         for (int index = 0; index < top.size(); index++) {
             PvpRankLeaderboard.Row row = top.get(index);
@@ -1288,9 +1254,9 @@ final class PvpCompetitionService implements Listener {
     }
 
     private void openRewards(Player player) {
-        String body = "Every competitive mode uses the same temporary Netherite loadout.\n"
-                + "Custom weapons, item abilities, Discord perks, clan perks, normal inventory, drops,"
-                + " teleports and escape commands are isolated.\n\n"
+        String body = "Every mode uses the armour, weapons, food and supplies you earned in survival.\n"
+                + "KEEP INVENTORY is active. The ring uses untouched overworld terrain,"
+                + " returns you to where you entered, and puts every changed block back.\n\n"
                 + "Eligible participation: " + EconomyFormat.dollars(integer(
                         "pvp-competitive.participation-reward")) + "\n"
                 + "Additional win reward: " + EconomyFormat.dollars(integer(
@@ -1302,19 +1268,19 @@ final class PvpCompetitionService implements Listener {
         showMenu(player, "PvP Rewards & Fair Play", body, List.of(), this::openHub);
     }
 
-    private void openLive(Player player) {
+    void openLive(Player player) {
         List<Match> live = matches.values().stream()
                 .filter(match -> match.phase == Phase.FIGHTING || match.phase == Phase.COUNTDOWN)
                 .toList();
         List<MenuAction> actions = live.stream().map(match -> new MenuAction(
                 "item/spyglass", match.mode.display() + " • " + match.alive.size() + " alive",
-                match.arena.id(), viewer -> spectate(viewer, match))).toList();
+                match.mode.display(), viewer -> spectate(viewer, match))).toList();
         showMenu(player, "Live PvP Matches",
                 live.isEmpty() ? "No competitive matches are live." : "Choose a match to watch.",
                 actions, this::openHub);
     }
 
-    private void openParty(Player player) {
+    void openParty(Player player) {
         Party party = parties.get(player.getUniqueId());
         String body;
         if (party == null) {
@@ -1387,7 +1353,7 @@ final class PvpCompetitionService implements Listener {
 
     private static String modeHint(PvpMode mode) {
         return switch (mode) {
-            case CASUAL_DUEL -> "Automatic unrated 1v1 with the competitive loadout.";
+            case CASUAL_DUEL -> "Automatic unrated 1v1 with the gear you brought.";
             case RANKED_DUEL -> "Skill-matched 1v1 that changes your PvP rating.";
             case DOUBLES -> "Ranked 2v2. Bring a teammate or let fill create your team.";
             case TRIPLES -> "Ranked 3v3. Parties stay together and open slots are filled.";
@@ -1519,10 +1485,16 @@ final class PvpCompetitionService implements Listener {
         }
         Match watched = viewing.get(player.getUniqueId());
         if (watched != null) {
-            info(player, "Watching " + watched.mode.display() + " in " + watched.arena.id() + ".");
+            info(player, "Watching " + watched.mode.display() + ".");
             return;
         }
         PvpMode mode = queuedModes.get(player.getUniqueId());
+        PendingStart pending = preparing.get(player.getUniqueId());
+        if (pending != null) {
+            info(player, "Preparing untouched overworld terrain for "
+                    + pending.mode().display() + ".");
+            return;
+        }
         if (mode == null) {
             info(player, "You are not queued. Use /pvp to choose a mode.");
             return;
@@ -1533,15 +1505,53 @@ final class PvpCompetitionService implements Listener {
                 + " with " + entry.members().size() + " player(s).");
     }
 
-    private void enterLobby(Player player) {
+    private void openQueueStatus(Player player) {
+        PvpMode mode = queuedModes.get(player.getUniqueId());
+        PvpMatchmaking.Entry entry = queuedPlayers.get(player.getUniqueId());
+        PendingStart pending = preparing.get(player.getUniqueId());
+        if (pending != null) {
+            showMenu(player, "PvP Match Found",
+                    "Preparing untouched overworld terrain for " + pending.mode().display() + ".",
+                    List.of(new MenuAction("item/barrier", "Cancel Match",
+                            "Cancel before the countdown begins.",
+                            viewer -> leaveQueue(viewer.getUniqueId(), true))), null);
+            return;
+        }
+        if (mode == null || entry == null) {
+            openModes(player);
+            return;
+        }
+        long waited = Math.max(0L, System.currentTimeMillis() - entry.joinedAt()) / 1_000L;
+        String body = "Queued for " + mode.display() + "\n"
+                + "Waiting: " + formatSeconds(waited) + "\n"
+                + "Team: " + entry.members().size() + "/" + mode.teamSize();
+        showMenu(player, "PvP Queue", body, List.of(
+                new MenuAction("item/barrier", "Leave Queue",
+                        "Leave this queue with your current team.",
+                        viewer -> leaveQueue(viewer.getUniqueId(), true))
+        ), null);
+    }
+
+    int liveMatchCount() {
+        return matches.size();
+    }
+
+    void enterLobby(Player player) {
         if (busy(player.getUniqueId()) || plugin.inPvpDuel(player)) {
             error(player, "Leave your queue or finish the current fight first.");
             return;
         }
-        Location lobby = arenas.lobby().map(PvpArenaStore.Point::resolve).orElse(null);
+        if (plugin.afkService() != null && plugin.afkService().inCombat(player)) {
+            error(player, "Finish your current combat tag before entering PvP.");
+            return;
+        }
+        Location lobby = lobbyStore.lobby().map(PvpLobbyStore.Point::resolve).orElse(null);
         if (lobby == null) {
             error(player, "The PvP lobby is not configured yet.");
             return;
+        }
+        if (!inLobbyArea(player.getLocation())) {
+            lobbyOrigins.put(player.getUniqueId(), player.getLocation().clone());
         }
         teleport(player, lobby);
         player.playSound(player, Sound.ENTITY_ENDERMAN_TELEPORT, 0.8f, 1.2f);
@@ -1549,8 +1559,11 @@ final class PvpCompetitionService implements Listener {
     }
 
     private void teleportToLobbyIfReady(Player player) {
-        Location lobby = arenas.lobby().map(PvpArenaStore.Point::resolve).orElse(null);
-        if (lobby != null && !inLobbyArea(player.getLocation())) teleport(player, lobby);
+        Location lobby = lobbyStore.lobby().map(PvpLobbyStore.Point::resolve).orElse(null);
+        if (lobby != null && !inLobbyArea(player.getLocation())) {
+            lobbyOrigins.put(player.getUniqueId(), player.getLocation().clone());
+            teleport(player, lobby);
+        }
     }
 
     private void returnToServer(Player player) {
@@ -1558,13 +1571,22 @@ final class PvpCompetitionService implements Listener {
             error(player, "Use /pvp leave or forfeit while a match is active.");
             return;
         }
+        if (!inLobbyArea(player.getLocation()) && !isPvpWorld(player.getWorld())) {
+            error(player, "You are not in the PvP lobby.");
+            return;
+        }
         leaveQueue(player.getUniqueId(), true);
-        World target = Bukkit.getWorlds().stream().filter(world -> !isPvpWorld(world)).findFirst().orElse(null);
+        Location target = lobbyOrigins.remove(player.getUniqueId());
+        if (target == null) {
+            World world = Bukkit.getWorlds().stream().filter(candidate -> !isPvpWorld(candidate))
+                    .findFirst().orElse(null);
+            target = world == null ? null : world.getSpawnLocation();
+        }
         if (target == null) {
             error(player, "The main world is unavailable.");
             return;
         }
-        teleport(player, target.getSpawnLocation());
+        teleport(player, target);
         player.playSound(player, Sound.ENTITY_ENDERMAN_TELEPORT, 0.8f, 0.9f);
     }
 
@@ -1596,7 +1618,7 @@ final class PvpCompetitionService implements Listener {
             recover(viewer, true);
             return;
         }
-        Location stand = match.arena.spectator().resolve();
+        Location stand = match.arena.spectator();
         if (stand == null) {
             error(viewer, "That arena's viewing point is unavailable.");
             return;
@@ -1612,6 +1634,7 @@ final class PvpCompetitionService implements Listener {
         viewing.put(viewerId, match);
         match.previousBorders.put(viewerId, viewer.getWorldBorder());
         match.assigned.put(viewerId, stand);
+        forEachOnline(match.players, fighter -> fighter.hidePlayer(plugin, viewer));
         plugin.bossBars().suppress(viewer);
         clearEffects(viewer);
         viewer.getInventory().clear();
@@ -1636,7 +1659,7 @@ final class PvpCompetitionService implements Listener {
         if (match == null) return;
         match.spectators.remove(player.getUniqueId());
         plugin.bossBars().hideExclusive(player, match.bar);
-        restore(player, false);
+        restore(player);
         viewing.remove(player.getUniqueId());
         if (announce) info(player, "You stopped spectating.");
     }
@@ -1648,14 +1671,13 @@ final class PvpCompetitionService implements Listener {
         }
         String[] args = original;
         if (args.length == 0) {
-            info(player, "Use /pvp admin setup confirm, lobby set, portal set|remove,"
-                    + " or arena create|corner1|corner2|spectator|spawn|addmode|enable|disable|delete|list.");
+            info(player, "Use /pvp admin setup confirm or /pvp portal set|remove.");
             return;
         }
         String root = args[0].toLowerCase(Locale.ROOT);
         if (root.equals("setup")) {
             if (args.length < 2 || !args[1].equalsIgnoreCase("confirm")) {
-                error(player, "Use /pvp admin setup confirm. This installs the generated hub and starter arenas.");
+                error(player, "Use /pvp admin setup confirm. This rebuilds the decorated PvP lobby.");
                 return;
             }
             if (!matches.isEmpty()) {
@@ -1663,19 +1685,12 @@ final class PvpCompetitionService implements Listener {
                 return;
             }
             installStarterLobby();
-            info(player, "The generated PvP lobby and starter arenas are installed.");
-            return;
-        }
-        if (root.equals("lobby")) {
-            if (args.length >= 2 && args[1].equalsIgnoreCase("set")) {
-                arenas.setLobby(PvpArenaStore.Point.of(player.getLocation()));
-                info(player, "PvP lobby set to your position.");
-            } else error(player, "Use /pvp admin lobby set.");
+            info(player, "The decorated PvP lobby and its queue portals are installed.");
             return;
         }
         if (root.equals("portal")) {
             if (args.length >= 2 && args[1].equalsIgnoreCase("remove")) {
-                arenas.clearPortal();
+                lobbyStore.clearPortal();
                 info(player, "PvP entrance removed.");
             } else if (args.length >= 2 && args[1].equalsIgnoreCase("set")) {
                 double radius = args.length >= 3 ? parseDouble(args[2], 1d, 12d) : 2.5d;
@@ -1683,104 +1698,33 @@ final class PvpCompetitionService implements Listener {
                     error(player, "Portal radius must be 1-12 blocks.");
                     return;
                 }
-                arenas.setPortal(PvpArenaStore.Point.of(player.getLocation()), radius);
+                lobbyStore.setPortal(PvpLobbyStore.Point.of(player.getLocation()), radius);
                 info(player, "PvP entrance set with a " + oneDecimal(radius) + " block radius.");
             } else error(player, "Use /pvp portal set [radius] or /pvp portal remove.");
             return;
         }
-        if (!root.equals("arena")) {
-            error(player, "Unknown PvP admin action.");
-            return;
-        }
-        handleArenaAdmin(player, slice(args, 1));
-    }
-
-    private void handleArenaAdmin(Player player, String[] args) {
-        if (args.length == 0 || args[0].equalsIgnoreCase("list")) {
-            String rows = arenas.all().stream().map(arena -> arena.id() + " ["
-                    + String.join(",", arena.groups()) + "] "
-                    + (arena.enabled() ? "enabled" : "disabled"))
-                    .reduce((a, b) -> a + "; " + b).orElse("No arenas configured");
-            info(player, rows);
-            return;
-        }
-        String action = args[0].toLowerCase(Locale.ROOT);
-        try {
-            switch (action) {
-                case "create" -> {
-                    if (args.length < 3) throw new IllegalArgumentException(
-                            "Use /pvp arena create <id> <mode>.");
-                    PvpMode mode = PvpMode.from(args[2]).filter(PvpMode::queueable)
-                            .orElseThrow(() -> new IllegalArgumentException("Unknown PvP mode."));
-                    arenas.create(args[1], mode);
-                    info(player, "Created disabled arena " + args[1] + ". Set its bounds, spectator and spawns.");
-                }
-                case "corner1", "corner2" -> {
-                    requireArgs(args, 2, "/pvp arena " + action + " <id>");
-                    arenas.setCorner(args[1], action.equals("corner1") ? 1 : 2,
-                            PvpArenaStore.Point.of(player.getLocation()));
-                    info(player, "Set " + action + " for " + args[1] + ".");
-                }
-                case "spectator" -> {
-                    requireArgs(args, 2, "/pvp arena spectator <id>");
-                    arenas.setSpectator(args[1], PvpArenaStore.Point.of(player.getLocation()));
-                    info(player, "Set the anchored spectator point for " + args[1] + ".");
-                }
-                case "spawn" -> {
-                    requireArgs(args, 3, "/pvp arena spawn <id> <slot>");
-                    int slot = Integer.parseInt(args[2]);
-                    arenas.setSpawn(args[1], slot, PvpArenaStore.Point.of(player.getLocation()));
-                    info(player, "Set spawn " + slot + " for " + args[1] + ".");
-                }
-                case "addmode" -> {
-                    requireArgs(args, 3, "/pvp arena addmode <id> <mode>");
-                    PvpMode mode = PvpMode.from(args[2]).filter(PvpMode::queueable)
-                            .orElseThrow(() -> new IllegalArgumentException("Unknown PvP mode."));
-                    arenas.addMode(args[1], mode);
-                    info(player, "Added " + mode.display() + " to " + args[1] + ".");
-                }
-                case "enable", "disable" -> {
-                    requireArgs(args, 2, "/pvp arena " + action + " <id>");
-                    PvpArenaStore.Arena arena = arenas.setEnabled(args[1], action.equals("enable"));
-                    if (arena.enabled() && java.util.Arrays.stream(PvpMode.values())
-                            .filter(PvpMode::queueable).noneMatch(arena::readyFor)) {
-                        arenas.setEnabled(args[1], false);
-                        throw new IllegalArgumentException(
-                                "Arena is incomplete for its assigned mode(s). It stayed disabled.");
-                    }
-                    info(player, (arena.enabled() ? "Enabled " : "Disabled ") + arena.id() + ".");
-                }
-                case "delete" -> {
-                    requireArgs(args, 3, "/pvp arena delete <id> confirm");
-                    if (!args[2].equalsIgnoreCase("confirm")) throw new IllegalArgumentException(
-                            "Add confirm to delete an arena definition.");
-                    if (arenasInUse.contains(args[1].toLowerCase(Locale.ROOT))) {
-                        throw new IllegalArgumentException("That arena is in use.");
-                    }
-                    arenas.delete(args[1]);
-                    info(player, "Deleted arena definition " + args[1] + ". Blocks were left untouched.");
-                }
-                default -> throw new IllegalArgumentException("Unknown arena action.");
-            }
-        } catch (IllegalArgumentException | java.io.UncheckedIOException failure) {
-            error(player, failure.getMessage());
-        }
+        error(player, "Unknown PvP admin action.");
     }
 
     private void installStarterLobby() {
-        if (stopping || !plugin.isEnabled() || !matches.isEmpty()) return;
+        if (stopping || !plugin.isEnabled()) return;
+        if (!matches.isEmpty()) {
+            plugin.getServer().getScheduler().runTaskLater(
+                    plugin, this::installStarterLobby, 100L);
+            return;
+        }
         try {
             PvpLobbyBuilder.Built built = PvpLobbyBuilder.build(plugin);
-            arenas.installGenerated(built.lobby(), built.arenas());
-            plugin.getLogger().info("Installed generated PvP lobby with "
-                    + built.arenas().size() + " reusable arenas.");
+            lobbyStore.installGenerated(built.lobby());
+            plugin.getLogger().info("Installed the decorated PvP queue lobby."
+                    + " Combat remains in temporary overworld rings.");
         } catch (RuntimeException failure) {
             plugin.getLogger().severe("Could not install the PvP lobby: " + failure.getMessage());
         }
     }
 
     private void loadConfiguredWorld() {
-        String name = arenas.lobby().map(PvpArenaStore.Point::worldName).orElse("");
+        String name = lobbyStore.lobby().map(PvpLobbyStore.Point::worldName).orElse("");
         if (PvpLobbyBuilder.WORLD_NAME.equals(name) && Bukkit.getWorld(name) == null) {
             PvpLobbyBuilder.load(plugin);
         }
@@ -1858,7 +1802,7 @@ final class PvpCompetitionService implements Listener {
         Player player = event.getPlayer();
         Match match = matchByPlayer.get(player.getUniqueId());
         if (match == null) return;
-        Location spectator = match.arena.spectator().resolve();
+        Location spectator = match.arena.spectator();
         if (spectator != null) event.setRespawnLocation(spectator);
         plugin.getServer().getScheduler().runTask(plugin, () -> {
             if (match.eliminated.contains(player.getUniqueId())) prepareEliminated(match, player);
@@ -1881,8 +1825,8 @@ final class PvpCompetitionService implements Listener {
             }
             if (matchByPlayer.containsKey(playerId) && match.phase == Phase.FIGHTING
                     && match.alive.contains(playerId)) {
-                if (!match.arena.contains(event.getTo())) {
-                    event.setTo(anchor == null ? event.getFrom() : anchor);
+                if (!insideArena(match, event.getTo())) {
+                    event.setCancelled(true);
                     player.sendActionBar(Component.text("Stay inside the PvP arena.", NamedTextColor.RED));
                     return;
                 }
@@ -1894,7 +1838,7 @@ final class PvpCompetitionService implements Listener {
         }
         if (!movedBlock(event.getFrom(), event.getTo())) return;
         long now = System.currentTimeMillis();
-        PvpArenaStore.Point lobby = arenas.lobby().orElse(null);
+        PvpLobbyStore.Point lobby = lobbyStore.lobby().orElse(null);
         Location lobbyAt = lobby == null ? null : lobby.resolve();
         if (lobbyAt != null && isPvpWorld(event.getPlayer().getWorld())
                 && event.getTo().getY() < lobbyAt.getY() - 8d) {
@@ -1903,10 +1847,11 @@ final class PvpCompetitionService implements Listener {
             return;
         }
         if (padCooldowns.getOrDefault(playerId, 0L) > now) return;
-        PvpArenaStore.Point portal = arenas.portal().orElse(null);
+        PvpLobbyStore.Point portal = lobbyStore.portal().orElse(null);
         Location portalAt = portal == null ? null : portal.resolve();
         if (portalAt != null && sameWorld(portalAt, event.getTo())
-                && horizontalSquared(portalAt, event.getTo()) <= arenas.portalRadius() * arenas.portalRadius()
+                && horizontalSquared(portalAt, event.getTo())
+                <= lobbyStore.portalRadius() * lobbyStore.portalRadius()
                 && Math.abs(portalAt.getY() - event.getTo().getY()) <= 3d) {
             padCooldowns.put(playerId, now + PAD_COOLDOWN_MILLIS);
             plugin.getServer().getScheduler().runTask(plugin, () -> enterLobby(player));
@@ -1915,7 +1860,10 @@ final class PvpCompetitionService implements Listener {
         PvpMode pad = PvpLobbyBuilder.modePad(lobby, event.getTo());
         if (pad != null && pad.queueable()) {
             padCooldowns.put(playerId, now + PAD_COOLDOWN_MILLIS);
-            plugin.getServer().getScheduler().runTask(plugin, () -> openMode(player, pad));
+            plugin.getServer().getScheduler().runTask(plugin, () -> {
+                if (queuedPlayers.containsKey(playerId)) openQueueStatus(player);
+                else openMode(player, pad);
+            });
         } else if (PvpLobbyBuilder.returnPad(lobby, event.getTo())) {
             padCooldowns.put(playerId, now + PAD_COOLDOWN_MILLIS);
             plugin.getServer().getScheduler().runTask(plugin, () -> returnToServer(player));
@@ -1925,7 +1873,7 @@ final class PvpCompetitionService implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onTeleport(PlayerTeleportEvent event) {
         UUID playerId = event.getPlayer().getUniqueId();
-        if (internalTeleports.remove(playerId)) return;
+        if (internalTeleports.contains(playerId)) return;
         if (isParticipant(playerId)) {
             event.setCancelled(true);
             event.getPlayer().sendActionBar(Component.text(
@@ -1933,11 +1881,21 @@ final class PvpCompetitionService implements Listener {
         }
     }
 
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = false)
+    public void onTeleportMonitor(PlayerTeleportEvent event) {
+        UUID playerId = event.getPlayer().getUniqueId();
+        if (!event.isCancelled() && isParticipant(playerId)
+                && !internalTeleports.contains(playerId)) {
+            event.setCancelled(true);
+        }
+    }
+
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onCommand(PlayerCommandPreprocessEvent event) {
         if (!isParticipant(event.getPlayer().getUniqueId())) return;
         String lower = event.getMessage().strip().toLowerCase(Locale.ROOT);
-        if (lower.equals("/pvp") || lower.startsWith("/pvp ")) return;
+        if (lower.equals("/pvp") || lower.startsWith("/pvp ")
+                || lower.equals("/duel") || lower.startsWith("/duel ")) return;
         event.setCancelled(true);
         error(event.getPlayer(), "Outside commands are disabled during competitive PvP.");
     }
@@ -1956,21 +1914,33 @@ final class PvpCompetitionService implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onInventoryOpen(InventoryOpenEvent event) {
-        if (event.getPlayer() instanceof Player player && isParticipant(player.getUniqueId())) {
-            event.setCancelled(true);
+        if (event.getPlayer() instanceof Player player) {
+            Match match = matchByPlayer.get(player.getUniqueId());
+            boolean anchored = viewing.containsKey(player.getUniqueId())
+                    || (match != null && match.eliminated.contains(player.getUniqueId()));
+            if (anchored || (match != null
+                    && event.getInventory().getType() != org.bukkit.event.inventory.InventoryType.CRAFTING)) {
+                event.setCancelled(true);
+            }
         }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onInventoryClick(InventoryClickEvent event) {
-        if (event.getWhoClicked() instanceof Player player && isParticipant(player.getUniqueId())) {
+        if (event.getWhoClicked() instanceof Player player
+                && (viewing.containsKey(player.getUniqueId())
+                || Optional.ofNullable(matchByPlayer.get(player.getUniqueId()))
+                .map(match -> match.eliminated.contains(player.getUniqueId())).orElse(false))) {
             event.setCancelled(true);
         }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onInventoryDrag(InventoryDragEvent event) {
-        if (event.getWhoClicked() instanceof Player player && isParticipant(player.getUniqueId())) {
+        if (event.getWhoClicked() instanceof Player player
+                && (viewing.containsKey(player.getUniqueId())
+                || Optional.ofNullable(matchByPlayer.get(player.getUniqueId()))
+                .map(match -> match.eliminated.contains(player.getUniqueId())).orElse(false))) {
             event.setCancelled(true);
         }
     }
@@ -1983,7 +1953,6 @@ final class PvpCompetitionService implements Listener {
             event.setCancelled(true);
             return;
         }
-        if (event.getClickedBlock() != null) event.setUseInteractedBlock(Event.Result.DENY);
         match.lastAction.put(event.getPlayer().getUniqueId(), System.currentTimeMillis());
     }
 
@@ -1995,6 +1964,11 @@ final class PvpCompetitionService implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onProjectile(ProjectileLaunchEvent event) {
         if (event.getEntity().getShooter() instanceof Player player) {
+            if (event.getEntity() instanceof EnderPearl && isParticipant(player.getUniqueId())) {
+                event.setCancelled(true);
+                error(player, "Ender pearls do not work in a fight.");
+                return;
+            }
             Match match = matchByPlayer.get(player.getUniqueId());
             if (viewing.containsKey(player.getUniqueId()) || match == null
                     || match.phase != Phase.FIGHTING || !match.alive.contains(player.getUniqueId())) {
@@ -2006,36 +1980,49 @@ final class PvpCompetitionService implements Listener {
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
-    public void onHunger(FoodLevelChangeEvent event) {
-        if (event.getEntity() instanceof Player player && isParticipant(player.getUniqueId())) {
+    public void onConsume(PlayerItemConsumeEvent event) {
+        if (event.getItem().getType() == Material.CHORUS_FRUIT
+                && isParticipant(event.getPlayer().getUniqueId())) {
             event.setCancelled(true);
+            error(event.getPlayer(), "Chorus fruit does not work in a fight.");
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onHunger(FoodLevelChangeEvent event) {
+        if (event.getEntity() instanceof Player player) {
+            Match match = matchByPlayer.get(player.getUniqueId());
+            if (viewing.containsKey(player.getUniqueId())
+                    || (match != null && match.eliminated.contains(player.getUniqueId()))) {
+                event.setCancelled(true);
+            }
         }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onBlockBreak(BlockBreakEvent event) {
-        if (isPvpWorld(event.getBlock().getWorld()) || inLobbyArea(event.getBlock().getLocation())
-                || isParticipant(event.getPlayer().getUniqueId())) {
+        if (isPvpWorld(event.getBlock().getWorld()) || inLobbyArea(event.getBlock().getLocation())) {
             event.setCancelled(true);
         }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onBlockPlace(BlockPlaceEvent event) {
-        if (isPvpWorld(event.getBlock().getWorld()) || inLobbyArea(event.getBlock().getLocation())
-                || isParticipant(event.getPlayer().getUniqueId())) {
+        if (isPvpWorld(event.getBlock().getWorld()) || inLobbyArea(event.getBlock().getLocation())) {
             event.setCancelled(true);
         }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onBlockExplode(BlockExplodeEvent event) {
-        event.blockList().removeIf(block -> activeArenaContains(block.getLocation()));
+        event.blockList().removeIf(block -> isPvpWorld(block.getWorld())
+                || inLobbyArea(block.getLocation()));
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onEntityExplode(EntityExplodeEvent event) {
-        event.blockList().removeIf(block -> activeArenaContains(block.getLocation()));
+        event.blockList().removeIf(block -> isPvpWorld(block.getWorld())
+                || inLobbyArea(block.getLocation()));
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
@@ -2111,31 +2098,27 @@ final class PvpCompetitionService implements Listener {
             match.phase = Phase.ENDING;
             for (UUID playerId : match.players) {
                 Player player = Bukkit.getPlayer(playerId);
-                if (player != null) restore(player, false);
+                if (player != null) restore(player);
                 matchByPlayer.remove(playerId);
             }
             for (UUID spectatorId : match.spectators) {
                 Player player = Bukkit.getPlayer(spectatorId);
-                if (player != null) restore(player, false);
+                if (player != null) restore(player);
                 viewing.remove(spectatorId);
             }
             if (match.bar != null) forEachOnline(concat(match.players,
                     List.copyOf(match.spectators)),
                     player -> plugin.bossBars().hideExclusive(player, match.bar));
-            cleanupArena(match);
+            duels.releaseCompetitiveArena(match.arena.id());
         }
         matches.clear();
-        arenasInUse.clear();
+        preparing.clear();
         queues.clear();
         queuedPlayers.clear();
         queuedModes.clear();
         partyInvites.clear();
         parties.clear();
         farmGuard.clear();
-    }
-
-    private Optional<PvpArenaStore.Arena> availableArena(PvpMode mode) {
-        return arenas.ready(mode).stream().filter(arena -> !arenasInUse.contains(arena.id())).findFirst();
     }
 
     private boolean opponentsAllowed(List<UUID> first, List<UUID> second, long now) {
@@ -2156,6 +2139,10 @@ final class PvpCompetitionService implements Listener {
             queuedModes.remove(member);
         }
         if (message != null) notifyPlayers(entry.members(), message);
+    }
+
+    private void clearPending(PendingStart pending) {
+        for (UUID playerId : pending.players()) preparing.remove(playerId, pending);
     }
 
     private static List<UUID> flatten(List<PvpMatchmaking.Entry> entries) {
@@ -2196,7 +2183,7 @@ final class PvpCompetitionService implements Listener {
     }
 
     private static String matchSummary(Match match) {
-        return match.mode.display() + " in " + match.arena.id() + " — " + match.alive.size()
+        return match.mode.display() + " — " + match.alive.size()
                 + " alive. Use /pvp forfeit to concede.";
     }
 
@@ -2206,23 +2193,16 @@ final class PvpCompetitionService implements Listener {
     }
 
     private static UUID attackingSource(EntityDamageByEntityEvent event) {
-        Player player = attackingPlayer(event);
-        return player == null ? null : player.getUniqueId();
+        return PvpDuelService.fightingSource(event);
     }
 
     private static Player attackingPlayer(EntityDamageByEntityEvent event) {
-        if (event.getDamager() instanceof Player player) return player;
-        if (event.getDamager() instanceof Projectile projectile
-                && projectile.getShooter() instanceof Player player) return player;
-        if (event.getDamager() instanceof Tameable tameable
-                && tameable.getOwner() instanceof Player player) return player;
-        return null;
+        return PvpDuelService.attackingPlayer(event);
     }
 
     private WorldBorder personalBorder(Match match, double size) {
         WorldBorder border = Bukkit.createWorldBorder();
-        PvpArenaStore.Point center = match.arena.center();
-        Location location = center == null ? null : center.resolve();
+        Location location = match.arena.arena().center();
         if (location != null) border.setCenter(location);
         border.setSize(Math.max(1d, size));
         border.setWarningDistance(5);
@@ -2233,9 +2213,11 @@ final class PvpCompetitionService implements Listener {
 
     private boolean teleport(Player player, Location target) {
         internalTeleports.add(player.getUniqueId());
-        boolean moved = player.teleport(target);
-        if (!moved) internalTeleports.remove(player.getUniqueId());
-        return moved;
+        try {
+            return player.teleport(target, PlayerTeleportEvent.TeleportCause.PLUGIN);
+        } finally {
+            internalTeleports.remove(player.getUniqueId());
+        }
     }
 
     private static Location origin(PvpDuelStore.Recovery saved) {
@@ -2251,8 +2233,12 @@ final class PvpCompetitionService implements Listener {
         }
     }
 
-    private boolean activeArenaContains(Location location) {
-        return matches.values().stream().anyMatch(match -> match.arena.contains(location));
+    private static boolean insideArena(Match match, Location location) {
+        Location center = match.arena.arena().center();
+        return location != null && location.getWorld() != null && center.getWorld() != null
+                && location.getWorld().equals(center.getWorld())
+                && PvpDuelRules.inside(location.getX(), location.getZ(),
+                        center.getX(), center.getZ(), match.borderSize);
     }
 
     private static boolean movedPosition(Location from, Location to) {
@@ -2281,10 +2267,11 @@ final class PvpCompetitionService implements Listener {
     }
 
     private boolean inLobbyArea(Location at) {
-        Location lobby = arenas.lobby().map(PvpArenaStore.Point::resolve).orElse(null);
+        Location lobby = lobbyStore.lobby().map(PvpLobbyStore.Point::resolve).orElse(null);
         return lobby != null && sameWorld(lobby, at)
-                && horizontalSquared(lobby, at) <= 32d * 32d
-                && Math.abs(lobby.getY() - at.getY()) <= 16d;
+                && horizontalSquared(lobby, at)
+                <= PvpLobbyBuilder.PROTECTED_RADIUS * PvpLobbyBuilder.PROTECTED_RADIUS
+                && Math.abs(lobby.getY() - at.getY()) <= 24d;
     }
 
     private int integer(String key) {
@@ -2297,10 +2284,6 @@ final class PvpCompetitionService implements Listener {
 
     private static boolean isAdmin(CommandSender sender) {
         return sender.isOp() || sender.hasPermission(AdminCommandService.PERMISSION);
-    }
-
-    private static void requireArgs(String[] args, int count, String usage) {
-        if (args.length < count) throw new IllegalArgumentException("Use " + usage + ".");
     }
 
     private static double parseDouble(String value, double minimum, double maximum) {
@@ -2331,21 +2314,9 @@ final class PvpCompetitionService implements Listener {
     private List<String> adminTabs(String[] original) {
         String[] args = original;
         if (args.length > 0 && args[0].equalsIgnoreCase("admin")) args = slice(args, 1);
-        if (args.length == 1) return partial(args[0], List.of("setup", "lobby", "portal", "arena"));
+        if (args.length == 1) return partial(args[0], List.of("setup", "portal"));
         if (args.length == 2 && args[0].equalsIgnoreCase("portal")) {
             return partial(args[1], List.of("set", "remove"));
-        }
-        if (args.length == 2 && args[0].equalsIgnoreCase("lobby")) {
-            return partial(args[1], List.of("set"));
-        }
-        if (args.length == 2 && args[0].equalsIgnoreCase("arena")) {
-            return partial(args[1], List.of("create", "corner1", "corner2", "spectator",
-                    "spawn", "addmode", "enable", "disable", "delete", "list"));
-        }
-        if (args.length == 3 && args[0].equalsIgnoreCase("arena")
-                && List.of("corner1", "corner2", "spectator", "spawn", "addmode", "enable",
-                        "disable", "delete").contains(args[1].toLowerCase(Locale.ROOT))) {
-            return partial(args[2], arenas.all().stream().map(PvpArenaStore.Arena::id).toList());
         }
         return List.of();
     }
