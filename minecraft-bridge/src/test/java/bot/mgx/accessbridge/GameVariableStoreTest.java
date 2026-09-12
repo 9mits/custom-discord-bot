@@ -234,6 +234,20 @@ final class GameVariableStoreTest {
     }
 
     @Test
+    void shippedDragonPortalClockMigratesToTheLiveCountdown() throws Exception {
+        Path file = temporary.resolve("game-variables.json");
+        Files.writeString(file, "{\"dragon-event.portal-open-status\":\"OPEN UNTIL <until>\"}");
+
+        GameVariableStore variables = store();
+
+        assertEquals("OPEN • CLOSES IN <time>",
+                variables.string("dragon-event.portal-open-status"));
+        String migrated = Files.readString(file);
+        assertTrue(migrated.contains("OPEN • CLOSES IN <time>"));
+        assertFalse(migrated.contains("OPEN UNTIL <until>"));
+    }
+
+    @Test
     void incorrectAmethystDeadlineMigratesToSundayMidnightJst() throws Exception {
         Path file = temporary.resolve("game-variables.json");
         Files.writeString(file, "{\"amethyst-events.ends-at\":1789192800}");

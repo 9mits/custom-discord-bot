@@ -2746,8 +2746,8 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         long remaining = Math.max(0L, scheduledAt.toEpochMilli() - System.currentTimeMillis());
         long total = Math.max(1L, variables.integer("dragon-event.portal-open-minutes") * 60_000L);
         portalBar.name(Component.text("AMETHYST DRAGON PORTAL", AMETHYST, TextDecoration.BOLD)
-                .append(Component.text("  OPEN UNTIL ", NamedTextColor.GRAY))
-                .append(Component.text(portalCloseClock(scheduledAt), NamedTextColor.WHITE,
+                .append(Component.text("  CLOSES IN ", NamedTextColor.GRAY))
+                .append(Component.text(portalCountdown(remaining), NamedTextColor.WHITE,
                         TextDecoration.BOLD)));
         portalBar.progress((float) Math.clamp((double) remaining / total, 0d, 1d));
     }
@@ -2994,9 +2994,10 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                 long remaining = scheduledAt == null ? 0L
                         : scheduledAt.toEpochMilli() - System.currentTimeMillis();
                 String line = render(variables.string("dragon-event.portal-open-status"),
-                        "time", duration(remaining));
-                yield render(line, "until", scheduledAt == null
-                        ? "--:-- UTC" : portalCloseClock(scheduledAt));
+                        "time", portalCountdown(remaining));
+                // Keep old owner-written templates functional, but <until> is now a
+                // relative counter too; the portal never exposes a timezone clock.
+                yield render(line, "until", portalCountdown(remaining));
             }
             case SUMMONING -> variables.string("dragon-event.portal-summoning-status");
             case FIGHT, VICTORY, REWARDS -> render(variables.string("dragon-event.portal-next-event-status"),
@@ -3585,8 +3586,8 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         return minutes > 0 ? minutes + "m " + rest + "s" : rest + "s";
     }
 
-    static String portalCloseClock(Instant closesAt) {
-        return CLOCK.format(closesAt.atZone(ZoneOffset.UTC)) + " UTC";
+    static String portalCountdown(long remainingMillis) {
+        return AirdropService.formatCountdown(remainingMillis);
     }
 
     private static String render(String source, String key, String value) {

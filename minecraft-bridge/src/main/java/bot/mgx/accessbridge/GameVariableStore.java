@@ -394,8 +394,8 @@ final class GameVariableStore {
         text("dragon-event.portal-waiting-status", "Portal waiting status", "Dragon Presentation",
                 "Portal line before admission opens. Supports <time>.", "Portal opens in <time>", 100);
         text("dragon-event.portal-open-status", "Portal open status", "Dragon Presentation",
-                "Portal line while players may enter. Supports <until> and <time>.",
-                "OPEN UNTIL <until>", 100);
+                "Portal line while players may enter. Supports <time>.",
+                "OPEN • CLOSES IN <time>", 100);
         text("dragon-event.portal-summoning-status", "Portal summoning status", "Dragon Presentation",
                 "Portal line while pillars and the Dragon appear.", "ENTRY CLOSED • THE DRAGON AWAKENS", 100);
         text("dragon-event.portal-next-event-status", "Next Dragon event status", "Dragon Presentation",
@@ -2823,6 +2823,15 @@ final class GameVariableStore {
                         && value instanceof Number number
                         && number.longValue() == 1_789_192_800L) {
                     value = 1_789_225_200L;
+                    migrated = true;
+                }
+                // The original portal line exposed a UTC wall-clock time. Replace only
+                // that shipped template so existing servers receive the live countdown
+                // without overwriting an owner's custom wording.
+                if (canonical.equals("dragon-event.portal-open-status")
+                        && value instanceof String text
+                        && text.equals("OPEN UNTIL <until>")) {
+                    value = "OPEN • CLOSES IN <time>";
                     migrated = true;
                 }
                 // These were the shipped Scythe bonuses before competitive PvP was

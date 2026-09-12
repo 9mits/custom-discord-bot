@@ -7,7 +7,7 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.Instant;
+import java.time.Duration;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -96,9 +96,13 @@ final class AmethystDragonServiceTest {
     }
 
     @Test
-    void portalClosingClockIsAnExplicitUtcTime() {
-        assertEquals("11:05 UTC", AmethystDragonService.portalCloseClock(
-                Instant.parse("2026-09-09T11:05:00Z")));
+    void portalClosingCounterRunsFromFiveMinutesAndRoundsUp() {
+        assertEquals("05:00", AmethystDragonService.portalCountdown(
+                Duration.ofMinutes(5).toMillis()));
+        assertEquals("05:00", AmethystDragonService.portalCountdown(299_001L));
+        assertEquals("04:59", AmethystDragonService.portalCountdown(299_000L));
+        assertEquals("00:01", AmethystDragonService.portalCountdown(1L));
+        assertEquals("00:00", AmethystDragonService.portalCountdown(0L));
     }
 
     @Test
