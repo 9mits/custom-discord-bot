@@ -532,7 +532,8 @@ final class PvpCompetitionService implements Listener {
                     integer("pvp-competitive.lobby-portal-particle-count"));
             PvpLobbyBuilder.updateLabelViewers(lobby, plugin, clientSupport,
                     decimal("pvp-competitive.lobby-label-view-distance"),
-                    decimal("pvp-competitive.lobby-board-view-distance"));
+                    decimal("pvp-competitive.lobby-board-view-distance"),
+                    decimal("pvp-competitive.lobby-leaderboard-view-distance"));
             PvpLobbyBuilder.refreshStatus(lobby, this::gateStatus);
             // The boards move far more slowly than a queue count; every fifth tick is
             // plenty and keeps the entity work off the other four.
@@ -2266,12 +2267,14 @@ final class PvpCompetitionService implements Listener {
             display.addScoreboardTag(ENTRANCE_DISPLAY_TAG);
             display.addScoreboardTag(ENTRANCE_TEXT_TAG);
             display.text(text);
-            display.setBillboard(Display.Billboard.CENTER);
+            display.setBillboard(Display.Billboard.VERTICAL);
             display.setAlignment(TextDisplay.TextAlignment.CENTER);
             display.setShadowed(true);
             display.setSeeThrough(false);
             display.setLineWidth(320);
-            display.setBackgroundColor(Color.fromARGB(165, 9, 5, 16));
+            display.setBackgroundColor(Color.fromARGB(225, 5, 3, 10));
+            display.setTextOpacity((byte) -1);
+            display.setBrightness(new Display.Brightness(15, 15));
             display.setViewRange(12f);
             display.setPersistent(false);
             display.setVisibleByDefault(false);

@@ -1249,6 +1249,11 @@ final class GameVariableStore {
         decimal("pvp-competitive.lobby-board-view-distance", "Console label distance", "PvP Lobby",
                 "Maximum distance from a pavilion console before its labels are hidden.",
                 12, 4, 32, "blocks");
+        decimal("pvp-competitive.lobby-leaderboard-view-distance",
+                "Leaderboard gallery distance", "PvP Lobby",
+                "Distance from the gallery centre at which all six leaderboard boards"
+                        + " are revealed together.",
+                34, 16, 64, "blocks");
         integer("pvp-competitive.lobby-portal-particle-count", "Lobby portal particles", "PvP Lobby",
                 "Extra moving particles emitted around each queue portal every second.",
                 8, 0, 100, "particles", false);

@@ -81,6 +81,7 @@ final class GameVariableStoreTest {
         assertEquals(1.25d, variables.decimal("pvp-competitive.lobby-line-scale"));
         assertEquals(24d, variables.decimal("pvp-competitive.lobby-label-view-distance"));
         assertEquals(12d, variables.decimal("pvp-competitive.lobby-board-view-distance"));
+        assertEquals(34d, variables.decimal("pvp-competitive.lobby-leaderboard-view-distance"));
         assertEquals(8, variables.integer("pvp-competitive.lobby-portal-particle-count"));
         assertEquals(48, variables.integer("pvp-competitive.portal-selection-distance"));
         assertEquals("✦ PVP LOBBY ✦", variables.string("pvp-competitive.portal-title"));

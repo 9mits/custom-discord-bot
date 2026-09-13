@@ -102,8 +102,10 @@ final class PvpCompetitionSafetyTest {
         assertTrue(lobby.contains("CrateDisplayService.spawnStyledLabel"));
         assertTrue(lobby.contains("instanceof ArmorStand"));
         assertTrue(lobby.contains("setVisibleByDefault(false)"));
+        assertTrue(lobby.contains("boolean correctType = useText"));
         assertTrue(source.contains("lobby-label-view-distance"));
         assertTrue(source.contains("lobby-board-view-distance"));
+        assertTrue(source.contains("lobby-leaderboard-view-distance"));
         // Queue gates are now honest, animated portals and their detailed copy lives
         // behind the physical pavilion consoles instead of floating in the world.
         assertTrue(lobby.contains("Material.NETHER_PORTAL.createBlockData()"));
@@ -117,9 +119,15 @@ final class PvpCompetitionSafetyTest {
         assertTrue(source.contains("suppressCustomPortalTravel()"));
         assertTrue(source.contains("else openMode(player, mode);"));
         assertTrue(source.contains("PvpLobbyBuilder.pavilionAction("));
-        assertTrue(lobby.contains("FLOOR_Y + 6.6d"));
-        assertTrue(lobby.contains("FLOOR_Y + 3.2d"));
+        assertTrue(lobby.contains("gateLabelLocation(world"));
+        assertTrue(lobby.contains("FLOOR_Y + 11.5d"));
+        assertTrue(lobby.contains("FLOOR_Y + 8.9d"));
+        int lateClear = lobby.indexOf("clearLobbyLabels(world);", lobby.indexOf("plantGarden"));
+        assertTrue(lateClear > 0 && lateClear < lobby.indexOf("buildHolograms(world", lateClear),
+                "stale labels must be removed after geometry loads their chunks");
         assertTrue(lobby.contains("buildLeaderboardGallery(world)"));
+        assertTrue(lobby.contains("buildGalleryMoat(world)"));
+        assertTrue(lobby.contains("GALLERY_LABEL_TAG"));
         assertTrue(lobby.contains("CLAN_KILLS(\"CLAN KILLS\""));
     }
 
