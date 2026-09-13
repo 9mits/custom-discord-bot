@@ -298,38 +298,36 @@ final class PvpLobbyLayoutTest {
                 "the framework needs a no-parent page, not a disabled Back");
     }
 
-    /**
-     * The queue page cannot be read while its reader is stood in a live portal.
-     *
-     * <p>The client throws its own dialog away when portal travel begins, so the page
-     * only survives if the player is not in the arch. Stepping them out once was not
-     * enough: a player still holding forward walks back into it a tick later, and if
-     * the step-out sits behind the same cooldown as the page, that second entry leaves
-     * them standing in the portal with the page already open. Observed directly — the
-     * screen opened as "Ranked 1v1" and was gone on the next poll.
-     */
+    /** The queue page opens only after the player has emerged beyond the portal. */
     @Test
-    void everyTouchOfAnArchStepsYouOutEvenWhenThePageDoesNotReopen() {
+    void everyTouchCarriesYouThroughBeforeTheDelayedPageOpens() {
         String service = service();
-        // The move path steps out unconditionally and only then consults the gate.
-        int step = service.indexOf("if (approach != null) event.setTo(approach);");
+        // The move path exits unconditionally and only then consults the page cooldown.
+        int step = service.indexOf("if (exit != null) event.setTo(exit);");
         int gate = service.indexOf("queueTouched(player, queue);", step);
         assertTrue(step > 0 && gate > step,
-                "the step-out must happen on every touch, not behind the page cooldown");
+                "the portal exit must happen on every touch, not behind the page cooldown");
         assertTrue(service.contains("private void queueTouched(Player player, PvpMode mode)"),
                 "one gate, so whichever path sees the touch opens the page");
-        // And the page itself must not be drawn in the same tick as that move.
+        // The page must wait for the client-side portal transition to clear.
         assertTrue(service.contains("private void openQueuePage(Player player, PvpMode mode)"));
+        assertTrue(service.contains("runTaskLater(plugin, () ->"));
+        assertTrue(service.contains("pvp-competitive.lobby-gate-menu-delay-ticks"));
         assertTrue(service.contains("else openMode(player, mode, STANDALONE);"));
-        assertTrue(source().contains("static Location gateApproach("));
+        String lobby = source();
+        assertTrue(lobby.contains("static Location gateExit("));
+        assertTrue(lobby.contains("GATE_RING + distance"),
+                "the landing must be beyond the arch, not back on the entry side");
+        assertTrue(lobby.contains("standX - gate.x() - 0.5d"),
+                "held forward movement must carry the player away from the portal");
         // A player who stops moving inside an arch fires no further move event.
         String sweep = service.substring(
                 service.indexOf("private void suppressCustomPortalTravel()"),
                 service.indexOf("private void installStarterLobby()"));
-        assertTrue(sweep.contains("gateApproach(lobby, queue)"),
+        assertTrue(sweep.contains("gateExit(lobby, queue"),
                 "the sweep must also get a stationary player out of an arch");
         assertTrue(sweep.contains("queueTouched(player, queue);"),
-                "a sweep that steps a player out must not swallow their queue");
+                "a sweep that carries a player through must not swallow their queue");
     }
 
     /**

@@ -204,7 +204,7 @@ final class PvpCompetitionSafetyTest {
     }
 
     @Test
-    void nestedMenusReturnToTheirActualCallerAndQueuesNeverUseTheGlobalFallback()
+    void nestedMenusReturnToTheirCallerAndQueueStateIsItsOwnDestination()
             throws Exception {
         String source = Files.readString(SOURCE, StandardCharsets.UTF_8);
         assertTrue(source.contains("private void openStats(Player player, Consumer<Player> back)"));
@@ -218,7 +218,11 @@ final class PvpCompetitionSafetyTest {
                 "viewer -> openRankings(viewer, parent -> openLadder(parent, back))"));
         String queueStatus = source.substring(source.indexOf("private void openQueueStatus("),
                 source.indexOf("int liveMatchCount()"));
-        assertTrue(queueStatus.contains("duels::openHub"));
+        assertTrue(queueStatus.contains("STANDALONE"),
+                "live queue state must close cleanly instead of navigating behind itself");
+        assertTrue(queueStatus.contains("Refresh Status"));
+        assertTrue(queueStatus.contains("Change Match"));
+        assertTrue(queueStatus.contains("Queue Rules"));
         assertFalse(queueStatus.contains("), null);"));
     }
 
@@ -226,6 +230,9 @@ final class PvpCompetitionSafetyTest {
     void queueAndPreparationAlwaysExposeLiveProgress() throws Exception {
         String source = Files.readString(SOURCE, StandardCharsets.UTF_8);
         assertTrue(source.contains("QUEUE JOINED"));
+        assertTrue(source.contains("openQueueStatus(player, true)"),
+                "joining must replace the choice page with the state it created");
+        assertTrue(source.contains("justJoined ? \"Queued!\" : \"PvP Queue\""));
         assertTrue(source.contains("A PLAYER"));
         assertTrue(source.contains("queue-boss-bar"));
         assertTrue(source.contains("queue-actionbar-interval-seconds"));
@@ -234,6 +241,33 @@ final class PvpCompetitionSafetyTest {
         assertTrue(source.contains("SEARCH ±"));
         assertTrue(source.contains("ffaEarlyStartRemaining"));
         assertTrue(source.contains("Somebody already waiting is part of the population"));
+    }
+
+    @Test
+    void readOnlyPvpPagesLeadToUsefulNextActions() throws Exception {
+        String source = Files.readString(SOURCE, StandardCharsets.UTF_8);
+        assertTrue(source.contains("private MenuAction playStateAction("));
+        assertTrue(source.contains("\"Play PvP\""));
+        assertTrue(source.contains("\"Queue Status\""));
+        assertTrue(source.contains("\"Match Room\""));
+
+        String stats = source.substring(source.indexOf("private void openStats("),
+                source.indexOf("private void openLadder("));
+        assertTrue(stats.contains("Rank Progression"));
+        assertTrue(stats.contains("Live Matches"));
+        assertTrue(stats.contains("showPage(player, \"PvP Statistics\""),
+                "statistics should use rich dialog rows instead of one text blob");
+
+        String rankings = source.substring(source.indexOf("private void openRankings("),
+                source.indexOf("private void openRules("));
+        assertTrue(rankings.contains("My Statistics"));
+        assertTrue(rankings.contains("Rank Guide"));
+        assertTrue(rankings.contains("Refresh Rankings"));
+
+        String live = source.substring(source.indexOf("void openLive(Player player)"),
+                source.indexOf("void openParty(Player player)"));
+        assertTrue(live.contains("playStateAction"));
+        assertTrue(live.contains("Refresh Matches"));
     }
 
     @Test

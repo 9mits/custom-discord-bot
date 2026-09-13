@@ -590,6 +590,10 @@ final class PvpCompetitionService implements Listener {
         matchDrafts.remove(playerId);
         refreshQueueFeedback(System.currentTimeMillis(), true);
         tryMatch(mode, System.currentTimeMillis());
+        // A successful action must replace the choice screen with the state it
+        // created. Leaving the old mode buttons visible made the click look ignored
+        // even though matchmaking and its HUD had started behind the dialog.
+        if (player.isOnline()) openQueueStatus(player, true);
     }
 
     private boolean leaveQueue(UUID playerId, boolean announce) {
@@ -1935,6 +1939,22 @@ final class PvpCompetitionService implements Listener {
             String sprite, String label, String hint, java.util.function.Consumer<Player> action
     ) { }
 
+    /** The useful next action for the player's actual state, not a generic Play button. */
+    private MenuAction playStateAction(Player player, Consumer<Player> returnToCurrentPage) {
+        UUID playerId = player.getUniqueId();
+        if (queuedPlayers.containsKey(playerId) || preparing.containsKey(playerId)) {
+            return new MenuAction("item/clock_00", "Queue Status",
+                    "Return to the live matchmaking readout.", this::openQueueStatus);
+        }
+        if (roomByPlayer.containsKey(playerId)) {
+            return new MenuAction("item/name_tag", "Match Room",
+                    "Return to your invite-only room.", this::openMatchRoom);
+        }
+        return new MenuAction("item/netherite_sword", "Play PvP",
+                "Choose a public match and join its queue.",
+                viewer -> openModes(viewer, returnToCurrentPage));
+    }
+
     void openModes(Player player) {
         openModes(player, this::openHub);
     }
@@ -2161,6 +2181,22 @@ final class PvpCompetitionService implements Listener {
         String kd = record.deaths() == 0L
                 ? (record.kills() == 0L ? "0.00" : "∞")
                 : String.format(Locale.ROOT, "%.2f", (double) record.kills() / record.deaths());
+        List<DialogBody> page = new ArrayList<>(List.of(
+                DialogBody.plainMessage(MenuText.head(player.getUniqueId()), RULE_WIDTH),
+                DialogBody.plainMessage(MenuText.stat("Rank",
+                        record.rank().display() + " • " + record.rating() + " RP"), RULE_WIDTH),
+                DialogBody.plainMessage(MenuText.stat("Highest",
+                        record.bestRank().display()), RULE_WIDTH),
+                DialogBody.plainMessage(MenuText.stat("Record",
+                        record.wins() + "W / " + record.losses() + "L / "
+                                + record.draws() + "D • "
+                                + Math.round(record.winRate() * 100d) + "% won"), RULE_WIDTH),
+                DialogBody.plainMessage(MenuText.stat("Combat",
+                        record.kills() + " kills / " + record.deaths() + " deaths • "
+                                + kd + " K/D"), RULE_WIDTH),
+                DialogBody.plainMessage(MenuText.stat("Streak",
+                        record.streak() + " current • " + record.bestStreak() + " best"), RULE_WIDTH)
+        ));
         StringBuilder body = new StringBuilder()
                 .append("Rank: ").append(record.rank().display()).append(" • ")
                 .append(record.rating()).append(" rating\n")
@@ -2176,6 +2212,10 @@ final class PvpCompetitionService implements Listener {
         for (PvpMode mode : PvpMode.values()) {
             PvpRecordStore.ModeRecord row = record.mode(mode);
             if (row.matches() == 0L) continue;
+            String detail = row.wins() + "W / " + row.losses() + "L / "
+                    + row.draws() + "D • " + row.kills() + "K / " + row.deaths() + "D";
+            page.add(DialogBody.plainMessage(MenuText.rule(modeSprite(mode),
+                    mode.display(), detail), RULE_WIDTH));
             body.append("\n\n").append(mode.display()).append(": ")
                     .append(row.wins()).append("W / ").append(row.losses()).append("L / ")
                     .append(row.draws()).append("D • ").append(row.kills()).append("K / ")
@@ -2183,15 +2223,27 @@ final class PvpCompetitionService implements Listener {
         }
         clans.clanOf(player.getUniqueId()).ifPresent(clan -> {
             PvpClanRecordStore.Record row = clanRecords.of(clan.id());
+            page.add(DialogBody.plainMessage(MenuText.stat("Clan PvP • " + clan.name(),
+                    row.wins() + "W / " + row.losses() + "L • " + row.kills()
+                            + " kills • " + row.bestStreak() + " best streak"), RULE_WIDTH));
             body.append("\n\nClan PvP — ").append(clan.name()).append(": ")
                     .append(row.wins()).append("W / ").append(row.losses()).append("L")
                     .append(" • ").append(row.kills()).append(" kills")
                     .append(" • best streak ").append(row.bestStreak());
         });
-        List<MenuAction> actions = List.of(new MenuAction("item/nether_star", "Rating Leaderboard",
-                "See the highest current ratings.",
-                viewer -> openRankings(viewer, backViewer -> openStats(backViewer, back))));
-        showMenu(player, "PvP Statistics", body.toString(), actions, back);
+        List<MenuAction> actions = List.of(
+                playStateAction(player, viewer -> openStats(viewer, back)),
+                new MenuAction("item/nether_star", "Rating Leaderboard",
+                        "See the highest current ratings.",
+                        viewer -> openRankings(viewer, parent -> openStats(parent, back))),
+                new MenuAction("item/experience_bottle", "Rank Progression",
+                        "See your next rank and every permanent tier.",
+                        viewer -> openLadder(viewer, parent -> openStats(parent, back))),
+                new MenuAction("item/spyglass", "Live Matches",
+                        "Watch a competitive fight from its anchored stand.",
+                        viewer -> openLive(viewer, parent -> openStats(parent, back)))
+        );
+        showPage(player, "PvP Statistics", page, body.toString(), actions, back);
     }
 
     private void openLadder(Player player) {
@@ -2238,7 +2290,11 @@ final class PvpCompetitionService implements Listener {
             body.append(rank.glyph()).append(' ').append(rank.tier())
                     .append(" • ").append(rank.floor()).append(" RP\n");
         }
-        showMenu(player, "PvP Rank Tiers", body.toString(), List.of(),
+        showMenu(player, "PvP Rank Tiers", body.toString(), List.of(
+                        playStateAction(player, viewer -> openTierGuide(viewer, root)),
+                        new MenuAction("item/experience_bottle", "My Progress",
+                                "Return to your current rating and next rank.",
+                                viewer -> openLadder(viewer, root))),
                 parent -> openLadder(parent, root));
     }
 
@@ -2249,10 +2305,20 @@ final class PvpCompetitionService implements Listener {
     private void openRankings(Player player, Consumer<Player> back) {
         List<PvpRankLeaderboard.Row> top = PvpRankLeaderboard.top(
                 records.all(), PvpCompetitionService::name, 10);
+        List<DialogBody> page = new ArrayList<>();
         StringBuilder body = new StringBuilder("Ranked results from automatic survival-loadout queues.\n");
-        if (top.isEmpty()) body.append("\nNo ranked matches have been completed yet.");
+        if (top.isEmpty()) {
+            body.append("\nNo ranked matches have been completed yet.");
+            page.add(DialogBody.plainMessage(MenuText.rule("item/nether_star",
+                    "No Ranked Results Yet",
+                    "Join Ranked Battle to claim the first place on this board."), RULE_WIDTH));
+        }
         for (int index = 0; index < top.size(); index++) {
             PvpRankLeaderboard.Row row = top.get(index);
+            page.add(DialogBody.plainMessage(MenuText.stat(
+                    "#" + (index + 1) + " " + row.username(),
+                    row.record().rank().display() + " • " + row.record().rating() + " RP"),
+                    RULE_WIDTH));
             body.append("\n").append(index + 1).append(". ").append(row.username())
                     .append(" — ").append(row.record().rank().display())
                     .append(" (").append(row.record().rating()).append(")");
@@ -2269,13 +2335,28 @@ final class PvpCompetitionService implements Listener {
                 Map.Entry<UUID, PvpClanRecordStore.Record> row = clanTop.get(index);
                 String clanName = clans.findClanById(row.getKey()).map(ClanStore.ClanView::name)
                         .orElse(row.getKey().toString().substring(0, 8));
+                page.add(DialogBody.plainMessage(MenuText.stat(
+                        "Clan #" + (index + 1) + " • " + clanName,
+                        row.getValue().wins() + "W / " + row.getValue().losses() + "L • "
+                                + row.getValue().kills() + " kills"), RULE_WIDTH));
                 body.append("\n").append(index + 1).append(". ").append(clanName)
                         .append(" — ").append(row.getValue().wins()).append("W / ")
                         .append(row.getValue().losses()).append("L • ")
                         .append(row.getValue().kills()).append(" kills");
             }
         }
-        showMenu(player, "PvP Rankings", body.toString(), List.of(), back);
+        showPage(player, "PvP Rankings", page, body.toString(), List.of(
+                playStateAction(player, viewer -> openRankings(viewer, back)),
+                new MenuAction("item/book", "My Statistics",
+                        "Open your full competitive record.",
+                        viewer -> openStats(viewer, parent -> openRankings(parent, back))),
+                new MenuAction("item/experience_bottle", "Rank Guide",
+                        "See your next promotion and every permanent tier.",
+                        viewer -> openLadder(viewer, parent -> openRankings(parent, back))),
+                new MenuAction("item/clock_00", "Refresh Rankings",
+                        "Redraw the board with the newest results.",
+                        viewer -> openRankings(viewer, back))
+        ), back);
     }
 
     private void openRules(Player player) {
@@ -2300,7 +2381,15 @@ final class PvpCompetitionService implements Listener {
                                 + " opponent is rested before you can face them again."},
                 new String[]{"item/barrier", "Giving Up",
                         "Forfeits, disconnects and AFK eliminations all lose normally."}
-        ), List.of(), back);
+        ), List.of(
+                playStateAction(player, viewer -> openRules(viewer, back)),
+                new MenuAction("item/spyglass", "Live Matches",
+                        "See what is fighting now and watch from a safe stand.",
+                        viewer -> openLive(viewer, parent -> openRules(parent, back))),
+                new MenuAction("item/book", "My Statistics",
+                        "Open your rank, combat record, and mode results.",
+                        viewer -> openStats(viewer, parent -> openRules(parent, back)))
+        ), back);
     }
 
     void openLive(Player player) {
@@ -2311,9 +2400,13 @@ final class PvpCompetitionService implements Listener {
         List<Match> live = matches.values().stream()
                 .filter(match -> match.phase == Phase.FIGHTING || match.phase == Phase.COUNTDOWN)
                 .toList();
-        List<MenuAction> actions = live.stream().map(match -> new MenuAction(
+        List<MenuAction> actions = new ArrayList<>(live.stream().map(match -> new MenuAction(
                 "item/spyglass", match.mode.display() + " • " + match.alive.size() + " alive",
-                match.mode.display(), viewer -> spectate(viewer, match))).toList();
+                match.mode.display(), viewer -> spectate(viewer, match))).toList());
+        actions.add(playStateAction(player, viewer -> openLive(viewer, back)));
+        actions.add(new MenuAction("item/clock_00", "Refresh Matches",
+                "Redraw this page with the current live fights.",
+                viewer -> openLive(viewer, back)));
         showMenu(player, "Live PvP Matches",
                 live.isEmpty() ? "No competitive matches are live." : "Choose a match to watch.",
                 actions, back);
@@ -2991,6 +3084,10 @@ final class PvpCompetitionService implements Listener {
     }
 
     private void openQueueStatus(Player player) {
+        openQueueStatus(player, false);
+    }
+
+    private void openQueueStatus(Player player, boolean justJoined) {
         PvpMode mode = queuedModes.get(player.getUniqueId());
         PvpMatchmaking.Entry entry = queuedPlayers.get(player.getUniqueId());
         PendingStart pending = preparing.get(player.getUniqueId());
@@ -3006,9 +3103,16 @@ final class PvpCompetitionService implements Listener {
                                             + " location search, chunk loading, and safety checks."),
                                     RULE_WIDTH)),
                     "Match found. The live preparation bar shows every stage.",
-                    List.of(new MenuAction("item/barrier", "Cancel Match",
-                            "Cancel before the countdown begins.",
-                            this::leaveQueueAndOpenHub)), duels::openHub);
+                    List.of(
+                            new MenuAction("item/clock_00", "Refresh Progress",
+                                    "Redraw this page with the current preparation state.",
+                                    this::openQueueStatus),
+                            new MenuAction("item/book", "Match Rules",
+                                    "Review safety, loadout, and fairness rules.",
+                                    viewer -> openRules(viewer, this::openQueueStatus)),
+                            new MenuAction("item/barrier", "Cancel Match",
+                                    "Cancel before the countdown begins.",
+                                    this::leaveQueueAndOpenHub)), STANDALONE);
             return;
         }
         if (mode == null || entry == null) {
@@ -3031,6 +3135,12 @@ final class PvpCompetitionService implements Listener {
                 DialogBody.plainMessage(MenuText.stat("Waiting",
                         formatSeconds(waited)), RULE_WIDTH),
                 DialogBody.plainMessage(MenuText.stat("Next", next), RULE_WIDTH)));
+        if (justJoined) {
+            page.add(0, DialogBody.plainMessage(MenuText.rule("item/lime_dye",
+                    "Queue Joined",
+                    "Matchmaking is active. You may close this page and keep playing;"
+                            + " the BossBar and alerts remain live."), RULE_WIDTH));
+        }
         if (mode.rated()) {
             long range = PvpMatchmaking.ratingWindow(waited * 1_000L,
                     integer("pvp-competitive.matchmaking-base-range"),
@@ -3039,19 +3149,33 @@ final class PvpCompetitionService implements Listener {
             page.add(DialogBody.plainMessage(MenuText.stat("Opponent search",
                     "±" + range + " rating and expanding"), RULE_WIDTH));
         }
-        showPage(player, "PvP Queue", page,
+        showPage(player, justJoined ? "Queued!" : "PvP Queue", page,
                 setup.matchLabel() + ". " + waiting + "/" + setup.requiredPlayers()
                         + " ready. " + next + ". Waiting " + formatSeconds(waited) + ".",
                 List.of(
-                new MenuAction("item/barrier", "Leave Queue",
-                        "Leave this queue with your current team.",
-                        this::leaveQueueAndOpenHub)
-                ), duels::openHub);
+                        new MenuAction("item/clock_00", "Refresh Status",
+                                "Redraw the current player count, wait, and next step.",
+                                this::openQueueStatus),
+                        new MenuAction("item/netherite_sword", "Change Match",
+                                "Leave this queue and choose another format.",
+                                this::leaveQueueAndChooseMatch),
+                        new MenuAction("item/book", "Queue Rules",
+                                "Review loadouts, keep inventory, and fairness rules.",
+                                viewer -> openRules(viewer, this::openQueueStatus)),
+                        new MenuAction("item/barrier", "Leave Queue",
+                                "Leave this queue with your current team.",
+                                this::leaveQueueAndOpenHub)
+                ), STANDALONE);
     }
 
     private void leaveQueueAndOpenHub(Player player) {
         leaveQueue(player.getUniqueId(), true);
         duels.openHub(player);
+    }
+
+    private void leaveQueueAndChooseMatch(Player player) {
+        leaveQueue(player.getUniqueId(), true);
+        openModes(player);
     }
 
     int liveMatchCount() {
@@ -3563,17 +3687,6 @@ final class PvpCompetitionService implements Listener {
                 1.4d, 0.4d, 1.4d, 0.01d);
     }
 
-    /** Keeps vanilla Nether travel from taking focus away from a custom portal menu. */
-    /**
-     * Steps the player out of the arch, then opens the page on the next tick.
-     *
-     * <p>The screen used to open and vanish because the player was left standing in a
-     * live nether portal: the client dismisses its own dialog the moment portal travel
-     * begins, and travel begins again every time the suppression cooldown lapses, so
-     * the page could be seen but never read. Moving the player one step onto the
-     * approach removes the cause instead of racing it, and the step is taken first so
-     * the teleport cannot dismiss the page it is about to open.
-     */
     /**
      * A touch of a queue arch, from whichever path noticed it first.
      *
@@ -3592,14 +3705,14 @@ final class PvpCompetitionService implements Listener {
 
     private void openQueuePage(Player player, PvpMode mode) {
         UUID playerId = player.getUniqueId();
-        // One tick later: a page drawn in the same tick as the move that placed the
-        // player is thrown away by their own client along with the portal transition.
-        plugin.getServer().getScheduler().runTask(plugin, () -> {
+        // Let the client finish clearing its Nether-portal state before drawing. A
+        // one-tick delay still allowed the transition to discard the new page.
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
             if (!player.isOnline() || isParticipant(playerId)) return;
             if (roomByPlayer.containsKey(playerId)) openMatchRoom(player);
             else if (queuedPlayers.containsKey(playerId)) openQueueStatus(player);
             else openMode(player, mode, STANDALONE);
-        });
+        }, integer("pvp-competitive.lobby-gate-menu-delay-ticks"));
     }
 
     private void suppressCustomPortalTravel() {
@@ -3615,8 +3728,9 @@ final class PvpCompetitionService implements Listener {
             // A player who stopped moving inside an arch never fires another move
             // event, so the sweep is what gets them out of it.
             if (queue != null && queue.queueable() && !isParticipant(player.getUniqueId())) {
-                Location approach = PvpLobbyBuilder.gateApproach(lobby, queue);
-                if (approach != null) teleport(player, approach);
+                Location exit = PvpLobbyBuilder.gateExit(lobby, queue,
+                        decimal("pvp-competitive.lobby-gate-exit-distance"));
+                if (exit != null) teleport(player, exit);
                 queueTouched(player, queue);
             }
         }
@@ -3783,14 +3897,13 @@ final class PvpCompetitionService implements Listener {
                     () -> teleport(event.getPlayer(), lobbyAt));
             return;
         }
-        // Queue portals are handled before the pad cooldown, because stepping a player
-        // back out has to happen on every touch. Gate only the page behind the
-        // cooldown: a player still walking forward re-enters the arch a tick later,
-        // and standing in a live portal is what makes their client throw the page away.
+        // Queue portals are handled before the pad cooldown because every touch must
+        // carry the player all the way through. The page alone is rate-limited.
         PvpMode queue = PvpLobbyBuilder.modePad(lobby, event.getTo());
         if (queue != null && queue.queueable()) {
-            Location approach = PvpLobbyBuilder.gateApproach(lobby, queue);
-            if (approach != null) event.setTo(approach);
+            Location exit = PvpLobbyBuilder.gateExit(lobby, queue,
+                    decimal("pvp-competitive.lobby-gate-exit-distance"));
+            if (exit != null) event.setTo(exit);
             player.setPortalCooldown(integer("pvp-competitive.portal-suppression-ticks"));
             queueTouched(player, queue);
             return;
@@ -3831,8 +3944,9 @@ final class PvpCompetitionService implements Listener {
             // re-open, which is the same path a normal walk-in takes.
             if (mode != null && mode.queueable()) {
                 Player player = event.getPlayer();
-                Location approach = PvpLobbyBuilder.gateApproach(lobby, mode);
-                if (approach != null) teleport(player, approach);
+                Location exit = PvpLobbyBuilder.gateExit(lobby, mode,
+                        decimal("pvp-competitive.lobby-gate-exit-distance"));
+                if (exit != null) teleport(player, exit);
                 queueTouched(player, mode);
             }
         }

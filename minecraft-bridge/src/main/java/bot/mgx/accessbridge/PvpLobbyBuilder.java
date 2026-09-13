@@ -304,27 +304,31 @@ final class PvpLobbyBuilder {
     }
 
     /**
-     * The step in front of a gateway, facing it.
+     * The safe landing beyond a gateway, facing away from it.
      *
-     * <p>Where a player is put the instant they touch a queue portal. Standing inside a
-     * live nether portal is what made the queue screen open and vanish: the client
-     * dismisses its own dialog when portal travel starts, and travel starts again every
-     * time the suppression cooldown lapses, so the screen could never be read. Stepping
-     * the player back out removes the cause rather than racing it.
+     * <p>Sending a player back to the side they entered from made held forward movement
+     * put them straight back in the portal, where the client dismissed the new dialog.
+     * Carrying them through to the far side makes the arch behave like an entrance:
+     * continued movement takes them away from it while the menu opens.
      */
-    static Location gateApproach(PvpLobbyStore.Point lobby, PvpMode mode) {
+    static Location gateExit(
+            PvpLobbyStore.Point lobby, PvpMode mode, double configuredDistance
+    ) {
         Gate gate = GATES.get(mode);
         Location centre = lobby == null ? null : lobby.resolve();
         if (gate == null || centre == null || centre.getWorld() == null) return null;
         double originX = centre.getX() - 0.5d;
         double originZ = centre.getZ() - SPAWN_Z;
-        double standX = ringX(gate.angle(), GATE_RING - 2.5d, 0d) + 0.5d;
-        double standZ = ringZ(gate.angle(), GATE_RING - 2.5d, 0d) + 0.5d;
+        double distance = Math.clamp(configuredDistance, 2d, 8d);
+        double standX = ringX(gate.angle(), GATE_RING + distance, 0d) + 0.5d;
+        double standZ = ringZ(gate.angle(), GATE_RING + distance, 0d) + 0.5d;
         Location at = new Location(centre.getWorld(), originX + standX,
                 FLOOR_Y + 1d, originZ + standZ);
-        // Look back at the arch that was just walked into.
+        // Preserve the direction of travel. If forward is still held while the dialog
+        // appears, the player keeps walking away instead of immediately re-entering.
         at.setDirection(new org.bukkit.util.Vector(
-                gate.x() + 0.5d - standX, 0d, gate.z() + 0.5d - standZ));
+                standX - gate.x() - 0.5d, 0d,
+                standZ - gate.z() - 0.5d));
         return at;
     }
 

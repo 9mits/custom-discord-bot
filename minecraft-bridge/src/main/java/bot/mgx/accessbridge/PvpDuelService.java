@@ -986,6 +986,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         expireInvitations();
         int incoming = incoming(player.getUniqueId()).size();
         String record = recordLine(player.getUniqueId());
+        int competitiveLive = competition == null ? 0 : competition.liveMatchCount();
         if (!clientSupport.supportsDialogs(player)) {
             List<BedrockForms.Button> buttons = new ArrayList<>();
             if (competition != null) {
@@ -1022,9 +1023,18 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                         "See the fight rules.", this::openRules)
         ));
         Screens.show(player, "PvP", List.of(
-                DialogBody.plainMessage(MenuText.body(hubBody()), 400),
-                DialogBody.plainMessage(Component.empty(), 400),
-                DialogBody.plainMessage(MenuText.muted(record), 400)
+                DialogBody.plainMessage(MenuText.rule("item/netherite_sword",
+                        "Fight Your Way",
+                        "Public matchmaking or an accepted private challenge."), 460),
+                DialogBody.plainMessage(MenuText.rule("item/totem_of_undying",
+                        "Keep Inventory",
+                        "Use the survival gear you earned. Nothing drops."), 460),
+                DialogBody.plainMessage(MenuText.stat("Your record", record), 460),
+                DialogBody.plainMessage(MenuText.stat("Live now",
+                        (competitiveLive + fights.size()) + " match"
+                                + (competitiveLive + fights.size() == 1 ? "" : "es")), 460),
+                DialogBody.plainMessage(MenuText.stat("Incoming",
+                        incoming + " private challenge" + (incoming == 1 ? "" : "s")), 460)
         ), buttons, 1, null);
     }
 
@@ -1047,7 +1057,18 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             return;
         }
         Screens.show(player, "Private Fights",
-                List.of(DialogBody.plainMessage(MenuText.body(body), 460)),
+                List.of(
+                        DialogBody.plainMessage(MenuText.rule("item/diamond_sword",
+                                "Accepted Opponents",
+                                "A fight begins only after the other player accepts."), 460),
+                        DialogBody.plainMessage(MenuText.stat("Incoming",
+                                incoming + " challenge" + (incoming == 1 ? "" : "s")), 460),
+                        DialogBody.plainMessage(MenuText.stat("Live",
+                                fights.size() + " private fight"
+                                        + (fights.size() == 1 ? "" : "s")), 460),
+                        DialogBody.plainMessage(MenuText.rule("item/gold_ingot",
+                                "Optional Stakes",
+                                "Money, items, and cosmetics stay behind the wager screen."), 460)),
                 List.of(
                         Screens.button("item/diamond_sword", "Challenge a Player",
                                 "Choose one online opponent.", this::openTargets),
@@ -1093,7 +1114,17 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                     "View ranks and records.", this::openRankLeaderboard));
         }
         Screens.show(player, "Activity & Records",
-                List.of(DialogBody.plainMessage(MenuText.body(body), 460)),
+                List.of(
+                        DialogBody.plainMessage(MenuText.stat("Live now",
+                                (competitive + fights.size()) + " total match"
+                                        + (competitive + fights.size() == 1 ? "" : "es")), 460),
+                        DialogBody.plainMessage(MenuText.stat("Competitive",
+                                competitive + " live"), 460),
+                        DialogBody.plainMessage(MenuText.stat("Private",
+                                fights.size() + " live"), 460),
+                        DialogBody.plainMessage(MenuText.rule("item/nether_star",
+                                "Your Progress",
+                                "Open rank, rating, mode records, streaks, and combat stats."), 460)),
                 buttons, 1, this::openHub);
     }
 
@@ -1251,8 +1282,17 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             for (String[] rule : rules) {
                 text.append(rule[1]).append(" — ").append(rule[2]).append("\n\n");
             }
+            List<BedrockForms.Button> buttons = new ArrayList<>();
+            if (competition != null) {
+                buttons.add(new BedrockForms.Button("Play PvP",
+                        () -> competition.openModes(player)));
+            }
+            buttons.add(new BedrockForms.Button("Challenge a Player",
+                    () -> openTargets(player)));
+            buttons.add(new BedrockForms.Button("Activity & Records",
+                    () -> openActivityHome(player)));
             if (!forms.menu(player, "How PvP Works", text.toString().strip(),
-                    List.of(), this::openHub)) {
+                    buttons, this::openHub)) {
                 for (String[] rule : rules) {
                     player.sendMessage(prefix().append(Component
                             .text(rule[1] + " ", ORANGE, TextDecoration.BOLD))
@@ -1266,7 +1306,17 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             body.add(DialogBody.plainMessage(
                     MenuText.rule(rule[0], rule[1], rule[2]), RULE_WIDTH));
         }
-        Screens.show(player, "How PvP Works", body, List.of(), 1, this::openHub);
+        List<ActionButton> buttons = new ArrayList<>();
+        if (competition != null) {
+            buttons.add(Screens.button("item/netherite_sword", "Play PvP",
+                    "Choose a public mode and join matchmaking.",
+                    viewer -> competition.openModes(viewer)));
+        }
+        buttons.add(Screens.button("item/diamond_sword", "Challenge a Player",
+                "Arrange a private fight with optional stakes.", this::openTargets));
+        buttons.add(Screens.button("item/nether_star", "Activity & Records",
+                "Open your records and current live matches.", this::openActivityHome));
+        Screens.show(player, "How PvP Works", body, buttons, 2, this::openHub);
     }
 
     private void openTargets(Player player) {
@@ -2974,11 +3024,17 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 .filter(fight -> fight.phase == Phase.COUNTDOWN || fight.phase == Phase.FIGHTING)
                 .toList();
         if (!clientSupport.supportsDialogs(player)) {
-            List<BedrockForms.Button> buttons = live.stream()
+            List<BedrockForms.Button> buttons = new ArrayList<>(live.stream()
                     .map(fight -> new BedrockForms.Button(
                             fight.label() + " — " + liveSummary(fight),
                             () -> joinSpectator(player, fight)))
-                    .toList();
+                    .toList());
+            buttons.add(new BedrockForms.Button("Challenge a Player",
+                    () -> openTargets(player)));
+            if (competition != null) {
+                buttons.add(new BedrockForms.Button("Play PvP",
+                        () -> competition.openModes(player)));
+            }
             if (!forms.menu(player, "Live Fights",
                     live.isEmpty() ? "No fight is live." : "Watch from the viewing stand.",
                     buttons, this::openHub)) {
@@ -2990,6 +3046,13 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         for (Fight fight : live) {
             buttons.add(Screens.button(null, fight.label(), liveSummary(fight),
                     viewer -> joinSpectator(viewer, fight)));
+        }
+        buttons.add(Screens.button("item/diamond_sword", "Challenge a Player",
+                "Create the next private fight if none are live.", this::openTargets));
+        if (competition != null) {
+            buttons.add(Screens.button("item/netherite_sword", "Play PvP",
+                    "Join public matchmaking instead.",
+                    viewer -> competition.openModes(viewer)));
         }
         Screens.show(player, "Live Fights", Screens.body(live.isEmpty()
                         ? "No fight is live right now."

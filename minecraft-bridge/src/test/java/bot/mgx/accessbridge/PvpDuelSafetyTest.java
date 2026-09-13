@@ -421,9 +421,21 @@ final class PvpDuelSafetyTest {
                 source.indexOf("private void openRules(Player player)"),
                 source.indexOf("private void openTargets(Player player)"));
         assertTrue(rules.contains("Anti-farming checks protect records, wagers and rematches."));
+        assertTrue(rules.contains("Play PvP"));
+        assertTrue(rules.contains("Challenge a Player"));
+        assertTrue(rules.contains("Activity & Records"));
         assertFalse(rules.contains("linked accounts"));
         assertFalse(rules.contains("repeatOpponentLimit()"));
         assertFalse(rules.contains("repeatOpponentRestMillis()"));
+    }
+
+    @Test
+    void anEmptyPrivateSpectatorPageStillStartsTheNextFight() throws Exception {
+        String source = source();
+        String live = source.substring(source.indexOf("private void openLive(Player player)"),
+                source.indexOf("private String liveSummary(Fight fight)"));
+        assertTrue(live.contains("Challenge a Player"));
+        assertTrue(live.contains("Play PvP"));
     }
 
     @Test
