@@ -51,33 +51,6 @@ final class PvpMatchmaking {
     private PvpMatchmaking() {
     }
 
-    static long ratingWindow(
-            long waitedMillis, long baseRange, long widenPerSecond, long maximumRange
-    ) {
-        long seconds = Math.max(0L, waitedMillis) / 1_000L;
-        long widened;
-        try {
-            widened = Math.addExact(Math.max(0L, baseRange),
-                    Math.multiplyExact(seconds, Math.max(0L, widenPerSecond)));
-        } catch (ArithmeticException overflow) {
-            widened = Long.MAX_VALUE;
-        }
-        return Math.min(Math.max(0L, maximumRange), widened);
-    }
-
-    static boolean ratingCompatible(
-            Entry first,
-            Entry second,
-            long now,
-            long baseRange,
-            long widenPerSecond,
-            long maximumRange
-    ) {
-        long waited = Math.max(now - first.joinedAt(), now - second.joinedAt());
-        long window = ratingWindow(waited, baseRange, widenPerSecond, maximumRange);
-        return Math.abs(first.averageRating() - second.averageRating()) <= window;
-    }
-
     /** When the configured minimum compatible FFA population first became ready. */
     static java.util.OptionalLong ffaReadyAt(
             List<Entry> source, int teamSize, int targetPlayers, int minimumPlayers
@@ -96,25 +69,13 @@ final class PvpMatchmaking {
         return java.util.OptionalLong.empty();
     }
 
-    static java.util.Optional<Plan> teams(
-            List<Entry> source,
-            int teamSize,
-            long now,
-            long baseRange,
-            long widenPerSecond,
-            long maximumRange
-    ) {
-        return teams(source, teamSize, now, baseRange, widenPerSecond, maximumRange,
-                (first, second) -> true);
+    static java.util.Optional<Plan> teams(List<Entry> source, int teamSize) {
+        return teams(source, teamSize, (first, second) -> true);
     }
 
     static java.util.Optional<Plan> teams(
             List<Entry> source,
             int teamSize,
-            long now,
-            long baseRange,
-            long widenPerSecond,
-            long maximumRange,
             BiPredicate<List<UUID>, List<UUID>> opponents
     ) {
         if (teamSize <= 0) return java.util.Optional.empty();
@@ -124,6 +85,10 @@ final class PvpMatchmaking {
         List<List<Entry>> candidates = candidateTeams(entries, teamSize);
         candidates.sort(Comparator.comparingLong(PvpMatchmaking::oldest)
                 .thenComparing(team -> team.get(0).id()));
+        if (candidates.isEmpty()) return java.util.Optional.empty();
+        Entry oldestQueued = entries.get(0);
+        Plan best = null;
+        long bestRatingDifference = Long.MAX_VALUE;
         for (List<Entry> first : candidates) {
             Set<UUID> used = ids(first);
             long firstRating = average(first);
@@ -133,18 +98,21 @@ final class PvpMatchmaking {
                             Math.abs(firstRating - average(second))))
                     .toList();
             for (List<Entry> second : opponentsByFit) {
-                Entry firstSummary = new Entry(first.get(0).id(), List.of(), true,
-                        oldest(first), firstRating, null, teamSize, teamSize * 2);
-                Entry secondSummary = new Entry(second.get(0).id(), List.of(), true,
-                        oldest(second), average(second), null, teamSize, teamSize * 2);
-                if (ratingCompatible(firstSummary, secondSummary, now,
-                        baseRange, widenPerSecond, maximumRange)
-                        && opponents.test(Plan.members(first), Plan.members(second))) {
-                    return java.util.Optional.of(new Plan(first, second));
+                // Ratings choose the fairest split among players who are already here;
+                // they never prevent a match. Requiring the oldest entry in the chosen
+                // plan prevents repeated arrivals from starving somebody already waiting.
+                if (!first.contains(oldestQueued) && !second.contains(oldestQueued)) continue;
+                if (!opponents.test(Plan.members(first), Plan.members(second))) continue;
+                long secondRating = average(second);
+                long difference = firstRating >= secondRating
+                        ? firstRating - secondRating : secondRating - firstRating;
+                if (difference < bestRatingDifference) {
+                    best = new Plan(first, second);
+                    bestRatingDifference = difference;
                 }
             }
         }
-        return java.util.Optional.empty();
+        return java.util.Optional.ofNullable(best);
     }
 
     private static List<List<Entry>> candidateTeams(List<Entry> entries, int teamSize) {

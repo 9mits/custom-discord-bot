@@ -831,12 +831,6 @@ final class PvpCompetitionService implements Listener {
         long early = ffaEarlyStartRemaining(setup, now);
         if (early >= 0L && waiting < setup.requiredPlayers()) {
             detail += "  •  STARTS IN " + formatSeconds(early);
-        } else if (setup.mode().rated()) {
-            long range = PvpMatchmaking.ratingWindow(waited,
-                    integer("pvp-competitive.matchmaking-base-range"),
-                    integer("pvp-competitive.matchmaking-widen-per-second"),
-                    integer("pvp-competitive.matchmaking-maximum-range"));
-            detail += "  •  SEARCH ±" + range + " RP";
         }
         return "SEARCHING  •  " + setup.matchLabel() + "  •  " + detail
                 + "  •  " + formatSeconds((waited + 999L) / 1_000L);
@@ -1057,11 +1051,8 @@ final class PvpCompetitionService implements Listener {
                 if (!tryClan(mode, queue, now)) return;
                 continue;
             }
-            long base = mode.rated() ? integer("pvp-competitive.matchmaking-base-range") : 10_000_000L;
-            long widen = mode.rated() ? integer("pvp-competitive.matchmaking-widen-per-second") : 0L;
-            long maximum = mode.rated() ? integer("pvp-competitive.matchmaking-maximum-range") : 10_000_000L;
             Optional<PvpMatchmaking.Plan> plan = PvpMatchmaking.teams(
-                    queue, mode.teamSize(), now, base, widen, maximum,
+                    queue, mode.teamSize(),
                     (first, second) -> opponentsAllowed(first, second, now)
             );
             if (plan.isEmpty()) return;
@@ -3145,14 +3136,6 @@ final class PvpCompetitionService implements Listener {
                     "Queue Joined",
                     "Matchmaking is active. You may close this page and keep playing;"
                             + " the BossBar and alerts remain live."), RULE_WIDTH));
-        }
-        if (mode.rated()) {
-            long range = PvpMatchmaking.ratingWindow(waited * 1_000L,
-                    integer("pvp-competitive.matchmaking-base-range"),
-                    integer("pvp-competitive.matchmaking-widen-per-second"),
-                    integer("pvp-competitive.matchmaking-maximum-range"));
-            page.add(DialogBody.plainMessage(MenuText.stat("Opponent search",
-                    "±" + range + " rating and expanding"), RULE_WIDTH));
         }
         showPage(player, justJoined ? "Queued!" : "PvP Queue", page,
                 setup.matchLabel() + ". " + waiting + "/" + setup.requiredPlayers()

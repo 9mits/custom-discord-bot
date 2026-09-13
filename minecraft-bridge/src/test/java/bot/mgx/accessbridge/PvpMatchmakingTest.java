@@ -12,10 +12,35 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class PvpMatchmakingTest {
     @Test
-    void rankedRangeWidensButNeverPastTheConfiguredLimit() {
-        assertEquals(100, PvpMatchmaking.ratingWindow(0, 100, 5, 300));
-        assertEquals(150, PvpMatchmaking.ratingWindow(10_000, 100, 5, 300));
-        assertEquals(300, PvpMatchmaking.ratingWindow(999_000, 100, 5, 300));
+    void ratingDifferenceNeverBlocksAnOtherwiseValidMatch() {
+        UUID low = UUID.randomUUID();
+        UUID high = UUID.randomUUID();
+        List<PvpMatchmaking.Entry> queue = List.of(
+                new PvpMatchmaking.Entry(low, List.of(low), true,
+                        1_000L, 0L, null, 1, 2),
+                new PvpMatchmaking.Entry(high, List.of(high), true,
+                        2_000L, 50_000L, null, 1, 2)
+        );
+
+        assertTrue(PvpMatchmaking.teams(queue, 1).isPresent());
+    }
+
+    @Test
+    void fairTeamSelectionNeverLeavesTheOldestPlayerBehind() {
+        UUID oldest = UUID.randomUUID();
+        List<PvpMatchmaking.Entry> queue = new ArrayList<>();
+        queue.add(new PvpMatchmaking.Entry(oldest, List.of(oldest), true,
+                1_000L, 50_000L, null, 2, 4));
+        for (int index = 0; index < 4; index++) {
+            UUID player = UUID.randomUUID();
+            queue.add(new PvpMatchmaking.Entry(player, List.of(player), true,
+                    2_000L + index, 0L, null, 2, 4));
+        }
+
+        PvpMatchmaking.Plan plan = PvpMatchmaking.teams(queue, 2).orElseThrow();
+
+        assertTrue(java.util.stream.Stream.concat(
+                plan.firstTeam().stream(), plan.secondTeam().stream()).anyMatch(oldest::equals));
     }
 
     @Test
@@ -49,8 +74,7 @@ final class PvpMatchmakingTest {
             queue.add(new PvpMatchmaking.Entry(player, List.of(player), true,
                     now - index * 1_000L, 400 + index * 5L, null, 2, 4));
         }
-        PvpMatchmaking.Plan plan = PvpMatchmaking.teams(
-                queue, 2, now, 100, 1, 500).orElseThrow();
+        PvpMatchmaking.Plan plan = PvpMatchmaking.teams(queue, 2).orElseThrow();
         assertEquals(2, plan.firstTeam().size());
         assertEquals(2, plan.secondTeam().size());
         assertEquals(4, java.util.stream.Stream.concat(
@@ -63,8 +87,7 @@ final class PvpMatchmakingTest {
         UUID solo = UUID.randomUUID();
         PvpMatchmaking.Entry incomplete = new PvpMatchmaking.Entry(
                 solo, List.of(solo), false, now, 0, null, 2, 4);
-        assertTrue(PvpMatchmaking.teams(List.of(incomplete), 2, now,
-                1_000, 0, 1_000).isEmpty());
+        assertTrue(PvpMatchmaking.teams(List.of(incomplete), 2).isEmpty());
 
         UUID firstA = UUID.randomUUID();
         UUID firstB = UUID.randomUUID();
@@ -76,9 +99,9 @@ final class PvpMatchmakingTest {
                 new PvpMatchmaking.Entry(secondA, List.of(secondA, secondB), false,
                         now, 500, null, 2, 4)
         );
-        assertFalse(PvpMatchmaking.teams(premades, 2, now, 100, 0, 100,
+        assertFalse(PvpMatchmaking.teams(premades, 2,
                 (left, right) -> false).isPresent());
-        assertTrue(PvpMatchmaking.teams(premades, 2, now, 100, 0, 100,
+        assertTrue(PvpMatchmaking.teams(premades, 2,
                 (left, right) -> true).isPresent());
     }
 
@@ -92,8 +115,7 @@ final class PvpMatchmakingTest {
             queue.add(new PvpMatchmaking.Entry(player, List.of(player), true,
                     now - (ratings.length - index) * 1_000L, ratings[index], null, 2, 4));
         }
-        PvpMatchmaking.Plan plan = PvpMatchmaking.teams(
-                queue, 2, now, 100, 0, 100).orElseThrow();
+        PvpMatchmaking.Plan plan = PvpMatchmaking.teams(queue, 2).orElseThrow();
         long first = plan.firstEntries().stream().mapToLong(PvpMatchmaking.Entry::averageRating).sum();
         long second = plan.secondEntries().stream().mapToLong(PvpMatchmaking.Entry::averageRating).sum();
         assertEquals(first, second);
