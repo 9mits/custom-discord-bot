@@ -1262,34 +1262,30 @@ final class GameVariableStore {
                 "Vertical distance searched around the selected block when lighting the PvP entrance.",
                 18, 3, 48, "blocks", false);
         decimal("pvp-competitive.portal-display-height", "Entrance label height", "PvP Lobby",
-                "Height of the PvP lobby label above the portal's upper edge.",
-                2.2, 0.5, 12, "blocks");
+                "Vertical offset of the PvP lobby title from the portal's centre.",
+                0.65, -4, 8, "blocks");
         decimal("pvp-competitive.portal-title-scale", "Entrance title scale", "PvP Lobby",
                 "Visual scale of the PvP lobby entrance title.", 3.4, 0.5, 8, "scale");
         decimal("pvp-competitive.portal-status-scale", "Entrance prompt scale", "PvP Lobby",
                 "Visual scale of the walk-through prompt below the PvP entrance title.",
                 2.0, 0.5, 6, "scale");
         text("pvp-competitive.portal-title", "Entrance title", "PvP Lobby",
-                "Large title above the registered PvP entrance.", "✦ PVP LOBBY ✦", 80);
+                "Large title inside the registered PvP entrance.", "✦ PVP LOBBY ✦", 80);
         text("pvp-competitive.portal-status", "Entrance prompt", "PvP Lobby",
-                "Prompt below the registered PvP entrance title.", "WALK THROUGH TO ENTER", 100);
+                "Prompt below the registered PvP entrance title.",
+                "WALK THROUGH • CHOOSE A FIGHT", 100);
         bool("pvp-competitive.portal-effects-enabled", "Entrance effects", "PvP Lobby",
                 "Whether the registered PvP entrance emits its additional animated particles.", true);
         integer("pvp-competitive.portal-particle-count", "Entrance particles", "PvP Lobby",
                 "Additional particles emitted around the registered PvP entrance every second.",
                 12, 0, 200, "particles", false);
+        integer("pvp-competitive.portal-suppression-ticks", "Custom portal cooldown", "PvP Lobby",
+                "Portal cooldown refreshed while a player touches a PvP portal so vanilla travel"
+                        + " cannot dismiss its queue menu.",
+                60, 20, 200, "ticks", false);
         integer("pvp-competitive.afk-seconds", "Competitive AFK limit", "PvP Competitive",
                 "Seconds without moving or fighting before an active player is eliminated.",
                 75, 20, 600, "seconds", false);
-        integer("pvp-competitive.minimum-reward-seconds", "Minimum rewarded match",
-                "PvP Competitive", "Combat time required before participation money is paid.",
-                45, 0, 600, "seconds", false);
-        integer("pvp-competitive.participation-reward", "Participation reward",
-                "PvP Competitive", "Money paid to an eligible match participant.",
-                50, 0, 100_000, "dollars", false);
-        integer("pvp-competitive.win-reward", "Winner reward", "PvP Competitive",
-                "Additional money paid to each eligible winner.",
-                150, 0, 100_000, "dollars", false);
         integer("pvp-competitive.repeat-opponent-limit", "Competitive repeat limit",
                 "PvP Competitive", "Consecutive matches before the same pairing must rest.",
                 3, 0, 20, "matches", false);

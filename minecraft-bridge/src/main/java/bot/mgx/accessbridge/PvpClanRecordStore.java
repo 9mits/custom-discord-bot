@@ -17,16 +17,18 @@ import java.util.UUID;
 
 /** Small, independent Clan-v-Clan record; clan membership itself remains in {@link ClanStore}. */
 final class PvpClanRecordStore {
-    record Record(long wins, long losses, long streak, long bestStreak) {
-        static final Record EMPTY = new Record(0L, 0L, 0L, 0L);
+    record Record(long wins, long losses, long kills, long streak, long bestStreak) {
+        static final Record EMPTY = new Record(0L, 0L, 0L, 0L, 0L);
 
-        Record won() {
+        Record won(int matchKills) {
             long next = streak + 1L;
-            return new Record(wins + 1L, losses, next, Math.max(bestStreak, next));
+            return new Record(wins + 1L, losses, kills + Math.max(0, matchKills), next,
+                    Math.max(bestStreak, next));
         }
 
-        Record lost() {
-            return new Record(wins, losses + 1L, 0L, bestStreak);
+        Record lost(int matchKills) {
+            return new Record(wins, losses + 1L, kills + Math.max(0, matchKills), 0L,
+                    bestStreak);
         }
     }
 
@@ -44,6 +46,7 @@ final class PvpClanRecordStore {
                 records.put(UUID.fromString(row.getKey()), new Record(
                         value.get("wins").getAsLong(),
                         value.get("losses").getAsLong(),
+                        value.has("kills") ? value.get("kills").getAsLong() : 0L,
                         value.has("streak") ? value.get("streak").getAsLong() : 0L,
                         value.has("best_streak") ? value.get("best_streak").getAsLong() : 0L
                 ));
@@ -61,10 +64,10 @@ final class PvpClanRecordStore {
         return Map.copyOf(records);
     }
 
-    synchronized void settle(UUID winner, UUID loser) {
+    synchronized void settle(UUID winner, UUID loser, int winnerKills, int loserKills) {
         Map<UUID, Record> before = new LinkedHashMap<>(records);
-        records.put(winner, of(winner).won());
-        records.put(loser, of(loser).lost());
+        records.put(winner, of(winner).won(winnerKills));
+        records.put(loser, of(loser).lost(loserKills));
         try {
             save();
         } catch (RuntimeException failure) {
@@ -80,6 +83,7 @@ final class PvpClanRecordStore {
             JsonObject value = new JsonObject();
             value.addProperty("wins", record.wins());
             value.addProperty("losses", record.losses());
+            value.addProperty("kills", record.kills());
             value.addProperty("streak", record.streak());
             value.addProperty("best_streak", record.bestStreak());
             root.add(id.toString(), value);

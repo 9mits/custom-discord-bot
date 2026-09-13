@@ -84,9 +84,11 @@ final class GameVariableStoreTest {
         assertEquals(8, variables.integer("pvp-competitive.lobby-portal-particle-count"));
         assertEquals(48, variables.integer("pvp-competitive.portal-selection-distance"));
         assertEquals("✦ PVP LOBBY ✦", variables.string("pvp-competitive.portal-title"));
-        assertEquals("WALK THROUGH TO ENTER", variables.string("pvp-competitive.portal-status"));
+        assertEquals("WALK THROUGH • CHOOSE A FIGHT",
+                variables.string("pvp-competitive.portal-status"));
         assertTrue(variables.bool("pvp-competitive.portal-effects-enabled"));
         assertEquals(12, variables.integer("pvp-competitive.portal-particle-count"));
+        assertEquals(60, variables.integer("pvp-competitive.portal-suppression-ticks"));
     }
 
     @Test

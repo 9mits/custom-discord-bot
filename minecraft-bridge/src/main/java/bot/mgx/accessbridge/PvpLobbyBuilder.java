@@ -38,9 +38,10 @@ import java.util.function.Function;
  * <p>Deliberately small. The lobby it replaced was 96 blocks across and built from
  * nether blackstone, which meant two things on a server whose busiest hour today held
  * seven players: most of it was empty most of the time, and none of it looked like the
- * server it belongs to. Everything here is inside a 56-block circle, so a player who
- * arrives can see every queue, both leaderboards and the way home without walking, and
- * the palette is the Amethyst expansion's own — deepslate, calcite, copper and crystal.
+ * server it belongs to. The queue hub stays inside a 56-block circle, so a player who
+ * arrives can see every queue and the way home without walking. A short north bridge
+ * leads to a dedicated six-board leaderboard gallery, all in the Amethyst expansion's
+ * own palette — deepslate, calcite, copper and crystal.
  *
  * <p>Laid out in rings, which is what makes a small space read as designed rather than
  * cramped: a mandala plaza, a planted ring holding the six queue gateways, a moat, and a
@@ -54,20 +55,20 @@ import java.util.function.Function;
  */
 final class PvpLobbyBuilder {
     static final String WORLD_NAME = "mgx_pvp";
-    /** Comfortably past the rim and the bridges, and far short of the old 70. */
-    static final double PROTECTED_RADIUS = 44d;
+    /** Covers the terrace plus the north leaderboard annex. */
+    static final double PROTECTED_RADIUS = 72d;
 
     private static final String HOLOGRAM_TAG = "mgx_pvp_lobby_hologram";
     /** Carried by the one line under each gateway that is retitled every second. */
     private static final String STATUS_TAG = "mgx_pvp_lobby_status";
-    private static final String RATINGS_TAG = "mgx_pvp_board_ratings";
     private static final String LIVE_TAG = "mgx_pvp_board_live";
     private static final String TEXT_LABEL_TAG = "mgx_pvp_text_label";
     private static final String FALLBACK_LABEL_TAG = "mgx_pvp_fallback_label";
     private static final String NEAR_GATE_TAG = "mgx_pvp_near_gate";
     private static final String NEAR_BOARD_TAG = "mgx_pvp_near_board";
     /** Rows reserved on each live board, blank until there is something to say. */
-    private static final int BOARD_LINES = 3;
+    private static final int LIVE_BOARD_LINES = 3;
+    private static final int LEADERBOARD_LINES = 5;
     private static final int FLOOR_Y = 80;
 
     /** Outer edge of the rim walkway. Everything is inside this. */
@@ -78,6 +79,8 @@ final class PvpLobbyBuilder {
     /** Where the six gateways stand, in the planted ring between plaza and moat. */
     private static final int GATE_RING = 17;
     private static final int PAVILION_RING = 25;
+    private static final int GALLERY_NEAR_Z = -30;
+    private static final int GALLERY_FAR_Z = -55;
     private static final double SPAWN_Z = 12.5d;
     private static final int[] RETURN_GATE = {0, 25};
     /** Where the moat is crossed: the four pavilions and the walk home. */
@@ -105,6 +108,28 @@ final class PvpLobbyBuilder {
 
         int z() {
             return symmetric(-quantised(Math.cos(Math.toRadians(angle))) * GATE_RING);
+        }
+    }
+
+    /** One physical board in the north leaderboard gallery. */
+    enum LeaderboardBoard {
+        RATING("HIGHEST RATING", -14, -34, "mgx_pvp_board_rating"),
+        WINS("MOST WINS", 14, -34, "mgx_pvp_board_wins"),
+        KILLS("MOST KILLS", -14, -42, "mgx_pvp_board_kills"),
+        STREAK("BEST WIN STREAK", 14, -42, "mgx_pvp_board_streak"),
+        CLAN_WINS("CLAN WINS", -14, -50, "mgx_pvp_board_clan_wins"),
+        CLAN_KILLS("CLAN KILLS", 14, -50, "mgx_pvp_board_clan_kills");
+
+        private final String title;
+        private final int x;
+        private final int z;
+        private final String tag;
+
+        LeaderboardBoard(String title, int x, int z, String tag) {
+            this.title = title;
+            this.x = x;
+            this.z = z;
+            this.tag = tag;
         }
     }
 
@@ -142,6 +167,7 @@ final class PvpLobbyBuilder {
         buildGardenRing(world, random);
         buildMoat(world);
         buildRim(world);
+        buildLeaderboardGallery(world);
         for (Map.Entry<PvpMode, Gate> row : GATES.entrySet()) {
             buildGate(world, row.getValue());
         }
@@ -306,7 +332,7 @@ final class PvpLobbyBuilder {
             Component line = status.apply(row.getKey());
             if (line == null) continue;
             Location at = new Location(world, originX + row.getValue().x() + 0.5d,
-                    FLOOR_Y + 10d, originZ + row.getValue().z() + 0.5d);
+                    FLOOR_Y + 3.2d, originZ + row.getValue().z() + 0.5d);
             world.getNearbyEntities(at, 1.2d, 1.2d, 1.2d).stream()
                     .filter(stand -> stand.getScoreboardTags().contains(STATUS_TAG))
                     .forEach(entity -> setLabel(entity, line));
@@ -330,13 +356,15 @@ final class PvpLobbyBuilder {
     }
 
     /**
-     * Rewrites the two live pavilion boards.
+     * Rewrites the six gallery leaderboards and the live-match pavilion.
      *
      * <p>Rows are matched top down by height, so a shorter list clears the rows below
      * it rather than leaving yesterday's leader hanging under today's.
      */
     static void refreshBoards(
-            PvpLobbyStore.Point lobby, List<Component> ratings, List<Component> live
+            PvpLobbyStore.Point lobby,
+            Map<LeaderboardBoard, List<Component>> leaderboards,
+            List<Component> live
     ) {
         Location centre = lobby == null ? null : lobby.resolve();
         if (centre == null || centre.getWorld() == null) return;
@@ -344,34 +372,51 @@ final class PvpLobbyBuilder {
         if (world.getPlayers().isEmpty()) return;
         double originX = centre.getX() - 0.5d;
         double originZ = centre.getZ() - SPAWN_Z;
+        for (LeaderboardBoard board : LeaderboardBoard.values()) {
+            rewriteBoard(world, new Location(world, originX + board.x + 0.5d,
+                    FLOOR_Y + 5.3d, originZ + board.z + 0.5d), board.tag,
+                    leaderboards.getOrDefault(board, List.of()));
+        }
         for (Pavilion pavilion : pavilions()) {
-            if (pavilion.board() == Board.STATIC) continue;
-            List<Component> lines = pavilion.board() == Board.RATINGS ? ratings : live;
-            String tag = pavilion.board() == Board.RATINGS ? RATINGS_TAG : LIVE_TAG;
+            if (pavilion.board() != Board.LIVE) continue;
             double angle = Math.toRadians(pavilion.angle());
-            Location at = new Location(world,
-                    originX + symmetric(quantised(Math.sin(angle)) * PAVILION_RING) + 0.5d,
-                    FLOOR_Y + 3d,
-                    originZ + symmetric(-quantised(Math.cos(angle)) * PAVILION_RING) + 0.5d);
-            List<Double> heights = world.getNearbyEntities(at, 3d, 4d, 3d).stream()
-                    .filter(entity -> entity.getScoreboardTags().contains(tag))
-                    .map(entity -> entity.getLocation().getY()).distinct()
-                    .sorted(Comparator.reverseOrder()).toList();
-            for (int row = 0; row < heights.size(); row++) {
-                Component line = row < lines.size() ? lines.get(row)
-                        : Component.text(" ", NamedTextColor.DARK_GRAY);
-                double height = heights.get(row);
-                world.getNearbyEntities(new Location(world, at.getX(), height, at.getZ()),
-                                0.4d, 0.2d, 0.4d).stream()
-                        .filter(entity -> entity.getScoreboardTags().contains(tag))
-                        .forEach(entity -> setLabel(entity, line));
-            }
+            rewriteBoard(world, new Location(world,
+                            originX + symmetric(quantised(Math.sin(angle)) * PAVILION_RING) + 0.5d,
+                            FLOOR_Y + 3d,
+                            originZ + symmetric(-quantised(Math.cos(angle)) * PAVILION_RING) + 0.5d),
+                    LIVE_TAG, live);
         }
     }
 
-    /** How many rows a live board can show, so a caller does not build more. */
+    private static void rewriteBoard(
+            World world, Location at, String tag, List<Component> lines
+    ) {
+        List<Double> heights = world.getNearbyEntities(at, 3d, 5d, 3d).stream()
+                .filter(entity -> entity.getScoreboardTags().contains(tag))
+                .map(entity -> entity.getLocation().getY()).distinct()
+                .sorted(Comparator.reverseOrder()).toList();
+        for (int row = 0; row < heights.size(); row++) {
+            Component line = row < lines.size() ? lines.get(row)
+                    : Component.text(" ", NamedTextColor.DARK_GRAY);
+            double height = heights.get(row);
+            world.getNearbyEntities(new Location(world, at.getX(), height, at.getZ()),
+                            0.4d, 0.2d, 0.4d).stream()
+                    .filter(entity -> entity.getScoreboardTags().contains(tag))
+                    .forEach(entity -> setLabel(entity, line));
+        }
+    }
+
+    /** How many rows each dedicated leaderboard can show. */
     static int boardLines() {
-        return BOARD_LINES;
+        return LEADERBOARD_LINES;
+    }
+
+    static int liveBoardLines() {
+        return LIVE_BOARD_LINES;
+    }
+
+    static int[] leaderboardPosition(LeaderboardBoard board) {
+        return new int[]{board.x, board.z};
     }
 
     private static Map<PvpMode, Gate> gates() {
@@ -403,6 +448,15 @@ final class PvpLobbyBuilder {
         // the previous lobby was 96 across, so its corners have to go too.
         for (int x = -52; x <= 52; x++) {
             for (int z = -52; z <= 52; z++) {
+                for (int y = FLOOR_Y - 30; y <= FLOOR_Y + 24; y++) {
+                    world.getBlockAt(x, y, z).setType(Material.AIR, false);
+                }
+            }
+        }
+        // The dedicated leaderboard annex extends north of the former square. Keep
+        // this second pass narrow so a format upgrade does not clear another huge box.
+        for (int x = -20; x <= 20; x++) {
+            for (int z = -60; z < -52; z++) {
                 for (int y = FLOOR_Y - 30; y <= FLOOR_Y + 24; y++) {
                     world.getBlockAt(x, y, z).setType(Material.AIR, false);
                 }
@@ -701,6 +755,88 @@ final class PvpLobbyBuilder {
         }
     }
 
+    /**
+     * A separate open-air gallery where every competitive record is visible at once.
+     * It deliberately sits off the main ring: queue portals stay readable, while the
+     * boards become a destination instead of six more labels layered over the plaza.
+     */
+    private static void buildLeaderboardGallery(World world) {
+        // Break the north battlement and continue its calcite path across a short bridge.
+        for (int z = -29; z <= -25; z++) {
+            for (int x = -3; x <= 3; x++) {
+                world.getBlockAt(x, FLOOR_Y, z).setType(
+                        Math.abs(x) <= 1 ? Material.CALCITE : Material.SMOOTH_BASALT, false);
+                for (int y = 1; y <= 5; y++) {
+                    world.getBlockAt(x, FLOOR_Y + y, z).setType(Material.AIR, false);
+                }
+                if (Math.abs(x) == 3) {
+                    world.getBlockAt(x, FLOOR_Y + 1, z)
+                            .setType(Material.POLISHED_DEEPSLATE_WALL, false);
+                }
+            }
+        }
+
+        for (int x = -18; x <= 18; x++) {
+            for (int z = GALLERY_FAR_Z; z <= GALLERY_NEAR_Z; z++) {
+                boolean edge = Math.abs(x) == 18 || z == GALLERY_FAR_Z || z == GALLERY_NEAR_Z;
+                Material floor = edge ? Material.SMOOTH_BASALT
+                        : Math.abs(x) <= 3 ? Material.CALCITE
+                        : ((x + z) & 3) == 0 ? Material.AMETHYST_BLOCK
+                        : Material.DEEPSLATE_TILES;
+                world.getBlockAt(x, FLOOR_Y, z).setType(floor, false);
+                world.getBlockAt(x, FLOOR_Y - 1, z).setType(Material.DEEPSLATE, false);
+                if ((Math.abs(x) + Math.abs(z)) % 3 == 0) {
+                    world.getBlockAt(x, FLOOR_Y - 2, z).setType(Material.COBBLED_DEEPSLATE, false);
+                }
+                if (edge && !(z == GALLERY_NEAR_Z && Math.abs(x) <= 3)) {
+                    world.getBlockAt(x, FLOOR_Y + 1, z).setType(Material.DEEPSLATE_BRICKS, false);
+                    world.getBlockAt(x, FLOOR_Y + 2, z).setType(
+                            ((x + z) & 1) == 0 ? Material.DEEPSLATE_BRICK_WALL
+                                    : Material.COBBLED_DEEPSLATE_WALL, false);
+                }
+            }
+        }
+
+        for (LeaderboardBoard board : LeaderboardBoard.values()) {
+            buildLeaderboardFrame(world, board);
+        }
+        // Lit entrance pylons and a central crystal make the annex obvious from spawn.
+        for (int x : new int[]{-5, 5}) {
+            for (int y = 1; y <= 6; y++) {
+                world.getBlockAt(x, FLOOR_Y + y, GALLERY_NEAR_Z).setType(
+                        y == 6 ? Material.AMETHYST_BLOCK
+                                : y % 2 == 0 ? Material.POLISHED_DEEPSLATE
+                                : Material.DEEPSLATE_BRICKS, false);
+            }
+            world.getBlockAt(x, FLOOR_Y + 7, GALLERY_NEAR_Z)
+                    .setType(Material.AMETHYST_CLUSTER, false);
+        }
+        for (int y = 1; y <= 5; y++) {
+            world.getBlockAt(0, FLOOR_Y + y, GALLERY_FAR_Z + 3).setType(
+                    y == 3 ? Material.SEA_LANTERN : Material.AMETHYST_BLOCK, false);
+        }
+        world.getBlockAt(0, FLOOR_Y + 6, GALLERY_FAR_Z + 3)
+                .setType(Material.AMETHYST_CLUSTER, false);
+    }
+
+    private static void buildLeaderboardFrame(World world, LeaderboardBoard board) {
+        int frameX = board.x + (board.x < 0 ? -1 : 1);
+        for (int dz = -3; dz <= 3; dz++) {
+            for (int y = 1; y <= 8; y++) {
+                boolean frame = Math.abs(dz) == 3 || y == 1 || y == 8;
+                world.getBlockAt(frameX, FLOOR_Y + y, board.z + dz).setType(
+                        frame ? (y == 8 ? Material.POLISHED_DEEPSLATE
+                                : Material.DEEPSLATE_BRICKS)
+                                : ((dz + y) & 1) == 0 ? Material.TINTED_GLASS
+                                : Material.PURPLE_STAINED_GLASS, false);
+            }
+        }
+        world.getBlockAt(frameX, FLOOR_Y + 9, board.z)
+                .setType(Material.SEA_LANTERN, false);
+        world.getBlockAt(frameX, FLOOR_Y + 10, board.z)
+                .setType(Material.AMETHYST_CLUSTER, false);
+    }
+
     /** One crossing over the moat, with a rail on each side. */
     private static void bridge(World world, double angleDegrees) {
         double angle = Math.toRadians(angleDegrees);
@@ -889,7 +1025,7 @@ final class PvpLobbyBuilder {
     enum PavilionAction { LADDER, RULES, RATINGS, LIVE }
 
     /** Whether a pavilion's board is written once or rewritten while people play. */
-    private enum Board { STATIC, RATINGS, LIVE }
+    private enum Board { STATIC, LIVE }
 
     private record Pavilion(
             double angle,
@@ -904,7 +1040,7 @@ final class PvpLobbyBuilder {
      * Four open shelters on the rim, each carrying one board.
      *
      * <p>These exist because the questions a player has before queueing — how the ladder
-     * works, who is at the top, what the rules are, what a win is worth — were all
+     * works, where the records live, what the rules are, and what is live — were all
      * buried inside menus. On the rim they are things you walk past.
      */
     private static void buildPavilions(World world) {
@@ -954,8 +1090,9 @@ final class PvpLobbyBuilder {
         boards.add(new Pavilion(135d, "FIGHT RULES", Board.STATIC,
                 List.of("YOUR GEAR • REAL TERRAIN • KEEP INVENTORY"), "RIGHT-CLICK FOR RULES",
                 PavilionAction.RULES));
-        boards.add(new Pavilion(225d, "TOP RATINGS", Board.RATINGS, List.of(),
-                "RIGHT-CLICK FOR THE FULL BOARD", PavilionAction.RATINGS));
+        boards.add(new Pavilion(225d, "PVP LEADERBOARDS", Board.STATIC,
+                List.of("6 LIVE PLAYER & CLAN BOARDS"),
+                "FOLLOW THE NORTH BRIDGE", PavilionAction.RATINGS));
         boards.add(new Pavilion(315d, "LIVE MATCHES", Board.LIVE, List.of(),
                 "RIGHT-CLICK TO SPECTATE", PavilionAction.LIVE));
         return boards;
@@ -992,21 +1129,21 @@ final class PvpLobbyBuilder {
             Gate gate = row.getValue();
             double x = gate.x() + 0.5d;
             double z = gate.z() + 0.5d;
-            hologram(world, x, FLOOR_Y + 12.2d, z,
+            hologram(world, x, FLOOR_Y + 6.6d, z,
                     Component.text(gate.title(), AMETHYST, TextDecoration.BOLD),
                     titleScale, NEAR_GATE_TAG);
-            hologram(world, x, FLOOR_Y + 11.1d, z,
+            hologram(world, x, FLOOR_Y + 4.9d, z,
                     Component.text(gate.subtitle(), NamedTextColor.WHITE),
                     lineScale, NEAR_GATE_TAG);
             // Retitled every second by refreshStatus.
-            hologram(world, x, FLOOR_Y + 10d, z,
+            hologram(world, x, FLOOR_Y + 3.2d, z,
                     Component.text("WALK THROUGH • CHECKING QUEUE", CRYSTAL, TextDecoration.BOLD),
                     lineScale, NEAR_GATE_TAG, STATUS_TAG);
         }
-        hologram(world, RETURN_GATE[0] + 0.5d, FLOOR_Y + 10.2d, RETURN_GATE[1] + 0.5d,
+        hologram(world, RETURN_GATE[0] + 0.5d, FLOOR_Y + 5.2d, RETURN_GATE[1] + 0.5d,
                 Component.text("RETURN TO THE SMP", NamedTextColor.WHITE, TextDecoration.BOLD),
                 titleScale, NEAR_GATE_TAG);
-        hologram(world, RETURN_GATE[0] + 0.5d, FLOOR_Y + 9.1d, RETURN_GATE[1] + 0.5d,
+        hologram(world, RETURN_GATE[0] + 0.5d, FLOOR_Y + 3.45d, RETURN_GATE[1] + 0.5d,
                 Component.text("WALK THROUGH • BACK TO YOUR EXACT LOCATION", CRYSTAL),
                 lineScale, NEAR_GATE_TAG);
 
@@ -1030,20 +1167,40 @@ final class PvpLobbyBuilder {
                         lineScale, NEAR_BOARD_TAG);
                 line -= 0.72d;
             }
-            if (pavilion.board() != Board.STATIC) {
+            if (pavilion.board() == Board.LIVE) {
                 // Blank rows, claimed by refreshBoards. Their roomy spacing prevents
                 // Java text and the Bedrock fallback from collapsing into one smear.
-                String tag = pavilion.board() == Board.RATINGS ? RATINGS_TAG : LIVE_TAG;
-                for (int row = 0; row < BOARD_LINES; row++) {
+                for (int row = 0; row < LIVE_BOARD_LINES; row++) {
                     hologram(world, x, line, z,
                             Component.text(" ", NamedTextColor.DARK_GRAY), lineScale,
-                            NEAR_BOARD_TAG, tag);
+                            NEAR_BOARD_TAG, LIVE_TAG);
                     line -= 0.72d;
                 }
             }
             hologram(world, x, Math.max(FLOOR_Y + 1.45d, line), z,
                     Component.text(pavilion.prompt(), CRYSTAL, TextDecoration.BOLD),
                     lineScale, NEAR_BOARD_TAG);
+        }
+
+        hologram(world, 0.5d, FLOOR_Y + 7.5d, GALLERY_NEAR_Z + 0.5d,
+                Component.text("PVP LEADERBOARDS", AMETHYST, TextDecoration.BOLD),
+                titleScale, NEAR_BOARD_TAG);
+        hologram(world, 0.5d, FLOOR_Y + 5.9d, GALLERY_NEAR_Z + 0.5d,
+                Component.text("LIVE PLAYER & CLAN RECORDS", CRYSTAL, TextDecoration.BOLD),
+                lineScale, NEAR_BOARD_TAG);
+        for (LeaderboardBoard board : LeaderboardBoard.values()) {
+            double x = board.x + 0.5d;
+            double z = board.z + 0.5d;
+            hologram(world, x, FLOOR_Y + 7.15d, z,
+                    Component.text(board.title, AMETHYST, TextDecoration.BOLD),
+                    titleScale, NEAR_BOARD_TAG);
+            double line = FLOOR_Y + 5.3d;
+            for (int row = 0; row < LEADERBOARD_LINES; row++) {
+                hologram(world, x, line, z,
+                        Component.text(" ", NamedTextColor.DARK_GRAY), lineScale,
+                        NEAR_BOARD_TAG, board.tag);
+                line -= 0.78d;
+            }
         }
     }
 
