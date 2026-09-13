@@ -1272,6 +1272,16 @@ final class GameVariableStore {
         integer("pvp-competitive.lobby-portal-particle-count", "Lobby portal particles", "PvP Lobby",
                 "Extra moving particles emitted around each queue portal every second.",
                 8, 0, 100, "particles", false);
+        decimal("pvp-competitive.lobby-gate-exit-distance", "Queue portal exit distance",
+                "PvP Lobby",
+                "Blocks beyond a queue portal where a player lands before its menu opens."
+                        + " The far side prevents held movement from walking straight back in.",
+                3.5, 2, 8, "blocks");
+        integer("pvp-competitive.lobby-gate-menu-delay-ticks", "Queue portal menu delay",
+                "PvP Lobby",
+                "Ticks after crossing a queue portal before its menu opens, allowing the"
+                        + " client portal transition to clear first.",
+                6, 1, 40, "ticks", false);
         integer("pvp-competitive.portal-selection-distance", "Entrance selection distance", "PvP Lobby",
                 "Maximum distance used by /pvp portal set while selecting an obsidian frame.",
                 48, 4, 128, "blocks", false);
