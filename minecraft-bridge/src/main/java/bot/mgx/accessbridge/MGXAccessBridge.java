@@ -396,6 +396,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
+        perkService.usePvpRanks(this, pvpRecords, gameVariables);
         sidebarService = new SidebarService(
                 this,
                 perkService,
@@ -446,6 +447,14 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         pvpRecords.onChange(() -> {
             leaderboardService.refreshSoon();
             pvpRankRewards.refreshSoon();
+            getServer().getScheduler().runTask(this,
+                    () -> perkService.refreshPvpRanks(getServer().getOnlinePlayers()));
+        });
+        gameVariables.onChange(key -> {
+            if (key.startsWith("pvp-ranked.")) {
+                getServer().getScheduler().runTask(this,
+                        () -> perkService.refreshPvpRanks(getServer().getOnlinePlayers()));
+            }
         });
         amethystProgress.onChange(leaderboardService::refreshSoon);
         clanBattleStore.onChange(leaderboardService::refreshSoon);
@@ -521,6 +530,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 || getCommand("afk") == null
                 || getCommand("pvp") == null
                 || getCommand("verify") == null
+                || getCommand("referredby") == null
+                || getCommand("referrals") == null
                 || getCommand("crate") == null
                 || getCommand("echest") == null
                 || getCommand("cratehologram") == null
@@ -881,6 +892,19 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(
                 new JoinGrantService(this, economyStore, bountyStore, joinGrants), this
         );
+        try {
+            ReferralService referrals = new ReferralService(this,
+                    new ReferralStore(getDataFolder().toPath().resolve("referrals.json")),
+                    crateItems, identityService, gameVariables);
+            getServer().getPluginManager().registerEvents(referrals, this);
+            getCommand("referredby").setExecutor(referrals);
+            getCommand("referredby").setTabCompleter(referrals);
+            getCommand("referrals").setExecutor(referrals);
+            referrals.start();
+        } catch (IOException exception) {
+            // Referral Shards are a bonus; a damaged file must not take the server down.
+            getLogger().severe("Referral rewards are disabled: " + exception.getMessage());
+        }
         getServer().getPluginManager().registerEvents(economyMenus, this);
         getServer().getScheduler().runTaskTimer(
                 this, holograms::refresh, 220L, bridgeConfig.leaderboardRefreshTicks()
@@ -1546,6 +1570,10 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
 
     AmethystEventCoordinator amethystEvents() {
         return amethystEvents;
+    }
+
+    PlayerPerkService perks() {
+        return perkService;
     }
 
     EconomyStore economy() {

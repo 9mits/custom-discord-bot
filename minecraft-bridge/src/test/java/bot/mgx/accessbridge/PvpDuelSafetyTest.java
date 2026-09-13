@@ -443,7 +443,7 @@ final class PvpDuelSafetyTest {
         String source = source();
         String rematch = source.substring(
                 source.indexOf("private void rematch(Player player, UUID opponentId, long money)"),
-                source.indexOf("/** The same numbers as chat lines"));
+                source.indexOf("private void sendResultLines(Player player, FightResult result)"));
         // Every reason the challenge could be turned down, asked before a screen is
         // drawn rather than by the screen itself.
         assertTrue(rematch.contains("challengeProblem(player, opponent)"));

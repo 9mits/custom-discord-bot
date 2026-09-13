@@ -29,6 +29,14 @@ commands:
   verify:
     description: Link the Minecraft account currently in the verification lobby to Discord.
     usage: /verify <discord_username>
+  referredby:
+    description: Name the player who invited you or brought you back, so you both earn Shards.
+    usage: /referredby <player>
+    aliases: [referred, invitedby]
+  referrals:
+    description: See how referral Shard rewards work and your referrals this month.
+    usage: /referrals
+    aliases: [referral]
   discordnames:
     description: Show or hide your linked Discord username in Minecraft.
     usage: /discordnames

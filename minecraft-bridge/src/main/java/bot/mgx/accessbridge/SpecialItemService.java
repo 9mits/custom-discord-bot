@@ -146,16 +146,19 @@ final class SpecialItemService implements Listener {
         PersistentDataContainer data = player.getPersistentDataContainer();
         Long until = data.get(crateLuckUntilKey, PersistentDataType.LONG);
         Integer percent = data.get(crateLuckKey, PersistentDataType.INTEGER);
+        double rankLuck = 1d + plugin.perks().pvpPerks(player.getUniqueId()).luck();
         if (until == null || percent == null || until <= System.currentTimeMillis()) {
             data.remove(crateLuckUntilKey);
             data.remove(crateLuckKey);
-            return CrateCatalog.NO_LUCK_PERCENT;
+            return CrateCatalog.clampLuckPercent(
+                    (int) Math.round(CrateCatalog.NO_LUCK_PERCENT * rankLuck));
         }
         // The server-wide event multiplies the potion, then the pair is clamped
-        // together: two stacking bonuses must not quietly become 6x.
-        return CrateCatalog.clampLuckPercent(
-                percent * plugin.serverEventMultiplier(ServerEventType.CRATE_LUCK)
-        );
+        // together: two stacking bonuses must not quietly become 6x. The PvP rank
+        // luck boost joins inside the same clamp.
+        return CrateCatalog.clampLuckPercent((int) Math.round(
+                percent * plugin.serverEventMultiplier(ServerEventType.CRATE_LUCK) * rankLuck
+        ));
     }
 
     /** Halves what each tier adds over no potion at all: 5x becomes 3x. */
@@ -619,8 +622,9 @@ final class SpecialItemService implements Listener {
             data.remove(fortuneMultiplierKey);
             multiplier = 1d;
         }
+        double rankLuck = 1d + plugin.perks().pvpPerks(player.getUniqueId()).luck();
         return Math.max(1d, Math.min(
-                5d, multiplier * plugin.serverEventMultiplier(ServerEventType.FORTUNE)
+                5d, multiplier * plugin.serverEventMultiplier(ServerEventType.FORTUNE) * rankLuck
         ));
     }
 

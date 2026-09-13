@@ -175,6 +175,7 @@ final class GuideService implements CommandExecutor, TabCompleter {
         player.sendMessage(guideLink("/claninfo [name]", "Open a clan information card", NamedTextColor.AQUA));
         player.sendMessage(guideLink("/whitelisted", "Everyone with access and their Discord name", NamedTextColor.YELLOW));
         player.sendMessage(guideLink("/perks", "View Discord level rewards", NamedTextColor.LIGHT_PURPLE));
+        player.sendMessage(guideLink("/referrals", "Earn Shards for inviting players", NamedTextColor.AQUA));
         player.sendMessage(guideLink("/settings", "Configure chat, cosmetics and scoreboard", NamedTextColor.GREEN));
         player.sendMessage(guideLink(
                 "/discordnames",
