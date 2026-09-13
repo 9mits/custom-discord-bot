@@ -1214,15 +1214,6 @@ final class GameVariableStore {
         integer("pvp-competitive.return-seconds", "Results time", "PvP Competitive",
                 "Seconds results remain visible before players return to the PvP lobby.",
                 8, 0, 30, "seconds", false);
-        integer("pvp-competitive.matchmaking-base-range", "Initial rating range",
-                "PvP Competitive", "Rating difference accepted when a ranked queue begins.",
-                150, 0, 2_000, "rating", false);
-        integer("pvp-competitive.matchmaking-widen-per-second", "Rating range widening",
-                "PvP Competitive", "Rating points added to the acceptable range per second waited.",
-                4, 0, 100, "rating/second", false);
-        integer("pvp-competitive.matchmaking-maximum-range", "Maximum rating range",
-                "PvP Competitive", "Largest rating difference accepted by ranked matchmaking.",
-                600, 0, 10_000, "rating", false);
         integer("pvp-competitive.ffa-minimum-players", "FFA minimum players",
                 "PvP Competitive", "Fewest players that can start Last Player Standing.",
                 3, 2, PvpMode.FFA.maximumPlayers(), "players", false);

@@ -229,6 +229,8 @@ final class PvpCompetitionSafetyTest {
     @Test
     void queueAndPreparationAlwaysExposeLiveProgress() throws Exception {
         String source = Files.readString(SOURCE, StandardCharsets.UTF_8);
+        String variables = Files.readString(SOURCE.getParent().resolve("GameVariableStore.java"),
+                StandardCharsets.UTF_8);
         assertTrue(source.contains("QUEUE JOINED"));
         assertTrue(source.contains("openQueueStatus(player, true)"),
                 "joining must replace the choice page with the state it created");
@@ -238,7 +240,12 @@ final class PvpCompetitionSafetyTest {
         assertTrue(source.contains("queue-actionbar-interval-seconds"));
         assertTrue(source.contains("MATCH FOUND  •  \" + stage"));
         assertTrue(source.contains("updatePreparationFeedback(pending, stage, progress)"));
-        assertTrue(source.contains("SEARCH ±"));
+        assertFalse(source.contains("SEARCH ±"));
+        assertFalse(source.contains("Opponent search"));
+        assertFalse(source.contains("matchmaking-base-range"));
+        assertFalse(variables.contains("matchmaking-base-range"));
+        assertFalse(variables.contains("matchmaking-widen-per-second"));
+        assertFalse(variables.contains("matchmaking-maximum-range"));
         assertTrue(source.contains("ffaEarlyStartRemaining"));
         assertTrue(source.contains("Somebody already waiting is part of the population"));
     }
