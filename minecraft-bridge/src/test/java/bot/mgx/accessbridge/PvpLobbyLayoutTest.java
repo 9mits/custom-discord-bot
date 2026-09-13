@@ -73,4 +73,17 @@ final class PvpLobbyLayoutTest {
             assertTrue(!dueSouth, mode + " blocks the southern approach to the return gate");
         }
     }
+
+    @Test
+    void everyPvpLeaderboardHasItsOwnProtectedGalleryBoard() {
+        Set<String> seen = new HashSet<>();
+        for (PvpLobbyBuilder.LeaderboardBoard board
+                : PvpLobbyBuilder.LeaderboardBoard.values()) {
+            int[] at = PvpLobbyBuilder.leaderboardPosition(board);
+            assertTrue(seen.add(at[0] + ":" + at[1]), board + " shares a leaderboard frame");
+            assertTrue(Math.hypot(at[0], at[1]) < PvpLobbyBuilder.PROTECTED_RADIUS,
+                    board + " lies outside lobby protection");
+        }
+        assertEquals(6, seen.size());
+    }
 }

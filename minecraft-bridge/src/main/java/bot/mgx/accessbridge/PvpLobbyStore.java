@@ -19,11 +19,10 @@ import java.util.UUID;
 /** Persistent PvP lobby and main-world entrance; combat arenas are never stored here. */
 final class PvpLobbyStore {
     /**
-     * Bumped to 4 for the interactive terrace: real portals, readable labels, and
-     * physical information consoles.
+     * Bumped to 5 for the dedicated leaderboard gallery and its wider protected area.
      * A newer format rebuilds the lobby once on the next start and re-saves the spawn.
      */
-    private static final int FORMAT_VERSION = 4;
+    private static final int FORMAT_VERSION = 5;
 
     record Point(
             String worldId,

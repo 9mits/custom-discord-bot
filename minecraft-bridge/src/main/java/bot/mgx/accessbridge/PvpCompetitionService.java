@@ -23,9 +23,10 @@ import org.bukkit.attribute.Attribute;
 import org.bukkit.block.Block;
 import org.bukkit.block.data.Orientable;
 import org.bukkit.command.CommandSender;
-import org.bukkit.entity.Entity;
+import org.bukkit.entity.ArmorStand;
 import org.bukkit.entity.Display;
 import org.bukkit.entity.EnderPearl;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.TextDisplay;
 import org.bukkit.event.EventHandler;
@@ -78,11 +79,12 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Consumer;
+import java.util.function.ToLongFunction;
 
 /**
  * Queue-driven PvP over the original survival-inventory /pvp arena engine: teams, FFA,
- * anchored spectating, durable recovery, rating, mode records, and conservative
- * economy rewards.
+ * anchored spectating, durable recovery, rating, and mode records.
  *
  * <p>{@link PvpDuelService} owns the real-world ring, terrain rollback and chunk
  * lifecycle for both private and queued fights. This class adds only the queue,
@@ -93,9 +95,11 @@ final class PvpCompetitionService implements Listener {
     private static final long INVITE_MILLIS = 120_000L;
     private static final long PAD_COOLDOWN_MILLIS = 1_500L;
     private static final String ENTRANCE_DISPLAY_TAG = "mgx_pvp_entrance_display";
+    private static final String ENTRANCE_TEXT_TAG = "mgx_pvp_entrance_text";
+    private static final String ENTRANCE_FALLBACK_TAG = "mgx_pvp_entrance_fallback";
     private static final List<String> PLAYER_COMMANDS = List.of(
             "queue", "leave", "status", "party", "lobby", "return", "spectate",
-            "live", "stats", "rankings", "rewards", "private", "forfeit", "giveup"
+            "live", "stats", "rankings", "rules", "rewards", "private", "forfeit", "giveup"
     );
 
     private enum Phase { COUNTDOWN, FIGHTING, AFTERMATH, ENDING }
@@ -129,7 +133,6 @@ final class PvpCompetitionService implements Listener {
         final Set<UUID> alive = new LinkedHashSet<>();
         final Set<UUID> eliminated = new LinkedHashSet<>();
         final Set<UUID> spectators = new LinkedHashSet<>();
-        final Set<UUID> rewardBlocked = new HashSet<>();
         final Map<UUID, Integer> kills = new HashMap<>();
         final Map<UUID, Double> damage = new HashMap<>();
         final Map<UUID, UUID> lastHitBy = new HashMap<>();
@@ -330,8 +333,8 @@ final class PvpCompetitionService implements Listener {
                 openRankings(player);
                 return true;
             }
-            case "rewards" -> {
-                openRewards(player);
+            case "rules", "rewards" -> {
+                openRules(player);
                 return true;
             }
             case "spectate", "watch" -> {
@@ -395,7 +398,6 @@ final class PvpCompetitionService implements Listener {
             if (args.length > 0 && List.of("forfeit", "giveup", "surrender", "ff", "leave")
                     .contains(args[0].toLowerCase(Locale.ROOT))) {
                 if (match.phase == Phase.FIGHTING) {
-                    match.rewardBlocked.add(player.getUniqueId());
                     eliminate(match, player.getUniqueId(), null, "forfeited");
                 } else if (match.phase == Phase.COUNTDOWN) {
                     abortStart(match, "A player left before the fight began.");
@@ -535,10 +537,12 @@ final class PvpCompetitionService implements Listener {
             // The boards move far more slowly than a queue count; every fifth tick is
             // plenty and keeps the entity work off the other four.
             if (boardTick++ % 5 == 0) {
-                PvpLobbyBuilder.refreshBoards(lobby, ratingBoard(), liveBoard());
+                PvpLobbyBuilder.refreshBoards(lobby, leaderboardBoards(), liveBoard());
             }
         });
         pulseEntrancePortal();
+        updateEntranceLabelViewers();
+        suppressCustomPortalTravel();
         announceWaiting(now);
         partyInvites.entrySet().removeIf(row -> row.getValue().expiresAt() <= now);
         validateQueues();
@@ -596,7 +600,24 @@ final class PvpCompetitionService implements Listener {
                 : queued + " waiting - needs " + missing + " more";
     }
 
-    /** The top of the ladder, for the pavilion that promises it. */
+    private Map<PvpLobbyBuilder.LeaderboardBoard, List<Component>> leaderboardBoards() {
+        Map<PvpLobbyBuilder.LeaderboardBoard, List<Component>> boards =
+                new EnumMap<>(PvpLobbyBuilder.LeaderboardBoard.class);
+        boards.put(PvpLobbyBuilder.LeaderboardBoard.RATING, ratingBoard());
+        boards.put(PvpLobbyBuilder.LeaderboardBoard.WINS,
+                playerRecordBoard(PvpRecordStore.Record::wins, "wins"));
+        boards.put(PvpLobbyBuilder.LeaderboardBoard.KILLS,
+                playerRecordBoard(PvpRecordStore.Record::kills, "kills"));
+        boards.put(PvpLobbyBuilder.LeaderboardBoard.STREAK,
+                playerRecordBoard(PvpRecordStore.Record::bestStreak, "streak"));
+        boards.put(PvpLobbyBuilder.LeaderboardBoard.CLAN_WINS,
+                clanRecordBoard(PvpClanRecordStore.Record::wins, "wins"));
+        boards.put(PvpLobbyBuilder.LeaderboardBoard.CLAN_KILLS,
+                clanRecordBoard(PvpClanRecordStore.Record::kills, "kills"));
+        return Map.copyOf(boards);
+    }
+
+    /** The top of the rating ladder, including each player's permanent rank badge. */
     private List<Component> ratingBoard() {
         List<PvpRankLeaderboard.Row> top = PvpRankLeaderboard.top(
                 records.all(), PvpCompetitionService::name, PvpLobbyBuilder.boardLines());
@@ -614,6 +635,58 @@ final class PvpCompetitionService implements Listener {
                             + " (" + row.record().rating() + ")", NamedTextColor.GRAY)));
         }
         return List.copyOf(lines);
+    }
+
+    private List<Component> playerRecordBoard(
+            ToLongFunction<PvpRecordStore.Record> metric, String unit
+    ) {
+        List<Map.Entry<UUID, PvpRecordStore.Record>> top = records.all().entrySet().stream()
+                .filter(row -> metric.applyAsLong(row.getValue()) > 0L)
+                .sorted(Comparator.<Map.Entry<UUID, PvpRecordStore.Record>>comparingLong(
+                                row -> metric.applyAsLong(row.getValue())).reversed()
+                        .thenComparing(row -> name(row.getKey()), String.CASE_INSENSITIVE_ORDER))
+                .limit(PvpLobbyBuilder.boardLines()).toList();
+        if (top.isEmpty()) return emptyBoard();
+        List<Component> lines = new ArrayList<>();
+        for (int index = 0; index < top.size(); index++) {
+            Map.Entry<UUID, PvpRecordStore.Record> row = top.get(index);
+            lines.add(boardLine(index, name(row.getKey()), metric.applyAsLong(row.getValue()), unit));
+        }
+        return List.copyOf(lines);
+    }
+
+    private List<Component> clanRecordBoard(
+            ToLongFunction<PvpClanRecordStore.Record> metric, String unit
+    ) {
+        List<Map.Entry<UUID, PvpClanRecordStore.Record>> top = clanRecords.all().entrySet().stream()
+                .filter(row -> metric.applyAsLong(row.getValue()) > 0L)
+                .sorted(Comparator.<Map.Entry<UUID, PvpClanRecordStore.Record>>comparingLong(
+                                row -> metric.applyAsLong(row.getValue())).reversed()
+                        .thenComparing(row -> clanName(row.getKey()), String.CASE_INSENSITIVE_ORDER))
+                .limit(PvpLobbyBuilder.boardLines()).toList();
+        if (top.isEmpty()) return emptyBoard();
+        List<Component> lines = new ArrayList<>();
+        for (int index = 0; index < top.size(); index++) {
+            Map.Entry<UUID, PvpClanRecordStore.Record> row = top.get(index);
+            lines.add(boardLine(index, clanName(row.getKey()),
+                    metric.applyAsLong(row.getValue()), unit));
+        }
+        return List.copyOf(lines);
+    }
+
+    private static Component boardLine(int index, String name, long value, String unit) {
+        return Component.text("#" + (index + 1) + " ", ORANGE, TextDecoration.BOLD)
+                .append(Component.text(name + " • ", NamedTextColor.WHITE))
+                .append(Component.text(value + " " + unit, NamedTextColor.GRAY));
+    }
+
+    private static List<Component> emptyBoard() {
+        return List.of(Component.text("No results yet • claim #1", NamedTextColor.GRAY));
+    }
+
+    private String clanName(UUID clanId) {
+        return clans.findClanById(clanId).map(ClanStore.ClanView::name)
+                .orElse(clanId.toString().substring(0, 8));
     }
 
     /** What is happening right now, for the pavilion that promises that. */
@@ -636,8 +709,8 @@ final class PvpCompetitionService implements Listener {
             lines.add(Component.text("Nobody is queued - walk into a gateway",
                     NamedTextColor.GRAY));
         }
-        return lines.size() > PvpLobbyBuilder.boardLines()
-                ? lines.subList(0, PvpLobbyBuilder.boardLines()) : List.copyOf(lines);
+        return lines.size() > PvpLobbyBuilder.liveBoardLines()
+                ? lines.subList(0, PvpLobbyBuilder.liveBoardLines()) : List.copyOf(lines);
     }
 
     private Component gateStatus(PvpMode mode) {
@@ -983,7 +1056,6 @@ final class PvpCompetitionService implements Listener {
                 now - match.lastAction.getOrDefault(playerId, match.fightingSince) >= afkMillis
         ).toList();
         if (!inactive.isEmpty() && inactive.size() == match.alive.size()) {
-            match.rewardBlocked.addAll(inactive);
             match.eliminated.addAll(inactive);
             match.alive.clear();
             notifyMatch(match, "Every remaining player was inactive — draw.", NamedTextColor.GRAY);
@@ -991,7 +1063,6 @@ final class PvpCompetitionService implements Listener {
             return;
         }
         for (UUID playerId : inactive) {
-            match.rewardBlocked.add(playerId);
             eliminate(match, playerId, null, "was eliminated for inactivity");
             if (match.phase != Phase.FIGHTING) return;
         }
@@ -1105,7 +1176,6 @@ final class PvpCompetitionService implements Listener {
         duels.setCompetitiveArenaActive(match.arena.id(), false);
         if (match.countdown != null) match.countdown.cancel();
         match.countdown = null;
-        long endedAt = System.currentTimeMillis();
         Set<UUID> deaths = Set.copyOf(match.eliminated);
         List<UUID> losers = decided
                 ? match.players.stream().filter(id -> !winners.contains(id)).toList()
@@ -1122,7 +1192,6 @@ final class PvpCompetitionService implements Listener {
             plugin.getLogger().warning("Could not save competitive PvP result: " + failure.getMessage());
         }
         recordOpponentRuns(match);
-        payRewards(match, winners, endedAt);
 
         for (UUID playerId : match.players) {
             Player player = Bukkit.getPlayer(playerId);
@@ -1159,24 +1228,10 @@ final class PvpCompetitionService implements Listener {
         if (winners.isEmpty() || losers.isEmpty()) return;
         UUID winner = clans.clanOf(winners.get(0)).map(ClanStore.ClanView::id).orElse(null);
         UUID loser = clans.clanOf(losers.get(0)).map(ClanStore.ClanView::id).orElse(null);
-        if (winner != null && loser != null && !winner.equals(loser)) clanRecords.settle(winner, loser);
-    }
-
-    private void payRewards(Match match, List<UUID> winners, long endedAt) {
-        if (match.fightingSince == 0L || endedAt - match.fightingSince
-                < integer("pvp-competitive.minimum-reward-seconds") * 1_000L) return;
-        long participation = integer("pvp-competitive.participation-reward");
-        long victory = integer("pvp-competitive.win-reward");
-        for (UUID playerId : match.players) {
-            if (match.rewardBlocked.contains(playerId)) continue;
-            long amount = participation + (winners.contains(playerId) ? victory : 0L);
-            if (amount <= 0L) continue;
-            try {
-                economy.deposit(playerId, amount);
-            } catch (RuntimeException failure) {
-                plugin.getLogger().warning("Could not pay PvP reward to " + playerId + ": "
-                        + failure.getMessage());
-            }
+        if (winner != null && loser != null && !winner.equals(loser)) {
+            int winnerKills = winners.stream().mapToInt(id -> match.kills.getOrDefault(id, 0)).sum();
+            int loserKills = losers.stream().mapToInt(id -> match.kills.getOrDefault(id, 0)).sum();
+            clanRecords.settle(winner, loser, winnerKills, loserKills);
         }
     }
 
@@ -1333,7 +1388,7 @@ final class PvpCompetitionService implements Listener {
             openQueueStatus(player);
             return;
         }
-        player.performCommand("pvp private");
+        duels.openHub(player);
     }
 
     private record MenuAction(
@@ -1388,12 +1443,17 @@ final class PvpCompetitionService implements Listener {
         }
         if (mode.teamSize() > 1 && !mode.freeForAll()) {
             actions.add(new MenuAction("item/writable_book", "Manage Team",
-                    "Invite or remove teammates for this queue.", this::openParty));
+                    "Invite or remove teammates for this queue.",
+                    viewer -> openParty(viewer, backViewer -> openMode(backViewer, mode))));
         }
         showMenu(player, mode.display(), body, actions, this::openModes);
     }
 
     void openStats(Player player) {
+        openStats(player, this::openHub);
+    }
+
+    private void openStats(Player player, Consumer<Player> back) {
         PvpRecordStore.Record record = records.of(player.getUniqueId());
         String kd = record.deaths() == 0L
                 ? (record.kills() == 0L ? "0.00" : "∞")
@@ -1422,11 +1482,13 @@ final class PvpCompetitionService implements Listener {
             PvpClanRecordStore.Record row = clanRecords.of(clan.id());
             body.append("\n\nClan PvP — ").append(clan.name()).append(": ")
                     .append(row.wins()).append("W / ").append(row.losses()).append("L")
+                    .append(" • ").append(row.kills()).append(" kills")
                     .append(" • best streak ").append(row.bestStreak());
         });
         List<MenuAction> actions = List.of(new MenuAction("item/nether_star", "Rating Leaderboard",
-                "See the highest current ratings.", this::openRankings));
-        showMenu(player, "PvP Statistics", body.toString(), actions, this::openHub);
+                "See the highest current ratings.",
+                viewer -> openRankings(viewer, backViewer -> openStats(backViewer, back))));
+        showMenu(player, "PvP Statistics", body.toString(), actions, back);
     }
 
     private void openLadder(Player player) {
@@ -1444,9 +1506,11 @@ final class PvpCompetitionService implements Listener {
                 new MenuAction("item/nether_star", "View Every Tier",
                         "See each tier and its starting rating.", this::openTierGuide),
                 new MenuAction("item/spyglass", "Top Ratings",
-                        "Open the full current leaderboard.", this::openRankings),
+                        "Open the full current leaderboard.",
+                        viewer -> openRankings(viewer, this::openLadder)),
                 new MenuAction("item/book", "My PvP Statistics",
-                        "Open your complete PvP record.", this::openStats)
+                        "Open your complete PvP record.",
+                        viewer -> openStats(viewer, this::openLadder))
         ), this::openHub);
     }
 
@@ -1464,6 +1528,10 @@ final class PvpCompetitionService implements Listener {
     }
 
     private void openRankings(Player player) {
+        openRankings(player, this::openHub);
+    }
+
+    private void openRankings(Player player, Consumer<Player> back) {
         List<PvpRankLeaderboard.Row> top = PvpRankLeaderboard.top(
                 records.all(), PvpCompetitionService::name, 10);
         StringBuilder body = new StringBuilder("Ranked results from automatic survival-loadout queues.\n");
@@ -1488,25 +1556,22 @@ final class PvpCompetitionService implements Listener {
                         .orElse(row.getKey().toString().substring(0, 8));
                 body.append("\n").append(index + 1).append(". ").append(clanName)
                         .append(" — ").append(row.getValue().wins()).append("W / ")
-                        .append(row.getValue().losses()).append("L");
+                        .append(row.getValue().losses()).append("L • ")
+                        .append(row.getValue().kills()).append(" kills");
             }
         }
-        showMenu(player, "PvP Rankings", body.toString(), List.of(), this::openStats);
+        showMenu(player, "PvP Rankings", body.toString(), List.of(), back);
     }
 
-    private void openRewards(Player player) {
+    private void openRules(Player player) {
         String body = "Every mode uses the armour, weapons, food and supplies you earned in survival.\n"
                 + "KEEP INVENTORY is active. The ring uses untouched overworld terrain,"
                 + " returns you to where you entered, and puts every changed block back.\n\n"
-                + "Eligible participation: " + EconomyFormat.dollars(integer(
-                        "pvp-competitive.participation-reward")) + "\n"
-                + "Additional win reward: " + EconomyFormat.dollars(integer(
-                        "pvp-competitive.win-reward")) + "\n"
-                + "Minimum rewarded combat: " + integer(
-                        "pvp-competitive.minimum-reward-seconds") + " seconds\n\n"
+                + "Competitive fights and rank-ups do not pay money. Private-fight wagers remain optional"
+                + " and use only the stakes both players accepted.\n\n"
                 + "Same-owner accounts cannot match. Repeated opponents are rested."
-                + " Forfeits, disconnects and AFK eliminations lose normally and do not earn rewards.";
-        showMenu(player, "PvP Rewards & Fair Play", body, List.of(), this::openHub);
+                + " Forfeits, disconnects and AFK eliminations lose normally.";
+        showMenu(player, "PvP Rules & Fair Play", body, List.of(), this::openHub);
     }
 
     void openLive(Player player) {
@@ -1522,6 +1587,10 @@ final class PvpCompetitionService implements Listener {
     }
 
     void openParty(Player player) {
+        openParty(player, this::openHub);
+    }
+
+    private void openParty(Player player, Consumer<Player> back) {
         Party party = parties.get(player.getUniqueId());
         String body;
         if (party == null) {
@@ -1535,7 +1604,7 @@ final class PvpCompetitionService implements Listener {
         List<MenuAction> actions = new ArrayList<>();
         if (party == null || party.leader.equals(player.getUniqueId())) {
             actions.add(new MenuAction("item/writable_book", "Invite Player",
-                    "Choose an online player.", this::openPartyInvites));
+                    "Choose an online player.", viewer -> openPartyInvites(viewer, back)));
         }
         if (party != null) {
             actions.add(new MenuAction("item/barrier", party.leader.equals(player.getUniqueId())
@@ -1547,10 +1616,14 @@ final class PvpCompetitionService implements Listener {
             actions.add(new MenuAction("item/lime_dye", "Accept " + name(invite.leader()),
                     "Join this PvP party.", p -> acceptParty(p, name(invite.leader()))));
         }
-        showMenu(player, "PvP Party", body, actions, this::openHub);
+        showMenu(player, "PvP Party", body, actions, back);
     }
 
     private void openPartyInvites(Player player) {
+        openPartyInvites(player, this::openHub);
+    }
+
+    private void openPartyInvites(Player player, Consumer<Player> back) {
         List<MenuAction> actions = Bukkit.getOnlinePlayers().stream()
                 .filter(target -> !target.equals(player) && !parties.containsKey(target.getUniqueId()))
                 .sorted(Comparator.comparing(Player::getName, String.CASE_INSENSITIVE_ORDER))
@@ -1558,7 +1631,7 @@ final class PvpCompetitionService implements Listener {
                         ignored -> inviteParty(player, target.getName()))).toList();
         showMenu(player, "Invite Teammate",
                 actions.isEmpty() ? "No available players are online." : "Choose a teammate.",
-                actions, this::openParty);
+                actions, viewer -> openParty(viewer, back));
     }
 
     private void showMenu(
@@ -1755,7 +1828,7 @@ final class PvpCompetitionService implements Listener {
                     "Preparing untouched overworld terrain for " + pending.mode().display() + ".",
                     List.of(new MenuAction("item/barrier", "Cancel Match",
                             "Cancel before the countdown begins.",
-                            viewer -> leaveQueue(viewer.getUniqueId(), true))), null);
+                            this::leaveQueueAndOpenHub)), duels::openHub);
             return;
         }
         if (mode == null || entry == null) {
@@ -1769,8 +1842,13 @@ final class PvpCompetitionService implements Listener {
         showMenu(player, "PvP Queue", body, List.of(
                 new MenuAction("item/barrier", "Leave Queue",
                         "Leave this queue with your current team.",
-                        viewer -> leaveQueue(viewer.getUniqueId(), true))
-        ), null);
+                        this::leaveQueueAndOpenHub)
+        ), duels::openHub);
+    }
+
+    private void leaveQueueAndOpenHub(Player player) {
+        leaveQueue(player.getUniqueId(), true);
+        duels.openHub(player);
     }
 
     int liveMatchCount() {
@@ -2151,7 +2229,7 @@ final class PvpCompetitionService implements Listener {
         Location registered = lobbyStore.portal().map(PvpLobbyStore.Point::resolve).orElse(null);
         if (registered == null) return;
         Set<Location> blocks = activeEntrancePortalBlocks();
-        Location anchor = portalTop(blocks, registered);
+        Location anchor = portalCentre(blocks, registered);
         double height = decimal("pvp-competitive.portal-display-height");
         entranceLabel(anchor.clone().add(0d, height, 0d),
                 Component.text(plugin.gameVariables().string("pvp-competitive.portal-title"),
@@ -2163,27 +2241,30 @@ final class PvpCompetitionService implements Listener {
                 (float) decimal("pvp-competitive.portal-status-scale"));
     }
 
-    private static Location portalTop(Set<Location> blocks, Location fallback) {
+    private static Location portalCentre(Set<Location> blocks, Location fallback) {
         if (blocks.isEmpty()) return fallback.clone();
         int minimumX = Integer.MAX_VALUE;
         int maximumX = Integer.MIN_VALUE;
+        int minimumY = Integer.MAX_VALUE;
         int maximumY = Integer.MIN_VALUE;
         int minimumZ = Integer.MAX_VALUE;
         int maximumZ = Integer.MIN_VALUE;
         for (Location block : blocks) {
             minimumX = Math.min(minimumX, block.getBlockX());
             maximumX = Math.max(maximumX, block.getBlockX());
+            minimumY = Math.min(minimumY, block.getBlockY());
             maximumY = Math.max(maximumY, block.getBlockY());
             minimumZ = Math.min(minimumZ, block.getBlockZ());
             maximumZ = Math.max(maximumZ, block.getBlockZ());
         }
         return new Location(fallback.getWorld(), (minimumX + maximumX + 1d) / 2d,
-                maximumY + 1d, (minimumZ + maximumZ + 1d) / 2d);
+                (minimumY + maximumY + 1d) / 2d, (minimumZ + maximumZ + 1d) / 2d);
     }
 
     private void entranceLabel(Location at, Component text, float scale) {
         at.getWorld().spawn(at, TextDisplay.class, display -> {
             display.addScoreboardTag(ENTRANCE_DISPLAY_TAG);
+            display.addScoreboardTag(ENTRANCE_TEXT_TAG);
             display.text(text);
             display.setBillboard(Display.Billboard.CENTER);
             display.setAlignment(TextDisplay.TextAlignment.CENTER);
@@ -2193,17 +2274,42 @@ final class PvpCompetitionService implements Listener {
             display.setBackgroundColor(Color.fromARGB(165, 9, 5, 16));
             display.setViewRange(12f);
             display.setPersistent(false);
+            display.setVisibleByDefault(false);
             display.setTransformation(new Transformation(
                     new org.joml.Vector3f(), new org.joml.AxisAngle4f(),
                     new org.joml.Vector3f(scale), new org.joml.AxisAngle4f()));
         });
+        ArmorStand fallback = CrateDisplayService.spawnStyledLabel(at, text,
+                ENTRANCE_DISPLAY_TAG, ENTRANCE_FALLBACK_TAG);
+        fallback.setPersistent(false);
+        fallback.setVisibleByDefault(false);
     }
 
     private void clearEntranceDisplays() {
         for (World world : Bukkit.getWorlds()) {
-            world.getEntitiesByClass(TextDisplay.class).stream()
+            world.getEntities().stream()
                     .filter(display -> display.getScoreboardTags().contains(ENTRANCE_DISPLAY_TAG))
                     .forEach(Entity::remove);
+        }
+    }
+
+    private void updateEntranceLabelViewers() {
+        for (World world : Bukkit.getWorlds()) {
+            List<Entity> labels = world.getEntities().stream()
+                    .filter(entity -> entity.getScoreboardTags().contains(ENTRANCE_DISPLAY_TAG))
+                    .toList();
+            if (labels.isEmpty()) continue;
+            for (Player player : world.getPlayers()) {
+                boolean useText = clientSupport.supportsTextDisplays(player);
+                for (Entity label : labels) {
+                    boolean correctType = useText
+                            ? label.getScoreboardTags().contains(ENTRANCE_TEXT_TAG)
+                            : label.getScoreboardTags().contains(ENTRANCE_FALLBACK_TAG);
+                    boolean nearby = label.getLocation().distanceSquared(player.getLocation()) <= 2304d;
+                    if (correctType && nearby) player.showEntity(plugin, label);
+                    else player.hideEntity(plugin, label);
+                }
+            }
         }
     }
 
@@ -2220,13 +2326,26 @@ final class PvpCompetitionService implements Listener {
         if (registered == null || registered.getWorld().getPlayers().isEmpty()) return;
         Set<Location> blocks = activeEntrancePortalBlocks();
         if (blocks.isEmpty()) return;
-        Location centre = portalTop(blocks, registered);
+        Location centre = portalCentre(blocks, registered);
         int count = integer("pvp-competitive.portal-particle-count");
         registered.getWorld().spawnParticle(Particle.REVERSE_PORTAL,
-                centre.clone().add(0d, -2d, 0d), count, 1.8d, 2.6d, 1.8d, 0.03d);
+                centre, count, 1.8d, 2.6d, 1.8d, 0.03d);
         registered.getWorld().spawnParticle(Particle.END_ROD,
-                centre.clone().add(0d, 0.4d, 0d), Math.max(0, count / 3),
+                centre.clone().add(0d, 2.4d, 0d), Math.max(0, count / 3),
                 1.4d, 0.4d, 1.4d, 0.01d);
+    }
+
+    /** Keeps vanilla Nether travel from taking focus away from a custom portal menu. */
+    private void suppressCustomPortalTravel() {
+        PvpLobbyStore.Point lobby = lobbyStore.lobby().orElse(null);
+        int cooldown = integer("pvp-competitive.portal-suppression-ticks");
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            Location at = player.getLocation();
+            if (touchesEntrancePortal(at) || PvpLobbyBuilder.modePad(lobby, at) != null
+                    || PvpLobbyBuilder.returnPad(lobby, at)) {
+                player.setPortalCooldown(cooldown);
+            }
+        }
     }
 
     private void installStarterLobby() {
@@ -2391,18 +2510,21 @@ final class PvpCompetitionService implements Listener {
         }
         if (padCooldowns.getOrDefault(playerId, 0L) > now) return;
         if (touchesEntrancePortal(event.getTo())) {
+            player.setPortalCooldown(integer("pvp-competitive.portal-suppression-ticks"));
             padCooldowns.put(playerId, now + PAD_COOLDOWN_MILLIS);
             plugin.getServer().getScheduler().runTask(plugin, () -> enterLobby(player));
             return;
         }
         PvpMode pad = PvpLobbyBuilder.modePad(lobby, event.getTo());
         if (pad != null && pad.queueable()) {
+            player.setPortalCooldown(integer("pvp-competitive.portal-suppression-ticks"));
             padCooldowns.put(playerId, now + PAD_COOLDOWN_MILLIS);
             plugin.getServer().getScheduler().runTask(plugin, () -> {
                 if (queuedPlayers.containsKey(playerId)) openQueueStatus(player);
                 else openMode(player, pad);
             });
         } else if (PvpLobbyBuilder.returnPad(lobby, event.getTo())) {
+            player.setPortalCooldown(integer("pvp-competitive.portal-suppression-ticks"));
             padCooldowns.put(playerId, now + PAD_COOLDOWN_MILLIS);
             plugin.getServer().getScheduler().runTask(plugin, () -> returnToServer(player));
         } else if (lobbyAt != null && isPvpWorld(player.getWorld())) {
@@ -2419,9 +2541,23 @@ final class PvpCompetitionService implements Listener {
     public void onPortal(PlayerPortalEvent event) {
         PvpLobbyStore.Point lobby = lobbyStore.lobby().orElse(null);
         Location from = event.getFrom();
-        if (touchesEntrancePortal(from) || PvpLobbyBuilder.modePad(lobby, from) != null
+        PvpMode mode = PvpLobbyBuilder.modePad(lobby, from);
+        if (touchesEntrancePortal(from) || mode != null
                 || PvpLobbyBuilder.returnPad(lobby, from)) {
             event.setCancelled(true);
+            event.getPlayer().setPortalCooldown(
+                    integer("pvp-competitive.portal-suppression-ticks"));
+            // If a client reached portal processing before the proactive cooldown was
+            // applied, it may already have dismissed its dialog. Restore the exact
+            // queue page on the next tick instead of leaving the player with no UI.
+            if (mode != null && mode.queueable()) {
+                Player player = event.getPlayer();
+                plugin.getServer().getScheduler().runTask(plugin, () -> {
+                    if (!player.isOnline() || isParticipant(player.getUniqueId())) return;
+                    if (queuedPlayers.containsKey(player.getUniqueId())) openQueueStatus(player);
+                    else openMode(player, mode);
+                });
+            }
         }
     }
 
@@ -2523,7 +2659,7 @@ final class PvpCompetitionService implements Listener {
         event.setCancelled(true);
         switch (action) {
             case LADDER -> openLadder(player);
-            case RULES -> openRewards(player);
+            case RULES -> openRules(player);
             case RATINGS -> openRankings(player);
             case LIVE -> openLive(player);
         }
@@ -2644,7 +2780,6 @@ final class PvpCompetitionService implements Listener {
         if (match.phase == Phase.COUNTDOWN) {
             abortStart(match, "A player disconnected before combat began.");
         } else if (match.phase == Phase.FIGHTING) {
-            match.rewardBlocked.add(playerId);
             eliminate(match, playerId, null, "disconnected and forfeited");
         }
     }

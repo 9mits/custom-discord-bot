@@ -961,7 +961,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         return List.of();
     }
 
-    private void openHub(Player player) {
+    void openHub(Player player) {
         resultViewers.remove(player.getUniqueId());
         expireInvitations();
         int incoming = incoming(player.getUniqueId()).size();

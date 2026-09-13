@@ -113,7 +113,14 @@ final class PvpCompetitionSafetyTest {
         assertFalse(lobby.contains("You fight with the gear you walked in with."));
         assertTrue(!lobby.contains("Material.OAK_SIGN"));
         assertTrue(source.contains("public void onPortal(PlayerPortalEvent event)"));
+        assertTrue(source.contains("player.setPortalCooldown("));
+        assertTrue(source.contains("suppressCustomPortalTravel()"));
+        assertTrue(source.contains("else openMode(player, mode);"));
         assertTrue(source.contains("PvpLobbyBuilder.pavilionAction("));
+        assertTrue(lobby.contains("FLOOR_Y + 6.6d"));
+        assertTrue(lobby.contains("FLOOR_Y + 3.2d"));
+        assertTrue(lobby.contains("buildLeaderboardGallery(world)"));
+        assertTrue(lobby.contains("CLAN_KILLS(\"CLAN KILLS\""));
     }
 
     @Test
@@ -127,7 +134,9 @@ final class PvpCompetitionSafetyTest {
         assertTrue(source.contains("pvp-competitive.portal-status"));
         String variables = Files.readString(SOURCE.getParent().resolve("GameVariableStore.java"),
                 StandardCharsets.UTF_8);
-        assertTrue(variables.contains("WALK THROUGH TO ENTER"));
+        assertTrue(variables.contains("WALK THROUGH • CHOOSE A FIGHT"));
+        assertTrue(source.contains("Location anchor = portalCentre(blocks, registered)"));
+        assertTrue(source.contains("ENTRANCE_FALLBACK_TAG"));
         assertFalse(source.contains("Use /pvp portal set [radius]"));
     }
 
@@ -140,9 +149,38 @@ final class PvpCompetitionSafetyTest {
 
         String duel = Files.readString(SOURCE.getParent().resolve("PvpDuelService.java"),
                 StandardCharsets.UTF_8);
-        String hub = duel.substring(duel.indexOf("private void openHub(Player player)"),
+        String hub = duel.substring(duel.indexOf("void openHub(Player player)"),
                 duel.indexOf("private void openRankLeaderboard(Player player)"));
         assertFalse(hub.contains("Leave Queue"));
         assertTrue(source.contains("queuedPlayers.containsKey(player.getUniqueId())"));
+    }
+
+    @Test
+    void nestedMenusReturnToTheirActualCallerAndQueuesNeverUseTheGlobalFallback()
+            throws Exception {
+        String source = Files.readString(SOURCE, StandardCharsets.UTF_8);
+        assertTrue(source.contains("private void openStats(Player player, Consumer<Player> back)"));
+        assertTrue(source.contains("private void openRankings(Player player, Consumer<Player> back)"));
+        assertTrue(source.contains("private void openParty(Player player, Consumer<Player> back)"));
+        assertTrue(source.contains("backViewer -> openMode(backViewer, mode)"));
+        assertTrue(source.contains("viewer -> openRankings(viewer, this::openLadder)"));
+        String queueStatus = source.substring(source.indexOf("private void openQueueStatus("),
+                source.indexOf("int liveMatchCount()"));
+        assertTrue(queueStatus.contains("duels::openHub"));
+        assertFalse(queueStatus.contains("), null);"));
+    }
+
+    @Test
+    void competitiveRankAndMatchResultsNeverMintMoney() throws Exception {
+        String source = Files.readString(SOURCE, StandardCharsets.UTF_8);
+        String variables = Files.readString(SOURCE.getParent().resolve("GameVariableStore.java"),
+                StandardCharsets.UTF_8);
+        assertFalse(source.contains("payRewards("));
+        assertFalse(source.contains("economy.deposit("));
+        assertFalse(source.contains("rewardBlocked"));
+        assertFalse(variables.contains("pvp-competitive.participation-reward"));
+        assertFalse(variables.contains("pvp-competitive.win-reward"));
+        assertFalse(variables.contains("pvp-competitive.minimum-reward-seconds"));
+        assertTrue(source.contains("Private-fight wagers remain optional"));
     }
 }
