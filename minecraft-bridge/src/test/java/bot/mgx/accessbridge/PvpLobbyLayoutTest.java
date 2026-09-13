@@ -1,5 +1,6 @@
 package bot.mgx.accessbridge;
 
+import org.bukkit.Material;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
@@ -40,6 +41,31 @@ final class PvpLobbyLayoutTest {
                 assertNull(PvpLobbyBuilder.gatePosition(mode),
                         mode + " is a size variant or private mode and must not have a gateway");
             }
+        }
+    }
+
+    @Test
+    void everyGatewayHasAContinuousVanillaValidPortalFrame() {
+        for (int y = 1; y <= 6; y++) {
+            assertEquals(Material.OBSIDIAN, PvpLobbyBuilder.gatewayCell(-3, y),
+                    "the left portal post is interrupted at y=" + y);
+            assertEquals(Material.OBSIDIAN, PvpLobbyBuilder.gatewayCell(3, y),
+                    "the right portal post is interrupted at y=" + y);
+            for (int lateral = -2; lateral <= 2; lateral++) {
+                assertEquals(Material.NETHER_PORTAL,
+                        PvpLobbyBuilder.gatewayCell(lateral, y),
+                        "the portal interior is missing at " + lateral + "," + y);
+            }
+        }
+        for (int lateral = -3; lateral <= 3; lateral++) {
+            assertEquals(Material.OBSIDIAN,
+                    PvpLobbyBuilder.gatewayCell(lateral, 7),
+                    "the portal lintel is interrupted at x=" + lateral);
+        }
+        for (int lateral = -2; lateral <= 2; lateral++) {
+            assertEquals(Material.CHISELED_DEEPSLATE,
+                    PvpLobbyBuilder.gatewayCell(lateral, 8),
+                    "decoration must sit above the valid obsidian lintel");
         }
     }
 
