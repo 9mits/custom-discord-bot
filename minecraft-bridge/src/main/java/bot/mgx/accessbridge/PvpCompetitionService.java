@@ -625,6 +625,11 @@ final class PvpCompetitionService implements Listener {
     private void tick() {
         long now = System.currentTimeMillis();
         lobbyStore.lobby().ifPresent(lobby -> {
+            int repaired = PvpLobbyBuilder.repairPortals(lobby);
+            if (repaired > 0) {
+                plugin.getLogger().warning("Restored " + repaired
+                        + " damaged PvP lobby portal" + (repaired == 1 ? "." : "s."));
+            }
             PvpLobbyBuilder.pulse(lobby,
                     integer("pvp-competitive.lobby-portal-particle-count"));
             PvpLobbyBuilder.updateLabelViewers(lobby, plugin, clientSupport,

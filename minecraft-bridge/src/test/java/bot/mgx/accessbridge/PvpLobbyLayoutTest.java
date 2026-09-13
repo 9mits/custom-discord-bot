@@ -11,7 +11,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -67,6 +69,39 @@ final class PvpLobbyLayoutTest {
                     PvpLobbyBuilder.gatewayCell(lateral, 8),
                     "decoration must sit above the valid obsidian lintel");
         }
+    }
+
+    @Test
+    void diagonalGatewayDecorationsNeverRoundBackOntoThePortalPlane() {
+        for (PvpMode mode : PvpMode.values()) {
+            int[] gate = PvpLobbyBuilder.gatePosition(mode);
+            if (gate == null) continue;
+            boolean wideX = Math.abs(gate[0]) <= Math.abs(gate[1]);
+            for (int lateral : new int[]{-3, -2, 2, 3}) {
+                int depth = Math.abs(lateral) == 3 ? 1 : 2;
+                int[] decoration = PvpLobbyBuilder.gatewayDecorationPosition(
+                        mode, lateral, depth);
+                assertFalse(wideX ? decoration[1] == gate[1] : decoration[0] == gate[0],
+                        mode + " decoration overlaps its portal plane");
+            }
+        }
+        assertArrayEquals(new int[]{7, -10},
+                PvpLobbyBuilder.gatewayDecorationPosition(PvpMode.FFA, -2, 2),
+                "the Last Standing pylon must stand in front of the arch, not on its post");
+    }
+
+    @Test
+    void lobbyTickRepairsAFrameOrPortalPlaneThatBecomesDamaged() {
+        String lobby = source();
+        assertTrue(lobby.contains("static int repairPortals("));
+        assertTrue(lobby.contains("gatewayPortalIntact("));
+        assertTrue(lobby.contains("buildGatewayPlane(world, gx, gz, wideX);"));
+
+        String service = service();
+        String tick = service.substring(service.indexOf("private void tick()"),
+                service.indexOf("private int availablePlayers()"));
+        assertTrue(tick.contains("PvpLobbyBuilder.repairPortals(lobby)"),
+                "portal integrity must be checked continuously, not only at world creation");
     }
 
     @Test
