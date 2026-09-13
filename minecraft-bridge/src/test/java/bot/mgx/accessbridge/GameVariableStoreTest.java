@@ -86,7 +86,8 @@ final class GameVariableStoreTest {
         assertEquals(34d, variables.decimal("pvp-competitive.lobby-leaderboard-view-distance"));
         assertEquals(8, variables.integer("pvp-competitive.lobby-portal-particle-count"));
         assertEquals(48, variables.integer("pvp-competitive.portal-selection-distance"));
-        assertEquals("✦ PVP LOBBY ✦", variables.string("pvp-competitive.portal-title"));
+        assertEquals(2.5d, variables.decimal("pvp-competitive.portal-display-height"));
+        assertEquals("PVP LOBBY PORTAL", variables.string("pvp-competitive.portal-title"));
         assertEquals("WALK THROUGH • CHOOSE A FIGHT",
                 variables.string("pvp-competitive.portal-status"));
         assertTrue(variables.bool("pvp-competitive.portal-effects-enabled"));
@@ -265,6 +266,21 @@ final class GameVariableStoreTest {
         String migrated = Files.readString(file);
         assertTrue(migrated.contains("OPEN • CLOSES IN <time>"));
         assertFalse(migrated.contains("OPEN UNTIL <until>"));
+    }
+
+    @Test
+    void shippedPvpEntranceLabelMigratesAboveThePortal() throws Exception {
+        Path file = temporary.resolve("game-variables.json");
+        Files.writeString(file, "{\"pvp-competitive.portal-display-height\":0.65,"
+                + "\"pvp-competitive.portal-title\":\"✦ PVP LOBBY ✦\"}");
+
+        GameVariableStore variables = store();
+
+        assertEquals(2.5d, variables.decimal("pvp-competitive.portal-display-height"));
+        assertEquals("PVP LOBBY PORTAL", variables.string("pvp-competitive.portal-title"));
+        String migrated = Files.readString(file);
+        assertTrue(migrated.contains("2.5"));
+        assertFalse(migrated.contains("✦ PVP LOBBY ✦"));
     }
 
     @Test

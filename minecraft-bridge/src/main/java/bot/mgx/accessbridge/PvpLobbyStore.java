@@ -19,11 +19,11 @@ import java.util.UUID;
 /** Persistent PvP lobby and main-world entrance; combat arenas are never stored here. */
 final class PvpLobbyStore {
     /**
-     * Bumped to 7 for the joined lobby concourse, fixed wall labels and removal of the
-     * retired generated fighting platforms. A newer format rebuilds the lobby once on
-     * the next start and re-saves the spawn.
+     * Bumped to 8 for the open north boulevard, richer records court and consolidated
+     * configurable queue gateways. A newer format rebuilds the lobby once on the next
+     * start and re-saves the spawn.
      */
-    private static final int FORMAT_VERSION = 7;
+    private static final int FORMAT_VERSION = 8;
 
     record Point(
             String worldId,

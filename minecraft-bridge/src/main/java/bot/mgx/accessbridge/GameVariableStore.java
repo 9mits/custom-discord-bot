@@ -1274,15 +1274,15 @@ final class GameVariableStore {
                 "Vertical distance searched around the selected block when lighting the PvP entrance.",
                 18, 3, 48, "blocks", false);
         decimal("pvp-competitive.portal-display-height", "Entrance label height", "PvP Lobby",
-                "Vertical offset of the PvP lobby title from the portal's centre.",
-                0.65, -4, 8, "blocks");
+                "Vertical offset of the PvP lobby title above the portal frame.",
+                2.5, 0, 16, "blocks");
         decimal("pvp-competitive.portal-title-scale", "Entrance title scale", "PvP Lobby",
                 "Visual scale of the PvP lobby entrance title.", 3.4, 0.5, 8, "scale");
         decimal("pvp-competitive.portal-status-scale", "Entrance prompt scale", "PvP Lobby",
                 "Visual scale of the walk-through prompt below the PvP entrance title.",
                 2.0, 0.5, 6, "scale");
         text("pvp-competitive.portal-title", "Entrance title", "PvP Lobby",
-                "Large title inside the registered PvP entrance.", "✦ PVP LOBBY ✦", 80);
+                "Large title above the registered PvP entrance.", "PVP LOBBY PORTAL", 80);
         text("pvp-competitive.portal-status", "Entrance prompt", "PvP Lobby",
                 "Prompt below the registered PvP entrance title.",
                 "WALK THROUGH • CHOOSE A FIGHT", 100);
@@ -2946,6 +2946,20 @@ final class GameVariableStore {
                         && value instanceof String text
                         && text.equals("OPEN UNTIL <until>")) {
                     value = "OPEN • CLOSES IN <time>";
+                    migrated = true;
+                }
+                // The first PvP entrance label was centred inside the portal. Move only
+                // the shipped values into the same above-frame presentation as Dragon.
+                if (canonical.equals("pvp-competitive.portal-display-height")
+                        && value instanceof Number number
+                        && Double.compare(number.doubleValue(), 0.65d) == 0) {
+                    value = 2.5d;
+                    migrated = true;
+                }
+                if (canonical.equals("pvp-competitive.portal-title")
+                        && value instanceof String text
+                        && text.equals("✦ PVP LOBBY ✦")) {
+                    value = "PVP LOBBY PORTAL";
                     migrated = true;
                 }
                 // These were the shipped Scythe bonuses before competitive PvP was

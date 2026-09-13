@@ -84,7 +84,12 @@ enum PvpMode {
     }
 
     boolean queueable() {
-        return this != PRIVATE_DUEL;
+        return this != PRIVATE_DUEL && this != CASUAL_DUEL;
+    }
+
+    /** Only these three categories get a physical lobby gateway. */
+    boolean lobbyCategory() {
+        return this == RANKED_DUEL || this == CLAN_BATTLE || this == FFA;
     }
 
     static Optional<PvpMode> from(String typed) {
@@ -92,7 +97,9 @@ enum PvpMode {
         String wanted = typed.strip().toLowerCase(Locale.ROOT).replace('_', '-');
         for (PvpMode mode : values()) {
             if (mode.aliases.contains(wanted) || mode.key.equals(wanted)) {
-                return Optional.of(mode);
+                // The retired casual queue remains a command alias, but everybody now
+                // enters the one ranked population instead of splitting a small server.
+                return Optional.of(mode == CASUAL_DUEL ? RANKED_DUEL : mode);
             }
         }
         return Optional.empty();

@@ -86,10 +86,12 @@ final class PvpLobbyBuilder {
     /** Fixed labels sit safely in front of their backing at every viewing angle. */
     private static final double GALLERY_BOARD_RING = 13d;
     private static final double GALLERY_FRAME_RING = 14.8d;
+    /** Between the gallery moat's outer lip and the board frames. */
+    private static final double GALLERY_PILLAR_RING = 11.5d;
     private static final double SPAWN_Z = 12.5d;
     private static final int[] RETURN_GATE = {0, 25};
     /** Where the moat is crossed: the four pavilions and the walk home. */
-    private static final double[] CROSSINGS = {45d, 135d, 180d, 225d, 315d};
+    private static final double[] CROSSINGS = {0d, 45d, 135d, 180d, 225d, 315d};
     /** Starter arenas generated in this void world by the retired 8.0 PvP system. */
     private static final int[][] LEGACY_FIGHTING_PLATFORMS = {
             {0, -180, 27}, {80, -180, 27},
@@ -456,18 +458,14 @@ final class PvpLobbyBuilder {
         Map<PvpMode, Gate> gates = new LinkedHashMap<>();
         // Thirty degrees off north, so the six arches sit evenly and leave due south
         // clear for the walk home.
+        // Three categories, not six fragmented queues. Team size, access and fill are
+        // chosen after walking through the gateway.
         gates.put(PvpMode.RANKED_DUEL, new Gate(30d, Material.YELLOW_STAINED_GLASS,
-                Material.GOLD_BLOCK, "RANKED 1v1", "Rated. Your gear, real terrain."));
-        gates.put(PvpMode.CASUAL_DUEL, new Gate(330d, Material.LIME_STAINED_GLASS,
-                Material.IRON_BLOCK, "CASUAL 1v1", "Unrated. Nothing on the line."));
-        gates.put(PvpMode.DOUBLES, new Gate(90d, Material.CYAN_STAINED_GLASS,
-                Material.DIAMOND_BLOCK, "RANKED 2v2", "Bring a teammate or fill."));
-        gates.put(PvpMode.TRIPLES, new Gate(270d, Material.LIGHT_BLUE_STAINED_GLASS,
-                Material.PRISMARINE_BRICKS, "RANKED 3v3", "Party stays together."));
+                Material.GOLD_BLOCK, "RANKED BATTLE", "Choose 1v1, 2v2 or 3v3."));
         gates.put(PvpMode.CLAN_BATTLE, new Gate(150d, Material.RED_STAINED_GLASS,
-                Material.REDSTONE_BLOCK, "CLAN BATTLE", "Three of your clan, three of theirs."));
-        gates.put(PvpMode.FFA, new Gate(210d, Material.PURPLE_STAINED_GLASS,
-                Material.AMETHYST_BLOCK, "LAST STANDING", "Everyone is an opponent."));
+                Material.REDSTONE_BLOCK, "CLAN BATTLE", "Choose 2v2 or 3v3."));
+        gates.put(PvpMode.FFA, new Gate(270d, Material.PURPLE_STAINED_GLASS,
+                Material.AMETHYST_BLOCK, "LAST STANDING", "Choose how many can enter."));
         return Map.copyOf(gates);
     }
 
@@ -806,23 +804,13 @@ final class PvpLobbyBuilder {
             buildLeaderboardFrame(world, board);
         }
 
-        // A low central geode repeats the main monument without blocking the boards.
-        for (int x = -3; x <= 3; x++) {
-            for (int localZ = -3; localZ <= 3; localZ++) {
-                double radius = Math.hypot(x, localZ);
-                if (radius > 3.4d) continue;
-                int z = GALLERY_CENTRE_Z + localZ;
-                world.getBlockAt(x, FLOOR_Y + 1, z).setType(
-                        radius > 2.2d ? Material.CALCITE : Material.AMETHYST_BLOCK, false);
-                if (radius <= 1.4d) {
-                    world.getBlockAt(x, FLOOR_Y + 2, z).setType(
-                            x == 0 && localZ == 0 ? Material.SEA_LANTERN
-                                    : Material.AMETHYST_BLOCK, false);
-                }
-            }
-        }
-        world.getBlockAt(0, FLOOR_Y + 3, GALLERY_CENTRE_Z)
-                .setType(Material.AMETHYST_CLUSTER, false);
+        // A flat disc holding six boards is what made this island read as an empty
+        // annex of the queue island. The monument fills the inner circle and the
+        // colonnade fills the wide ring the moat leaves between water and boards.
+        buildGalleryMonument(world);
+        // Planted first: the colonnade lays its own collar over the green.
+        buildGalleryGardens(world);
+        buildGalleryColonnade(world);
 
         // Low marker pylons frame the shared concourse without turning it into another
         // gate or putting columns in the route between the two halves of the lobby.
@@ -854,12 +842,147 @@ final class PvpLobbyBuilder {
         buildSharedConcourse(world);
     }
 
-    /** A broad solid neck that turns the two overlapping circles into one lobby. */
+    /**
+     * The records monument: three walkable steps rising to a lit crystal core.
+     *
+     * <p>It stays inside the gallery moat and stops two blocks short of the board
+     * frames' own crowns, so the centre of the island finally has a subject without
+     * hiding the rank somebody walked all the way up here to read.
+     */
+    private static void buildGalleryMonument(World world) {
+        for (int x = -6; x <= 6; x++) {
+            for (int localZ = -6; localZ <= 6; localZ++) {
+                double radius = Math.hypot(x, localZ);
+                if (radius > 5.6d) continue;
+                int z = GALLERY_CENTRE_Z + localZ;
+                int tier = radius > 3.7d ? 1 : radius > 1.9d ? 2 : 3;
+                for (int y = 1; y <= tier; y++) {
+                    Material step;
+                    if (y < tier) step = Material.POLISHED_DEEPSLATE;
+                    else if (tier == 1) step = ((x + localZ) & 3) == 0
+                            ? Material.CHISELED_DEEPSLATE : Material.DEEPSLATE_TILES;
+                    else if (tier == 2) step = ((x + localZ) & 1) == 0
+                            ? Material.CALCITE : Material.POLISHED_DIORITE;
+                    else step = Material.AMETHYST_BLOCK;
+                    world.getBlockAt(x, FLOOR_Y + y, z).setType(step, false);
+                }
+            }
+        }
+        // Lanterns set flush into the middle step, so the climb lights itself and
+        // nothing stands on the steps for a player to walk into.
+        for (int degrees = 0; degrees < 360; degrees += 45) {
+            double angle = Math.toRadians(degrees);
+            world.getBlockAt(symmetric(quantised(Math.cos(angle)) * 2.9d), FLOOR_Y + 2,
+                            GALLERY_CENTRE_Z + symmetric(quantised(Math.sin(angle)) * 2.9d))
+                    .setType(Material.SEA_LANTERN, false);
+        }
+        // A lit core with four buttresses, tapering to one crown cluster.
+        for (int y = 4; y <= 6; y++) {
+            world.getBlockAt(0, FLOOR_Y + y, GALLERY_CENTRE_Z).setType(
+                    y == 4 ? Material.SEA_LANTERN : Material.BUDDING_AMETHYST, false);
+        }
+        world.getBlockAt(0, FLOOR_Y + 7, GALLERY_CENTRE_Z)
+                .setType(Material.AMETHYST_CLUSTER, false);
+        for (int[] buttress : List.of(new int[]{-2, 0}, new int[]{2, 0},
+                new int[]{0, -2}, new int[]{0, 2})) {
+            int bx = buttress[0];
+            int bz = GALLERY_CENTRE_Z + buttress[1];
+            world.getBlockAt(bx, FLOOR_Y + 4, bz)
+                    .setType(Material.POLISHED_DEEPSLATE, false);
+            world.getBlockAt(bx, FLOOR_Y + 5, bz).setType(Material.AMETHYST_BLOCK, false);
+            world.getBlockAt(bx, FLOOR_Y + 6, bz).setType(Material.AMETHYST_CLUSTER, false);
+        }
+    }
+
+    /**
+     * Planted crescents in the wide ring the moat leaves outside the monument.
+     *
+     * <p>The queue island's garden ring, repeated at the smaller radius, because bare
+     * floor between the water and the boards is what made this island read as an
+     * annex. Every board keeps a clear approach lane and the southern sector stays
+     * stone, so the green only ever covers floor nobody walks across.
+     */
+    private static void buildGalleryGardens(World world) {
+        for (int x = -14; x <= 14; x++) {
+            for (int localZ = -14; localZ <= 14; localZ++) {
+                double radius = Math.hypot(x, localZ);
+                if (radius < 9.8d || radius > 13.4d) continue;
+                double degrees = Math.toDegrees(Math.atan2(x, -localZ));
+                if (degrees < 0d) degrees += 360d;
+                if (angularGap(degrees, 180d) < 42d) continue;
+                boolean approach = false;
+                for (LeaderboardBoard board : LeaderboardBoard.values()) {
+                    if (angularGap(degrees, board.angle) < 11d) {
+                        approach = true;
+                        break;
+                    }
+                }
+                if (approach) continue;
+                int z = GALLERY_CENTRE_Z + localZ;
+                int pattern = (Math.abs(x) * 7 + Math.abs(localZ) * 11
+                        + x * x + localZ * localZ) % 31;
+                Material ground = pattern == 0 ? Material.COARSE_DIRT
+                        : pattern < 5 ? Material.MOSS_BLOCK : Material.GRASS_BLOCK;
+                world.getBlockAt(x, FLOOR_Y, z).setType(ground, false);
+                world.getBlockAt(x, FLOOR_Y - 1, z).setType(Material.DIRT, false);
+            }
+        }
+        // One low crystal in each planted crescent, mirrored like the main garden.
+        for (double angle : new double[]{270d, 310d, 350d, 10d, 50d, 90d}) {
+            int x = galleryX(angle, 12.8d, 0d);
+            int z = galleryZ(angle, 12.8d, 0d);
+            world.getBlockAt(x, FLOOR_Y + 1, z).setType(Material.BUDDING_AMETHYST, false);
+            world.getBlockAt(x, FLOOR_Y + 2, z).setType(Material.AMETHYST_CLUSTER, false);
+            world.getBlockAt(x, FLOOR_Y + 1, z + 1).setType(Material.FLOWERING_AZALEA, false);
+        }
+    }
+
+    /** Degrees between two bearings, whichever way round the circle is shorter. */
+    private static double angularGap(double left, double right) {
+        double gap = Math.abs(left - right) % 360d;
+        return gap > 180d ? 360d - gap : gap;
+    }
+
+    /**
+     * Six planted pillars, each standing in the gap between two leaderboards.
+     *
+     * <p>The gaps are the point: nothing stands in front of a board, and the whole
+     * southern sector is left out so the pillars never crowd the concourse arriving
+     * from the queue island.
+     */
+    private static void buildGalleryColonnade(World world) {
+        for (double angle : new double[]{270d, 310d, 350d, 10d, 50d, 90d}) {
+            int x = galleryX(angle, GALLERY_PILLAR_RING, 0d);
+            int z = galleryZ(angle, GALLERY_PILLAR_RING, 0d);
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    if (dx != 0 && dz != 0) continue;
+                    world.getBlockAt(x + dx, FLOOR_Y, z + dz)
+                            .setType(dx == 0 && dz == 0 ? Material.POLISHED_DEEPSLATE
+                                    : Material.MOSS_BLOCK, false);
+                }
+            }
+            for (int y = 1; y <= 6; y++) {
+                Material course = y == 6 ? Material.CALCITE
+                        : y == 3 ? Material.AMETHYST_BLOCK
+                        : (y & 1) == 0 ? Material.POLISHED_DEEPSLATE
+                        : Material.DEEPSLATE_BRICKS;
+                world.getBlockAt(x, FLOOR_Y + y, z).setType(course, false);
+            }
+            world.getBlockAt(x, FLOOR_Y + 7, z).setType(Material.SEA_LANTERN, false);
+            world.getBlockAt(x, FLOOR_Y + 8, z).setType(Material.AMETHYST_CLUSTER, false);
+        }
+    }
+
+    /** A broad, tapered boulevard from the main plaza into the records court. */
     private static void buildSharedConcourse(World world) {
-        for (int x = -10; x <= 10; x++) {
-            for (int z = -32; z <= -21; z++) {
+        for (int z = -33; z <= -12; z++) {
+            int halfWidth = z >= -19 ? 4 : z >= -24 ? 7 : 10;
+            for (int x = -halfWidth; x <= halfWidth; x++) {
                 Material floor = Math.abs(x) <= 2 ? Material.CALCITE
-                        : Math.abs(x) >= 9 ? Material.SMOOTH_BASALT
+                        : Math.abs(x) == halfWidth ? Material.SMOOTH_BASALT
+                        : Math.abs(x) == 3 && Math.floorMod(z, 4) == 0
+                        ? Material.AMETHYST_BLOCK
                         : ((Math.abs(x) + Math.abs(z)) & 3) == 0
                         ? Material.CHISELED_DEEPSLATE : Material.DEEPSLATE_TILES;
                 world.getBlockAt(x, FLOOR_Y, z).setType(floor, false);
@@ -873,10 +996,12 @@ final class PvpLobbyBuilder {
                 }
             }
         }
-        // Flush edge lights define the route without railings or pillars.
-        for (int z : new int[]{-31, -27, -23}) {
-            world.getBlockAt(-8, FLOOR_Y, z).setType(Material.SEA_LANTERN, false);
-            world.getBlockAt(8, FLOOR_Y, z).setType(Material.SEA_LANTERN, false);
+        // Flush lights define the route without recreating the fence that used to cut
+        // the two islands apart.
+        for (int z : new int[]{-31, -27, -23, -19, -15}) {
+            int x = z >= -19 ? 3 : z >= -24 ? 6 : 9;
+            world.getBlockAt(-x, FLOOR_Y, z).setType(Material.SEA_LANTERN, false);
+            world.getBlockAt(x, FLOOR_Y, z).setType(Material.SEA_LANTERN, false);
         }
     }
 
@@ -1165,7 +1290,7 @@ final class PvpLobbyBuilder {
     // --------------------------------------------------------- the pavilions
 
     /** The UI opened by a physical lobby console. */
-    enum PavilionAction { LADDER, RULES, RATINGS, LIVE }
+    enum PavilionAction { LADDER, RULES, PLAY, LIVE }
 
     /** Whether a pavilion's board is written once or rewritten while people play. */
     private enum Board { STATIC, LIVE }
@@ -1232,9 +1357,9 @@ final class PvpLobbyBuilder {
         boards.add(new Pavilion(135d, "FIGHT RULES", Board.STATIC,
                 List.of("YOUR GEAR • REAL TERRAIN • KEEP INVENTORY"), "RIGHT-CLICK PAVILION",
                 PavilionAction.RULES));
-        boards.add(new Pavilion(225d, "PVP LEADERBOARDS", Board.STATIC,
-                List.of("6 LIVE PLAYER & CLAN BOARDS"),
-                "FOLLOW THE NORTH CONCOURSE", PavilionAction.RATINGS));
+        boards.add(new Pavilion(225d, "CREATE A FIGHT", Board.STATIC,
+                List.of("TEAM SIZE • ACCESS • INVITES"),
+                "RIGHT-CLICK PAVILION", PavilionAction.PLAY));
         boards.add(new Pavilion(315d, "LIVE MATCHES", Board.LIVE, List.of(),
                 "RIGHT-CLICK PAVILION", PavilionAction.LIVE));
         return boards;

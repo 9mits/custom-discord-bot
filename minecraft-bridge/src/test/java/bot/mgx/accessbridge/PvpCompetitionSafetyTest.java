@@ -149,9 +149,28 @@ final class PvpCompetitionSafetyTest {
         String variables = Files.readString(SOURCE.getParent().resolve("GameVariableStore.java"),
                 StandardCharsets.UTF_8);
         assertTrue(variables.contains("WALK THROUGH • CHOOSE A FIGHT"));
-        assertTrue(source.contains("Location anchor = portalCentre(blocks, registered)"));
+        assertTrue(source.contains("Location anchor = portalTopCentre(blocks, registered)"));
+        assertTrue(source.contains("display.setBillboard(Display.Billboard.CENTER)"));
+        assertTrue(source.contains("display.setSeeThrough(true)"));
         assertTrue(source.contains("ENTRANCE_FALLBACK_TAG"));
         assertFalse(source.contains("Use /pvp portal set [radius]"));
+    }
+
+    @Test
+    void threeFightCategoriesExposeSizeAccessInvitesAndOwnerStart() throws Exception {
+        String source = Files.readString(SOURCE, StandardCharsets.UTF_8);
+        String setup = Files.readString(SOURCE.getParent().resolve("PvpMatchSetup.java"),
+                StandardCharsets.UTF_8);
+        assertTrue(source.contains("List.of(\n                PvpMode.RANKED_DUEL, PvpMode.CLAN_BATTLE, PvpMode.FFA)"));
+        assertTrue(source.contains("\"Access: \" + setup.access().display()"));
+        assertTrue(source.contains("Create Invite-Only Room"));
+        assertTrue(source.contains("Invite Opponents"));
+        assertTrue(source.contains("\"Force Start \" + roomScore(room)"));
+        assertTrue(source.contains("roomStartable(room)"));
+        assertTrue(source.contains("opponentsAllowed(first, second"));
+        assertTrue(setup.contains("family == PvpMode.CLAN_BATTLE ? 2 : 1"));
+        assertTrue(setup.contains("targetPlayers >= 12 ? 2 : targetPlayers + 1"));
+        assertFalse(PvpMode.CASUAL_DUEL.queueable());
     }
 
     @Test
@@ -176,7 +195,7 @@ final class PvpCompetitionSafetyTest {
         assertTrue(source.contains("private void openStats(Player player, Consumer<Player> back)"));
         assertTrue(source.contains("private void openRankings(Player player, Consumer<Player> back)"));
         assertTrue(source.contains("private void openParty(Player player, Consumer<Player> back)"));
-        assertTrue(source.contains("backViewer -> openMode(backViewer, mode)"));
+        assertTrue(source.contains("backViewer -> openMode(backViewer, family)"));
         assertTrue(source.contains("viewer -> openRankings(viewer, this::openLadder)"));
         String queueStatus = source.substring(source.indexOf("private void openQueueStatus("),
                 source.indexOf("int liveMatchCount()"));

@@ -2,6 +2,9 @@ package bot.mgx.accessbridge;
 
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -22,31 +25,27 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 final class PvpLobbyLayoutTest {
     @Test
-    void everyQueueHasAGatewayAndPrivateDuelsDoNot() {
+    void onlyTheThreeConfigurableCategoriesHaveGateways() {
         for (PvpMode mode : PvpMode.values()) {
-            if (mode.queueable()) {
+            if (mode.lobbyCategory()) {
                 assertNotNull(PvpLobbyBuilder.gatePosition(mode),
-                        mode + " is queueable but has no gateway to stand in");
+                        mode + " is a lobby category but has no gateway to stand in");
             } else {
                 assertNull(PvpLobbyBuilder.gatePosition(mode),
-                        mode + " is not queued for and must not have a gateway");
+                        mode + " is a size variant or private mode and must not have a gateway");
             }
         }
     }
 
     @Test
-    void oppositeGatewaysAreExactMirrors() {
-        for (List<PvpMode> pair : List.of(
-                List.of(PvpMode.RANKED_DUEL, PvpMode.CASUAL_DUEL),
-                List.of(PvpMode.DOUBLES, PvpMode.TRIPLES),
-                List.of(PvpMode.CLAN_BATTLE, PvpMode.FFA))) {
-            int[] left = PvpLobbyBuilder.gatePosition(pair.get(0));
-            int[] right = PvpLobbyBuilder.gatePosition(pair.get(1));
-            assertEquals(Math.abs(left[0]), Math.abs(right[0]),
-                    pair + " are not mirrored across x");
-            assertEquals(Math.abs(left[1]), Math.abs(right[1]),
-                    pair + " are not mirrored across z");
-        }
+    void gatewaySetDoesNotFragmentThePopulation() {
+        Set<PvpMode> physical = java.util.Arrays.stream(PvpMode.values())
+                .filter(mode -> PvpLobbyBuilder.gatePosition(mode) != null)
+                .collect(java.util.stream.Collectors.toSet());
+        assertEquals(Set.of(PvpMode.RANKED_DUEL, PvpMode.CLAN_BATTLE, PvpMode.FFA), physical);
+        assertNull(PvpLobbyBuilder.gatePosition(PvpMode.CASUAL_DUEL));
+        assertNull(PvpLobbyBuilder.gatePosition(PvpMode.DOUBLES));
+        assertNull(PvpLobbyBuilder.gatePosition(PvpMode.TRIPLES));
     }
 
     @Test
@@ -110,5 +109,67 @@ final class PvpLobbyLayoutTest {
             assertEquals(-left[0], right[0], pair + " are not mirrored across x");
             assertEquals(left[1], right[1], pair + " do not share one curved wall");
         }
+    }
+
+    /**
+     * The moat wall is the queue island's edge, and the boulevard is its one opening.
+     *
+     * <p>The wall ring is drawn before the concourse, so the route north is only clear
+     * because due north is a crossing and the concourse clears the headroom it left.
+     * Drop either and the two islands are rejoined by a wall a player cannot walk
+     * through, which is exactly how the first joined lobby shipped.
+     */
+    @Test
+    void theBoulevardOpensTheWallRingItCrosses() throws Exception {
+        String lobby = source();
+        assertTrue(lobby.contains("CROSSINGS = {0d,"),
+                "due north must be a crossing or the boulevard ends at the moat wall");
+        String concourse = lobby.substring(lobby.indexOf("private static void buildSharedConcourse("),
+                lobby.indexOf("private static void buildGalleryMoat("));
+        assertTrue(concourse.contains("setType(Material.AIR, false)"),
+                "the concourse must clear the wall course it runs through");
+    }
+
+    /**
+     * The records court is composed, not just floored.
+     *
+     * <p>Six boards on a bare disc read as an annex of the queue island rather than
+     * the other half of one lobby, which is the whole reason the two were joined.
+     */
+    @Test
+    void theRecordsCourtIsComposedAndPlantedBeforeItsColonnade() throws Exception {
+        String lobby = source();
+        assertTrue(lobby.contains("buildGalleryMonument(world)"));
+        assertTrue(lobby.contains("buildGalleryGardens(world)"));
+        assertTrue(lobby.contains("buildGalleryColonnade(world)"));
+        // The colonnade lays a stone collar over the planting, so it has to run second.
+        assertTrue(lobby.indexOf("buildGalleryGardens(world);")
+                        < lobby.indexOf("buildGalleryColonnade(world);"),
+                "the colonnade must be built after the gardens it stands in");
+    }
+
+    /**
+     * The queue island stopped pointing at a leaderboard it does not hold.
+     *
+     * <p>A whole island is dedicated to the boards and it is signposted at its own
+     * entrance, so a pavilion on the queue island that only said "follow the north
+     * concourse" spent a build slot telling players to walk away. That slot is now
+     * where a fight is actually configured.
+     */
+    @Test
+    void theQueueIslandConfiguresFightsWhereItUsedToPointAtTheBoards() throws Exception {
+        String lobby = source();
+        assertTrue(lobby.contains("PavilionAction.PLAY"),
+                "the fourth pavilion is now where a fight is configured");
+        assertTrue(!lobby.contains("PavilionAction.RATINGS"),
+                "the ratings pavilion is replaced, not merely relabelled");
+        assertTrue(!lobby.contains("FOLLOW THE NORTH CONCOURSE"),
+                "no pavilion should exist only to send players to the other island");
+    }
+
+    private static String source() throws Exception {
+        return Files.readString(
+                Path.of("src/main/java/bot/mgx/accessbridge/PvpLobbyBuilder.java"),
+                StandardCharsets.UTF_8);
     }
 }
