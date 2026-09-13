@@ -19,12 +19,17 @@ import java.util.UUID;
 /** Persistent PvP lobby and main-world entrance; combat arenas are never stored here. */
 final class PvpLobbyStore {
     /**
-     * Bumped to 9 for the single-island rebuild: ten structures on one ring, the
-     * records walls brought in off their own island, and one billboard for every
-     * label. A newer format rebuilds the lobby once on the next start and re-saves
-     * the spawn.
+     * Bumped to 10 for the two-ring court: the records walls moved out to their own
+     * ring, lantern pylons on the bearings no wall uses, and the consoles moved clear
+     * of the arches. A newer format rebuilds the lobby once on the next start and
+     * re-saves the spawn.
+     *
+     * <p>This has to move with <em>any</em> change to {@code PvpLobbyBuilder}'s
+     * geometry. A build that changes the plan without bumping it installs cleanly,
+     * logs nothing, and leaves the previous lobby standing in the world — which looks
+     * exactly like the change never shipped.
      */
-    private static final int FORMAT_VERSION = 9;
+    private static final int FORMAT_VERSION = 10;
 
     record Point(
             String worldId,
