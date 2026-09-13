@@ -1755,6 +1755,12 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         // event is applied once. Deliberately not applied to /pay: two accounts
         // paying each other with /autopay running would mint money forever.
         credit = Math.multiplyExact(credit, plugin.serverEventMultiplier(ServerEventType.MONEY));
+        // The PvP rank money boost rides on the same single funnel, after the event, and
+        // for the same reason stays off /pay.
+        double rankBonus = plugin.perks().pvpPerks(player.getUniqueId()).money();
+        if (rankBonus > 0d && credit > 0L) {
+            credit = Math.addExact(credit, Math.round(credit * rankBonus));
+        }
         return new Sold(player.getUniqueId(), sold, credit, counts);
     }
 

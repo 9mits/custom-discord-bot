@@ -523,13 +523,18 @@ final class SidebarService {
             return;
         }
         Optional<ClanStore.ClanView> clan = clans.clanOf(player.getUniqueId());
-        List<String> boosts = SidebarLayout.boostRows(
+        List<String> clanBoosts = SidebarLayout.boostRows(
                 boostLabels(perks.clanPerks(player.getUniqueId())), SidebarLayout.BOOSTS_PER_ROW);
+        PvpRankPerks rankPerks = perks.pvpPerks(player.getUniqueId());
+        PvpRank rank = pvpRecords.of(player.getUniqueId()).rank();
+        List<String> rankBoosts = SidebarLayout.boostRows(
+                rankPerks.labels(), SidebarLayout.BOOSTS_PER_ROW);
         // The sidebar shows the totals; this says which part the clan is responsible
         // for, so the two numbers agreeing is not a coincidence the player has to spot.
         int online = plugin.getServer().getOnlinePlayers().size();
         String key = online + ":" + tpsBucket() + ":"
-                + clan.map(view -> view.name() + view.level()).orElse("") + ":" + boosts;
+                + clan.map(view -> view.name() + view.level()).orElse("") + ":" + clanBoosts
+                + ":" + rank.display() + ":" + rankBoosts;
         if (key.equals(tabKeys.get(player.getUniqueId()))) {
             return;
         }
@@ -551,12 +556,28 @@ final class SidebarService {
         Component footerComponent = Component.empty().append(Component.newline());
         // The sidebar only has room to name the clan and its level; this is where the
         // boosts that level grants are actually spelled out.
-        if (clan.isPresent() && !boosts.isEmpty()) {
+        footerComponent = footerComponent
+                .append(Component.text(rank.display() + " PvP rank boosts",
+                        NamedTextColor.GOLD, TextDecoration.BOLD))
+                .append(Component.newline());
+        if (rankBoosts.isEmpty()) {
+            footerComponent = footerComponent
+                    .append(Component.text("No personal boosts yet", NamedTextColor.GRAY))
+                    .append(Component.newline());
+        } else {
+            for (String row : rankBoosts) {
+                footerComponent = footerComponent
+                        .append(Component.text(row, NamedTextColor.WHITE))
+                        .append(Component.newline());
+            }
+        }
+        footerComponent = footerComponent.append(Component.newline());
+        if (clan.isPresent() && !clanBoosts.isEmpty()) {
             footerComponent = footerComponent
                     .append(Component.text(clan.get().name() + " Lv" + clan.get().level() + " boosts",
                             clanColor(clan.get()), TextDecoration.BOLD))
                     .append(Component.newline());
-            for (String row : boosts) {
+            for (String row : clanBoosts) {
                 footerComponent = footerComponent
                         .append(Component.text(row, NamedTextColor.WHITE))
                         .append(Component.newline());

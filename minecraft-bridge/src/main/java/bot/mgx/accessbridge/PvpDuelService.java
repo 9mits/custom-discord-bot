@@ -2152,9 +2152,9 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         if (player.getAttribute(Attribute.MAX_HEALTH) != null) {
             player.setHealth(player.getAttribute(Attribute.MAX_HEALTH).getValue());
         }
-        player.setWorldBorder(personalBorder(fight.arena));
         boolean moved = teleport(player, start);
         if (moved) {
+            applyFightBorder(fight, player);
             arenaArrivalEffect(player);
         }
         player.sendMessage(prefix().append(Component.text(
@@ -2173,6 +2173,18 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         border.setDamageBuffer(0d);
         border.setDamageAmount(2d);
         return border;
+    }
+
+    /** Send the vanilla wall after teleport and again once the client has loaded the arena. */
+    private void applyFightBorder(Fight fight, Player player) {
+        player.setWorldBorder(personalBorder(fight.arena));
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+            SpectatorState spectator = spectators.get(player.getUniqueId());
+            if (fighting.get(player.getUniqueId()) == fight
+                    || spectator != null && spectator.fight() == fight) {
+                player.setWorldBorder(personalBorder(fight.arena));
+            }
+        }, 5L);
     }
 
     private void tickCountdown(Fight fight, int remaining) {
@@ -2536,6 +2548,10 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             // A tick behind the teleport, so the summary is not opened onto a screen
             // the return is still moving. Not during a disable, where the scheduler
             // refuses new work and the throw would take the shutdown with it.
+            FightResult report = results.get(playerId);
+            if (report != null) {
+                sendResultLines(player, report);
+            }
             if (plugin.isEnabled()) {
                 runLater(player, this::openResultScreen);
             }
@@ -2694,7 +2710,6 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         String headline = result.draw() ? "Draw" : result.won() ? "Victory" : "Defeat";
         String title = headline + " vs " + result.opponentName();
         if (!clientSupport.supportsDialogs(player)) {
-            sendResultLines(player, result);
             List<BedrockForms.Button> buttons = List.of(
                     new BedrockForms.Button("Money & Items", () -> openResultChest(player)),
                     new BedrockForms.Button("Rematch", () -> rematch(player,
@@ -2784,25 +2799,35 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         openSetupScreen(player, opponent, draft);
     }
 
-    /** The same numbers as chat lines, for a client that cannot draw the screen. */
+    /**
+     * The fight's end card in chat, laid out like the Amethyst Dragon event report, so the
+     * numbers stay in the log after the result screen is closed.
+     */
     private void sendResultLines(Player player, FightResult result) {
         player.sendMessage(Component.empty());
-        player.sendMessage(prefix().append(Component.text(
-                (result.draw() ? "DRAW" : result.won() ? "VICTORY" : "DEFEAT")
-                        + " vs " + result.opponentName(), NamedTextColor.WHITE,
-                TextDecoration.BOLD)));
-        player.sendMessage(line(result.reason()));
+        player.sendMessage(Component.text("PVP DUEL — MATCH REPORT", ORANGE, TextDecoration.BOLD));
+        player.sendMessage(Component.text("Result: ", NamedTextColor.WHITE)
+                .append(Component.text((result.draw() ? "Draw" : result.won() ? "Victory" : "Defeat")
+                                + " vs " + result.opponentName(),
+                        result.draw() ? NamedTextColor.YELLOW
+                                : result.won() ? NamedTextColor.GREEN : NamedTextColor.RED,
+                        TextDecoration.BOLD)));
+        player.sendMessage(Component.text(result.reason(), NamedTextColor.GRAY));
+        player.sendMessage(Component.text("Damage dealt: " + damage(result.damageDealt())
+                + "  •  " + result.hitsLanded() + " hits", NamedTextColor.WHITE));
+        player.sendMessage(Component.text("Damage taken: " + damage(result.damageTaken()),
+                NamedTextColor.WHITE));
         if (result.rating() != null) {
-            player.sendMessage(line("Rank: " + result.rating().rankAfter().display()
-                    + "  " + signedRating(result.rating())));
+            player.sendMessage(Component.text("PvP rank: " + result.rating().rankAfter().display()
+                    + "  " + signedRating(result.rating()), NamedTextColor.WHITE));
         }
-        player.sendMessage(line("Money: " + signedMoney(result.moneyDelta())));
-        player.sendMessage(line("Items won: " + result.gained().size()
-                + " • lost: " + result.lost().size()));
-        player.sendMessage(line("Damage dealt: " + damage(result.damageDealt())
-                + " • taken: " + damage(result.damageTaken())));
-        player.sendMessage(line("Hits landed: " + result.hitsLanded()
-                + " • length: " + clock(result.seconds())));
+        if (result.moneyDelta() != 0L || !result.gained().isEmpty() || !result.lost().isEmpty()) {
+            player.sendMessage(Component.text("Stakes: " + signedMoney(result.moneyDelta())
+                    + "  •  items won " + result.gained().size()
+                    + "  •  lost " + result.lost().size(), NamedTextColor.WHITE));
+        }
+        player.sendMessage(Component.text("Fight length: " + clock(result.seconds()),
+                NamedTextColor.GRAY));
         player.sendMessage(Component.empty());
     }
 
@@ -2976,9 +3001,16 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
      * unless somebody says so. A demotion is stated too — quietly, and only when it
      * actually happened, because a rank that can only go up is not a rank.
      */
-    private static void rankChangeEffect(Player player, PvpRecordStore.RatingChange rating) {
+    private void rankChangeEffect(Player player, PvpRecordStore.RatingChange rating) {
         if (rating == null || (!rating.promoted() && !rating.demoted())) {
             return;
+        }
+        if (!rating.rankAfter().tier().equals(rating.rankBefore().tier())) {
+            PvpRankPerks perks = PvpRankPerks.of(rating.rankAfter(), plugin.gameVariables());
+            player.sendMessage(prefix().append(Component.text(
+                    (rating.promoted() ? "New " : "") + rating.rankAfter().tier()
+                            + " boosts: " + perks.summary(),
+                    rating.promoted() ? NamedTextColor.GREEN : NamedTextColor.YELLOW)));
         }
         Title.Times times = Title.Times.times(
                 Duration.ofMillis(200), Duration.ofSeconds(2), Duration.ofMillis(600));
@@ -3121,12 +3153,12 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         player.setInvulnerable(true);
         player.setAllowFlight(true);
         player.setFlying(true);
-        player.setWorldBorder(personalBorder(fight.arena));
         if (!teleport(player, anchor)) {
             leaveSpectator(player, false);
             error(player, "The protected viewing teleport was refused. Your items are back.");
             return;
         }
+        applyFightBorder(fight, player);
         for (UUID fighterId : List.of(fight.first, fight.second)) {
             Player fighter = Bukkit.getPlayer(fighterId);
             if (fighter != null) {

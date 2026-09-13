@@ -160,6 +160,25 @@ enum PvpRank {
         return name().toLowerCase(Locale.ROOT);
     }
 
+    /**
+     * How much of the Unreal personal boosts this tier carries, 0 to 1.
+     *
+     * <p>Per tier rather than per division so every figure a player reads is a whole
+     * percentage, and so a bad evening that costs a division never costs a boost.
+     */
+    double boostShare() {
+        return switch (tier) {
+            case "Silver" -> 0.10d;
+            case "Gold" -> 0.25d;
+            case "Platinum" -> 0.40d;
+            case "Diamond" -> 0.55d;
+            case "Elite" -> 0.70d;
+            case "Champion" -> 0.85d;
+            case "Unreal" -> 1d;
+            default -> 0d;
+        };
+    }
+
     static void tuningSource(java.util.function.ToDoubleFunction<String> source) {
         tuning = source == null ? key -> Double.NaN : source;
     }

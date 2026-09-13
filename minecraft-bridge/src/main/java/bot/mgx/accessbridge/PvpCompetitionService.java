@@ -11,7 +11,6 @@ import net.kyori.adventure.text.format.TextDecoration;
 import net.kyori.adventure.title.Title;
 import org.bukkit.Axis;
 import org.bukkit.Bukkit;
-import org.bukkit.Color;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -177,6 +176,7 @@ final class PvpCompetitionService implements Listener {
         final Map<UUID, Integer> team = new HashMap<>();
         final Set<UUID> alive = new LinkedHashSet<>();
         final Set<UUID> eliminated = new LinkedHashSet<>();
+        final Map<UUID, Long> eliminatedAt = new HashMap<>();
         final Set<UUID> spectators = new LinkedHashSet<>();
         final Map<UUID, Integer> kills = new HashMap<>();
         final Map<UUID, Double> damage = new HashMap<>();
@@ -1240,6 +1240,9 @@ final class PvpCompetitionService implements Listener {
             }
             snapshots.put(playerId, snapshot(match.id, PvpDuelStore.Role.FIGHTER, player));
         }
+        match.borderSize = arena.arena().diameter();
+        match.borderFrom = match.borderSize;
+        match.borderTarget = match.borderSize;
         try {
             recovery.putAll(snapshots);
         } catch (RuntimeException failure) {
@@ -1274,9 +1277,6 @@ final class PvpCompetitionService implements Listener {
             plugin.getLogger().warning("Competitive PvP start failed: " + failure.getMessage());
             return;
         }
-        match.borderSize = arena.arena().diameter();
-        match.borderFrom = match.borderSize;
-        match.borderTarget = match.borderSize;
         match.bar = BossBar.bossBar(
                 Component.text(mode.display() + "  •  GET READY", NamedTextColor.GOLD),
                 1f, BossBar.Color.RED, BossBar.Overlay.PROGRESS
@@ -1307,9 +1307,9 @@ final class PvpCompetitionService implements Listener {
         if (player.getAttribute(Attribute.MAX_HEALTH) != null) {
             player.setHealth(player.getAttribute(Attribute.MAX_HEALTH).getValue());
         }
-        player.setWorldBorder(personalBorder(match, match.arena.arena().diameter()));
         boolean moved = teleport(player, start);
         if (moved) {
+            applyMatchBorder(match, player);
             player.playSound(player, Sound.BLOCK_BEACON_ACTIVATE, 0.8f, 1.4f);
             player.sendMessage(prefix().append(Component.text(
                     "KEEP INVENTORY is active. You are fighting with your own survival loadout.",
@@ -1365,16 +1365,6 @@ final class PvpCompetitionService implements Listener {
                     Title.Times.times(Duration.ZERO, Duration.ofSeconds(1), Duration.ofMillis(300))
             ));
             player.playSound(player, Sound.ENTITY_ENDER_DRAGON_GROWL, 0.65f, 1.35f);
-            if (match.mode.freeForAll()) {
-                player.sendMessage(prefix()
-                        .append(Component.text("SAFE ZONE  ", NamedTextColor.RED,
-                                TextDecoration.BOLD))
-                        .append(Component.text(Math.round(match.borderSize) + "×"
-                                + Math.round(match.borderSize)
-                                + " blocks, centered on the white beacon. The red wall"
-                                + " moves continuously when closing; follow the HUD to center.",
-                                NamedTextColor.WHITE)));
-            }
         });
         updateBar(match, match.fightingSince);
     }
@@ -1417,7 +1407,7 @@ final class PvpCompetitionService implements Listener {
                     player.showTitle(Title.title(
                             Component.text("BORDER MOVES IN " + warningSeconds,
                                     NamedTextColor.RED, TextDecoration.BOLD),
-                            Component.text("Follow the HUD to the white center beacon",
+                            Component.text("Watch Minecraft's world-border wall",
                                     NamedTextColor.GOLD),
                             Title.Times.times(Duration.ZERO, Duration.ofMillis(900),
                                     Duration.ofMillis(150))));
@@ -1425,7 +1415,6 @@ final class PvpCompetitionService implements Listener {
                 });
             }
             if (now >= match.nextShrinkAt) shrinkBorder(match, now);
-            renderFfaBorder(match);
         }
         updateBar(match, now);
     }
@@ -1483,7 +1472,7 @@ final class PvpCompetitionService implements Listener {
                 player.showTitle(Title.title(
                         Component.text("FINAL ZONE", NamedTextColor.RED, TextDecoration.BOLD),
                         Component.text(Math.round(minimum) + "×" + Math.round(minimum)
-                                + " blocks around the center beacon", NamedTextColor.GOLD),
+                                + " blocks", NamedTextColor.GOLD),
                         Title.Times.times(Duration.ZERO, Duration.ofSeconds(1),
                                 Duration.ofMillis(200))));
                 player.playSound(player, Sound.BLOCK_BEACON_DEACTIVATE, 0.8f, 0.65f);
@@ -1513,7 +1502,7 @@ final class PvpCompetitionService implements Listener {
                                 TextDecoration.BOLD),
                         Component.text(Math.round(current) + "×" + Math.round(current)
                                 + " → " + Math.round(next) + "×" + Math.round(next)
-                                + "  •  Move to center", NamedTextColor.GOLD),
+                                + "  •  Watch the world border", NamedTextColor.GOLD),
                         Title.Times.times(Duration.ZERO, Duration.ofSeconds(1),
                                 Duration.ofMillis(200))));
             }
@@ -1521,7 +1510,7 @@ final class PvpCompetitionService implements Listener {
         });
     }
 
-    /** Exact interpolated size, shared by movement rules, particles and the HUD. */
+    /** Exact interpolated size, shared by movement rules and the HUD. */
     private static double currentBorderSize(Match match, long now) {
         if (!match.borderMoving || match.borderMoveEndsAt <= match.borderMoveStartedAt) {
             return match.borderTarget;
@@ -1540,90 +1529,10 @@ final class PvpCompetitionService implements Listener {
         return from + (target - from) * progress;
     }
 
-    /**
-     * Draws the actual moving square and a white center beacon for every participant.
-     * The coordinates move with the same interpolation used by the collision rule, so
-     * the wall is information rather than decoration.
-     */
-    private void renderFfaBorder(Match match) {
-        Location center = match.arena.arena().center();
-        if (center == null || center.getWorld() == null) return;
-        boolean particles = plugin.gameVariables().bool("pvp-competitive.ffa-border-particles");
-        boolean guidance = plugin.gameVariables().bool("pvp-competitive.ffa-border-guidance");
-        if (!particles && !guidance) return;
-        int spacing = integer("pvp-competitive.ffa-border-particle-spacing");
-        int height = integer("pvp-competitive.ffa-border-particle-height");
-        float size = (float) decimal("pvp-competitive.ffa-border-particle-size");
-        Particle.DustOptions wall = new Particle.DustOptions(
-                Color.fromRGB(255, 45, 45), size);
-        double half = match.borderSize / 2d;
-        forEachOnline(concat(match.players, List.copyOf(match.spectators)), player -> {
-            if (guidance) player.sendActionBar(ffaGuidance(match, player, center, half));
-            if (!particles || !player.getWorld().equals(center.getWorld())) return;
-            double lowY = player.getLocation().getY() - height / 2d;
-            int points = Math.max(1, (int) Math.ceil(match.borderSize / spacing));
-            for (int point = 0; point <= points; point++) {
-                double offset = -half + match.borderSize * point / points;
-                for (int y = 0; y <= height; y += 2) {
-                    double atY = lowY + y;
-                    spawnBorderParticle(player, center.getX() - half, atY,
-                            center.getZ() + offset, wall);
-                    spawnBorderParticle(player, center.getX() + half, atY,
-                            center.getZ() + offset, wall);
-                    spawnBorderParticle(player, center.getX() + offset, atY,
-                            center.getZ() - half, wall);
-                    spawnBorderParticle(player, center.getX() + offset, atY,
-                            center.getZ() + half, wall);
-                }
-            }
-            double beaconY = center.getY() + 1d;
-            for (int y = 0; y <= height * 2; y += 2) {
-                player.spawnParticle(Particle.END_ROD,
-                        new Location(center.getWorld(), center.getX(), beaconY + y,
-                                center.getZ()), 1, 0d, 0d, 0d, 0d, null, true);
-            }
-        });
-    }
-
-    private static void spawnBorderParticle(
-            Player player, double x, double y, double z, Particle.DustOptions wall
-    ) {
-        player.spawnParticle(Particle.DUST,
-                new Location(player.getWorld(), x, y, z),
-                1, 0d, 0d, 0d, 0d, wall, true);
-    }
-
-    private static Component ffaGuidance(
-            Match match, Player player, Location center, double half
-    ) {
-        Location at = player.getLocation();
-        double toX = center.getX() - at.getX();
-        double toZ = center.getZ() - at.getZ();
-        long centerDistance = Math.round(Math.hypot(toX, toZ));
-        long edgeDistance = Math.round(Math.max(0d,
-                Math.min(half - Math.abs(at.getX() - center.getX()),
-                        half - Math.abs(at.getZ() - center.getZ()))));
-        String motion = match.borderMoving ? "CLOSING" : match.nextShrinkAt == Long.MAX_VALUE
-                ? "FINAL ZONE" : "HOLDING";
-        return Component.text("SAFE ZONE " + Math.round(match.borderSize) + "×"
-                        + Math.round(match.borderSize) + "  •  CENTER "
-                        + compass(toX, toZ) + " " + centerDistance + "m  •  EDGE "
-                        + edgeDistance + "m  •  " + motion,
-                match.borderMoving ? NamedTextColor.RED : NamedTextColor.GOLD,
-                TextDecoration.BOLD);
-    }
-
-    private static String compass(double x, double z) {
-        double threshold = Math.max(Math.abs(x), Math.abs(z)) * 0.4d;
-        String northSouth = z < -threshold ? "N" : z > threshold ? "S" : "";
-        String eastWest = x > threshold ? "E" : x < -threshold ? "W" : "";
-        String direction = northSouth + eastWest;
-        return direction.isEmpty() ? "HERE" : direction;
-    }
-
     private void eliminate(Match match, UUID victimId, UUID killerId, String reason) {
         if (match.phase != Phase.FIGHTING || !match.alive.remove(victimId)) return;
         match.eliminated.add(victimId);
+        match.eliminatedAt.put(victimId, System.currentTimeMillis());
         if (killerId != null && !killerId.equals(victimId) && areOpponents(killerId, victimId)) {
             match.kills.merge(killerId, 1, Integer::sum);
         }
@@ -1707,8 +1616,7 @@ final class PvpCompetitionService implements Listener {
                     Component.text(reason + rating, NamedTextColor.GOLD),
                     Title.Times.times(Duration.ZERO, Duration.ofSeconds(3), Duration.ofMillis(400))
             ));
-            player.sendMessage(prefix().append(Component.text(
-                    resultLine(match, playerId, reason, rating), colour)));
+            sendMatchReport(player, match, winners, reason, change, decided, colour);
             player.playSound(player, won ? Sound.UI_TOAST_CHALLENGE_COMPLETE
                     : Sound.BLOCK_BEACON_DEACTIVATE, 0.8f, won ? 1.1f : 0.8f);
         }
@@ -2249,20 +2157,36 @@ final class PvpCompetitionService implements Listener {
     private void openLadder(Player player, java.util.function.Consumer<Player> back) {
         PvpRecordStore.Record record = records.of(player.getUniqueId());
         PvpRank rank = record.rank();
+        PvpRankPerks rankPerks = PvpRankPerks.of(rank, plugin.gameVariables());
         long remaining = Math.max(0L, rank.nextFloor() - record.rating());
         String progress = rank == PvpRank.UNREAL ? "Top rank reached"
                 : remaining + " RP to " + PvpRank.values()[rank.ordinal() + 1].display();
-        List<DialogBody> page = List.of(
+        List<String> explained = rankPerks.explained();
+        List<DialogBody> page = new ArrayList<>(List.of(
                 DialogBody.plainMessage(MenuText.stat("Rank", rank.display()), RULE_WIDTH),
                 DialogBody.plainMessage(
                         MenuText.stat("Rating", record.rating() + " RP"), RULE_WIDTH),
                 DialogBody.plainMessage(MenuText.stat("Next", progress), RULE_WIDTH),
                 DialogBody.plainMessage(Component.empty(), RULE_WIDTH),
+                DialogBody.plainMessage(MenuText.rule("item/sugar",
+                        rank.tier() + " Boosts",
+                        explained.isEmpty()
+                                ? "Bronze has no boosts. Reach Silver to start earning them."
+                                : String.join("\n", explained)), RULE_WIDTH),
+                DialogBody.plainMessage(Component.empty(), RULE_WIDTH),
                 DialogBody.plainMessage(MenuText.rule("item/nether_star", "Elo Rating",
                         "Ranked 1v1, 2v2 and 3v3 all score into one rating."), RULE_WIDTH),
                 DialogBody.plainMessage(MenuText.rule("item/gold_ingot", "Safe Floors",
-                        "Reach a tier and its floor is yours permanently."), RULE_WIDTH));
-        String plain = "Rank " + rank.display() + " - " + record.rating() + " RP. " + progress;
+                        "Reach a tier and its floor is yours permanently."), RULE_WIDTH),
+                DialogBody.plainMessage(MenuText.rule("item/experience_bottle",
+                        "Permanent Tier Boosts",
+                        "Each tier from Silver up raises your personal speed, strength,"
+                                + " mining, regeneration, money and luck. Unreal tops out at "
+                                + PvpRankPerks.of(PvpRank.UNREAL, plugin.gameVariables())
+                                        .summary() + "."), RULE_WIDTH)));
+        String plain = "Rank " + rank.display() + " - " + record.rating() + " RP. "
+                + progress + "\n\n" + rank.tier() + " boosts:\n"
+                + (explained.isEmpty() ? "None yet - reach Silver." : String.join("\n", explained));
         showPage(player, "Rank Progression", page, plain, List.of(
                 new MenuAction("item/nether_star", "View Every Tier",
                         "See each tier and its starting rating.",
@@ -2279,13 +2203,19 @@ final class PvpCompetitionService implements Listener {
     private void openTierGuide(Player player, java.util.function.Consumer<Player> root) {
         StringBuilder body = new StringBuilder("Divisions are "
                 + integer("pvp-ranked.division-size")
-                + " RP. Tier floors are permanent once reached.\n\n");
+                + " RP. Tier floors are permanent once reached. Each tier gives every"
+                + " division inside it the same permanent personal boosts:\n\n");
         Set<String> shown = new LinkedHashSet<>();
         for (PvpRank rank : PvpRank.values()) {
             if (!shown.add(rank.tier())) continue;
             body.append(rank.glyph()).append(' ').append(rank.tier())
-                    .append(" • ").append(rank.floor()).append(" RP\n");
+                    .append(" • ").append(rank.floor()).append(" RP\n  ")
+                    .append(PvpRankPerks.of(rank, plugin.gameVariables()).summary())
+                    .append("\n");
         }
+        body.append("\nSpeed is movement, Strength is direct melee damage, Mining is"
+                + " block-breaking speed, Regen is natural food healing, Money is /sell"
+                + " income, and Luck improves crate rare rewards and ore/crop drops.");
         showMenu(player, "PvP Rank Tiers", body.toString(), List.of(
                         playStateAction(player, viewer -> openTierGuide(viewer, root)),
                         new MenuAction("item/experience_bottle", "My Progress",
@@ -2367,8 +2297,9 @@ final class PvpCompetitionService implements Listener {
                 new String[]{"item/totem_of_undying", "Keep Inventory",
                         "You drop nothing and your levels stay, win or lose."},
                 new String[]{"item/map", "The Ring",
-                        "Untouched overworld terrain. You return to the block you left"
-                                + " and every changed block is put back."},
+                        "Every mode has Minecraft's real world-border wall around untouched"
+                                + " overworld terrain. You return to the block you left and"
+                                + " every changed block is put back."},
                 new String[]{"item/gold_ingot", "No Payouts",
                         "Competitive fights and rank-ups pay no money. Private wagers"
                                 + " are optional and use only the stakes both sides accepted."},
@@ -3287,13 +3218,12 @@ final class PvpCompetitionService implements Listener {
         viewer.setInvisible(true);
         viewer.setCollidable(false);
         viewer.setCanPickupItems(false);
-        viewer.setWorldBorder(personalBorder(match, match.borderSize));
-        if (match.borderMoving && viewer.getWorldBorder() != null) {
-            long remainingTicks = Math.max(1L,
-                    (match.borderMoveEndsAt - System.currentTimeMillis()) / 50L);
-            viewer.getWorldBorder().changeSize(match.borderTarget, remainingTicks);
+        if (!teleport(viewer, stand)) {
+            leaveSpectator(viewer, false);
+            error(viewer, "The protected viewing teleport was refused.");
+            return;
         }
-        teleport(viewer, stand);
+        applyMatchBorder(match, viewer);
         plugin.bossBars().showExclusive(viewer, match.bar);
         info(viewer, "Watching " + match.mode.display()
                 + ". You are anchored and cannot interact or coach. Use /pvp leave to return.");
@@ -4285,10 +4215,67 @@ final class PvpCompetitionService implements Listener {
         return (match.team.get(winners.get(0)) == 0 ? "Team Gold" : "Team Red") + " wins";
     }
 
-    private static String resultLine(Match match, UUID playerId, String reason, String rating) {
+    /**
+     * The same end card the Amethyst Dragon gives: a header, one line per stat with the
+     * player's place in the match beside it, and the time line last in grey.
+     */
+    private void sendMatchReport(
+            Player player, Match match, List<UUID> winners, String reason,
+            PvpRecordStore.RatingChange change, boolean decided, NamedTextColor colour
+    ) {
+        UUID playerId = player.getUniqueId();
         int kills = match.kills.getOrDefault(playerId, 0);
-        double damage = match.damage.getOrDefault(playerId, 0d);
-        return reason + rating + "  •  " + kills + " kills  •  " + Math.round(damage) + " damage";
+        long damage = Math.round(match.damage.getOrDefault(playerId, 0d));
+        long ended = match.eliminatedAt.getOrDefault(playerId, System.currentTimeMillis());
+        long seconds = Math.max(0L, (ended - match.fightingSince) / 1_000L);
+        player.sendMessage(Component.empty());
+        player.sendMessage(Component.text(
+                match.mode.display().toUpperCase(Locale.ROOT) + " — MATCH REPORT",
+                ORANGE, TextDecoration.BOLD));
+        player.sendMessage(Component.text("Result: ", NamedTextColor.WHITE)
+                .append(Component.text(reason, colour, TextDecoration.BOLD)));
+        if (match.mode.freeForAll()) {
+            player.sendMessage(Component.text("Placement: #"
+                    + placement(match, playerId, winners, decided)
+                    + " of " + match.players.size(), NamedTextColor.WHITE));
+        }
+        player.sendMessage(Component.text("Eliminations: " + kills
+                + "  •  Rank #" + statRank(match.kills, playerId), NamedTextColor.WHITE));
+        player.sendMessage(Component.text(String.format(Locale.US, "Damage dealt: %,d HP", damage)
+                + "  •  Rank #" + statRank(match.damage, playerId), NamedTextColor.WHITE));
+        PvpRecordStore.Record record = records.of(playerId);
+        String rating = record.rank().display() + "  •  " + record.rating() + " RP";
+        if (change != null && change.delta() != 0) {
+            rating += " (" + (change.delta() > 0 ? "+" : "") + change.delta() + ")";
+        } else if (!match.rated) {
+            rating += "  •  Unrated";
+        }
+        player.sendMessage(Component.text("PvP rank: " + rating, NamedTextColor.WHITE));
+        if (change != null && !change.rankAfter().tier().equals(change.rankBefore().tier())) {
+            PvpRankPerks perks = PvpRankPerks.of(change.rankAfter(), plugin.gameVariables());
+            player.sendMessage(Component.text((change.promoted() ? "New boosts: " : "Boosts now: ")
+                    + perks.summary(), change.promoted() ? NamedTextColor.GREEN
+                    : NamedTextColor.YELLOW));
+        }
+        player.sendMessage(Component.text("Time in match: " + formatSeconds(seconds),
+                NamedTextColor.GRAY));
+        player.sendMessage(Component.empty());
+    }
+
+    private static int placement(
+            Match match, UUID playerId, List<UUID> winners, boolean decided
+    ) {
+        if (decided && winners.contains(playerId)) return 1;
+        int eliminatedIndex = new ArrayList<>(match.eliminated).indexOf(playerId);
+        return eliminatedIndex < 0 ? Math.max(1, match.alive.size())
+                : match.players.size() - eliminatedIndex;
+    }
+
+    private static int statRank(Map<UUID, ? extends Number> values, UUID playerId) {
+        Number ownValue = values.get(playerId);
+        double own = ownValue == null ? 0d : ownValue.doubleValue();
+        return 1 + (int) values.values().stream()
+                .mapToDouble(Number::doubleValue).filter(value -> value > own).count();
     }
 
     private static String matchSummary(Match match) {
@@ -4318,6 +4305,30 @@ final class PvpCompetitionService implements Listener {
         border.setDamageBuffer(0d);
         border.setDamageAmount(2d);
         return border;
+    }
+
+    /** Send the real vanilla border after teleport, then once more after client arrival. */
+    private void applyMatchBorder(Match match, Player player) {
+        WorldBorder border = personalBorder(match, match.borderSize);
+        player.setWorldBorder(border);
+        continueBorderMovement(match, border);
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+            if (matchByPlayer.get(player.getUniqueId()) != match
+                    && viewing.get(player.getUniqueId()) != match) {
+                return;
+            }
+            WorldBorder refreshed = personalBorder(
+                    match, currentBorderSize(match, System.currentTimeMillis()));
+            player.setWorldBorder(refreshed);
+            continueBorderMovement(match, refreshed);
+        }, 5L);
+    }
+
+    private static void continueBorderMovement(Match match, WorldBorder border) {
+        if (!match.borderMoving) return;
+        long remainingTicks = Math.max(1L,
+                (match.borderMoveEndsAt - System.currentTimeMillis()) / 50L);
+        border.changeSize(match.borderTarget, remainingTicks);
     }
 
     private boolean teleport(Player player, Location target) {

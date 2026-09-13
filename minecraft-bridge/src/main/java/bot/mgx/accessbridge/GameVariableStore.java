@@ -1326,42 +1326,24 @@ final class GameVariableStore {
                 "PvP Competitive", "Width of the larger untouched overworld clan battle ring.",
                 256, 64, 600, "blocks", false);
         integer("pvp-competitive.ffa-arena-diameter", "FFA arena border",
-                "PvP Competitive", "Starting width of the largest untouched overworld FFA ring.",
-                288, 64, 600, "blocks", false);
+                "PvP Competitive", "Starting width of the compact Last Standing arena."
+                        + " Every fighter sees this as Minecraft's real world-border wall.",
+                96, 32, 600, "blocks", false);
         integer("pvp-competitive.maximum-spectators", "Competitive spectator capacity",
                 "PvP Competitive", "Most outside spectators allowed in one arena.",
                 16, 0, 64, "players", false);
         integer("pvp-competitive.ffa-shrink-delay-seconds", "FFA first shrink",
                 "PvP Competitive", "Seconds of combat before the FFA border starts shrinking.",
-                60, 10, 600, "seconds", false);
+                30, 10, 600, "seconds", false);
         integer("pvp-competitive.ffa-shrink-interval-seconds", "FFA shrink interval",
-                "PvP Competitive", "Seconds between FFA border reductions.",
-                30, 5, 300, "seconds", false);
+                "PvP Competitive", "Seconds each smooth world-border shrink takes.",
+                20, 5, 300, "seconds", false);
         decimal("pvp-competitive.ffa-shrink-blocks", "FFA shrink amount",
-                "PvP Competitive", "Blocks removed from the personal border each reduction.",
-                10.0, 1.0, 100.0, "blocks");
+                "PvP Competitive", "Blocks removed from the real world border each reduction.",
+                12.0, 1.0, 100.0, "blocks");
         decimal("pvp-competitive.ffa-minimum-border", "FFA final border",
                 "PvP Competitive", "Smallest FFA border width.",
-                18.0, 8.0, 100.0, "blocks");
-        bool("pvp-competitive.ffa-border-particles", "Visible FFA border",
-                "PvP Competitive",
-                "Draw the real Last Standing safe-zone wall in red particles and mark its"
-                        + " center with a white beacon.", true);
-        bool("pvp-competitive.ffa-border-guidance", "FFA border guidance",
-                "PvP Competitive",
-                "Show safe-zone dimensions, direction and distance to center, distance to"
-                        + " the nearest edge, and whether the wall is moving.", true);
-        integer("pvp-competitive.ffa-border-particle-spacing", "FFA border point spacing",
-                "PvP Competitive",
-                "Horizontal blocks between points in the visible Last Standing wall.",
-                12, 4, 32, "blocks", false);
-        integer("pvp-competitive.ffa-border-particle-height", "FFA border wall height",
-                "PvP Competitive",
-                "Vertical height of the visible Last Standing wall around each viewer.",
-                6, 2, 16, "blocks", false);
-        decimal("pvp-competitive.ffa-border-particle-size", "FFA border particle size",
-                "PvP Competitive", "Size of each red point in the visible safe-zone wall.",
-                1.35, 0.25, 4.0, "scale");
+                12.0, 8.0, 100.0, "blocks");
 
         integer("pvp-ranked.division-size", "PvP division size", "PvP Ranking",
                 "Rating points between ordinary PvP rank divisions.",
@@ -1372,6 +1354,74 @@ final class GameVariableStore {
         integer("pvp-ranked.loss-k-factor", "PvP loss factor", "PvP Ranking",
                 "Maximum Elo factor used for ranked losses.",
                 PvpRank.LOSS_K_FACTOR, 4, 100, "rating", false);
+        integer(PvpRankPerks.SPEED_KEY, "Unreal speed boost", "PvP Ranking",
+                "Permanent movement speed at Unreal. Lower tiers get a whole-percent share:"
+                        + " Silver 10%, Gold 25%, Platinum 40%, Diamond 55%, Elite 70%,"
+                        + " Champion 85%; Bronze gets none.",
+                10, 0, 25, "percent", false);
+        integer(PvpRankPerks.STRENGTH_KEY, "Unreal strength boost", "PvP Ranking",
+                "Permanent direct melee damage at Unreal, shared down the tiers like speed.",
+                10, 0, 25, "percent", false);
+        integer(PvpRankPerks.MINING_KEY, "Unreal mining boost", "PvP Ranking",
+                "Permanent block-breaking speed at Unreal, shared down the tiers like speed.",
+                15, 0, 50, "percent", false);
+        integer(PvpRankPerks.REGENERATION_KEY, "Unreal regeneration boost", "PvP Ranking",
+                "Faster natural food regeneration at Unreal; potions and golden apples are"
+                        + " unchanged.",
+                15, 0, 50, "percent", false);
+        integer(PvpRankPerks.MONEY_KEY, "Unreal money boost", "PvP Ranking",
+                "Extra money from /sell and auto-sell at Unreal. Never applies to /pay.",
+                15, 0, 50, "percent", false);
+        integer(PvpRankPerks.LUCK_KEY, "Unreal luck boost", "PvP Ranking",
+                "Extra crate rare-reward luck and Fortune-eligible block drops at Unreal."
+                        + " Stacks with potions and events inside the normal luck ceiling.",
+                15, 0, 50, "percent", false);
+
+        bool("referrals.enabled", "Referral rewards", "Referrals",
+                "Pay Shards to returning players, new players who were invited, and the"
+                        + " established players who brought them.", true);
+        integer("referrals.return-after-days", "Returning player absence", "Referrals",
+                "Days offline before a known player counts as returning.",
+                10, 1, 365, "days", false);
+        integer("referrals.returning-player-shards", "Returning player Shards", "Referrals",
+                "Shards for a returning player, whether or not someone brought them back.",
+                5, 0, 64, "shards", false);
+        integer("referrals.returning-referrer-shards", "Return referral Shards", "Referrals",
+                "Shards for the player who brought a returning player back.",
+                5, 0, 64, "shards", false);
+        integer("referrals.new-player-shards", "New player referral Shards", "Referrals",
+                "Shards for a genuinely new player who names the player that invited them.",
+                5, 0, 64, "shards", false);
+        integer("referrals.new-referrer-shards", "New referral Shards", "Referrals",
+                "Shards for the established player who invited a genuinely new player.",
+                10, 0, 64, "shards", false);
+        integer("referrals.qualify-active-minutes", "Referral active playtime", "Referrals",
+                "Non-AFK minutes a new or returning player must play on the server before"
+                        + " anyone is paid. Stops join-and-leave alt farming.",
+                15, 0, 240, "minutes", false);
+        integer("referrals.claim-window-minutes", "Referral claim window", "Referrals",
+                "Online minutes after a first or return join in which /referredby works.",
+                60, 5, 1440, "minutes", false);
+        integer("referrals.returning-minimum-play-minutes", "Returning player history",
+                "Referrals",
+                "Lifetime playtime an account needs before an absence counts as a return.",
+                60, 0, 100000, "minutes", false);
+        integer("referrals.return-cooldown-days", "Return reward cooldown", "Referrals",
+                "Days before the same person, across every linked account, can be paid for"
+                        + " returning again.",
+                30, 1, 365, "days", false);
+        integer("referrals.referrer-minimum-days", "Referrer account age", "Referrals",
+                "Days since an inviter first joined before they can earn referral rewards.",
+                7, 0, 365, "days", false);
+        integer("referrals.referrer-minimum-play-minutes", "Referrer playtime", "Referrals",
+                "Lifetime playtime an inviter needs before they can earn referral rewards.",
+                60, 0, 100000, "minutes", false);
+        integer("referrals.maximum-rewards-30-days", "Referral reward limit", "Referrals",
+                "Most rewarded referrals one person, across linked accounts, may earn in 30 days.",
+                3, 1, 100, "players", false);
+        bool("referrals.block-shared-address", "Refuse shared connections", "Referrals",
+                "Refuse a referral when both accounts have ever joined from the same public"
+                        + " address. Only salted hashes are stored.", true);
 
         decimal("pvp-combat.armored-max-final-damage", "Armored PvP hit cap",
                 "PvP Balance", "Most final damage one direct PvP hit deals to an armored player.",
@@ -2989,6 +3039,32 @@ final class GameVariableStore {
                         && text.equals("✦ PVP LOBBY ✦")) {
                     value = "PVP LOBBY PORTAL";
                     migrated = true;
+                }
+                // Replace only the original oversized Last Standing defaults. Custom
+                // arena and pacing choices remain untouched.
+                if (value instanceof Number number) {
+                    double old = number.doubleValue();
+                    if (canonical.equals("pvp-competitive.ffa-arena-diameter")
+                            && Double.compare(old, 288d) == 0) {
+                        value = 96L;
+                        migrated = true;
+                    } else if (canonical.equals("pvp-competitive.ffa-shrink-delay-seconds")
+                            && Double.compare(old, 60d) == 0) {
+                        value = 30L;
+                        migrated = true;
+                    } else if (canonical.equals("pvp-competitive.ffa-shrink-interval-seconds")
+                            && Double.compare(old, 30d) == 0) {
+                        value = 20L;
+                        migrated = true;
+                    } else if (canonical.equals("pvp-competitive.ffa-shrink-blocks")
+                            && Double.compare(old, 10d) == 0) {
+                        value = 12d;
+                        migrated = true;
+                    } else if (canonical.equals("pvp-competitive.ffa-minimum-border")
+                            && Double.compare(old, 18d) == 0) {
+                        value = 12d;
+                        migrated = true;
+                    }
                 }
                 // These were the shipped Scythe bonuses before competitive PvP was
                 // rebalanced around final damage. Move only those exact old defaults;

@@ -76,11 +76,12 @@ final class PvpCompetitionSafetyTest {
         assertTrue(source.contains("BORDER MOVES IN \" + warningSeconds"));
         assertTrue(source.contains("border.changeSize(next, ticks)"));
         assertTrue(source.contains("private static double currentBorderSize("));
-        assertTrue(source.contains("private void renderFfaBorder(Match match)"));
-        assertTrue(source.contains("SAFE ZONE \" + Math.round(match.borderSize)"));
-        assertTrue(source.contains("CENTER \""));
-        assertTrue(source.contains("ffa-border-particles"));
-        assertTrue(source.contains("ffa-border-guidance"));
+        // The wall is the vanilla world border, sent after the arena teleport, and the
+        // bottom-of-screen centre guidance was removed on request.
+        assertTrue(source.contains("private void applyMatchBorder(Match match, Player player)"));
+        assertFalse(source.contains("renderFfaBorder"));
+        assertFalse(source.contains("ffa-border-guidance"));
+        assertFalse(source.contains("CENTER \""));
         assertTrue(source.contains("disconnected and forfeited"));
         assertTrue(source.contains("was eliminated for inactivity"));
         assertTrue(source.contains("Every remaining player was inactive — draw."));

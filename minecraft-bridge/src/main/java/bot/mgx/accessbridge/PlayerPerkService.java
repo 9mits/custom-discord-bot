@@ -11,6 +11,8 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityExhaustionEvent;
+import org.bukkit.event.entity.EntityRegainHealthEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 
 import com.destroystokyo.paper.event.player.PlayerPostRespawnEvent;
@@ -66,15 +68,50 @@ final class PlayerPerkService implements Listener {
     private static final NamespacedKey CLAN_DIG_KEY = Objects.requireNonNull(
             NamespacedKey.fromString("mgx:clan_level_dig")
     );
+    private static final NamespacedKey PVP_SPEED_KEY = Objects.requireNonNull(
+            NamespacedKey.fromString("mgx:pvp_rank_speed")
+    );
+    private static final NamespacedKey PVP_DIG_KEY = Objects.requireNonNull(
+            NamespacedKey.fromString("mgx:pvp_rank_dig")
+    );
 
     private final Map<UUID, PlayerProfile> profiles = new HashMap<>();
     private final Map<UUID, ClanLevel.Perks> clanPerks = new HashMap<>();
+    private final Map<UUID, PvpRankPerks> pvpPerks = new HashMap<>();
+    private MGXAccessBridge plugin;
+    private PvpRecordStore pvpRecords;
+    private GameVariableStore variables;
     PlayerProfile profile(UUID playerId) {
         return profiles.getOrDefault(playerId, PlayerProfile.NONE);
     }
 
     ClanLevel.Perks clanPerks(UUID playerId) {
         return clanPerks.getOrDefault(playerId, ClanLevel.Perks.NONE);
+    }
+
+    PvpRankPerks pvpPerks(UUID playerId) {
+        return pvpPerks.getOrDefault(playerId, PvpRankPerks.NONE);
+    }
+
+    void usePvpRanks(
+            MGXAccessBridge plugin, PvpRecordStore pvpRecords, GameVariableStore variables
+    ) {
+        this.plugin = plugin;
+        this.pvpRecords = pvpRecords;
+        this.variables = variables;
+    }
+
+    void refreshPvpRank(Player player) {
+        if (pvpRecords == null || variables == null) return;
+        PvpRankPerks applied = PvpRankPerks.of(
+                pvpRecords.of(player.getUniqueId()).rank(), variables);
+        pvpPerks.put(player.getUniqueId(), applied);
+        applyScalar(player, Attribute.MOVEMENT_SPEED, PVP_SPEED_KEY, applied.speed());
+        applyScalar(player, Attribute.BLOCK_BREAK_SPEED, PVP_DIG_KEY, applied.diggingSpeed());
+    }
+
+    void refreshPvpRanks(Iterable<? extends Player> players) {
+        for (Player player : players) refreshPvpRank(player);
     }
 
     void apply(Player player, PlayerProfile profile) {
@@ -100,9 +137,12 @@ final class PlayerPerkService implements Listener {
             applyHearts(player, CLAN_HEART_KEY, 0);
             applyScalar(player, Attribute.MOVEMENT_SPEED, CLAN_SPEED_KEY, 0);
             applyScalar(player, Attribute.BLOCK_BREAK_SPEED, CLAN_DIG_KEY, 0);
+            applyScalar(player, Attribute.MOVEMENT_SPEED, PVP_SPEED_KEY, 0);
+            applyScalar(player, Attribute.BLOCK_BREAK_SPEED, PVP_DIG_KEY, 0);
         }
         profiles.clear();
         clanPerks.clear();
+        pvpPerks.clear();
     }
 
     private void applyHearts(Player player, NamespacedKey key, int extraHearts) {
@@ -151,10 +191,30 @@ final class PlayerPerkService implements Listener {
             // Clan strength joins elite and booster additively, matching how those two
             // already stack, so the figures on the perk pages add up as written.
             double multiplier = profile(player.getUniqueId()).damageMultiplier()
-                    + clanPerks(player.getUniqueId()).strength();
+                    + clanPerks(player.getUniqueId()).strength()
+                    + pvpPerks(player.getUniqueId()).strength();
             if (multiplier != 1.0) {
                 event.setDamage(event.getDamage() * multiplier);
             }
+        }
+    }
+
+    /** Only natural food regeneration is accelerated; potions and golden apples are unchanged. */
+    @EventHandler(priority = EventPriority.NORMAL, ignoreCancelled = true)
+    public void onRankRegeneration(EntityRegainHealthEvent event) {
+        if (!(event.getEntity() instanceof Player player)
+                || event.getRegainReason() != EntityRegainHealthEvent.RegainReason.SATIATED) {
+            return;
+        }
+        double bonus = pvpPerks(player.getUniqueId()).regeneration();
+        if (bonus > 0d) event.setAmount(event.getAmount() * (1d + bonus));
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onPlayerJoin(PlayerJoinEvent event) {
+        if (plugin != null) {
+            plugin.getServer().getScheduler().runTaskLater(
+                    plugin, () -> refreshPvpRank(event.getPlayer()), 1L);
         }
     }
 
@@ -218,6 +278,11 @@ final class PlayerPerkService implements Listener {
             applyScalar(player, Attribute.MOVEMENT_SPEED, CLAN_SPEED_KEY, perks.speed());
             applyScalar(player, Attribute.BLOCK_BREAK_SPEED, CLAN_DIG_KEY, perks.diggingSpeed());
         }
+        PvpRankPerks rankPerks = pvpPerks.get(id);
+        if (rankPerks != null) {
+            applyScalar(player, Attribute.MOVEMENT_SPEED, PVP_SPEED_KEY, rankPerks.speed());
+            applyScalar(player, Attribute.BLOCK_BREAK_SPEED, PVP_DIG_KEY, rankPerks.diggingSpeed());
+        }
         // Vanilla fills the health bar before these modifiers exist, so without this a
         // player respawns on 20 of 24 and looks like they took damage on the way back.
         AttributeInstance health = player.getAttribute(Attribute.MAX_HEALTH);
@@ -230,5 +295,6 @@ final class PlayerPerkService implements Listener {
     public void onPlayerQuit(PlayerQuitEvent event) {
         profiles.remove(event.getPlayer().getUniqueId());
         clanPerks.remove(event.getPlayer().getUniqueId());
+        pvpPerks.remove(event.getPlayer().getUniqueId());
     }
 }
