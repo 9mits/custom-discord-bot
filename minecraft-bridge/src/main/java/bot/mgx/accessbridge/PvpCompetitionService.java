@@ -9,24 +9,32 @@ import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import net.kyori.adventure.title.Title;
+import org.bukkit.Axis;
 import org.bukkit.Bukkit;
+import org.bukkit.Color;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.World;
 import org.bukkit.WorldBorder;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.block.Block;
+import org.bukkit.block.data.Orientable;
 import org.bukkit.command.CommandSender;
+import org.bukkit.entity.Entity;
+import org.bukkit.entity.Display;
 import org.bukkit.entity.EnderPearl;
 import org.bukkit.entity.Player;
+import org.bukkit.entity.TextDisplay;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockExplodeEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
+import org.bukkit.event.block.Action;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityExplodeEvent;
@@ -44,12 +52,15 @@ import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerItemConsumeEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
+import org.bukkit.event.player.PlayerPortalEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.scheduler.BukkitTask;
+import org.bukkit.util.Transformation;
 
 import java.io.IOException;
 import java.time.Duration;
@@ -81,6 +92,7 @@ final class PvpCompetitionService implements Listener {
     private static final TextColor ORANGE = TextColor.color(0xFF9900);
     private static final long INVITE_MILLIS = 120_000L;
     private static final long PAD_COOLDOWN_MILLIS = 1_500L;
+    private static final String ENTRANCE_DISPLAY_TAG = "mgx_pvp_entrance_display";
     private static final List<String> PLAYER_COMMANDS = List.of(
             "queue", "leave", "status", "party", "lobby", "return", "spectate",
             "live", "stats", "rankings", "rewards", "private", "forfeit", "giveup"
@@ -176,6 +188,8 @@ final class PvpCompetitionService implements Listener {
     private final Set<UUID> internalTeleports = new HashSet<>();
     private final Map<UUID, Long> padCooldowns = new HashMap<>();
     private final Map<UUID, Location> lobbyOrigins = new HashMap<>();
+    /** Nether-portal blocks this service lit inside the registered SMP entrance. */
+    private final Set<Location> entrancePortalBlocks = new HashSet<>();
     private final PvpFarmGuard farmGuard = new PvpFarmGuard();
     private BukkitTask clock;
     private boolean stopping;
@@ -210,6 +224,25 @@ final class PvpCompetitionService implements Listener {
         if (lobbyStore.needsLobbyBuild()) {
             plugin.getServer().getScheduler().runTaskLater(plugin, this::installStarterLobby, 40L);
         }
+        plugin.getServer().getScheduler().runTaskLater(plugin, this::refreshEntrancePortal, 1L);
+        plugin.gameVariables().onChange(key -> {
+            if (key.equals("pvp-competitive.lobby-title-scale")
+                    || key.equals("pvp-competitive.lobby-line-scale")) {
+                plugin.getServer().getScheduler().runTask(plugin, () -> lobbyStore.lobby()
+                        .ifPresent(lobby -> PvpLobbyBuilder.refreshHolograms(
+                                lobby, plugin.gameVariables())));
+            }
+            if (key.equals("pvp-competitive.portal-light-radius")
+                    || key.equals("pvp-competitive.portal-light-height")) {
+                plugin.getServer().getScheduler().runTask(plugin, this::refreshEntrancePortal);
+            } else if (key.equals("pvp-competitive.portal-display-height")
+                    || key.equals("pvp-competitive.portal-title-scale")
+                    || key.equals("pvp-competitive.portal-status-scale")
+                    || key.equals("pvp-competitive.portal-title")
+                    || key.equals("pvp-competitive.portal-status")) {
+                plugin.getServer().getScheduler().runTask(plugin, this::refreshEntranceDisplay);
+            }
+        });
         clock = plugin.getServer().getScheduler().runTaskTimer(plugin, this::tick, 20L, 20L);
     }
 
@@ -493,7 +526,11 @@ final class PvpCompetitionService implements Listener {
     private void tick() {
         long now = System.currentTimeMillis();
         lobbyStore.lobby().ifPresent(lobby -> {
-            PvpLobbyBuilder.pulse(lobby);
+            PvpLobbyBuilder.pulse(lobby,
+                    integer("pvp-competitive.lobby-portal-particle-count"));
+            PvpLobbyBuilder.updateLabelViewers(lobby, plugin, clientSupport,
+                    decimal("pvp-competitive.lobby-label-view-distance"),
+                    decimal("pvp-competitive.lobby-board-view-distance"));
             PvpLobbyBuilder.refreshStatus(lobby, this::gateStatus);
             // The boards move far more slowly than a queue count; every fifth tick is
             // plenty and keeps the entity work off the other four.
@@ -501,6 +538,7 @@ final class PvpCompetitionService implements Listener {
                 PvpLobbyBuilder.refreshBoards(lobby, ratingBoard(), liveBoard());
             }
         });
+        pulseEntrancePortal();
         announceWaiting(now);
         partyInvites.entrySet().removeIf(row -> row.getValue().expiresAt() <= now);
         validateQueues();
@@ -603,10 +641,21 @@ final class PvpCompetitionService implements Listener {
     }
 
     private Component gateStatus(PvpMode mode) {
-        String line = queueSummary(mode);
+        int required = requiredPlayers(mode);
+        int queued = queuedFor(mode);
+        int available = availablePlayers();
+        String line;
+        if (!enabled()) line = "CLOSED";
+        else if (available < required) line = available + " ONLINE • " + required + " NEEDED";
+        else if (queued == 0) line = "READY • WALK THROUGH";
+        else {
+            int missing = Math.max(0, required - queued);
+            line = missing == 0 ? queued + "/" + required + " QUEUED • STARTING"
+                    : queued + "/" + required + " QUEUED • " + missing + " TO START";
+        }
         NamedTextColor colour = !enabled() || shortStaffed(mode) ? NamedTextColor.RED
                 : queuedFor(mode) > 0 ? NamedTextColor.GREEN : NamedTextColor.GRAY;
-        return Component.text(line, colour);
+        return Component.text(line, colour, TextDecoration.BOLD);
     }
 
     /**
@@ -1380,6 +1429,40 @@ final class PvpCompetitionService implements Listener {
         showMenu(player, "PvP Statistics", body.toString(), actions, this::openHub);
     }
 
+    private void openLadder(Player player) {
+        PvpRecordStore.Record record = records.of(player.getUniqueId());
+        PvpRank rank = record.rank();
+        long remaining = Math.max(0L, rank.nextFloor() - record.rating());
+        String progress = rank == PvpRank.UNREAL ? "Top rank reached"
+                : remaining + " RP to " + PvpRank.values()[rank.ordinal() + 1].display();
+        String body = "YOUR RANK\n"
+                + rank.display() + " • " + record.rating() + " RP\n"
+                + progress + "\n\n"
+                + "Ranked 1v1, 2v2 and 3v3 use Elo rating."
+                + " Once you reach a tier, its floor stays unlocked permanently.";
+        showMenu(player, "Rank Progression", body, List.of(
+                new MenuAction("item/nether_star", "View Every Tier",
+                        "See each tier and its starting rating.", this::openTierGuide),
+                new MenuAction("item/spyglass", "Top Ratings",
+                        "Open the full current leaderboard.", this::openRankings),
+                new MenuAction("item/book", "My PvP Statistics",
+                        "Open your complete PvP record.", this::openStats)
+        ), this::openHub);
+    }
+
+    private void openTierGuide(Player player) {
+        StringBuilder body = new StringBuilder("Divisions are "
+                + integer("pvp-ranked.division-size")
+                + " RP. Tier floors are permanent once reached.\n\n");
+        Set<String> shown = new LinkedHashSet<>();
+        for (PvpRank rank : PvpRank.values()) {
+            if (!shown.add(rank.tier())) continue;
+            body.append(rank.glyph()).append(' ').append(rank.tier())
+                    .append(" • ").append(rank.floor()).append(" RP\n");
+        }
+        showMenu(player, "PvP Rank Tiers", body.toString(), List.of(), this::openLadder);
+    }
+
     private void openRankings(Player player) {
         List<PvpRankLeaderboard.Row> top = PvpRankLeaderboard.top(
                 records.all(), PvpCompetitionService::name, 10);
@@ -1829,7 +1912,8 @@ final class PvpCompetitionService implements Listener {
         }
         String[] args = original;
         if (args.length == 0) {
-            info(player, "Use /pvp admin setup confirm or /pvp portal set|remove.");
+            info(player, "Use /pvp admin setup confirm or /pvp portal set|remove."
+                    + " Portal set registers the obsidian frame you are looking at.");
             return;
         }
         String root = args[0].toLowerCase(Locale.ROOT);
@@ -1848,20 +1932,301 @@ final class PvpCompetitionService implements Listener {
         }
         if (root.equals("portal")) {
             if (args.length >= 2 && args[1].equalsIgnoreCase("remove")) {
+                setEntrancePortalLit(false);
+                clearEntranceDisplays();
                 lobbyStore.clearPortal();
                 info(player, "PvP entrance removed.");
             } else if (args.length >= 2 && args[1].equalsIgnoreCase("set")) {
-                double radius = args.length >= 3 ? parseDouble(args[2], 1d, 12d) : 2.5d;
-                if (!Double.isFinite(radius)) {
-                    error(player, "Portal radius must be 1-12 blocks.");
+                Block target = player.getTargetBlockExact(
+                        integer("pvp-competitive.portal-selection-distance"));
+                if (target == null) {
+                    error(player, "Look at a block on the PvP entrance's obsidian frame.");
                     return;
                 }
-                lobbyStore.setPortal(PvpLobbyStore.Point.of(player.getLocation()), radius);
-                info(player, "PvP entrance set with a " + oneDecimal(radius) + " block radius.");
-            } else error(player, "Use /pvp portal set [radius] or /pvp portal remove.");
+                setEntrancePortalLit(false);
+                clearEntranceDisplays();
+                Location at = target.getLocation().add(0.5d, 0.5d, 0.5d);
+                at.setYaw(player.getYaw());
+                lobbyStore.setPortal(PvpLobbyStore.Point.of(at), 2.5d);
+                boolean lit = setEntrancePortalLit(true);
+                refreshEntranceDisplay();
+                if (lit) {
+                    info(player, "PvP lobby portal registered and lit. Walk through it to enter.");
+                } else {
+                    error(player, "PvP entrance saved, but no complete obsidian frame could be lit nearby.");
+                }
+            } else error(player, "Use /pvp portal set or /pvp portal remove.");
             return;
         }
         error(player, "Unknown PvP admin action.");
+    }
+
+    /** Recreates the persistent SMP entrance from the same frame-selection model as Dragon. */
+    private void refreshEntrancePortal() {
+        if (stopping || !plugin.isEnabled()) return;
+        setEntrancePortalLit(false);
+        clearEntranceDisplays();
+        if (lobbyStore.portal().isEmpty()) return;
+        if (!setEntrancePortalLit(true)) {
+            plugin.getLogger().warning("The PvP lobby entrance could not ignite:"
+                    + " register a block on its complete obsidian frame.");
+        }
+        refreshEntranceDisplay();
+    }
+
+    /** Uses Minecraft's own ignition first, then fills a valid oversized frame safely. */
+    private boolean setEntrancePortalLit(boolean lit) {
+        if (!lit) {
+            Set<Location> remove = new HashSet<>(entrancePortalBlocks);
+            remove.addAll(nearestEntrancePortalComponent());
+            for (Location location : remove) {
+                if (location.getWorld() != null
+                        && location.getBlock().getType() == Material.NETHER_PORTAL) {
+                    location.getBlock().setType(Material.AIR, false);
+                }
+            }
+            entrancePortalBlocks.clear();
+            return true;
+        }
+        if (lobbyStore.portal().map(PvpLobbyStore.Point::resolve).orElse(null) == null) return false;
+        if (igniteEntranceFrame()) return true;
+        return false;
+    }
+
+    private boolean igniteEntranceFrame() {
+        Location registered = lobbyStore.portal().map(PvpLobbyStore.Point::resolve).orElse(null);
+        if (registered == null) return false;
+        Block centre = registered.getBlock();
+        int radius = integer("pvp-competitive.portal-light-radius");
+        int height = integer("pvp-competitive.portal-light-height");
+        List<Block> candidates = new ArrayList<>();
+        for (int y = -height; y <= height; y++) {
+            for (int x = -radius; x <= radius; x++) {
+                for (int z = -radius; z <= radius; z++) {
+                    Block block = centre.getRelative(x, y, z);
+                    if (!block.getType().isAir() && block.getType() != Material.LIGHT) continue;
+                    if (!isObsidianFrame(block.getRelative(0, -1, 0))) continue;
+                    if (!isObsidianFrame(block.getRelative(1, 0, 0))
+                            && !isObsidianFrame(block.getRelative(-1, 0, 0))
+                            && !isObsidianFrame(block.getRelative(0, 0, 1))
+                            && !isObsidianFrame(block.getRelative(0, 0, -1))) continue;
+                    candidates.add(block);
+                }
+            }
+        }
+        candidates.sort(Comparator.comparingDouble(block ->
+                block.getLocation().distanceSquared(centre.getLocation())));
+        for (Block candidate : candidates) {
+            candidate.setType(Material.FIRE, true);
+            Set<Location> created = nearestEntrancePortalComponent();
+            if (!created.isEmpty()) {
+                entrancePortalBlocks.addAll(created);
+                return true;
+            }
+            if (candidate.getType() == Material.FIRE) candidate.setType(Material.AIR, false);
+            created = fillEntranceFrame(candidate, radius, height);
+            if (!created.isEmpty()) {
+                entrancePortalBlocks.addAll(created);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private Set<Location> fillEntranceFrame(Block corner, int maximumWidth, int maximumHeight) {
+        int[][] directions = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+        for (int[] direction : directions) {
+            int dx = direction[0];
+            int dz = direction[1];
+            if (!isObsidianFrame(corner.getRelative(-dx, 0, -dz))) continue;
+            int width = 0;
+            while (width < Math.min(21, maximumWidth * 2 + 1)
+                    && replaceablePortalInterior(corner.getRelative(dx * width, 0, dz * width))) {
+                width++;
+            }
+            if (width < 2 || !isObsidianFrame(corner.getRelative(dx * width, 0, dz * width))) continue;
+            int height = 0;
+            while (height < Math.min(21, maximumHeight)
+                    && replaceablePortalInterior(corner.getRelative(0, height, 0))) {
+                height++;
+            }
+            if (height < 3 || !isObsidianFrame(corner.getRelative(0, height, 0))) continue;
+            boolean valid = true;
+            for (int side = 0; side < width && valid; side++) {
+                if (!isObsidianFrame(corner.getRelative(dx * side, -1, dz * side))
+                        || !isObsidianFrame(corner.getRelative(dx * side, height, dz * side))) {
+                    valid = false;
+                }
+                for (int y = 0; y < height && valid; y++) {
+                    if (!replaceablePortalInterior(corner.getRelative(dx * side, y, dz * side))) {
+                        valid = false;
+                    }
+                }
+            }
+            for (int y = 0; y < height && valid; y++) {
+                if (!isObsidianFrame(corner.getRelative(-dx, y, -dz))
+                        || !isObsidianFrame(corner.getRelative(dx * width, y, dz * width))) {
+                    valid = false;
+                }
+            }
+            if (!valid) continue;
+            Orientable data = (Orientable) Material.NETHER_PORTAL.createBlockData();
+            data.setAxis(dx == 0 ? Axis.Z : Axis.X);
+            Set<Location> created = new HashSet<>();
+            for (int side = 0; side < width; side++) {
+                for (int y = 0; y < height; y++) {
+                    Block block = corner.getRelative(dx * side, y, dz * side);
+                    block.setBlockData(data.clone(), false);
+                    created.add(block.getLocation());
+                }
+            }
+            return created;
+        }
+        return Set.of();
+    }
+
+    private static boolean replaceablePortalInterior(Block block) {
+        return block.getType().isAir() || block.getType() == Material.FIRE
+                || block.getType() == Material.LIGHT || block.getType() == Material.NETHER_PORTAL;
+    }
+
+    private static boolean isObsidianFrame(Block block) {
+        return block.getType() == Material.OBSIDIAN;
+    }
+
+    private Set<Location> nearestEntrancePortalComponent() {
+        Location registered = lobbyStore.portal().map(PvpLobbyStore.Point::resolve).orElse(null);
+        if (registered == null) return Set.of();
+        Block centre = registered.getBlock();
+        int radius = integer("pvp-competitive.portal-light-radius");
+        int height = integer("pvp-competitive.portal-light-height");
+        Block nearest = null;
+        double distance = Double.MAX_VALUE;
+        for (int y = -height; y <= height; y++) {
+            for (int x = -radius; x <= radius; x++) {
+                for (int z = -radius; z <= radius; z++) {
+                    Block candidate = centre.getRelative(x, y, z);
+                    if (candidate.getType() != Material.NETHER_PORTAL) continue;
+                    double candidateDistance = candidate.getLocation()
+                            .distanceSquared(centre.getLocation());
+                    if (candidateDistance < distance) {
+                        nearest = candidate;
+                        distance = candidateDistance;
+                    }
+                }
+            }
+        }
+        if (nearest == null) return Set.of();
+        Set<Location> found = new HashSet<>();
+        List<Block> pending = new ArrayList<>();
+        pending.add(nearest);
+        for (int index = 0; index < pending.size() && found.size() < 4096; index++) {
+            Block block = pending.get(index);
+            if (block.getType() != Material.NETHER_PORTAL
+                    || !found.add(block.getLocation())) continue;
+            pending.add(block.getRelative(1, 0, 0));
+            pending.add(block.getRelative(-1, 0, 0));
+            pending.add(block.getRelative(0, 1, 0));
+            pending.add(block.getRelative(0, -1, 0));
+            pending.add(block.getRelative(0, 0, 1));
+            pending.add(block.getRelative(0, 0, -1));
+        }
+        return found;
+    }
+
+    private boolean touchesEntrancePortal(Location location) {
+        Location registered = lobbyStore.portal().map(PvpLobbyStore.Point::resolve).orElse(null);
+        if (registered == null || location == null || !sameWorld(registered, location)) return false;
+        boolean portal = location.getBlock().getType() == Material.NETHER_PORTAL
+                || location.clone().add(0, 1, 0).getBlock().getType() == Material.NETHER_PORTAL;
+        if (!portal) return false;
+        double radius = integer("pvp-competitive.portal-light-radius") + 2d;
+        return horizontalSquared(registered, location) <= radius * radius
+                && Math.abs(registered.getY() - location.getY())
+                <= integer("pvp-competitive.portal-light-height") + 2d;
+    }
+
+    private void refreshEntranceDisplay() {
+        clearEntranceDisplays();
+        Location registered = lobbyStore.portal().map(PvpLobbyStore.Point::resolve).orElse(null);
+        if (registered == null) return;
+        Set<Location> blocks = activeEntrancePortalBlocks();
+        Location anchor = portalTop(blocks, registered);
+        double height = decimal("pvp-competitive.portal-display-height");
+        entranceLabel(anchor.clone().add(0d, height, 0d),
+                Component.text(plugin.gameVariables().string("pvp-competitive.portal-title"),
+                        TextColor.color(0xB56CFF), TextDecoration.BOLD),
+                (float) decimal("pvp-competitive.portal-title-scale"));
+        entranceLabel(anchor.clone().add(0d, height - 1.35d, 0d),
+                Component.text(plugin.gameVariables().string("pvp-competitive.portal-status"),
+                        NamedTextColor.WHITE, TextDecoration.BOLD),
+                (float) decimal("pvp-competitive.portal-status-scale"));
+    }
+
+    private static Location portalTop(Set<Location> blocks, Location fallback) {
+        if (blocks.isEmpty()) return fallback.clone();
+        int minimumX = Integer.MAX_VALUE;
+        int maximumX = Integer.MIN_VALUE;
+        int maximumY = Integer.MIN_VALUE;
+        int minimumZ = Integer.MAX_VALUE;
+        int maximumZ = Integer.MIN_VALUE;
+        for (Location block : blocks) {
+            minimumX = Math.min(minimumX, block.getBlockX());
+            maximumX = Math.max(maximumX, block.getBlockX());
+            maximumY = Math.max(maximumY, block.getBlockY());
+            minimumZ = Math.min(minimumZ, block.getBlockZ());
+            maximumZ = Math.max(maximumZ, block.getBlockZ());
+        }
+        return new Location(fallback.getWorld(), (minimumX + maximumX + 1d) / 2d,
+                maximumY + 1d, (minimumZ + maximumZ + 1d) / 2d);
+    }
+
+    private void entranceLabel(Location at, Component text, float scale) {
+        at.getWorld().spawn(at, TextDisplay.class, display -> {
+            display.addScoreboardTag(ENTRANCE_DISPLAY_TAG);
+            display.text(text);
+            display.setBillboard(Display.Billboard.CENTER);
+            display.setAlignment(TextDisplay.TextAlignment.CENTER);
+            display.setShadowed(true);
+            display.setSeeThrough(false);
+            display.setLineWidth(320);
+            display.setBackgroundColor(Color.fromARGB(165, 9, 5, 16));
+            display.setViewRange(12f);
+            display.setPersistent(false);
+            display.setTransformation(new Transformation(
+                    new org.joml.Vector3f(), new org.joml.AxisAngle4f(),
+                    new org.joml.Vector3f(scale), new org.joml.AxisAngle4f()));
+        });
+    }
+
+    private void clearEntranceDisplays() {
+        for (World world : Bukkit.getWorlds()) {
+            world.getEntitiesByClass(TextDisplay.class).stream()
+                    .filter(display -> display.getScoreboardTags().contains(ENTRANCE_DISPLAY_TAG))
+                    .forEach(Entity::remove);
+        }
+    }
+
+    /** Returns the already-discovered component without scanning the world on a live tick. */
+    private Set<Location> activeEntrancePortalBlocks() {
+        entrancePortalBlocks.removeIf(location -> location.getWorld() == null
+                || location.getBlock().getType() != Material.NETHER_PORTAL);
+        return Set.copyOf(entrancePortalBlocks);
+    }
+
+    private void pulseEntrancePortal() {
+        if (!plugin.gameVariables().bool("pvp-competitive.portal-effects-enabled")) return;
+        Location registered = lobbyStore.portal().map(PvpLobbyStore.Point::resolve).orElse(null);
+        if (registered == null || registered.getWorld().getPlayers().isEmpty()) return;
+        Set<Location> blocks = activeEntrancePortalBlocks();
+        if (blocks.isEmpty()) return;
+        Location centre = portalTop(blocks, registered);
+        int count = integer("pvp-competitive.portal-particle-count");
+        registered.getWorld().spawnParticle(Particle.REVERSE_PORTAL,
+                centre.clone().add(0d, -2d, 0d), count, 1.8d, 2.6d, 1.8d, 0.03d);
+        registered.getWorld().spawnParticle(Particle.END_ROD,
+                centre.clone().add(0d, 0.4d, 0d), Math.max(0, count / 3),
+                1.4d, 0.4d, 1.4d, 0.01d);
     }
 
     private void installStarterLobby() {
@@ -2025,12 +2390,7 @@ final class PvpCompetitionService implements Listener {
             return;
         }
         if (padCooldowns.getOrDefault(playerId, 0L) > now) return;
-        PvpLobbyStore.Point portal = lobbyStore.portal().orElse(null);
-        Location portalAt = portal == null ? null : portal.resolve();
-        if (portalAt != null && sameWorld(portalAt, event.getTo())
-                && horizontalSquared(portalAt, event.getTo())
-                <= lobbyStore.portalRadius() * lobbyStore.portalRadius()
-                && Math.abs(portalAt.getY() - event.getTo().getY()) <= 3d) {
+        if (touchesEntrancePortal(event.getTo())) {
             padCooldowns.put(playerId, now + PAD_COOLDOWN_MILLIS);
             plugin.getServer().getScheduler().runTask(plugin, () -> enterLobby(player));
             return;
@@ -2045,6 +2405,23 @@ final class PvpCompetitionService implements Listener {
         } else if (PvpLobbyBuilder.returnPad(lobby, event.getTo())) {
             padCooldowns.put(playerId, now + PAD_COOLDOWN_MILLIS);
             plugin.getServer().getScheduler().runTask(plugin, () -> returnToServer(player));
+        } else if (lobbyAt != null && isPvpWorld(player.getWorld())) {
+            PvpMode nearby = PvpLobbyBuilder.nearbyMode(lobby, event.getTo(), 8d);
+            if (nearby != null) {
+                player.sendActionBar(Component.text(nearby.display() + "  •  WALK THROUGH TO CHOOSE",
+                        TextColor.color(0xE3C6FF), TextDecoration.BOLD));
+            }
+        }
+    }
+
+    /** The custom PvP portals are interactions, never vanilla Nether travel. */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onPortal(PlayerPortalEvent event) {
+        PvpLobbyStore.Point lobby = lobbyStore.lobby().orElse(null);
+        Location from = event.getFrom();
+        if (touchesEntrancePortal(from) || PvpLobbyBuilder.modePad(lobby, from) != null
+                || PvpLobbyBuilder.returnPad(lobby, from)) {
+            event.setCancelled(true);
         }
     }
 
@@ -2125,13 +2502,31 @@ final class PvpCompetitionService implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onInteract(PlayerInteractEvent event) {
-        if (!isParticipant(event.getPlayer().getUniqueId())) return;
-        Match match = matchByPlayer.get(event.getPlayer().getUniqueId());
-        if (match == null || match.phase != Phase.FIGHTING || !match.alive.contains(event.getPlayer().getUniqueId())) {
-            event.setCancelled(true);
+        Player player = event.getPlayer();
+        if (isParticipant(player.getUniqueId())) {
+            Match match = matchByPlayer.get(player.getUniqueId());
+            if (match == null || match.phase != Phase.FIGHTING
+                    || !match.alive.contains(player.getUniqueId())) {
+                event.setCancelled(true);
+                return;
+            }
+            match.lastAction.put(player.getUniqueId(), System.currentTimeMillis());
             return;
         }
-        match.lastAction.put(event.getPlayer().getUniqueId(), System.currentTimeMillis());
+        if (event.getAction() != Action.RIGHT_CLICK_BLOCK
+                || event.getClickedBlock() == null
+                || event.getHand() != EquipmentSlot.HAND) return;
+        PvpLobbyStore.Point lobby = lobbyStore.lobby().orElse(null);
+        PvpLobbyBuilder.PavilionAction action = PvpLobbyBuilder.pavilionAction(
+                lobby, event.getClickedBlock().getLocation());
+        if (action == null) return;
+        event.setCancelled(true);
+        switch (action) {
+            case LADDER -> openLadder(player);
+            case RULES -> openRewards(player);
+            case RATINGS -> openRankings(player);
+            case LIVE -> openLive(player);
+        }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
@@ -2270,6 +2665,8 @@ final class PvpCompetitionService implements Listener {
         stopping = true;
         if (clock != null) clock.cancel();
         clock = null;
+        setEntrancePortalLit(false);
+        clearEntranceDisplays();
         for (Match match : List.copyOf(matches.values())) {
             if (match.countdown != null) match.countdown.cancel();
             if (match.returnTask != null) match.returnTask.cancel();
@@ -2462,20 +2859,6 @@ final class PvpCompetitionService implements Listener {
 
     private static boolean isAdmin(CommandSender sender) {
         return sender.isOp() || sender.hasPermission(AdminCommandService.PERMISSION);
-    }
-
-    private static double parseDouble(String value, double minimum, double maximum) {
-        try {
-            double parsed = Double.parseDouble(value);
-            return Double.isFinite(parsed) && parsed >= minimum && parsed <= maximum
-                    ? parsed : Double.NaN;
-        } catch (NumberFormatException ignored) {
-            return Double.NaN;
-        }
-    }
-
-    private static String oneDecimal(double value) {
-        return String.format(Locale.ROOT, "%.1f", value);
     }
 
     private static String[] slice(String[] args, int start) {

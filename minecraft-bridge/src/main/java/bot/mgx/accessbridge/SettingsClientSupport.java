@@ -10,6 +10,8 @@ import java.util.UUID;
 
 /** Chooses the native dialog only when the connecting client can decode it. */
 final class SettingsClientSupport {
+    /** Minecraft Java 1.19.4, which introduced display entities. */
+    static final int FIRST_TEXT_DISPLAY_PROTOCOL = 762;
     /** Minecraft Java 1.21.6, the first protocol with custom dialogs. */
     static final int FIRST_DIALOG_PROTOCOL = 771;
 
@@ -24,6 +26,29 @@ final class SettingsClientSupport {
                 viaProtocol,
                 player.getProtocolVersion()
         );
+    }
+
+    /** Large TextDisplays for Java; Bedrock and older Java clients keep armour-stand labels. */
+    boolean supportsTextDisplays(Player player) {
+        boolean bedrock = isBedrock(player.getUniqueId());
+        Plugin viaVersion = Bukkit.getPluginManager().getPlugin("ViaVersion");
+        boolean viaActive = viaVersion != null && viaVersion.isEnabled();
+        Integer viaProtocol = viaActive ? viaProtocol(viaVersion, player.getUniqueId()) : null;
+        return supportsTextDisplaysFor(bedrock, viaActive, viaProtocol,
+                player.getProtocolVersion());
+    }
+
+    static boolean supportsTextDisplaysFor(
+            boolean bedrock,
+            boolean viaActive,
+            Integer viaProtocol,
+            int directProtocol
+    ) {
+        if (bedrock) return false;
+        int clientProtocol = viaActive
+                ? (viaProtocol == null ? -1 : viaProtocol)
+                : directProtocol;
+        return clientProtocol >= FIRST_TEXT_DISPLAY_PROTOCOL;
     }
 
     static boolean supportsDialogsFor(

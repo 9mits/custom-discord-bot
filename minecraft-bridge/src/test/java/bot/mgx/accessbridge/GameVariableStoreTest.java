@@ -75,6 +75,21 @@ final class GameVariableStoreTest {
     }
 
     @Test
+    void pvpLobbyPresentationAndRegisteredPortalAreRuntimeConfigurable() throws Exception {
+        GameVariableStore variables = store();
+        assertEquals(2.4d, variables.decimal("pvp-competitive.lobby-title-scale"));
+        assertEquals(1.25d, variables.decimal("pvp-competitive.lobby-line-scale"));
+        assertEquals(24d, variables.decimal("pvp-competitive.lobby-label-view-distance"));
+        assertEquals(12d, variables.decimal("pvp-competitive.lobby-board-view-distance"));
+        assertEquals(8, variables.integer("pvp-competitive.lobby-portal-particle-count"));
+        assertEquals(48, variables.integer("pvp-competitive.portal-selection-distance"));
+        assertEquals("✦ PVP LOBBY ✦", variables.string("pvp-competitive.portal-title"));
+        assertEquals("WALK THROUGH TO ENTER", variables.string("pvp-competitive.portal-status"));
+        assertTrue(variables.bool("pvp-competitive.portal-effects-enabled"));
+        assertEquals(12, variables.integer("pvp-competitive.portal-particle-count"));
+    }
+
+    @Test
     void everyAmethystArmorPieceUsesItsRealEquipmentSlot() {
         assertEquals(EquipmentSlot.HEAD, AmethystItemService.armorSlot("helmet"));
         assertEquals(EquipmentSlot.CHEST, AmethystItemService.armorSlot("chestplate"));

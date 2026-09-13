@@ -282,7 +282,7 @@ final class SettingMetadataTest {
                         Map.entry("players", 12),
                         Map.entry("event_multipliers", 10),
                         Map.entry("pvp_duels", 25),
-                        Map.entry("pvp_competitive", 32),
+                        Map.entry("pvp_competitive", 47),
                         Map.entry("crate_balance", 8),
                         Map.entry("amethyst_shop", 27),
                         Map.entry("clans", 4),
@@ -301,7 +301,7 @@ final class SettingMetadataTest {
                 perGroup,
                 "the catalogue moved between panel pages"
         );
-        assertEquals(1004, perGroup.values().stream().mapToInt(Integer::intValue).sum(),
+        assertEquals(1019, perGroup.values().stream().mapToInt(Integer::intValue).sum(),
                 "group counts no longer add up to the catalogue");
     }
 

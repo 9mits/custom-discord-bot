@@ -95,15 +95,40 @@ final class PvpCompetitionSafetyTest {
         assertTrue(source.contains("inLobbyArea(victim.getLocation())"));
         String lobby = Files.readString(SOURCE.getParent().resolve("PvpLobbyBuilder.java"),
                 StandardCharsets.UTF_8);
-        // Bedrock sees an armour-stand nametag and not much else, so the lobby's
-        // lettering has to stay armour stands however tempting a TextDisplay is.
+        // Supported Java clients receive large TextDisplays while Bedrock and older
+        // Java clients retain the armour-stand fallback. Both are nearby-only so the
+        // opposite side of the terrace cannot overlay the station being read.
+        assertTrue(lobby.contains("TextDisplay.class"));
         assertTrue(lobby.contains("CrateDisplayService.spawnStyledLabel"));
-        assertTrue(lobby.contains("ArmorStand.class"));
-        // Every gateway still says how to use it. The instruction is "stand on the
-        // pad" now because the pad is what actually opens the queue; walking through
-        // the arch never did anything, which is what the old wording promised.
-        assertTrue(lobby.contains("Stand on the pad"));
+        assertTrue(lobby.contains("instanceof ArmorStand"));
+        assertTrue(lobby.contains("setVisibleByDefault(false)"));
+        assertTrue(source.contains("lobby-label-view-distance"));
+        assertTrue(source.contains("lobby-board-view-distance"));
+        // Queue gates are now honest, animated portals and their detailed copy lives
+        // behind the physical pavilion consoles instead of floating in the world.
+        assertTrue(lobby.contains("Material.NETHER_PORTAL.createBlockData()"));
+        assertTrue(lobby.contains("touchesPortal(at)"));
+        assertTrue(lobby.contains("Material.LECTERN"));
+        assertTrue(lobby.contains("RIGHT-CLICK TO EXPLORE"));
+        assertFalse(lobby.contains("You fight with the gear you walked in with."));
         assertTrue(!lobby.contains("Material.OAK_SIGN"));
+        assertTrue(source.contains("public void onPortal(PlayerPortalEvent event)"));
+        assertTrue(source.contains("PvpLobbyBuilder.pavilionAction("));
+    }
+
+    @Test
+    void theSmpEntranceUsesDragonStyleFrameSelectionAndAReadableMarker() throws Exception {
+        String source = Files.readString(SOURCE, StandardCharsets.UTF_8);
+        assertTrue(source.contains("player.getTargetBlockExact("));
+        assertTrue(source.contains("private boolean igniteEntranceFrame()"));
+        assertTrue(source.contains("private Set<Location> fillEntranceFrame("));
+        assertTrue(source.contains("private Set<Location> nearestEntrancePortalComponent()"));
+        assertTrue(source.contains("pvp-competitive.portal-title"));
+        assertTrue(source.contains("pvp-competitive.portal-status"));
+        String variables = Files.readString(SOURCE.getParent().resolve("GameVariableStore.java"),
+                StandardCharsets.UTF_8);
+        assertTrue(variables.contains("WALK THROUGH TO ENTER"));
+        assertFalse(source.contains("Use /pvp portal set [radius]"));
     }
 
     @Test

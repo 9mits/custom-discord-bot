@@ -1237,6 +1237,47 @@ final class GameVariableStore {
                 "PvP Competitive",
                 "Shortest gap between two announcements of the same queue.",
                 240, 30, 3_600, "seconds", false);
+        decimal("pvp-competitive.lobby-title-scale", "Lobby title scale", "PvP Lobby",
+                "Scale of mode, pavilion, and centre titles in the PvP lobby.",
+                2.4, 0.5, 6.0, "scale");
+        decimal("pvp-competitive.lobby-line-scale", "Lobby line scale", "PvP Lobby",
+                "Scale of subtitles, queue status, and interaction prompts in the PvP lobby.",
+                1.25, 0.5, 4.0, "scale");
+        decimal("pvp-competitive.lobby-label-view-distance", "Queue label distance", "PvP Lobby",
+                "Maximum distance from a queue portal or centre label before it is hidden.",
+                24, 6, 64, "blocks");
+        decimal("pvp-competitive.lobby-board-view-distance", "Console label distance", "PvP Lobby",
+                "Maximum distance from a pavilion console before its labels are hidden.",
+                12, 4, 32, "blocks");
+        integer("pvp-competitive.lobby-portal-particle-count", "Lobby portal particles", "PvP Lobby",
+                "Extra moving particles emitted around each queue portal every second.",
+                8, 0, 100, "particles", false);
+        integer("pvp-competitive.portal-selection-distance", "Entrance selection distance", "PvP Lobby",
+                "Maximum distance used by /pvp portal set while selecting an obsidian frame.",
+                48, 4, 128, "blocks", false);
+        integer("pvp-competitive.portal-light-radius", "Entrance frame search radius", "PvP Lobby",
+                "Horizontal distance searched around the selected block when lighting the PvP entrance.",
+                10, 1, 32, "blocks", false);
+        integer("pvp-competitive.portal-light-height", "Entrance frame search height", "PvP Lobby",
+                "Vertical distance searched around the selected block when lighting the PvP entrance.",
+                18, 3, 48, "blocks", false);
+        decimal("pvp-competitive.portal-display-height", "Entrance label height", "PvP Lobby",
+                "Height of the PvP lobby label above the portal's upper edge.",
+                2.2, 0.5, 12, "blocks");
+        decimal("pvp-competitive.portal-title-scale", "Entrance title scale", "PvP Lobby",
+                "Visual scale of the PvP lobby entrance title.", 3.4, 0.5, 8, "scale");
+        decimal("pvp-competitive.portal-status-scale", "Entrance prompt scale", "PvP Lobby",
+                "Visual scale of the walk-through prompt below the PvP entrance title.",
+                2.0, 0.5, 6, "scale");
+        text("pvp-competitive.portal-title", "Entrance title", "PvP Lobby",
+                "Large title above the registered PvP entrance.", "✦ PVP LOBBY ✦", 80);
+        text("pvp-competitive.portal-status", "Entrance prompt", "PvP Lobby",
+                "Prompt below the registered PvP entrance title.", "WALK THROUGH TO ENTER", 100);
+        bool("pvp-competitive.portal-effects-enabled", "Entrance effects", "PvP Lobby",
+                "Whether the registered PvP entrance emits its additional animated particles.", true);
+        integer("pvp-competitive.portal-particle-count", "Entrance particles", "PvP Lobby",
+                "Additional particles emitted around the registered PvP entrance every second.",
+                12, 0, 200, "particles", false);
         integer("pvp-competitive.afk-seconds", "Competitive AFK limit", "PvP Competitive",
                 "Seconds without moving or fighting before an active player is eliminated.",
                 75, 20, 600, "seconds", false);

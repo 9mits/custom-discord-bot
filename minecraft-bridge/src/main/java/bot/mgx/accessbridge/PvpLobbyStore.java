@@ -19,10 +19,11 @@ import java.util.UUID;
 /** Persistent PvP lobby and main-world entrance; combat arenas are never stored here. */
 final class PvpLobbyStore {
     /**
-     * Bumped to 3 for the Amethyst Terrace, which replaced the blackstone citadel.
+     * Bumped to 4 for the interactive terrace: real portals, readable labels, and
+     * physical information consoles.
      * A newer format rebuilds the lobby once on the next start and re-saves the spawn.
      */
-    private static final int FORMAT_VERSION = 3;
+    private static final int FORMAT_VERSION = 4;
 
     record Point(
             String worldId,

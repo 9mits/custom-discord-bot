@@ -7,6 +7,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SettingsClientSupportTest {
     @Test
+    void textDisplaysUseNearbyLargeLabelsOnlyOnSupportedJavaClients() {
+        assertFalse(SettingsClientSupport.supportsTextDisplaysFor(true, false, null, 774));
+        assertFalse(SettingsClientSupport.supportsTextDisplaysFor(false, true, 761, 774));
+        assertTrue(SettingsClientSupport.supportsTextDisplaysFor(false, true, 762, 774));
+        assertFalse(SettingsClientSupport.supportsTextDisplaysFor(false, true, null, 774));
+        assertTrue(SettingsClientSupport.supportsTextDisplaysFor(false, false, null, 774));
+    }
+
+    @Test
     void bedrockAlwaysUsesTheInventoryFallback() {
         assertFalse(SettingsClientSupport.supportsDialogsFor(true, false, null, 774));
         assertFalse(SettingsClientSupport.supportsDialogsFor(true, true, 774, 774));
