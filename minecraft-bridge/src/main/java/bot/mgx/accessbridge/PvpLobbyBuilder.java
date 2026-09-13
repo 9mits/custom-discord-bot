@@ -59,19 +59,19 @@ final class PvpLobbyBuilder {
     /** Covers the main terrace plus the circular north records terrace. */
     static final double PROTECTED_RADIUS = 74d;
 
-    private static final String HOLOGRAM_TAG = "mgx_pvp_lobby_hologram";
+    static final String HOLOGRAM_TAG = "mgx_pvp_lobby_hologram";
     /** Carried by the one line under each gateway that is retitled every second. */
-    private static final String STATUS_TAG = "mgx_pvp_lobby_status";
+    static final String STATUS_TAG = "mgx_pvp_lobby_status";
     private static final String LIVE_TAG = "mgx_pvp_board_live";
     private static final String TEXT_LABEL_TAG = "mgx_pvp_text_label";
     private static final String FALLBACK_LABEL_TAG = "mgx_pvp_fallback_label";
-    private static final String NEAR_GATE_TAG = "mgx_pvp_near_gate";
-    private static final String NEAR_BOARD_TAG = "mgx_pvp_near_board";
+    static final String NEAR_GATE_TAG = "mgx_pvp_near_gate";
+    static final String NEAR_BOARD_TAG = "mgx_pvp_near_board";
     private static final String RECORDS_LABEL_TAG = "mgx_pvp_records_label";
     /** Rows reserved on each live board, blank until there is something to say. */
     private static final int LIVE_BOARD_LINES = 3;
     private static final int LEADERBOARD_LINES = 5;
-    private static final int FLOOR_Y = 80;
+    static final int FLOOR_Y = 80;
 
     /** Outer edge of the rim walkway. Everything is inside this. */
     private static final int RIM = 31;
@@ -99,7 +99,7 @@ final class PvpLobbyBuilder {
     /** Result rows stand here: five clear of the wall, and clear of each other. */
     private static final double BOARD_LABEL_RING = 19d;
     /** Every gateway caps here, giving the inner ring one cornice line. */
-    private static final int STRUCTURE_TOP = 8;
+    static final int STRUCTURE_TOP = 8;
     /** The outer ring stands taller, so the island reads as rising from the edge in. */
     private static final int BOARD_TOP = 11;
     private static final double RING_STEP = 36d;
@@ -120,7 +120,7 @@ final class PvpLobbyBuilder {
     private static final double[] PAVILION_BEARINGS = {90d, 126d, 234d, 270d};
     /** Height of the retitled status line, shared by the build and the lookup. */
     private static final double GATE_STATUS_Y = FLOOR_Y + STRUCTURE_TOP + 2.4d;
-    private static final double SPAWN_Z = 10.5d;
+    static final double SPAWN_Z = 10.5d;
     private static final int[] RETURN_GATE = {0, GATE_RING};
     /** The moat is crossed east and west, clear of every structure. */
     private static final double[] CROSSINGS = {90d, 270d};
@@ -131,8 +131,8 @@ final class PvpLobbyBuilder {
             {-180, 80, 36}, {-180, -100, 46}
     };
 
-    private static final TextColor AMETHYST = TextColor.color(0xB56CFF);
-    private static final TextColor CRYSTAL = TextColor.color(0xE3C6FF);
+    static final TextColor AMETHYST = TextColor.color(0xB56CFF);
+    static final TextColor CRYSTAL = TextColor.color(0xE3C6FF);
 
     private static final Map<PvpMode, Gate> GATES = gates();
 
@@ -250,6 +250,9 @@ final class PvpLobbyBuilder {
         // before the one canonical set is spawned.
         clearLobbyLabels(world);
         buildHolograms(world, plugin.gameVariables());
+        // The three category islands and their waiting halls belong to the same
+        // generated world and the same format, so they are rebuilt in the same pass.
+        PvpIslandBuilder.buildAll(world, plugin.gameVariables());
 
         Location lobby = new Location(world, 0.5d, FLOOR_Y + 1d, SPAWN_Z, 180f, 0f);
         world.setSpawnLocation(lobby);
@@ -505,7 +508,7 @@ final class PvpLobbyBuilder {
         }
     }
 
-    private static void rewriteBoard(
+    static void rewriteBoard(
             World world, Location at, String tag, List<Component> lines
     ) {
         List<Double> heights = world.getNearbyEntities(at, 3d, 5d, 3d).stream()
@@ -549,11 +552,11 @@ final class PvpLobbyBuilder {
         // ranked arch dead ahead of an arriving player and the other two flanking it
         // one ring step out. A player who spawns and looks up sees all three at once.
         gates.put(PvpMode.CLAN_BATTLE, new Gate(324d, Material.RED_STAINED_GLASS,
-                Material.REDSTONE_BLOCK, "CLAN BATTLE", "Choose 2v2 or 3v3."));
+                Material.REDSTONE_BLOCK, "CLAN BATTLE", "To the Clan island • 2v2 or 3v3"));
         gates.put(PvpMode.RANKED_DUEL, new Gate(0d, Material.YELLOW_STAINED_GLASS,
-                Material.GOLD_BLOCK, "RANKED BATTLE", "Choose 1v1, 2v2 or 3v3."));
+                Material.GOLD_BLOCK, "RANKED BATTLE", "To the Ranked island • 1v1, 2v2 or 3v3"));
         gates.put(PvpMode.FFA, new Gate(36d, Material.PURPLE_STAINED_GLASS,
-                Material.AMETHYST_BLOCK, "LAST STANDING", "Choose how many can enter."));
+                Material.AMETHYST_BLOCK, "LAST STANDING", "To the Last Standing island • 4 to 12"));
         return Map.copyOf(gates);
     }
 
@@ -662,7 +665,7 @@ final class PvpLobbyBuilder {
         }
     }
 
-    private static Material undersideMaterial(int x, int z, int depth, Random random) {
+    static Material undersideMaterial(int x, int z, int depth, Random random) {
         if (depth == 1) return Material.DEEPSLATE;
         int roll = random.nextInt(10);
         if (roll == 0) return Material.SMOOTH_BASALT;
@@ -745,12 +748,12 @@ final class PvpLobbyBuilder {
     }
 
     /** Half a block either side, so a drawn ring is a line and not a band. */
-    private static boolean within(double radius, double target) {
+    static boolean within(double radius, double target) {
         return Math.abs(radius - target) < 0.45d;
     }
 
     /** Degrees clockwise from due north, which is how the whole island is laid out. */
-    private static double bearing(double x, double z) {
+    static double bearing(double x, double z) {
         double degrees = Math.toDegrees(Math.atan2(x, -z));
         return degrees < 0d ? degrees + 360d : degrees;
     }
@@ -765,7 +768,7 @@ final class PvpLobbyBuilder {
     }
 
     /** Degrees between two bearings, whichever way round the circle is shorter. */
-    private static double angularGap(double left, double right) {
+    static double angularGap(double left, double right) {
         double gap = Math.abs(left - right) % 360d;
         return gap > 180d ? 360d - gap : gap;
     }
@@ -1099,14 +1102,14 @@ final class PvpLobbyBuilder {
     }
 
     /** Structure-ring x, measured clockwise from north with an optional sideways step. */
-    private static int ringX(double angleDegrees, double radius, double lateral) {
+    static int ringX(double angleDegrees, double radius, double lateral) {
         double angle = Math.toRadians(angleDegrees);
         return symmetric(quantised(Math.sin(angle)) * radius
                 + quantised(Math.cos(angle)) * lateral);
     }
 
     /** Structure-ring z, measured clockwise from north with an optional sideways step. */
-    private static int ringZ(double angleDegrees, double radius, double lateral) {
+    static int ringZ(double angleDegrees, double radius, double lateral) {
         double angle = Math.toRadians(angleDegrees);
         return symmetric(-quantised(Math.cos(angle)) * radius
                 + quantised(Math.sin(angle)) * lateral);
@@ -1167,7 +1170,7 @@ final class PvpLobbyBuilder {
     }
 
     /** Builds the complete valid frame first, then fills its portal plane. */
-    private static void buildGatewayPlane(World world, int gx, int gz, boolean wideX) {
+    static void buildGatewayPlane(World world, int gx, int gz, boolean wideX) {
         Orientable portal = (Orientable) Material.NETHER_PORTAL.createBlockData();
         portal.setAxis(wideX ? Axis.X : Axis.Z);
         for (int lateral = -3; lateral <= 3; lateral++) {
@@ -1258,7 +1261,7 @@ final class PvpLobbyBuilder {
         return repaired;
     }
 
-    private static boolean gatewayPortalIntact(
+    static boolean gatewayPortalIntact(
             World world, int gx, int gz, boolean wideX
     ) {
         for (int lateral = -3; lateral <= 3; lateral++) {
@@ -1303,7 +1306,7 @@ final class PvpLobbyBuilder {
     }
 
     /** The lit square a player stands on to open a queue, so the trigger is visible. */
-    private static void pad(World world, int gx, int gz, Material accent) {
+    static void pad(World world, int gx, int gz, Material accent) {
         for (int dx = -1; dx <= 1; dx++) {
             for (int dz = -1; dz <= 1; dz++) {
                 boolean corner = dx != 0 && dz != 0;
@@ -1510,6 +1513,7 @@ final class PvpLobbyBuilder {
         if (centre == null || centre.getWorld() == null) return;
         clearLobbyLabels(centre.getWorld());
         buildHolograms(centre.getWorld(), variables);
+        PvpIslandBuilder.buildHolograms(centre.getWorld(), variables);
     }
 
     private static void buildHolograms(World world, GameVariableStore variables) {
@@ -1610,7 +1614,7 @@ final class PvpLobbyBuilder {
      * structure rather than as a label, and it was the one sign in the lobby that
      * behaved differently from its neighbours.
      */
-    private static void hologram(
+    static void hologram(
             World world,
             double x,
             double y,
@@ -1674,7 +1678,7 @@ final class PvpLobbyBuilder {
         return all;
     }
 
-    private static void setLabel(Entity entity, Component value) {
+    static void setLabel(Entity entity, Component value) {
         if (entity instanceof TextDisplay display) display.text(value);
         else if (entity instanceof ArmorStand stand) stand.customName(value);
     }
@@ -1712,7 +1716,7 @@ final class PvpLobbyBuilder {
         }
     }
 
-    private static void set(
+    static void set(
             World world, int x, int z, boolean wideX, int lateral, int y, Material material
     ) {
         block(world, x, z, wideX, lateral, y).setType(material, false);
@@ -1731,7 +1735,7 @@ final class PvpLobbyBuilder {
                 z + (wideX ? 0 : lateral));
     }
 
-    private static boolean touchesPortal(Location location) {
+    static boolean touchesPortal(Location location) {
         return location != null && (location.getBlock().getType() == Material.NETHER_PORTAL
                 || location.clone().add(0, 1, 0).getBlock().getType() == Material.NETHER_PORTAL);
     }
@@ -1743,7 +1747,7 @@ final class PvpLobbyBuilder {
      * radial layout that is a gateway one block out of line with the one opposite it,
      * and on a circle this small it is visible from the middle.
      */
-    private static int symmetric(double value) {
+    static int symmetric(double value) {
         return (int) (value < 0 ? -Math.round(-value) : Math.round(value));
     }
 
@@ -1755,11 +1759,11 @@ final class PvpLobbyBuilder {
      * to 8 and 9, and the gateway on the left ends up a block nearer the middle than
      * the one on the right — which on a circle this small is the first thing you see.
      */
-    private static double quantised(double value) {
+    static double quantised(double value) {
         return Math.round(value * 1_000_000d) / 1_000_000d;
     }
 
-    private static double horizontalSquared(Location at, double x, double z) {
+    static double horizontalSquared(Location at, double x, double z) {
         double dx = at.getX() - x;
         double dz = at.getZ() - z;
         return dx * dx + dz * dz;

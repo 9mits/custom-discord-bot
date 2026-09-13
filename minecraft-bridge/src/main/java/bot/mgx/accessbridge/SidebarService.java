@@ -232,6 +232,16 @@ final class SidebarService {
             rows.add(Row.heading("AMETHYST EVENT"));
             rows.add(Row.important("Ends in", CrateKind.AMETHYST.remaining(now), NamedTextColor.YELLOW));
         }
+        // While a match is being found the board leads with it, like every pre-game
+        // scoreboard: what you queued for, how full it is, and how long is left.
+        PvpCompetitionService competition = plugin.pvpCompetition();
+        List<String[]> queue = competition == null ? List.of() : competition.sidebarQueue(playerId);
+        if (!queue.isEmpty()) {
+            rows.add(Row.heading("PVP QUEUE"));
+            for (String[] row : queue) {
+                rows.add(Row.important(row[0], row[1], NamedTextColor.YELLOW));
+            }
+        }
         if (settings.isEnabled(playerId, PlayerSettingsStore.Setting.SCOREBOARD_PROFILE)) {
             rows.add(Row.heading("PROFILE"));
             if (profile.hasRankLabel()) {
