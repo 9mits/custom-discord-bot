@@ -47,7 +47,6 @@ final class ReferralStore {
         ReferralRules.Kind kind;
         long startedAt;
         int onlineMinutes;
-        int activeMinutes;
         String referrer;
         boolean qualified;
         boolean playerPaid;

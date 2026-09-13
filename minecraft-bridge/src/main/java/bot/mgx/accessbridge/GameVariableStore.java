@@ -1395,10 +1395,6 @@ final class GameVariableStore {
         integer("referrals.new-referrer-shards", "New referral Shards", "Referrals",
                 "Shards for the established player who invited a genuinely new player.",
                 10, 0, 64, "shards", false);
-        integer("referrals.qualify-active-minutes", "Referral active playtime", "Referrals",
-                "Non-AFK minutes a new or returning player must play on the server before"
-                        + " anyone is paid. Stops join-and-leave alt farming.",
-                15, 0, 240, "minutes", false);
         integer("referrals.claim-window-minutes", "Referral claim window", "Referrals",
                 "Online minutes after a first or return join in which /referredby works.",
                 60, 5, 1440, "minutes", false);
@@ -1416,9 +1412,6 @@ final class GameVariableStore {
         integer("referrals.referrer-minimum-play-minutes", "Referrer playtime", "Referrals",
                 "Lifetime playtime an inviter needs before they can earn referral rewards.",
                 60, 0, 100000, "minutes", false);
-        integer("referrals.maximum-rewards-30-days", "Referral reward limit", "Referrals",
-                "Most rewarded referrals one person, across linked accounts, may earn in 30 days.",
-                3, 1, 100, "players", false);
         bool("referrals.block-shared-address", "Refuse shared connections", "Referrals",
                 "Refuse a referral when both accounts have ever joined from the same public"
                         + " address. Only salted hashes are stored.", true);
