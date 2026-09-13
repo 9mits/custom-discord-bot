@@ -651,6 +651,10 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private int competitiveDiameter(PvpMode mode, int firstSize, int secondSize) {
+        if (mode.freeForAll()) {
+            return (int) Math.ceil(FfaBorderPlan.of(firstSize + secondSize, plugin.gameVariables())
+                    .initial());
+        }
         return plugin.gameVariables().integer(
                 competitiveDiameterKey(mode, firstSize, secondSize));
     }

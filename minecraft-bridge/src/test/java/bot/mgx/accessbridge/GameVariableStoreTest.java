@@ -107,8 +107,10 @@ final class GameVariableStoreTest {
                 variables.integer("pvp-competitive.queue-actionbar-interval-seconds"));
         // Last Standing is compact and uses Minecraft's own world-border wall, so the
         // particle wall and its action-bar guidance are gone for good.
-        assertEquals(96, variables.integer("pvp-competitive.ffa-arena-diameter"));
-        assertEquals(12d, variables.decimal("pvp-competitive.ffa-minimum-border"));
+        assertEquals(80, variables.integer("pvp-competitive.ffa-arena-diameter"));
+        assertEquals(12, variables.integer("pvp-competitive.ffa-diameter-per-player"));
+        assertEquals(16d, variables.decimal("pvp-competitive.ffa-minimum-border"));
+        assertEquals(8, variables.integer("pvp-competitive.ffa-shrink-steps"));
         assertFalse(variables.find("pvp-competitive.ffa-border-particles").isPresent());
         assertFalse(variables.find("pvp-competitive.ffa-border-guidance").isPresent());
     }

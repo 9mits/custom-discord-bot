@@ -1396,7 +1396,7 @@ final class PvpCompetitionService implements Listener {
         }
         if (match.mode.freeForAll()) {
             match.borderSize = currentBorderSize(match, now);
-            double minimum = decimal("pvp-competitive.ffa-minimum-border");
+            double minimum = ffaPlan(match).fin();
             if (!match.borderMoving && match.borderSize > minimum + 1.0e-6d
                     && !match.shrinkWarned
                     && now >= match.nextShrinkAt - 10_000L) {
@@ -1427,7 +1427,7 @@ final class PvpCompetitionService implements Listener {
         String text = match.mode.display() + "  •  " + match.alive.size() + " alive  •  "
                 + formatSeconds((remaining + 999L) / 1_000L);
         if (match.mode.freeForAll()) {
-            double minimum = decimal("pvp-competitive.ffa-minimum-border");
+            double minimum = ffaPlan(match).fin();
             double initial = match.arena.arena().diameter();
             progress = initial <= minimum ? 0f : (float) Math.max(0d, Math.min(1d,
                     (match.borderSize - minimum) / (initial - minimum)));
@@ -1458,10 +1458,10 @@ final class PvpCompetitionService implements Listener {
     }
 
     private void shrinkBorder(Match match, long now) {
-        double minimum = decimal("pvp-competitive.ffa-minimum-border");
+        double minimum = ffaPlan(match).fin();
         double current = currentBorderSize(match, now);
         double next = Math.max(minimum,
-                current - decimal("pvp-competitive.ffa-shrink-blocks"));
+                current - ffaPlan(match).step());
         if (next >= current - 1.0e-6d) {
             match.borderSize = minimum;
             match.borderFrom = minimum;
@@ -1508,6 +1508,11 @@ final class PvpCompetitionService implements Listener {
             }
             player.playSound(player, Sound.BLOCK_BEACON_DEACTIVATE, 0.8f, 1.1f);
         });
+    }
+
+    /** The border sized for however many fighters actually entered this match. */
+    private FfaBorderPlan ffaPlan(Match match) {
+        return FfaBorderPlan.of(match.players.size(), plugin.gameVariables());
     }
 
     /** Exact interpolated size, shared by movement rules and the HUD. */

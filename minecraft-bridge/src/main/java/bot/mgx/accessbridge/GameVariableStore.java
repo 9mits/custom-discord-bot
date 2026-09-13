@@ -1325,10 +1325,17 @@ final class GameVariableStore {
         integer("pvp-competitive.clan-arena-diameter", "Clan battle arena border",
                 "PvP Competitive", "Width of the larger untouched overworld clan battle ring.",
                 256, 64, 600, "blocks", false);
-        integer("pvp-competitive.ffa-arena-diameter", "FFA arena border",
-                "PvP Competitive", "Starting width of the compact Last Standing arena."
-                        + " Every fighter sees this as Minecraft's real world-border wall.",
-                96, 32, 600, "blocks", false);
+        integer("pvp-competitive.ffa-arena-diameter", "FFA base border",
+                "PvP Competitive", "Last Standing starting width before the per-player"
+                        + " growth. Every fighter sees it as Minecraft's real world-border wall.",
+                80, 32, 600, "blocks", false);
+        integer("pvp-competitive.ffa-diameter-per-player", "FFA border per player",
+                "PvP Competitive", "Blocks of starting width added for each player who"
+                        + " enters. The defaults give 104 for 2 players and 224 for 12.",
+                12, 0, 60, "blocks", false);
+        integer("pvp-competitive.ffa-maximum-diameter", "FFA largest border",
+                "PvP Competitive", "Cap on the Last Standing starting width.",
+                300, 64, 600, "blocks", false);
         integer("pvp-competitive.maximum-spectators", "Competitive spectator capacity",
                 "PvP Competitive", "Most outside spectators allowed in one arena.",
                 16, 0, 64, "players", false);
@@ -1338,12 +1345,17 @@ final class GameVariableStore {
         integer("pvp-competitive.ffa-shrink-interval-seconds", "FFA shrink interval",
                 "PvP Competitive", "Seconds each smooth world-border shrink takes.",
                 20, 5, 300, "seconds", false);
-        decimal("pvp-competitive.ffa-shrink-blocks", "FFA shrink amount",
-                "PvP Competitive", "Blocks removed from the real world border each reduction.",
-                12.0, 1.0, 100.0, "blocks");
-        decimal("pvp-competitive.ffa-minimum-border", "FFA final border",
-                "PvP Competitive", "Smallest FFA border width.",
-                12.0, 8.0, 100.0, "blocks");
+        integer("pvp-competitive.ffa-shrink-steps", "FFA shrink steps",
+                "PvP Competitive", "Smooth reductions from the starting border to the final"
+                        + " zone, whatever the player count.",
+                8, 1, 40, "steps", false);
+        decimal("pvp-competitive.ffa-minimum-border", "FFA final border base",
+                "PvP Competitive", "Final zone width before the per-player growth.",
+                16.0, 8.0, 100.0, "blocks");
+        decimal("pvp-competitive.ffa-final-border-per-player", "FFA final zone per player",
+                "PvP Competitive", "Blocks of final zone width added for each player who"
+                        + " entered. The defaults give 20 for 2 players and 40 for 12.",
+                2.0, 0.0, 20.0, "blocks");
 
         integer("pvp-ranked.division-size", "PvP division size", "PvP Ranking",
                 "Rating points between ordinary PvP rank divisions.",
@@ -3038,8 +3050,8 @@ final class GameVariableStore {
                 if (value instanceof Number number) {
                     double old = number.doubleValue();
                     if (canonical.equals("pvp-competitive.ffa-arena-diameter")
-                            && Double.compare(old, 288d) == 0) {
-                        value = 96L;
+                            && (Double.compare(old, 288d) == 0 || Double.compare(old, 96d) == 0)) {
+                        value = 80L;
                         migrated = true;
                     } else if (canonical.equals("pvp-competitive.ffa-shrink-delay-seconds")
                             && Double.compare(old, 60d) == 0) {
@@ -3049,13 +3061,9 @@ final class GameVariableStore {
                             && Double.compare(old, 30d) == 0) {
                         value = 20L;
                         migrated = true;
-                    } else if (canonical.equals("pvp-competitive.ffa-shrink-blocks")
-                            && Double.compare(old, 10d) == 0) {
-                        value = 12d;
-                        migrated = true;
                     } else if (canonical.equals("pvp-competitive.ffa-minimum-border")
-                            && Double.compare(old, 18d) == 0) {
-                        value = 12d;
+                            && (Double.compare(old, 18d) == 0 || Double.compare(old, 12d) == 0)) {
+                        value = 16d;
                         migrated = true;
                     }
                 }
