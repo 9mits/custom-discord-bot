@@ -4,6 +4,8 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextColor;
 import net.kyori.adventure.text.format.TextDecoration;
+import org.bukkit.Axis;
+import org.bukkit.Color;
 import org.bukkit.Difficulty;
 import org.bukkit.GameRules;
 import org.bukkit.Location;
@@ -13,11 +15,17 @@ import org.bukkit.World;
 import org.bukkit.WorldCreator;
 import org.bukkit.block.data.BlockData;
 import org.bukkit.block.data.Levelled;
+import org.bukkit.block.data.Orientable;
 import org.bukkit.entity.ArmorStand;
+import org.bukkit.entity.Display;
 import org.bukkit.entity.Entity;
+import org.bukkit.entity.Player;
+import org.bukkit.entity.TextDisplay;
 import org.bukkit.generator.ChunkGenerator;
+import org.bukkit.util.Transformation;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -54,8 +62,12 @@ final class PvpLobbyBuilder {
     private static final String STATUS_TAG = "mgx_pvp_lobby_status";
     private static final String RATINGS_TAG = "mgx_pvp_board_ratings";
     private static final String LIVE_TAG = "mgx_pvp_board_live";
+    private static final String TEXT_LABEL_TAG = "mgx_pvp_text_label";
+    private static final String FALLBACK_LABEL_TAG = "mgx_pvp_fallback_label";
+    private static final String NEAR_GATE_TAG = "mgx_pvp_near_gate";
+    private static final String NEAR_BOARD_TAG = "mgx_pvp_near_board";
     /** Rows reserved on each live board, blank until there is something to say. */
-    private static final int BOARD_LINES = 5;
+    private static final int BOARD_LINES = 3;
     private static final int FLOOR_Y = 80;
 
     /** Outer edge of the rim walkway. Everything is inside this. */
@@ -140,7 +152,7 @@ final class PvpLobbyBuilder {
         // Last, so a tree is never planted where a gateway or the terrace is about to
         // go and left hanging in the air with its trunk replaced.
         plantGarden(world, random);
-        buildHolograms(world);
+        buildHolograms(world, plugin.gameVariables());
 
         Location lobby = new Location(world, 0.5d, FLOOR_Y + 1d, SPAWN_Z, 180f, 0f);
         world.setSpawnLocation(lobby);
@@ -151,7 +163,7 @@ final class PvpLobbyBuilder {
 
     static PvpMode modePad(PvpLobbyStore.Point lobby, Location at) {
         Location origin = origin(lobby, at);
-        if (origin == null) return null;
+        if (origin == null || !touchesPortal(at)) return null;
         for (Map.Entry<PvpMode, Gate> row : GATES.entrySet()) {
             if (onPad(at, origin, row.getValue().x(), row.getValue().z())) return row.getKey();
         }
@@ -160,7 +172,26 @@ final class PvpLobbyBuilder {
 
     static boolean returnPad(PvpLobbyStore.Point lobby, Location at) {
         Location origin = origin(lobby, at);
-        return origin != null && onPad(at, origin, RETURN_GATE[0], RETURN_GATE[1]);
+        return origin != null && touchesPortal(at)
+                && onPad(at, origin, RETURN_GATE[0], RETURN_GATE[1]);
+    }
+
+    /** The queue whose portal is close enough to provide a contextual action-bar hint. */
+    static PvpMode nearbyMode(PvpLobbyStore.Point lobby, Location at, double radius) {
+        Location origin = origin(lobby, at);
+        if (origin == null) return null;
+        double maximum = Math.max(1d, radius) * Math.max(1d, radius);
+        PvpMode nearest = null;
+        double nearestDistance = maximum;
+        for (Map.Entry<PvpMode, Gate> row : GATES.entrySet()) {
+            double distance = horizontalSquared(at, origin.getX() + row.getValue().x(),
+                    origin.getZ() + row.getValue().z());
+            if (distance <= nearestDistance) {
+                nearest = row.getKey();
+                nearestDistance = distance;
+            }
+        }
+        return nearest;
     }
 
     /**
@@ -186,8 +217,8 @@ final class PvpLobbyBuilder {
 
     // ------------------------------------------------------------ live view
 
-    /** A restrained live effect, so every arch reads as a gateway without Nether travel. */
-    static void pulse(PvpLobbyStore.Point lobby) {
+    /** Moving portal ribbons and a double crystal orbit keep the terrace visibly alive. */
+    static void pulse(PvpLobbyStore.Point lobby, int portalParticles) {
         Location centre = lobby == null ? null : lobby.resolve();
         if (centre == null || centre.getWorld() == null) return;
         World world = centre.getWorld();
@@ -195,21 +226,64 @@ final class PvpLobbyBuilder {
         double originX = centre.getX() - 0.5d;
         double originZ = centre.getZ() - SPAWN_Z;
         int step = (int) ((System.currentTimeMillis() / 250L) % 8L);
+        int particles = Math.max(0, portalParticles);
         for (Gate gate : GATES.values()) {
             world.spawnParticle(Particle.PORTAL,
                     originX + gate.x(), FLOOR_Y + 1.6d + step * 0.55d, originZ + gate.z(),
-                    6, 1.25d, 0.2d, 1.25d, 0.02d);
+                    particles, 1.8d, 0.25d, 1.8d, 0.04d);
+            world.spawnParticle(Particle.ENCHANT,
+                    originX + gate.x(), FLOOR_Y + 5d, originZ + gate.z(),
+                    Math.max(0, particles / 2), 2d, 2.8d, 2d, 0.02d);
         }
         world.spawnParticle(Particle.REVERSE_PORTAL,
                 originX + RETURN_GATE[0], FLOOR_Y + 3d, originZ + RETURN_GATE[1],
                 8, 1.2d, 1.6d, 1.2d, 0.02d);
         // The crystal over the monument, turning on its own axis.
         double spin = (System.currentTimeMillis() % 6_000L) / 6_000d * Math.PI * 2d;
-        for (int point = 0; point < 3; point++) {
-            double angle = spin + point * (Math.PI * 2d / 3d);
+        for (int point = 0; point < 12; point++) {
+            double angle = spin + point * (Math.PI * 2d / 12d);
             world.spawnParticle(Particle.END_ROD,
                     originX + Math.cos(angle) * 2.1d, FLOOR_Y + 11.5d + Math.sin(spin) * 0.4d,
                     originZ + Math.sin(angle) * 2.1d, 1, 0d, 0d, 0d, 0d);
+            if ((point & 1) == 0) {
+                double counter = -spin + point * (Math.PI * 2d / 6d);
+                world.spawnParticle(Particle.PORTAL,
+                        originX + Math.cos(counter) * 3.4d,
+                        FLOOR_Y + 11.5d + Math.sin(counter) * 0.8d,
+                        originZ + Math.sin(counter) * 3.4d, 1, 0d, 0d, 0d, 0d);
+            }
+        }
+    }
+
+    /**
+     * Shows one label implementation per client and only while its station is nearby.
+     * This is what prevents every gateway and pavilion from being legible through every
+     * other structure on a compact circular island.
+     */
+    static void updateLabelViewers(
+            PvpLobbyStore.Point lobby,
+            MGXAccessBridge plugin,
+            SettingsClientSupport clients,
+            double gateDistance,
+            double boardDistance
+    ) {
+        Location centre = lobby == null ? null : lobby.resolve();
+        if (centre == null || centre.getWorld() == null) return;
+        World world = centre.getWorld();
+        List<Entity> labels = world.getEntities().stream()
+                .filter(entity -> entity.getScoreboardTags().contains(HOLOGRAM_TAG)).toList();
+        for (Player player : world.getPlayers()) {
+            boolean useText = clients.supportsTextDisplays(player);
+            for (Entity label : labels) {
+                double range = label.getScoreboardTags().contains(NEAR_BOARD_TAG)
+                        ? boardDistance : gateDistance;
+                boolean correctType = useText ? label instanceof TextDisplay
+                        : label instanceof ArmorStand;
+                boolean nearby = label.getLocation().distanceSquared(player.getLocation())
+                        <= Math.max(1d, range) * Math.max(1d, range);
+                if (correctType && nearby) player.showEntity(plugin, label);
+                else player.hideEntity(plugin, label);
+            }
         }
     }
 
@@ -232,11 +306,10 @@ final class PvpLobbyBuilder {
             Component line = status.apply(row.getKey());
             if (line == null) continue;
             Location at = new Location(world, originX + row.getValue().x() + 0.5d,
-                    FLOOR_Y + 9.3d, originZ + row.getValue().z() + 0.5d);
-            world.getNearbyEntitiesByType(ArmorStand.class, at, 1.2d).stream()
+                    FLOOR_Y + 10d, originZ + row.getValue().z() + 0.5d);
+            world.getNearbyEntities(at, 1.2d, 1.2d, 1.2d).stream()
                     .filter(stand -> stand.getScoreboardTags().contains(STATUS_TAG))
-                    .findFirst()
-                    .ifPresent(stand -> stand.customName(line));
+                    .forEach(entity -> setLabel(entity, line));
         }
     }
 
@@ -280,15 +353,18 @@ final class PvpLobbyBuilder {
                     originX + symmetric(quantised(Math.sin(angle)) * PAVILION_RING) + 0.5d,
                     FLOOR_Y + 3d,
                     originZ + symmetric(-quantised(Math.cos(angle)) * PAVILION_RING) + 0.5d);
-            List<ArmorStand> rows = new ArrayList<>(
-                    world.getNearbyEntitiesByType(ArmorStand.class, at, 3d, 4d, 3d).stream()
-                            .filter(stand -> stand.getScoreboardTags().contains(tag))
-                            .sorted((first, second) -> Double.compare(
-                                    second.getLocation().getY(), first.getLocation().getY()))
-                            .toList());
-            for (int row = 0; row < rows.size(); row++) {
-                rows.get(row).customName(row < lines.size() ? lines.get(row)
-                        : Component.text(" ", NamedTextColor.DARK_GRAY));
+            List<Double> heights = world.getNearbyEntities(at, 3d, 4d, 3d).stream()
+                    .filter(entity -> entity.getScoreboardTags().contains(tag))
+                    .map(entity -> entity.getLocation().getY()).distinct()
+                    .sorted(Comparator.reverseOrder()).toList();
+            for (int row = 0; row < heights.size(); row++) {
+                Component line = row < lines.size() ? lines.get(row)
+                        : Component.text(" ", NamedTextColor.DARK_GRAY);
+                double height = heights.get(row);
+                world.getNearbyEntities(new Location(world, at.getX(), height, at.getZ()),
+                                0.4d, 0.2d, 0.4d).stream()
+                        .filter(entity -> entity.getScoreboardTags().contains(tag))
+                        .forEach(entity -> setLabel(entity, line));
             }
         }
     }
@@ -652,68 +728,64 @@ final class PvpLobbyBuilder {
 
     // ---------------------------------------------------------- the gateways
 
-    /**
-     * One queue arch: a five-wide frame filled with its own colour, a copper surround,
-     * the mode's emblem in the keystone and a lit pad to stand on.
-     */
+    /** One queue arch: a real portal, a mode emblem, and an illuminated approach. */
     private static void buildGate(World world, Gate gate) {
         int gx = gate.x();
         int gz = gate.z();
         // Faces the middle, so every arch is read from the plaza.
         boolean wideX = Math.abs(gx) <= Math.abs(gz);
+        Orientable portal = (Orientable) Material.NETHER_PORTAL.createBlockData();
+        portal.setAxis(wideX ? Axis.X : Axis.Z);
+        pad(world, gx, gz, gate.emblem());
+        for (int lateral = -3; lateral <= 3; lateral++) {
+            set(world, gx, gz, wideX, lateral, FLOOR_Y, Material.OBSIDIAN);
+        }
         for (int lateral = -3; lateral <= 3; lateral++) {
             for (int y = 0; y <= 8; y++) {
                 boolean post = Math.abs(lateral) == 3;
                 boolean lintel = y == 8;
-                boolean shoulder = y == 7 && Math.abs(lateral) == 2;
-                Material material;
-                if (post || lintel || shoulder) {
-                    material = ((lateral + y) & 1) == 0
-                            ? Material.CALCITE : Material.POLISHED_DEEPSLATE;
-                } else if (y >= 6) {
-                    // A coloured transom over the opening. The colour is how players
-                    // learn which gateway is which from across the island, so it has to
-                    // be above head height rather than filling the doorway.
-                    material = gate.glass();
+                if (post || lintel) {
+                    set(world, gx, gz, wideX, lateral, FLOOR_Y + 1 + y, Material.OBSIDIAN);
                 } else {
-                    // The doorway itself. This was glass with a stone kerb across the
-                    // threshold, which walled in the very pad the arch exists to mark.
-                    material = Material.AIR;
+                    setData(world, gx, gz, wideX, lateral, FLOOR_Y + 1 + y, portal);
                 }
-                set(world, gx, gz, wideX, lateral, FLOOR_Y + 1 + y, material);
             }
         }
-        // Copper posts either side, which is the only warm colour on the island.
+        // Coloured fins and copper pylons keep six purple portals distinct at a glance.
         for (int lateral : new int[]{-4, 4}) {
             set(world, gx, gz, wideX, lateral, FLOOR_Y + 1, Material.CUT_COPPER);
             set(world, gx, gz, wideX, lateral, FLOOR_Y + 2, Material.EXPOSED_CUT_COPPER);
             set(world, gx, gz, wideX, lateral, FLOOR_Y + 3, Material.WEATHERED_CUT_COPPER);
-            set(world, gx, gz, wideX, lateral, FLOOR_Y + 4, Material.CUT_COPPER);
-            set(world, gx, gz, wideX, lateral, FLOOR_Y + 5, Material.LIGHTNING_ROD);
+            set(world, gx, gz, wideX, lateral, FLOOR_Y + 4, gate.glass());
+            set(world, gx, gz, wideX, lateral, FLOOR_Y + 5, Material.CRYING_OBSIDIAN);
             set(world, gx, gz, wideX, lateral, FLOOR_Y + 6, Material.SOUL_LANTERN);
         }
         set(world, gx, gz, wideX, 0, FLOOR_Y + 10, gate.emblem());
         set(world, gx, gz, wideX, -1, FLOOR_Y + 10, Material.CHISELED_DEEPSLATE);
         set(world, gx, gz, wideX, 1, FLOOR_Y + 10, Material.CHISELED_DEEPSLATE);
         set(world, gx, gz, wideX, 0, FLOOR_Y + 9, Material.DEEPSLATE_BRICK_SLAB);
-        pad(world, gx, gz, gate.emblem());
     }
 
     private static void buildReturnGate(World world) {
-        Gate home = new Gate(180d, Material.GRAY_STAINED_GLASS, Material.LODESTONE,
-                "RETURN TO THE SMP", "Back exactly where you came from");
         int gx = RETURN_GATE[0];
         int gz = RETURN_GATE[1];
+        Orientable portal = (Orientable) Material.NETHER_PORTAL.createBlockData();
+        portal.setAxis(Axis.X);
+        pad(world, gx, gz, Material.LODESTONE);
+        for (int lateral = -2; lateral <= 2; lateral++) {
+            set(world, gx, gz, true, lateral, FLOOR_Y, Material.OBSIDIAN);
+        }
         for (int lateral = -2; lateral <= 2; lateral++) {
             for (int y = 0; y <= 6; y++) {
                 boolean frame = Math.abs(lateral) == 2 || y == 6;
-                set(world, gx, gz, true, lateral, FLOOR_Y + 1 + y,
-                        frame ? Material.POLISHED_DEEPSLATE
-                                : y >= 4 ? home.glass() : Material.AIR);
+                if (frame) {
+                    set(world, gx, gz, true, lateral, FLOOR_Y + 1 + y, Material.OBSIDIAN);
+                } else {
+                    setData(world, gx, gz, true, lateral, FLOOR_Y + 1 + y, portal);
+                }
             }
         }
         set(world, gx, gz, true, 0, FLOOR_Y + 8, Material.LODESTONE);
-        pad(world, gx, gz, Material.LODESTONE);
     }
 
     /** The lit square a player stands on to open a queue, so the trigger is visible. */
@@ -813,10 +885,20 @@ final class PvpLobbyBuilder {
 
     // --------------------------------------------------------- the pavilions
 
+    /** The UI opened by a physical lobby console. */
+    enum PavilionAction { LADDER, RULES, RATINGS, LIVE }
+
     /** Whether a pavilion's board is written once or rewritten while people play. */
     private enum Board { STATIC, RATINGS, LIVE }
 
-    private record Pavilion(double angle, String title, Board board, List<String> body) { }
+    private record Pavilion(
+            double angle,
+            String title,
+            Board board,
+            List<String> body,
+            String prompt,
+            PavilionAction action
+    ) { }
 
     /**
      * Four open shelters on the rim, each carrying one board.
@@ -852,6 +934,10 @@ final class PvpLobbyBuilder {
             }
             world.getBlockAt(cx, FLOOR_Y + 6, cz).setType(Material.AMETHYST_BLOCK, false);
             world.getBlockAt(cx, FLOOR_Y + 7, cz).setType(Material.AMETHYST_CLUSTER, false);
+            // The lectern is the obvious, physical click target. Detail belongs in the
+            // UI it opens, not in a paragraph hovering across the pavilion.
+            world.getBlockAt(cx, FLOOR_Y + 1, cz).setType(Material.LECTERN, false);
+            world.getBlockAt(cx, FLOOR_Y, cz).setType(Material.SEA_LANTERN, false);
             for (int[] light : List.of(new int[]{-2, -2}, new int[]{2, -2},
                     new int[]{-2, 2}, new int[]{2, 2})) {
                 world.getBlockAt(cx + light[0], FLOOR_Y + 4, cz + light[1])
@@ -862,84 +948,158 @@ final class PvpLobbyBuilder {
 
     private static List<Pavilion> pavilions() {
         List<Pavilion> boards = new ArrayList<>();
-        boards.add(new Pavilion(45d, "THE LADDER", Board.STATIC, List.of(
-                BadgeIcons.PVP_BRONZE + " Bronze   " + BadgeIcons.PVP_SILVER + " Silver   "
-                        + BadgeIcons.PVP_GOLD + " Gold",
-                BadgeIcons.PVP_PLATINUM + " Platinum   " + BadgeIcons.PVP_DIAMOND + " Diamond",
-                BadgeIcons.PVP_ELITE + " Elite   " + BadgeIcons.PVP_CHAMPION + " Champion   "
-                        + BadgeIcons.PVP_UNREAL + " Unreal",
-                "Ranked 1v1, 2v2 and 3v3 move your rating.",
-                "Reaching a tier keeps it: you can drop divisions, never the tier."
-        )));
-        boards.add(new Pavilion(135d, "HOW A FIGHT WORKS", Board.STATIC, List.of(
-                "You fight with the gear you walked in with.",
-                "The arena is real overworld terrain, copied and put back after.",
-                "You keep your whole inventory however you die.",
-                "Leaving early counts as a loss. /pvp forfeit concedes cleanly."
-        )));
-        boards.add(new Pavilion(225d, "TOP RATINGS", Board.RATINGS, List.of()));
-        boards.add(new Pavilion(315d, "LIVE NOW", Board.LIVE, List.of()));
+        boards.add(new Pavilion(45d, "RANK PROGRESSION", Board.STATIC,
+                List.of("18 ranks • 8 permanent tiers"), "RIGHT-CLICK TO EXPLORE",
+                PavilionAction.LADDER));
+        boards.add(new Pavilion(135d, "FIGHT RULES", Board.STATIC,
+                List.of("YOUR GEAR • REAL TERRAIN • KEEP INVENTORY"), "RIGHT-CLICK FOR RULES",
+                PavilionAction.RULES));
+        boards.add(new Pavilion(225d, "TOP RATINGS", Board.RATINGS, List.of(),
+                "RIGHT-CLICK FOR THE FULL BOARD", PavilionAction.RATINGS));
+        boards.add(new Pavilion(315d, "LIVE MATCHES", Board.LIVE, List.of(),
+                "RIGHT-CLICK TO SPECTATE", PavilionAction.LIVE));
         return boards;
+    }
+
+    /** Which console was clicked, if the block belongs to one of the four pavilions. */
+    static PavilionAction pavilionAction(PvpLobbyStore.Point lobby, Location clicked) {
+        Location origin = origin(lobby, clicked);
+        if (origin == null || Math.abs(clicked.getY() - (FLOOR_Y + 1d)) > 5d) return null;
+        for (Pavilion pavilion : pavilions()) {
+            double angle = Math.toRadians(pavilion.angle());
+            double x = origin.getX()
+                    + symmetric(quantised(Math.sin(angle)) * PAVILION_RING);
+            double z = origin.getZ()
+                    + symmetric(-quantised(Math.cos(angle)) * PAVILION_RING);
+            if (horizontalSquared(clicked, x, z) <= 16d) return pavilion.action();
+        }
+        return null;
     }
 
     // ---------------------------------------------------------- the lettering
 
-    private static void buildHolograms(World world) {
+    static void refreshHolograms(PvpLobbyStore.Point lobby, GameVariableStore variables) {
+        Location centre = lobby == null ? null : lobby.resolve();
+        if (centre == null || centre.getWorld() == null) return;
+        clearLobbyLabels(centre.getWorld());
+        buildHolograms(centre.getWorld(), variables);
+    }
+
+    private static void buildHolograms(World world, GameVariableStore variables) {
+        float titleScale = (float) variables.decimal("pvp-competitive.lobby-title-scale");
+        float lineScale = (float) variables.decimal("pvp-competitive.lobby-line-scale");
         for (Map.Entry<PvpMode, Gate> row : GATES.entrySet()) {
             Gate gate = row.getValue();
             double x = gate.x() + 0.5d;
             double z = gate.z() + 0.5d;
-            hologram(world, x, FLOOR_Y + 10.6d, z,
-                    Component.text(gate.title(), AMETHYST, TextDecoration.BOLD));
-            hologram(world, x, FLOOR_Y + 10.25d, z,
-                    Component.text(gate.subtitle(), NamedTextColor.GRAY));
-            hologram(world, x, FLOOR_Y + 9.9d, z,
-                    Component.text("Stand on the pad", CRYSTAL));
+            hologram(world, x, FLOOR_Y + 12.2d, z,
+                    Component.text(gate.title(), AMETHYST, TextDecoration.BOLD),
+                    titleScale, NEAR_GATE_TAG);
+            hologram(world, x, FLOOR_Y + 11.1d, z,
+                    Component.text(gate.subtitle(), NamedTextColor.WHITE),
+                    lineScale, NEAR_GATE_TAG);
             // Retitled every second by refreshStatus.
-            hologram(world, x, FLOOR_Y + 9.3d, z,
-                    Component.text("Checking the queue...", NamedTextColor.DARK_GRAY), STATUS_TAG);
+            hologram(world, x, FLOOR_Y + 10d, z,
+                    Component.text("WALK THROUGH • CHECKING QUEUE", CRYSTAL, TextDecoration.BOLD),
+                    lineScale, NEAR_GATE_TAG, STATUS_TAG);
         }
-        hologram(world, RETURN_GATE[0] + 0.5d, FLOOR_Y + 8.6d, RETURN_GATE[1] + 0.5d,
-                Component.text("RETURN TO THE SMP", NamedTextColor.WHITE, TextDecoration.BOLD));
-        hologram(world, RETURN_GATE[0] + 0.5d, FLOOR_Y + 8.25d, RETURN_GATE[1] + 0.5d,
-                Component.text("Back exactly where you came from", NamedTextColor.GRAY));
+        hologram(world, RETURN_GATE[0] + 0.5d, FLOOR_Y + 10.2d, RETURN_GATE[1] + 0.5d,
+                Component.text("RETURN TO THE SMP", NamedTextColor.WHITE, TextDecoration.BOLD),
+                titleScale, NEAR_GATE_TAG);
+        hologram(world, RETURN_GATE[0] + 0.5d, FLOOR_Y + 9.1d, RETURN_GATE[1] + 0.5d,
+                Component.text("WALK THROUGH • BACK TO YOUR EXACT LOCATION", CRYSTAL),
+                lineScale, NEAR_GATE_TAG);
 
         hologram(world, 0.5d, FLOOR_Y + 15.6d, 0.5d,
-                Component.text("THE AMETHYST TERRACE", AMETHYST, TextDecoration.BOLD));
-        hologram(world, 0.5d, FLOOR_Y + 15.25d, 0.5d,
-                Component.text("Your gear. Real terrain. Nothing lost.", CRYSTAL));
-        hologram(world, 0.5d, FLOOR_Y + 3.2d, 0.5d,
-                Component.text("Walk to a gateway to queue", NamedTextColor.GRAY));
+                Component.text("THE AMETHYST TERRACE", AMETHYST, TextDecoration.BOLD),
+                titleScale, NEAR_GATE_TAG);
+        hologram(world, 0.5d, FLOOR_Y + 14.45d, 0.5d,
+                Component.text("YOUR GEAR • REAL TERRAIN • NOTHING LOST", CRYSTAL),
+                lineScale, NEAR_GATE_TAG);
 
         for (Pavilion pavilion : pavilions()) {
             double angle = Math.toRadians(pavilion.angle());
             double x = symmetric(quantised(Math.sin(angle)) * PAVILION_RING) + 0.5d;
             double z = symmetric(-quantised(Math.cos(angle)) * PAVILION_RING) + 0.5d;
-            hologram(world, x, FLOOR_Y + 4.2d, z,
-                    Component.text(pavilion.title(), AMETHYST, TextDecoration.BOLD));
-            double line = FLOOR_Y + 3.85d;
+            hologram(world, x, FLOOR_Y + 4.25d, z,
+                    Component.text(pavilion.title(), AMETHYST, TextDecoration.BOLD),
+                    titleScale, NEAR_BOARD_TAG);
+            double line = FLOOR_Y + 3.2d;
             for (String text : pavilion.body()) {
-                hologram(world, x, line, z, Component.text(text, NamedTextColor.WHITE));
-                line -= 0.32d;
+                hologram(world, x, line, z, Component.text(text, NamedTextColor.WHITE),
+                        lineScale, NEAR_BOARD_TAG);
+                line -= 0.72d;
             }
-            if (pavilion.board() == Board.STATIC) continue;
-            // Blank rows, claimed by refreshBoards. Spawning them up front means the
-            // board never rearranges itself as results come in.
-            String tag = pavilion.board() == Board.RATINGS ? RATINGS_TAG : LIVE_TAG;
-            for (int row = 0; row < BOARD_LINES; row++) {
-                hologram(world, x, line, z,
-                        Component.text(" ", NamedTextColor.DARK_GRAY), tag);
-                line -= 0.32d;
+            if (pavilion.board() != Board.STATIC) {
+                // Blank rows, claimed by refreshBoards. Their roomy spacing prevents
+                // Java text and the Bedrock fallback from collapsing into one smear.
+                String tag = pavilion.board() == Board.RATINGS ? RATINGS_TAG : LIVE_TAG;
+                for (int row = 0; row < BOARD_LINES; row++) {
+                    hologram(world, x, line, z,
+                            Component.text(" ", NamedTextColor.DARK_GRAY), lineScale,
+                            NEAR_BOARD_TAG, tag);
+                    line -= 0.72d;
+                }
             }
+            hologram(world, x, Math.max(FLOOR_Y + 1.45d, line), z,
+                    Component.text(pavilion.prompt(), CRYSTAL, TextDecoration.BOLD),
+                    lineScale, NEAR_BOARD_TAG);
         }
     }
 
-    private static void hologram(World world, double x, double y, double z, Component name,
-            String... tags) {
-        String[] all = new String[tags.length + 1];
+    private static void hologram(
+            World world,
+            double x,
+            double y,
+            double z,
+            Component name,
+            float scale,
+            String distanceTag,
+            String... tags
+    ) {
+        String[] textTags = labelTags(distanceTag, TEXT_LABEL_TAG, tags);
+        TextDisplay display = world.spawn(new Location(world, x, y, z), TextDisplay.class, text -> {
+            text.text(name);
+            text.setBillboard(Display.Billboard.CENTER);
+            text.setAlignment(TextDisplay.TextAlignment.CENTER);
+            text.setShadowed(true);
+            text.setSeeThrough(false);
+            text.setLineWidth(300);
+            text.setBackgroundColor(Color.fromARGB(155, 9, 5, 16));
+            text.setViewRange(4f);
+            text.setPersistent(true);
+            text.setVisibleByDefault(false);
+            text.setTransformation(new Transformation(
+                    new org.joml.Vector3f(), new org.joml.AxisAngle4f(),
+                    new org.joml.Vector3f(scale), new org.joml.AxisAngle4f()));
+            for (String tag : textTags) text.addScoreboardTag(tag);
+        });
+        display.setInterpolationDuration(3);
+
+        String[] fallbackTags = labelTags(distanceTag, FALLBACK_LABEL_TAG, tags);
+        ArmorStand fallback = CrateDisplayService.spawnStyledLabel(
+                new Location(world, x, y, z), name, fallbackTags);
+        fallback.setVisibleByDefault(false);
+    }
+
+    private static String[] labelTags(String distanceTag, String implementationTag, String[] extra) {
+        String[] all = new String[extra.length + 3];
         all[0] = HOLOGRAM_TAG;
-        System.arraycopy(tags, 0, all, 1, tags.length);
-        CrateDisplayService.spawnStyledLabel(new Location(world, x, y, z), name, all);
+        all[1] = implementationTag;
+        all[2] = distanceTag;
+        System.arraycopy(extra, 0, all, 3, extra.length);
+        return all;
+    }
+
+    private static void setLabel(Entity entity, Component value) {
+        if (entity instanceof TextDisplay display) display.text(value);
+        else if (entity instanceof ArmorStand stand) stand.customName(value);
+    }
+
+    private static void clearLobbyLabels(World world) {
+        for (Entity entity : world.getEntities()) {
+            if (entity.getScoreboardTags().contains(HOLOGRAM_TAG)) entity.remove();
+        }
     }
 
     // --------------------------------------------------------------- helpers
@@ -994,6 +1154,18 @@ final class PvpLobbyBuilder {
     ) {
         world.getBlockAt(x + (wideX ? lateral : 0), y, z + (wideX ? 0 : lateral))
                 .setType(material, false);
+    }
+
+    private static void setData(
+            World world, int x, int z, boolean wideX, int lateral, int y, BlockData data
+    ) {
+        world.getBlockAt(x + (wideX ? lateral : 0), y, z + (wideX ? 0 : lateral))
+                .setBlockData(data.clone(), false);
+    }
+
+    private static boolean touchesPortal(Location location) {
+        return location != null && (location.getBlock().getType() == Material.NETHER_PORTAL
+                || location.clone().add(0, 1, 0).getBlock().getType() == Material.NETHER_PORTAL);
     }
 
     /**
