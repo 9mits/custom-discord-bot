@@ -1240,6 +1240,13 @@ final class GameVariableStore {
         decimal("pvp-competitive.lobby-title-scale", "Lobby title scale", "PvP Lobby",
                 "Scale of mode, pavilion, and centre titles in the PvP lobby.",
                 2.4, 0.5, 6.0, "scale");
+        decimal("pvp-competitive.lobby-gate-title-scale", "Queue portal title scale", "PvP Lobby",
+                "Scale of titles fixed directly in front of queue portals.",
+                2.0, 0.5, 5.0, "scale");
+        decimal("pvp-competitive.lobby-leaderboard-title-scale",
+                "Leaderboard title scale", "PvP Lobby",
+                "Scale of titles fixed against leaderboard backing walls.",
+                1.8, 0.5, 4.0, "scale");
         decimal("pvp-competitive.lobby-line-scale", "Lobby line scale", "PvP Lobby",
                 "Scale of subtitles, queue status, and interaction prompts in the PvP lobby.",
                 1.25, 0.5, 4.0, "scale");

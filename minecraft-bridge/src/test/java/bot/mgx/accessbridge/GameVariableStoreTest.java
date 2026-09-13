@@ -78,6 +78,8 @@ final class GameVariableStoreTest {
     void pvpLobbyPresentationAndRegisteredPortalAreRuntimeConfigurable() throws Exception {
         GameVariableStore variables = store();
         assertEquals(2.4d, variables.decimal("pvp-competitive.lobby-title-scale"));
+        assertEquals(2.0d, variables.decimal("pvp-competitive.lobby-gate-title-scale"));
+        assertEquals(1.8d, variables.decimal("pvp-competitive.lobby-leaderboard-title-scale"));
         assertEquals(1.25d, variables.decimal("pvp-competitive.lobby-line-scale"));
         assertEquals(24d, variables.decimal("pvp-competitive.lobby-label-view-distance"));
         assertEquals(12d, variables.decimal("pvp-competitive.lobby-board-view-distance"));

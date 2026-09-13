@@ -106,12 +106,12 @@ final class PvpCompetitionSafetyTest {
         assertTrue(source.contains("lobby-label-view-distance"));
         assertTrue(source.contains("lobby-board-view-distance"));
         assertTrue(source.contains("lobby-leaderboard-view-distance"));
-        // Queue gates are now honest, animated portals and their detailed copy lives
-        // behind the physical pavilion consoles instead of floating in the world.
+        // Queue gates are honest portals and the open pavilions themselves are the
+        // click targets; a lectern must not obstruct the live text or walkway.
         assertTrue(lobby.contains("Material.NETHER_PORTAL.createBlockData()"));
         assertTrue(lobby.contains("touchesPortal(at)"));
-        assertTrue(lobby.contains("Material.LECTERN"));
-        assertTrue(lobby.contains("RIGHT-CLICK TO EXPLORE"));
+        assertFalse(lobby.contains("Material.LECTERN"));
+        assertTrue(lobby.contains("RIGHT-CLICK PAVILION"));
         assertFalse(lobby.contains("You fight with the gear you walked in with."));
         assertTrue(!lobby.contains("Material.OAK_SIGN"));
         assertTrue(source.contains("public void onPortal(PlayerPortalEvent event)"));
@@ -120,13 +120,19 @@ final class PvpCompetitionSafetyTest {
         assertTrue(source.contains("else openMode(player, mode);"));
         assertTrue(source.contains("PvpLobbyBuilder.pavilionAction("));
         assertTrue(lobby.contains("gateLabelLocation(world"));
-        assertTrue(lobby.contains("FLOOR_Y + 11.5d"));
-        assertTrue(lobby.contains("FLOOR_Y + 8.9d"));
+        assertTrue(lobby.contains("FLOOR_Y + 6.8d"));
+        assertTrue(lobby.contains("FLOOR_Y + 3.8d"));
+        assertTrue(lobby.contains("Display.Billboard.FIXED"));
+        assertTrue(lobby.contains("double inward = 2d"));
         int lateClear = lobby.indexOf("clearLobbyLabels(world);", lobby.indexOf("plantGarden"));
         assertTrue(lateClear > 0 && lateClear < lobby.indexOf("buildHolograms(world", lateClear),
                 "stale labels must be removed after geometry loads their chunks");
         assertTrue(lobby.contains("buildLeaderboardGallery(world)"));
         assertTrue(lobby.contains("buildGalleryMoat(world)"));
+        assertTrue(lobby.contains("buildSharedConcourse(world)"));
+        assertTrue(lobby.contains("clearLegacyFightingPlatforms(world)"));
+        assertTrue(lobby.contains("{0, -180, 27}"));
+        assertTrue(lobby.contains("{-180, -100, 46}"));
         assertTrue(lobby.contains("GALLERY_LABEL_TAG"));
         assertTrue(lobby.contains("CLAN_KILLS(\"CLAN KILLS\""));
     }

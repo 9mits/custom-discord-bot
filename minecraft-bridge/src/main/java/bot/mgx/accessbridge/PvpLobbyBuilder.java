@@ -80,15 +80,22 @@ final class PvpLobbyBuilder {
     /** Where the six gateways stand, in the planted ring between plaza and moat. */
     private static final int GATE_RING = 17;
     private static final int PAVILION_RING = 25;
-    private static final int GALLERY_CENTRE_Z = -43;
+    /** Overlaps the main rim by three blocks, making the two circles one connected lobby. */
+    private static final int GALLERY_CENTRE_Z = -40;
     private static final int GALLERY_RADIUS = 16;
-    /** Labels sit just in front of their backing rather than floating across the court. */
-    private static final double GALLERY_BOARD_RING = 14.25d;
+    /** Fixed labels sit safely in front of their backing at every viewing angle. */
+    private static final double GALLERY_BOARD_RING = 13d;
     private static final double GALLERY_FRAME_RING = 14.8d;
     private static final double SPAWN_Z = 12.5d;
     private static final int[] RETURN_GATE = {0, 25};
     /** Where the moat is crossed: the four pavilions and the walk home. */
     private static final double[] CROSSINGS = {45d, 135d, 180d, 225d, 315d};
+    /** Starter arenas generated in this void world by the retired 8.0 PvP system. */
+    private static final int[][] LEGACY_FIGHTING_PLATFORMS = {
+            {0, -180, 27}, {80, -180, 27},
+            {180, -100, 32}, {180, 80, 36},
+            {-180, 80, 36}, {-180, -100, 46}
+    };
 
     private static final TextColor AMETHYST = TextColor.color(0xB56CFF);
     private static final TextColor CRYSTAL = TextColor.color(0xE3C6FF);
@@ -175,7 +182,7 @@ final class PvpLobbyBuilder {
         clearOldLobby(world);
         buildUnderside(world, random);
         buildPlaza(world);
-        buildGardenRing(world, random);
+        buildGardenRing(world);
         buildMoat(world);
         buildRim(world);
         buildLeaderboardGallery(world);
@@ -188,7 +195,7 @@ final class PvpLobbyBuilder {
         buildPavilions(world);
         // Last, so a tree is never planted where a gateway or the terrace is about to
         // go and left hanging in the air with its trunk replaced.
-        plantGarden(world, random);
+        plantGarden(world);
         // The first cleanup can run before a gate chunk has loaded. Geometry touches
         // every lobby chunk, so repeat it here to remove labels left by older formats
         // before the one canonical set is spawned.
@@ -357,7 +364,7 @@ final class PvpLobbyBuilder {
             Component line = status.apply(row.getKey());
             if (line == null) continue;
             Location at = gateLabelLocation(world, originX, originZ, row.getValue(),
-                    FLOOR_Y + 8.9d);
+                    FLOOR_Y + 3.8d);
             world.getNearbyEntities(at, 1.2d, 1.2d, 1.2d).stream()
                     .filter(stand -> stand.getScoreboardTags().contains(STATUS_TAG))
                     .forEach(entity -> setLabel(entity, line));
@@ -441,7 +448,8 @@ final class PvpLobbyBuilder {
     }
 
     static int[] leaderboardPosition(LeaderboardBoard board) {
-        return new int[]{(int) Math.floor(board.x()), (int) Math.floor(board.z())};
+        return new int[]{galleryX(board.angle, GALLERY_FRAME_RING, 0d),
+                galleryZ(board.angle, GALLERY_FRAME_RING, 0d)};
     }
 
     private static Map<PvpMode, Gate> gates() {
@@ -469,6 +477,7 @@ final class PvpLobbyBuilder {
         for (Entity entity : world.getEntities()) {
             if (entity.getScoreboardTags().contains(HOLOGRAM_TAG)) entity.remove();
         }
+        clearLegacyFightingPlatforms(world);
         // Circular rather than square, and only as deep as the old citadel reached:
         // the previous lobby was 96 across, so its corners have to go too.
         for (int x = -52; x <= 52; x++) {
@@ -484,6 +493,42 @@ final class PvpLobbyBuilder {
             for (int z = -67; z < -52; z++) {
                 for (int y = FLOOR_Y - 30; y <= FLOOR_Y + 24; y++) {
                     world.getBlockAt(x, y, z).setType(Material.AIR, false);
+                }
+            }
+        }
+    }
+
+    /**
+     * Removes the six generated arena boxes retired when competitive fights moved back
+     * to the ordinary overworld. Their exact floor, wall and cover coordinates are
+     * deterministic, so this clears every old block without sweeping six huge cuboids.
+     */
+    private static void clearLegacyFightingPlatforms(World world) {
+        int[][] cover = {{-9, -9}, {-9, 9}, {9, -9}, {9, 9}, {0, 0}};
+        for (int[] arena : LEGACY_FIGHTING_PLATFORMS) {
+            int centreX = arena[0];
+            int centreZ = arena[1];
+            int radius = arena[2];
+            for (int x = centreX - radius; x <= centreX + radius; x++) {
+                for (int z = centreZ - radius; z <= centreZ + radius; z++) {
+                    world.getBlockAt(x, FLOOR_Y - 1, z).setType(Material.AIR, false);
+                    world.getBlockAt(x, FLOOR_Y, z).setType(Material.AIR, false);
+                    boolean edge = x == centreX - radius || x == centreX + radius
+                            || z == centreZ - radius || z == centreZ + radius;
+                    if (!edge) continue;
+                    for (int y = FLOOR_Y + 1; y <= FLOOR_Y + 5; y++) {
+                        world.getBlockAt(x, y, z).setType(Material.AIR, false);
+                    }
+                }
+            }
+            for (int[] offset : cover) {
+                for (int dx = -1; dx <= 1; dx++) {
+                    for (int dz = -1; dz <= 1; dz++) {
+                        for (int y = FLOOR_Y + 1; y <= FLOOR_Y + 3; y++) {
+                            world.getBlockAt(centreX + offset[0] + dx, y,
+                                    centreZ + offset[1] + dz).setType(Material.AIR, false);
+                        }
+                    }
                 }
             }
         }
@@ -560,12 +605,11 @@ final class PvpLobbyBuilder {
         ring(world, FLOOR_Y, PLAZA + 1, Material.SMOOTH_BASALT);
         for (int spoke = 0; spoke < 12; spoke++) {
             double angle = Math.toRadians(spoke * 30d + 15d);
-            int x = (int) Math.round(Math.sin(angle) * (PLAZA + 1));
-            int z = (int) Math.round(-Math.cos(angle) * (PLAZA + 1));
-            world.getBlockAt(x, FLOOR_Y + 1, z).setType(Material.DEEPSLATE_BRICK_WALL, false);
-            world.getBlockAt(x, FLOOR_Y + 2, z).setType(Material.AMETHYST_BLOCK, false);
-            world.getBlockAt(x, FLOOR_Y + 3, z).setType(Material.SEA_LANTERN, false);
-            world.getBlockAt(x, FLOOR_Y + 4, z).setType(Material.CHISELED_DEEPSLATE, false);
+            int x = symmetric(quantised(Math.sin(angle)) * (PLAZA + 1));
+            int z = symmetric(-quantised(Math.cos(angle)) * (PLAZA + 1));
+            // Flush lights preserve the twelve-fold rhythm without placing a pillar
+            // across the circulation ring.
+            world.getBlockAt(x, FLOOR_Y, z).setType(Material.SEA_LANTERN, false);
         }
     }
 
@@ -606,19 +650,20 @@ final class PvpLobbyBuilder {
     }
 
     /**
-     * The planted ring: moss, azaleas, small trees and the six gateways standing in it.
+     * The planted ring: mirrored low geode beds and the six gateways standing in it.
      *
      * <p>Green between the stone and the water is what stops a lobby this compact from
-     * feeling like a car park, and it is the one place on the island where the geometry
-     * is allowed to be irregular.
+     * feeling like a car park. Its material variation is mirrored across both axes so
+     * the natural section still reads as one deliberately composed lobby.
      */
-    private static void buildGardenRing(World world, Random random) {
+    private static void buildGardenRing(World world) {
         for (int x = -MOAT_INNER; x <= MOAT_INNER; x++) {
             for (int z = -MOAT_INNER; z <= MOAT_INNER; z++) {
                 double radius = Math.hypot(x, z);
                 if (radius <= PLAZA + 1.5d || radius > MOAT_INNER - 0.5d) continue;
-                Material ground = random.nextInt(9) == 0 ? Material.MOSS_BLOCK
-                        : random.nextInt(7) == 0 ? Material.COARSE_DIRT : Material.GRASS_BLOCK;
+                int pattern = (Math.abs(x) * 7 + Math.abs(z) * 11 + x * x + z * z) % 31;
+                Material ground = pattern == 0 ? Material.COARSE_DIRT
+                        : pattern < 5 ? Material.MOSS_BLOCK : Material.GRASS_BLOCK;
                 world.getBlockAt(x, FLOOR_Y, z).setType(ground, false);
                 world.getBlockAt(x, FLOOR_Y - 1, z).setType(Material.DIRT, false);
             }
@@ -634,91 +679,28 @@ final class PvpLobbyBuilder {
         }
     }
 
-    private static void plantGarden(World world, Random random) {
-        for (int attempt = 0; attempt < 520; attempt++) {
-            double angle = random.nextDouble() * Math.PI * 2d;
-            double radius = PLAZA + 2.5d + random.nextDouble() * (MOAT_INNER - PLAZA - 4d);
-            int x = (int) Math.round(Math.cos(angle) * radius);
-            int z = (int) Math.round(Math.sin(angle) * radius);
-            if (world.getBlockAt(x, FLOOR_Y, z).getType() != Material.GRASS_BLOCK
-                    && world.getBlockAt(x, FLOOR_Y, z).getType() != Material.MOSS_BLOCK) {
-                continue;
-            }
-            if (!clearAround(world, x, z, 1)) continue;
-            int roll = random.nextInt(100);
-            if (roll < 34) {
-                world.getBlockAt(x, FLOOR_Y + 1, z).setType(
-                        random.nextBoolean() ? Material.SHORT_GRASS : Material.FERN, false);
-            } else if (roll < 48) {
-                world.getBlockAt(x, FLOOR_Y + 1, z).setType(flower(random), false);
-            } else if (roll < 60) {
-                world.getBlockAt(x, FLOOR_Y + 1, z).setType(
-                        random.nextBoolean() ? Material.AZALEA : Material.FLOWERING_AZALEA, false);
-            } else if (roll < 70 && clearAround(world, x, z, 2)) {
-                crystalCluster(world, x, z, random);
-            } else if (roll < 80 && clearAround(world, x, z, 2)) {
-                tree(world, x, z, random);
-            }
-        }
-        // Lanterns on the path edges, so the ring is lit without a lamp every four blocks.
-        for (int lamp = 0; lamp < 12; lamp++) {
-            double angle = Math.toRadians(lamp * 30d + 15d);
-            int x = (int) Math.round(Math.cos(angle) * (MOAT_INNER - 2));
-            int z = (int) Math.round(Math.sin(angle) * (MOAT_INNER - 2));
-            if (!clearAround(world, x, z, 0)) continue;
-            world.getBlockAt(x, FLOOR_Y + 1, z).setType(Material.DEEPSLATE_BRICK_WALL, false);
-            world.getBlockAt(x, FLOOR_Y + 2, z).setType(Material.DEEPSLATE_BRICK_WALL, false);
-            world.getBlockAt(x, FLOOR_Y + 3, z).setType(Material.SOUL_LANTERN, false);
-        }
-    }
-
-    private static Material flower(Random random) {
-        return switch (random.nextInt(6)) {
-            case 0 -> Material.ALLIUM;
-            case 1 -> Material.BLUE_ORCHID;
-            case 2 -> Material.CORNFLOWER;
-            case 3 -> Material.LILY_OF_THE_VALLEY;
-            case 4 -> Material.OXEYE_DAISY;
-            default -> Material.AZURE_BLUET;
-        };
-    }
-
-    /** A small hand-built tree; vanilla's generator would fight the paths and the arches. */
-    private static void tree(World world, int x, int z, Random random) {
-        boolean pale = random.nextInt(3) == 0;
-        Material log = pale ? Material.BIRCH_LOG : Material.OAK_LOG;
-        Material leaves = pale ? Material.AZALEA_LEAVES : Material.FLOWERING_AZALEA_LEAVES;
-        int height = 4 + random.nextInt(2);
-        for (int y = 1; y <= height; y++) {
-            world.getBlockAt(x, FLOOR_Y + y, z).setType(log, false);
-        }
-        for (int dx = -2; dx <= 2; dx++) {
-            for (int dz = -2; dz <= 2; dz++) {
-                for (int dy = -1; dy <= 1; dy++) {
-                    double distance = Math.sqrt(dx * dx + dz * dz + dy * dy * 2.2d);
-                    if (distance > 2.4d || (dx == 0 && dz == 0 && dy < 1)) continue;
-                    if (distance > 1.9d && random.nextInt(3) == 0) continue;
-                    setIfAir(world, x + dx, FLOOR_Y + height + dy, z + dz, leaves);
+    private static void plantGarden(World world) {
+        // Four mirrored, low geode beds sit between the six queue paths. Nothing grows
+        // into a path and there are no random trees or lamp posts to obstruct sightlines.
+        for (double angleDegrees : new double[]{60d, 120d, 240d, 300d}) {
+            double angle = Math.toRadians(angleDegrees);
+            int centreX = symmetric(quantised(Math.sin(angle)) * 16d);
+            int centreZ = symmetric(-quantised(Math.cos(angle)) * 16d);
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    if (Math.abs(dx) + Math.abs(dz) > 1) continue;
+                    world.getBlockAt(centreX + dx, FLOOR_Y, centreZ + dz).setType(
+                            dx == 0 && dz == 0 ? Material.CALCITE : Material.MOSS_BLOCK, false);
                 }
             }
-        }
-        if (random.nextBoolean()) {
-            setIfAir(world, x, FLOOR_Y + height + 2, z, Material.AMETHYST_CLUSTER);
-        }
-    }
-
-    /** The geode outcrops that tie the garden back to the rest of the expansion. */
-    private static void crystalCluster(World world, int x, int z, Random random) {
-        world.getBlockAt(x, FLOOR_Y, z).setType(Material.CALCITE, false);
-        world.getBlockAt(x, FLOOR_Y + 1, z).setType(Material.BUDDING_AMETHYST, false);
-        setIfAir(world, x, FLOOR_Y + 2, z, Material.AMETHYST_CLUSTER);
-        for (int[] offset : List.of(new int[]{1, 0}, new int[]{-1, 0},
-                new int[]{0, 1}, new int[]{0, -1})) {
-            if (random.nextInt(3) == 0) continue;
-            world.getBlockAt(x + offset[0], FLOOR_Y, z + offset[1])
-                    .setType(Material.CALCITE, false);
-            setIfAir(world, x + offset[0], FLOOR_Y + 1, z + offset[1],
-                    random.nextBoolean() ? Material.LARGE_AMETHYST_BUD : Material.AMETHYST_CLUSTER);
+            world.getBlockAt(centreX, FLOOR_Y + 1, centreZ)
+                    .setType(Material.BUDDING_AMETHYST, false);
+            world.getBlockAt(centreX, FLOOR_Y + 2, centreZ)
+                    .setType(Material.AMETHYST_CLUSTER, false);
+            world.getBlockAt(centreX - 1, FLOOR_Y + 1, centreZ)
+                    .setType(Material.FLOWERING_AZALEA, false);
+            world.getBlockAt(centreX + 1, FLOOR_Y + 1, centreZ)
+                    .setType(Material.FLOWERING_AZALEA, false);
         }
     }
 
@@ -738,8 +720,8 @@ final class PvpLobbyBuilder {
         // Lights under the water, which is most of why a moat is worth having.
         for (int lamp = 0; lamp < 24; lamp++) {
             double angle = Math.toRadians(lamp * 15d);
-            int x = (int) Math.round(Math.cos(angle) * (MOAT_INNER + 2));
-            int z = (int) Math.round(Math.sin(angle) * (MOAT_INNER + 2));
+            int x = symmetric(quantised(Math.cos(angle)) * (MOAT_INNER + 2));
+            int z = symmetric(quantised(Math.sin(angle)) * (MOAT_INNER + 2));
             world.getBlockAt(x, FLOOR_Y - 2, z).setType(Material.SEA_LANTERN, false);
         }
     }
@@ -768,8 +750,8 @@ final class PvpLobbyBuilder {
         }
         for (int degrees = 0; degrees < 360; degrees++) {
             double angle = Math.toRadians(degrees);
-            int x = (int) Math.round(Math.cos(angle) * RIM);
-            int z = (int) Math.round(Math.sin(angle) * RIM);
+            int x = symmetric(quantised(Math.cos(angle)) * RIM);
+            int z = symmetric(quantised(Math.sin(angle)) * RIM);
             world.getBlockAt(x, FLOOR_Y + 1, z).setType(Material.DEEPSLATE_BRICKS, false);
             world.getBlockAt(x, FLOOR_Y + 2, z).setType(
                     (degrees & 3) == 0 ? Material.DEEPSLATE_BRICK_WALL
@@ -782,21 +764,6 @@ final class PvpLobbyBuilder {
 
     /** A round sister terrace that continues the main lobby's rings and palette. */
     private static void buildLeaderboardGallery(World world) {
-        // Break the north battlement and let the main calcite path flow into the rotunda.
-        for (int z = -31; z <= -25; z++) {
-            for (int x = -4; x <= 4; x++) {
-                world.getBlockAt(x, FLOOR_Y, z).setType(
-                        Math.abs(x) <= 1 ? Material.CALCITE : Material.SMOOTH_BASALT, false);
-                for (int y = 1; y <= 5; y++) {
-                    world.getBlockAt(x, FLOOR_Y + y, z).setType(Material.AIR, false);
-                }
-                if (Math.abs(x) == 4) {
-                    world.getBlockAt(x, FLOOR_Y + 1, z)
-                            .setType(Material.POLISHED_DEEPSLATE_WALL, false);
-                }
-            }
-        }
-
         for (int x = -GALLERY_RADIUS; x <= GALLERY_RADIUS; x++) {
             for (int localZ = -GALLERY_RADIUS; localZ <= GALLERY_RADIUS; localZ++) {
                 double radius = Math.hypot(x, localZ);
@@ -822,9 +789,11 @@ final class PvpLobbyBuilder {
         // A crenellated circular rim, with one deliberate opening back to the lobby.
         for (int degrees = 0; degrees < 720; degrees++) {
             double angle = Math.toRadians(degrees / 2d);
-            int x = (int) Math.round(Math.cos(angle) * GALLERY_RADIUS);
-            int z = GALLERY_CENTRE_Z + (int) Math.round(Math.sin(angle) * GALLERY_RADIUS);
-            boolean entrance = z >= GALLERY_CENTRE_Z + GALLERY_RADIUS - 2 && Math.abs(x) <= 4;
+            int x = symmetric(quantised(Math.cos(angle)) * GALLERY_RADIUS);
+            int z = GALLERY_CENTRE_Z
+                    + symmetric(quantised(Math.sin(angle)) * GALLERY_RADIUS);
+            boolean entrance = z >= GALLERY_CENTRE_Z + GALLERY_RADIUS - 3
+                    && Math.abs(x) <= 10;
             if (entrance) continue;
             world.getBlockAt(x, FLOOR_Y + 1, z).setType(Material.DEEPSLATE_BRICKS, false);
             if ((degrees & 7) == 0) {
@@ -855,35 +824,59 @@ final class PvpLobbyBuilder {
         world.getBlockAt(0, FLOOR_Y + 3, GALLERY_CENTRE_Z)
                 .setType(Material.AMETHYST_CLUSTER, false);
 
-        // The entrance arch is the same deepslate/calcite/crystal language as the hub.
+        // Low marker pylons frame the shared concourse without turning it into another
+        // gate or putting columns in the route between the two halves of the lobby.
         int entranceZ = GALLERY_CENTRE_Z + GALLERY_RADIUS - 1;
-        for (int x : new int[]{-5, 5}) {
-            for (int y = 1; y <= 7; y++) {
+        for (int x : new int[]{-11, 11}) {
+            for (int y = 1; y <= 4; y++) {
                 world.getBlockAt(x, FLOOR_Y + y, entranceZ).setType(
-                        y == 6 ? Material.AMETHYST_BLOCK
+                        y == 3 ? Material.AMETHYST_BLOCK
                                 : y % 2 == 0 ? Material.POLISHED_DEEPSLATE
                                 : Material.DEEPSLATE_BRICKS, false);
             }
-            world.getBlockAt(x, FLOOR_Y + 8, entranceZ)
+            world.getBlockAt(x, FLOOR_Y + 5, entranceZ)
                     .setType(Material.AMETHYST_CLUSTER, false);
-        }
-        for (int x = -4; x <= 4; x++) {
-            world.getBlockAt(x, FLOOR_Y + 7, entranceZ).setType(
-                    Math.abs(x) <= 1 ? Material.CALCITE : Material.POLISHED_DEEPSLATE, false);
         }
 
         // Uneven crystal roots keep the underside in the same floating-geode language
         // as the main terrace when this smaller circle is seen from below.
         for (int spoke = 0; spoke < 8; spoke++) {
             double angle = Math.toRadians(spoke * 45d + 22.5d);
-            int x = (int) Math.round(Math.cos(angle) * 11d);
-            int z = GALLERY_CENTRE_Z + (int) Math.round(Math.sin(angle) * 11d);
+            int x = symmetric(quantised(Math.cos(angle)) * 11d);
+            int z = GALLERY_CENTRE_Z + symmetric(quantised(Math.sin(angle)) * 11d);
             int length = 3 + (spoke % 3);
             for (int depth = 2; depth <= length + 2; depth++) {
                 world.getBlockAt(x, FLOOR_Y - depth, z).setType(
                         depth == length + 2 ? Material.AMETHYST_BLOCK
                                 : Material.COBBLED_DEEPSLATE, false);
             }
+        }
+        buildSharedConcourse(world);
+    }
+
+    /** A broad solid neck that turns the two overlapping circles into one lobby. */
+    private static void buildSharedConcourse(World world) {
+        for (int x = -10; x <= 10; x++) {
+            for (int z = -32; z <= -21; z++) {
+                Material floor = Math.abs(x) <= 2 ? Material.CALCITE
+                        : Math.abs(x) >= 9 ? Material.SMOOTH_BASALT
+                        : ((Math.abs(x) + Math.abs(z)) & 3) == 0
+                        ? Material.CHISELED_DEEPSLATE : Material.DEEPSLATE_TILES;
+                world.getBlockAt(x, FLOOR_Y, z).setType(floor, false);
+                for (int depth = 1; depth <= 4; depth++) {
+                    world.getBlockAt(x, FLOOR_Y - depth, z).setType(
+                            depth == 1 ? Material.DEEPSLATE
+                                    : Material.COBBLED_DEEPSLATE, false);
+                }
+                for (int y = 1; y <= 8; y++) {
+                    world.getBlockAt(x, FLOOR_Y + y, z).setType(Material.AIR, false);
+                }
+            }
+        }
+        // Flush edge lights define the route without railings or pillars.
+        for (int z : new int[]{-31, -27, -23}) {
+            world.getBlockAt(-8, FLOOR_Y, z).setType(Material.SEA_LANTERN, false);
+            world.getBlockAt(8, FLOOR_Y, z).setType(Material.SEA_LANTERN, false);
         }
     }
 
@@ -902,8 +895,8 @@ final class PvpLobbyBuilder {
         }
         for (int lamp = 0; lamp < 16; lamp++) {
             double angle = Math.toRadians(lamp * 22.5d);
-            int x = (int) Math.round(Math.cos(angle) * 7.8d);
-            int z = GALLERY_CENTRE_Z + (int) Math.round(Math.sin(angle) * 7.8d);
+            int x = symmetric(quantised(Math.cos(angle)) * 7.8d);
+            int z = GALLERY_CENTRE_Z + symmetric(quantised(Math.sin(angle)) * 7.8d);
             world.getBlockAt(x, FLOOR_Y - 2, z).setType(Material.SEA_LANTERN, false);
         }
         galleryBridge(world, 180d);
@@ -918,9 +911,9 @@ final class PvpLobbyBuilder {
         double dirZ = -Math.cos(angle);
         for (double step = 5.2d; step <= 10.2d; step += 0.4d) {
             for (double lateral = -1.5d; lateral <= 1.5d; lateral += 0.5d) {
-                int x = (int) Math.round(dirX * step - dirZ * lateral);
+                int x = symmetric(quantised(dirX) * step - quantised(dirZ) * lateral);
                 int z = GALLERY_CENTRE_Z
-                        + (int) Math.round(dirZ * step + dirX * lateral);
+                        + symmetric(quantised(dirZ) * step + quantised(dirX) * lateral);
                 world.getBlockAt(x, FLOOR_Y, z).setType(
                         Math.abs(lateral) < 0.75d ? Material.CALCITE
                                 : Material.SMOOTH_BASALT, false);
@@ -930,15 +923,15 @@ final class PvpLobbyBuilder {
     }
 
     private static void buildLeaderboardFrame(World world, LeaderboardBoard board) {
-        for (int lateral = -3; lateral <= 3; lateral++) {
+        for (int lateral = -4; lateral <= 4; lateral++) {
             for (int y = 1; y <= 8; y++) {
-                boolean frame = Math.abs(lateral) == 3 || y == 1 || y == 8;
+                boolean frame = Math.abs(lateral) == 4 || y == 1 || y == 8;
                 int x = galleryX(board.angle, GALLERY_FRAME_RING, lateral);
                 int z = galleryZ(board.angle, GALLERY_FRAME_RING, lateral);
                 Material material;
                 if (!frame) material = Material.DEEPSLATE_TILES;
                 else if (y == 8 && Math.abs(lateral) <= 1) material = Material.CALCITE;
-                else if (Math.abs(lateral) == 3 && (y == 3 || y == 6)) {
+                else if (Math.abs(lateral) == 4 && (y == 3 || y == 6)) {
                     material = Material.AMETHYST_BLOCK;
                 } else material = Material.POLISHED_DEEPSLATE;
                 world.getBlockAt(x, FLOOR_Y + y, z).setType(material, false);
@@ -969,13 +962,14 @@ final class PvpLobbyBuilder {
 
     private static int galleryX(double angleDegrees, double radius, double lateral) {
         double angle = Math.toRadians(angleDegrees);
-        return (int) Math.round(Math.sin(angle) * radius + Math.cos(angle) * lateral);
+        return symmetric(quantised(Math.sin(angle)) * radius
+                + quantised(Math.cos(angle)) * lateral);
     }
 
     private static int galleryZ(double angleDegrees, double radius, double lateral) {
         double angle = Math.toRadians(angleDegrees);
-        return GALLERY_CENTRE_Z
-                + (int) Math.round(-Math.cos(angle) * radius + Math.sin(angle) * lateral);
+        return GALLERY_CENTRE_Z + symmetric(-quantised(Math.cos(angle)) * radius
+                + quantised(Math.sin(angle)) * lateral);
     }
 
     static int galleryCentreZ() {
@@ -995,8 +989,8 @@ final class PvpLobbyBuilder {
         // both axes at once and leave a hole a player can fall through.
         for (double step = MOAT_INNER - 1; step <= MOAT_OUTER + 1; step += 0.5d) {
             for (double lateral = -2; lateral <= 2; lateral += 0.5d) {
-                int x = (int) Math.round(dirX * step - dirZ * lateral);
-                int z = (int) Math.round(dirZ * step + dirX * lateral);
+                int x = symmetric(quantised(dirX) * step - quantised(dirZ) * lateral);
+                int z = symmetric(quantised(dirZ) * step + quantised(dirX) * lateral);
                 if (Math.abs(lateral) >= 1.75d) {
                     world.getBlockAt(x, FLOOR_Y, z).setType(Material.SMOOTH_BASALT, false);
                     world.getBlockAt(x, FLOOR_Y + 1, z).setType(
@@ -1219,9 +1213,8 @@ final class PvpLobbyBuilder {
             }
             world.getBlockAt(cx, FLOOR_Y + 6, cz).setType(Material.AMETHYST_BLOCK, false);
             world.getBlockAt(cx, FLOOR_Y + 7, cz).setType(Material.AMETHYST_CLUSTER, false);
-            // The lectern is the obvious, physical click target. Detail belongs in the
-            // UI it opens, not in a paragraph hovering across the pavilion.
-            world.getBlockAt(cx, FLOOR_Y + 1, cz).setType(Material.LECTERN, false);
+            // The entire pavilion is the click target; the centre stays open instead
+            // of putting a lectern in the walkway and through the live-match text.
             world.getBlockAt(cx, FLOOR_Y, cz).setType(Material.SEA_LANTERN, false);
             for (int[] light : List.of(new int[]{-2, -2}, new int[]{2, -2},
                     new int[]{-2, 2}, new int[]{2, 2})) {
@@ -1234,16 +1227,16 @@ final class PvpLobbyBuilder {
     private static List<Pavilion> pavilions() {
         List<Pavilion> boards = new ArrayList<>();
         boards.add(new Pavilion(45d, "RANK PROGRESSION", Board.STATIC,
-                List.of("18 ranks • 8 permanent tiers"), "RIGHT-CLICK TO EXPLORE",
+                List.of("18 ranks • 8 permanent tiers"), "RIGHT-CLICK PAVILION",
                 PavilionAction.LADDER));
         boards.add(new Pavilion(135d, "FIGHT RULES", Board.STATIC,
-                List.of("YOUR GEAR • REAL TERRAIN • KEEP INVENTORY"), "RIGHT-CLICK FOR RULES",
+                List.of("YOUR GEAR • REAL TERRAIN • KEEP INVENTORY"), "RIGHT-CLICK PAVILION",
                 PavilionAction.RULES));
         boards.add(new Pavilion(225d, "PVP LEADERBOARDS", Board.STATIC,
                 List.of("6 LIVE PLAYER & CLAN BOARDS"),
-                "FOLLOW THE NORTH BRIDGE", PavilionAction.RATINGS));
+                "FOLLOW THE NORTH CONCOURSE", PavilionAction.RATINGS));
         boards.add(new Pavilion(315d, "LIVE MATCHES", Board.LIVE, List.of(),
-                "RIGHT-CLICK TO SPECTATE", PavilionAction.LIVE));
+                "RIGHT-CLICK PAVILION", PavilionAction.LIVE));
         return boards;
     }
 
@@ -1274,26 +1267,32 @@ final class PvpLobbyBuilder {
     private static void buildHolograms(World world, GameVariableStore variables) {
         float titleScale = (float) variables.decimal("pvp-competitive.lobby-title-scale");
         float lineScale = (float) variables.decimal("pvp-competitive.lobby-line-scale");
+        float gateTitleScale = (float) variables.decimal(
+                "pvp-competitive.lobby-gate-title-scale");
+        float leaderboardTitleScale = (float) variables.decimal(
+                "pvp-competitive.lobby-leaderboard-title-scale");
         for (Map.Entry<PvpMode, Gate> row : GATES.entrySet()) {
             Gate gate = row.getValue();
-            Location title = gateLabelLocation(world, 0d, 0d, gate, FLOOR_Y + 11.5d);
-            Location subtitle = gateLabelLocation(world, 0d, 0d, gate, FLOOR_Y + 10.2d);
-            Location status = gateLabelLocation(world, 0d, 0d, gate, FLOOR_Y + 8.9d);
-            hologram(world, title.getX(), title.getY(), title.getZ(),
+            Location title = gateLabelLocation(world, 0d, 0d, gate, FLOOR_Y + 6.8d);
+            Location subtitle = gateLabelLocation(world, 0d, 0d, gate, FLOOR_Y + 5.3d);
+            Location status = gateLabelLocation(world, 0d, 0d, gate, FLOOR_Y + 3.8d);
+            fixedHologram(world, title.getX(), title.getY(), title.getZ(), gate.angle(),
                     Component.text(gate.title(), AMETHYST, TextDecoration.BOLD),
-                    titleScale, NEAR_GATE_TAG);
-            hologram(world, subtitle.getX(), subtitle.getY(), subtitle.getZ(),
+                    gateTitleScale, NEAR_GATE_TAG);
+            fixedHologram(world, subtitle.getX(), subtitle.getY(), subtitle.getZ(), gate.angle(),
                     Component.text(gate.subtitle(), NamedTextColor.WHITE),
                     lineScale, NEAR_GATE_TAG);
             // Retitled every second by refreshStatus.
-            hologram(world, status.getX(), status.getY(), status.getZ(),
+            fixedHologram(world, status.getX(), status.getY(), status.getZ(), gate.angle(),
                     Component.text("WALK THROUGH • CHECKING QUEUE", CRYSTAL, TextDecoration.BOLD),
                     lineScale, NEAR_GATE_TAG, STATUS_TAG);
         }
-        hologram(world, RETURN_GATE[0] + 0.5d, FLOOR_Y + 9.2d, RETURN_GATE[1] - 0.8d,
+        fixedHologram(world, RETURN_GATE[0] + 0.5d, FLOOR_Y + 5.8d,
+                RETURN_GATE[1] - 1.8d, 180d,
                 Component.text("RETURN TO THE SMP", NamedTextColor.WHITE, TextDecoration.BOLD),
-                titleScale, NEAR_GATE_TAG);
-        hologram(world, RETURN_GATE[0] + 0.5d, FLOOR_Y + 7.8d, RETURN_GATE[1] - 0.8d,
+                gateTitleScale, NEAR_GATE_TAG);
+        fixedHologram(world, RETURN_GATE[0] + 0.5d, FLOOR_Y + 4.3d,
+                RETURN_GATE[1] - 1.8d, 180d,
                 Component.text("WALK THROUGH • BACK TO YOUR EXACT LOCATION", CRYSTAL),
                 lineScale, NEAR_GATE_TAG);
 
@@ -1308,12 +1307,13 @@ final class PvpLobbyBuilder {
             double angle = Math.toRadians(pavilion.angle());
             double x = symmetric(quantised(Math.sin(angle)) * PAVILION_RING) + 0.5d;
             double z = symmetric(-quantised(Math.cos(angle)) * PAVILION_RING) + 0.5d;
-            hologram(world, x, FLOOR_Y + 4.25d, z,
+            fixedHologram(world, x, FLOOR_Y + 4.25d, z, pavilion.angle(),
                     Component.text(pavilion.title(), AMETHYST, TextDecoration.BOLD),
                     titleScale, NEAR_BOARD_TAG);
             double line = FLOOR_Y + 3.2d;
             for (String text : pavilion.body()) {
-                hologram(world, x, line, z, Component.text(text, NamedTextColor.WHITE),
+                fixedHologram(world, x, line, z, pavilion.angle(),
+                        Component.text(text, NamedTextColor.WHITE),
                         lineScale, NEAR_BOARD_TAG);
                 line -= 0.72d;
             }
@@ -1321,33 +1321,34 @@ final class PvpLobbyBuilder {
                 // Blank rows, claimed by refreshBoards. Their roomy spacing prevents
                 // Java text and the Bedrock fallback from collapsing into one smear.
                 for (int row = 0; row < LIVE_BOARD_LINES; row++) {
-                    hologram(world, x, line, z,
+                    fixedHologram(world, x, line, z, pavilion.angle(),
                             Component.text(" ", NamedTextColor.DARK_GRAY), lineScale,
                             NEAR_BOARD_TAG, LIVE_TAG);
                     line -= 0.72d;
                 }
             }
-            hologram(world, x, Math.max(FLOOR_Y + 1.45d, line), z,
+            fixedHologram(world, x, Math.max(FLOOR_Y + 1.45d, line), z,
+                    pavilion.angle(),
                     Component.text(pavilion.prompt(), CRYSTAL, TextDecoration.BOLD),
                     lineScale, NEAR_BOARD_TAG);
         }
 
         double entranceZ = GALLERY_CENTRE_Z + GALLERY_RADIUS - 1.3d;
-        hologram(world, 0.5d, FLOOR_Y + 9.5d, entranceZ,
+        fixedHologram(world, 0.5d, FLOOR_Y + 5.7d, entranceZ, 0d,
                 Component.text("PVP LEADERBOARDS", AMETHYST, TextDecoration.BOLD),
-                titleScale, GALLERY_LABEL_TAG);
-        hologram(world, 0.5d, FLOOR_Y + 8.15d, entranceZ,
+                gateTitleScale, GALLERY_LABEL_TAG);
+        fixedHologram(world, 0.5d, FLOOR_Y + 4.25d, entranceZ, 0d,
                 Component.text("LIVE PLAYER & CLAN RECORDS", CRYSTAL, TextDecoration.BOLD),
                 lineScale, GALLERY_LABEL_TAG);
         for (LeaderboardBoard board : LeaderboardBoard.values()) {
             double x = board.x();
             double z = board.z();
-            hologram(world, x, FLOOR_Y + 7d, z,
+            fixedHologram(world, x, FLOOR_Y + 7d, z, board.angle,
                     Component.text(board.title, AMETHYST, TextDecoration.BOLD),
-                    titleScale, GALLERY_LABEL_TAG);
+                    leaderboardTitleScale, GALLERY_LABEL_TAG);
             double line = FLOOR_Y + 5.4d;
             for (int row = 0; row < LEADERBOARD_LINES; row++) {
-                hologram(world, x, line, z,
+                fixedHologram(world, x, line, z, board.angle,
                         Component.text(" ", NamedTextColor.DARK_GRAY), lineScale,
                         GALLERY_LABEL_TAG, board.tag);
                 line -= 0.78d;
@@ -1365,10 +1366,44 @@ final class PvpLobbyBuilder {
             String distanceTag,
             String... tags
     ) {
+        spawnHologram(world, x, y, z, 0d, Display.Billboard.VERTICAL,
+                name, scale, distanceTag, tags);
+    }
+
+    /** A backed label that keeps its plane parallel to the wall or portal behind it. */
+    private static void fixedHologram(
+            World world,
+            double x,
+            double y,
+            double z,
+            double yaw,
+            Component name,
+            float scale,
+            String distanceTag,
+            String... tags
+    ) {
+        spawnHologram(world, x, y, z, yaw, Display.Billboard.FIXED,
+                name, scale, distanceTag, tags);
+    }
+
+    private static void spawnHologram(
+            World world,
+            double x,
+            double y,
+            double z,
+            double yaw,
+            Display.Billboard billboard,
+            Component name,
+            float scale,
+            String distanceTag,
+            String... tags
+    ) {
+        Location at = new Location(world, x, y, z, (float) yaw, 0f);
         String[] textTags = labelTags(distanceTag, TEXT_LABEL_TAG, tags);
-        TextDisplay display = world.spawn(new Location(world, x, y, z), TextDisplay.class, text -> {
+        TextDisplay display = world.spawn(at, TextDisplay.class, text -> {
             text.text(name);
-            text.setBillboard(Display.Billboard.VERTICAL);
+            text.setBillboard(billboard);
+            text.setRotation((float) yaw, 0f);
             text.setAlignment(TextDisplay.TextAlignment.CENTER);
             text.setShadowed(true);
             text.setSeeThrough(false);
@@ -1388,7 +1423,7 @@ final class PvpLobbyBuilder {
 
         String[] fallbackTags = labelTags(distanceTag, FALLBACK_LABEL_TAG, tags);
         ArmorStand fallback = CrateDisplayService.spawnStyledLabel(
-                new Location(world, x, y, z), name, fallbackTags);
+                at, name, fallbackTags);
         fallback.setVisibleByDefault(false);
     }
 
@@ -1410,7 +1445,7 @@ final class PvpLobbyBuilder {
             World world, double originX, double originZ, Gate gate, double y
     ) {
         double radius = Math.max(1d, Math.hypot(gate.x(), gate.z()));
-        double inward = 1.35d;
+        double inward = 2d;
         return new Location(world,
                 originX + gate.x() + 0.5d - gate.x() / radius * inward,
                 y,
@@ -1431,10 +1466,10 @@ final class PvpLobbyBuilder {
         double dirX = Math.sin(angle);
         double dirZ = -Math.cos(angle);
         for (double step = PLAZA; step <= toRadius; step += 0.5d) {
-            for (double lateral = -1; lateral <= 1; lateral += 0.5d) {
-                int x = (int) Math.round(dirX * step - dirZ * lateral);
-                int z = (int) Math.round(dirZ * step + dirX * lateral);
-                world.getBlockAt(x, FLOOR_Y, z).setType(Math.abs(lateral) < 0.75d
+            for (double lateral = -2; lateral <= 2; lateral += 0.5d) {
+                int x = symmetric(quantised(dirX) * step - quantised(dirZ) * lateral);
+                int z = symmetric(quantised(dirZ) * step + quantised(dirX) * lateral);
+                world.getBlockAt(x, FLOOR_Y, z).setType(Math.abs(lateral) < 1.25d
                         ? Material.CALCITE : Material.SMOOTH_BASALT, false);
                 world.getBlockAt(x, FLOOR_Y + 1, z).setType(Material.AIR, false);
             }
@@ -1444,28 +1479,8 @@ final class PvpLobbyBuilder {
     private static void ring(World world, int y, int radius, Material material) {
         for (int degrees = 0; degrees < 720; degrees++) {
             double angle = Math.toRadians(degrees / 2d);
-            int x = (int) Math.round(Math.cos(angle) * radius);
-            int z = (int) Math.round(Math.sin(angle) * radius);
-            world.getBlockAt(x, y, z).setType(material, false);
-        }
-    }
-
-    private static boolean clearAround(World world, int x, int z, int radius) {
-        for (int dx = -radius; dx <= radius; dx++) {
-            for (int dz = -radius; dz <= radius; dz++) {
-                Material ground = world.getBlockAt(x + dx, FLOOR_Y, z + dz).getType();
-                if (ground != Material.GRASS_BLOCK && ground != Material.MOSS_BLOCK
-                        && ground != Material.COARSE_DIRT) {
-                    return false;
-                }
-                if (!world.getBlockAt(x + dx, FLOOR_Y + 1, z + dz).getType().isAir()) return false;
-            }
-        }
-        return true;
-    }
-
-    private static void setIfAir(World world, int x, int y, int z, Material material) {
-        if (world.getBlockAt(x, y, z).getType().isAir()) {
+            int x = symmetric(quantised(Math.cos(angle)) * radius);
+            int z = symmetric(quantised(Math.sin(angle)) * radius);
             world.getBlockAt(x, y, z).setType(material, false);
         }
     }

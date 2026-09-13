@@ -230,7 +230,9 @@ final class PvpCompetitionService implements Listener {
         plugin.getServer().getScheduler().runTaskLater(plugin, this::refreshEntrancePortal, 1L);
         plugin.gameVariables().onChange(key -> {
             if (key.equals("pvp-competitive.lobby-title-scale")
-                    || key.equals("pvp-competitive.lobby-line-scale")) {
+                    || key.equals("pvp-competitive.lobby-line-scale")
+                    || key.equals("pvp-competitive.lobby-gate-title-scale")
+                    || key.equals("pvp-competitive.lobby-leaderboard-title-scale")) {
                 plugin.getServer().getScheduler().runTask(plugin, () -> lobbyStore.lobby()
                         .ifPresent(lobby -> PvpLobbyBuilder.refreshHolograms(
                                 lobby, plugin.gameVariables())));
