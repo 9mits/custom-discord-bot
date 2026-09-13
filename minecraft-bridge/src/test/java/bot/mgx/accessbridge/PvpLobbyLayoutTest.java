@@ -54,18 +54,30 @@ final class PvpLobbyLayoutTest {
         assertNull(PvpLobbyBuilder.gatePosition(PvpMode.TRIPLES));
     }
 
-    /** Every structure on the island: three arches, six records walls, the way home. */
-    private static List<int[]> ring() {
+    /** The inner ring: three arches and the way home. */
+    private static List<int[]> gateRing() {
         List<int[]> spots = new ArrayList<>();
         for (PvpMode mode : PvpMode.values()) {
             int[] at = PvpLobbyBuilder.gatePosition(mode);
             if (at != null) spots.add(at);
         }
+        spots.add(PvpLobbyBuilder.returnGatePosition());
+        return spots;
+    }
+
+    /** The outer ring: the six records walls. */
+    private static List<int[]> boardRing() {
+        List<int[]> spots = new ArrayList<>();
         for (PvpLobbyBuilder.LeaderboardBoard board
                 : PvpLobbyBuilder.LeaderboardBoard.values()) {
             spots.add(PvpLobbyBuilder.leaderboardPosition(board));
         }
-        spots.add(PvpLobbyBuilder.returnGatePosition());
+        return spots;
+    }
+
+    private static List<int[]> ring() {
+        List<int[]> spots = new ArrayList<>(gateRing());
+        spots.addAll(boardRing());
         return spots;
     }
 
@@ -77,25 +89,52 @@ final class PvpLobbyLayoutTest {
      * compiles perfectly and looks, from the middle, like the builder gave up.
      */
     @Test
-    void everyStructureStandsOnTheOneRingAtTheOneSpacing() {
-        List<int[]> spots = ring();
-        assertEquals(10, spots.size(), "the ring is ten structures");
+    void everyStructureStandsOnItsOwnRingAtTheOneSpacing() {
+        assertEquals(4, gateRing().size(), "the inner ring is three arches and the way home");
+        assertEquals(6, boardRing().size(), "the outer ring is six records walls");
         Set<String> seen = new HashSet<>();
-        for (int[] at : spots) {
+        for (int[] at : ring()) {
             assertTrue(seen.add(at[0] + ":" + at[1]),
                     "two structures share the spot " + at[0] + "," + at[1]);
-            double radius = Math.hypot(at[0], at[1]);
-            // Rounding to whole blocks can move a point half a block off the circle.
-            assertTrue(Math.abs(radius - PvpLobbyBuilder.gateRing()) <= 0.75d,
-                    "a structure sits at radius " + radius + ", off the ring");
         }
-        double step = 360d / spots.size();
-        for (int[] at : spots) {
+        assertOnRing(gateRing(), PvpLobbyBuilder.gateRing());
+        assertOnRing(boardRing(), PvpLobbyBuilder.boardRing());
+        // Both rings step in the same ten bearings, which is what ties them together.
+        double step = 36d;
+        for (int[] at : ring()) {
             double bearing = (Math.toDegrees(Math.atan2(at[0], -at[1])) + 360d) % 360d;
             double off = Math.min(bearing % step, step - bearing % step);
             assertTrue(off <= 2.5d,
                     "a structure sits on bearing " + bearing + ", off the " + step + " step");
         }
+    }
+
+    private static void assertOnRing(List<int[]> spots, int radius) {
+        for (int[] at : spots) {
+            double found = Math.hypot(at[0], at[1]);
+            // Rounding to whole blocks can move a point half a block off the circle.
+            assertTrue(Math.abs(found - radius) <= 0.75d,
+                    "a structure sits at radius " + found + ", off the ring at " + radius);
+        }
+    }
+
+    /**
+     * The records walls need arc, and the gateways need to be close.
+     *
+     * <p>Six sets of five result rows standing five blocks clear of their own backing
+     * overlap each other long before the walls do, which is why the two rings exist at
+     * all. If the outer ring is ever pulled in to the inner one, filled leaderboards
+     * become unreadable again.
+     */
+    @Test
+    void theRecordsRingHasTheArcSixFillingBoardsNeed() {
+        int radius = PvpLobbyBuilder.boardRing();
+        assertTrue(radius > PvpLobbyBuilder.gateRing() + 6,
+                "the records ring must stand well outside the gateway ring");
+        double labelRadius = radius - 5d;
+        double arcBetweenBoards = 2d * Math.PI * labelRadius * (36d / 360d);
+        assertTrue(arcBetweenBoards >= 11d,
+                "adjacent result rows have only " + arcBetweenBoards + " blocks between them");
     }
 
     /** A plan that is not mirrored is the one thing a player notices from the middle. */
@@ -138,6 +177,8 @@ final class PvpLobbyLayoutTest {
             // The northern arc belongs to the arches and due south to the way home.
             assertTrue(!(Math.abs(at[0]) <= 4),
                     board + " stands on the axis, which the arches and the way home own");
+            assertTrue(Math.abs(Math.hypot(at[0], at[1]) - PvpLobbyBuilder.boardRing()) <= 0.75d,
+                    board + " is not on the records ring");
         }
         assertEquals(6, seen.size());
     }
@@ -211,13 +252,79 @@ final class PvpLobbyLayoutTest {
                 "no console should exist only to send players to another island");
     }
 
-    private static String source() {
+    /**
+     * A console page is a destination, not a step in a journey.
+     *
+     * <p>Back on a page opened from a block in the world has nowhere to return to, and
+     * the framework's fallback sends the player to the server's main menu — out of the
+     * page the console exists to show, and into something unrelated to PvP.
+     */
+    @Test
+    void consolePagesOfferCloseRatherThanBack() {
+        String service = service();
+        assertTrue(service.contains("case LADDER -> openLadder(player, STANDALONE)"));
+        assertTrue(service.contains("case RULES -> openRules(player, STANDALONE)"));
+        assertTrue(service.contains("case PLAY -> openModes(player, STANDALONE)"));
+        assertTrue(service.contains("case LIVE -> openLive(player, STANDALONE)"));
+        assertTrue(service.contains("Screens.showStandalone(player, title, page, buttons, columns)"));
+        String screens = read("Screens.java");
+        assertTrue(screens.contains("static void showStandalone("),
+                "the framework needs a no-parent page, not a disabled Back");
+    }
+
+    /**
+     * The queue page cannot be read while its reader is stood in a live portal.
+     *
+     * <p>The client dismisses its own dialog when portal travel begins, and travel
+     * begins again every time the suppression cooldown lapses, so the page opened and
+     * vanished on a loop. Stepping the player out is the fix; a longer cooldown is
+     * only a faster race.
+     */
+    @Test
+    void walkingIntoAnArchStepsYouBackOutBeforeThePageOpens() {
+        String service = service();
+        assertTrue(service.contains("private void openQueuePage("));
+        int step = service.indexOf("if (approach != null) teleport(player, approach);");
+        int open = service.indexOf("else openMode(player, mode);", step);
+        assertTrue(step > 0 && open > step,
+                "the player must be stepped out before the page is opened");
+        assertTrue(source().contains("static Location gateApproach("));
+        // Both the walk-in and the portal event take the same path.
+        assertEquals(2, service.split("openQueuePage\\(", -1).length - 1 - 1,
+                "both portal entry paths should call openQueuePage");
+    }
+
+    /**
+     * /pvp is permanent and is not part of any running event.
+     *
+     * <p>Naming the lobby after a limited-time event tells players the whole mode is
+     * temporary, and leaves the name wrong the moment the event ends.
+     */
+    @Test
+    void theLobbyIsNotNamedAfterATemporaryEvent() {
+        String lobby = source();
+        assertTrue(!lobby.contains("AMETHYST TERRACE"),
+                "the lobby must not be named after the Amethyst event");
+        assertTrue(lobby.contains("THE PROVING GROUNDS"));
+        assertTrue(!lobby.contains("NOTHING LOST"),
+                "the centre title carries no motto under it");
+    }
+
+    private static String service() {
+        return read("PvpCompetitionService.java");
+    }
+
+    private static String read(String name) {
         try {
             return Files.readString(
-                    Path.of("src/main/java/bot/mgx/accessbridge/PvpLobbyBuilder.java"),
+                    Path.of("src/main/java/bot/mgx/accessbridge/" + name),
                     StandardCharsets.UTF_8);
         } catch (java.io.IOException error) {
             throw new java.io.UncheckedIOException(error);
         }
+    }
+
+    private static String source() {
+        return read("PvpLobbyBuilder.java");
     }
 }

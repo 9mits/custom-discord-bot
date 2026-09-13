@@ -107,6 +107,25 @@ final class Screens {
                 DialogBase.DialogAfterAction.NONE);
     }
 
+    /**
+     * A screen opened from the world rather than from another screen.
+     *
+     * <p>A lobby console is the way into exactly one page, so there is nowhere to go
+     * back to. Offering Back there walks the player out into the main menu, which is
+     * neither where they came from nor what the console is for; its only honest exit
+     * is Close.
+     */
+    static void showStandalone(
+            Player player,
+            String title,
+            List<DialogBody> body,
+            List<ActionButton> buttons,
+            int columns
+    ) {
+        draw(player, title, body, List.of(), withExit(buttons, close()), columns,
+                DialogBase.DialogAfterAction.NONE);
+    }
+
     static List<DialogBody> body(String text) {
         return List.of(DialogBody.plainMessage(MenuText.body(text), 400));
     }
