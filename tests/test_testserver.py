@@ -44,6 +44,61 @@ class LocalBridgeConfigTests(unittest.TestCase):
         )
 
 
+class VanillaDuplicationConfigTests(unittest.TestCase):
+    def test_only_technical_minecraft_dupers_are_enabled(self):
+        original = """\
+unsupported-settings:
+  allow-headless-pistons: false
+  allow-permanent-block-break-exploits: false
+  allow-piston-duplication: false # Paper default
+  allow-unsafe-end-portal-teleportation: false
+  skip-tripwire-hook-placement-validation: false
+"""
+
+        patched = testserver.vanilla_duplication_config(original)
+
+        self.assertIn("allow-piston-duplication: true # Paper default", patched)
+        self.assertIn("allow-unsafe-end-portal-teleportation: true", patched)
+        self.assertIn("allow-headless-pistons: false", patched)
+        self.assertIn("allow-permanent-block-break-exploits: false", patched)
+        self.assertIn("skip-tripwire-hook-placement-validation: false", patched)
+        self.assertEqual(patched, testserver.vanilla_duplication_config(patched))
+
+    def test_missing_duplication_switches_are_added_to_the_unsupported_section(self):
+        original = """\
+version: 31
+unsupported-settings:
+  perform-username-validation: true
+"""
+
+        patched = testserver.vanilla_duplication_config(original)
+
+        marker = "unsupported-settings:\n"
+        self.assertIn(
+            marker
+            + "  allow-piston-duplication: true\n"
+            + "  allow-unsafe-end-portal-teleportation: true\n",
+            patched,
+        )
+
+    def test_configuration_file_is_updated_in_place(self):
+        with TemporaryDirectory() as holder:
+            server = Path(holder)
+            config = server / "config" / "paper-global.yml"
+            config.parent.mkdir()
+            config.write_text(
+                "unsupported-settings:\n"
+                "  allow-piston-duplication: false\n"
+                "  allow-unsafe-end-portal-teleportation: false\n"
+            )
+            with mock.patch.object(testserver, "SERVER", server):
+                self.assertTrue(testserver.configure_vanilla_duplication())
+
+            updated = config.read_text()
+            self.assertIn("allow-piston-duplication: true", updated)
+            self.assertIn("allow-unsafe-end-portal-teleportation: true", updated)
+
+
 class JavaResourcePackConfigTests(unittest.TestCase):
     def test_pack_hash_updates_url_hash_and_cache_identity(self):
         original = """\
