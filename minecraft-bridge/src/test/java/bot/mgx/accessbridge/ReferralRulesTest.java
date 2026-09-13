@@ -14,7 +14,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ReferralRulesTest {
     private static final long NOW = 1_800_000_000_000L;
-    private static final ReferralRules.Settings SETTINGS = new ReferralRules.Settings(7, 60, 3, true);
+    private static final ReferralRules.Settings SETTINGS = new ReferralRules.Settings(7, 60, true);
 
     private static ReferralRules.Account veteran(String owner, String... addresses) {
         return new ReferralRules.Account(UUID.randomUUID(), owner, NOW - 30 * DAY_MILLIS, 600,
@@ -39,7 +39,7 @@ class ReferralRulesTest {
         assertNotNull(ReferralRules.refusal(newcomer("friend", "home"), ReferralRules.Kind.NEW,
                 true, inviter, List.of(), SETTINGS, NOW));
         assertNull(ReferralRules.refusal(newcomer("friend", "home"), ReferralRules.Kind.NEW, true,
-                inviter, List.of(), new ReferralRules.Settings(7, 60, 3, false), NOW));
+                inviter, List.of(), new ReferralRules.Settings(7, 60, false), NOW));
     }
 
     @Test
@@ -65,7 +65,7 @@ class ReferralRulesTest {
     }
 
     @Test
-    void limitsReciprocityAndRepeatNewReferralsAreEnforced() {
+    void referralsAreUnlimitedButReciprocityAndRepeatNewReferralsAreRefused() {
         ReferralRules.Account inviter = veteran("inviter");
         ReferralRules.Account friend = veteran("friend");
         String inviterKey = inviter.ownerKey();
@@ -73,14 +73,8 @@ class ReferralRulesTest {
                 new ReferralRules.Referral(inviterKey, "discord:x", ReferralRules.Kind.NEW, NOW - DAY_MILLIS),
                 new ReferralRules.Referral(inviterKey, "discord:y", ReferralRules.Kind.NEW, NOW - DAY_MILLIS),
                 new ReferralRules.Referral(inviterKey, "discord:z", ReferralRules.Kind.RETURNING, NOW - DAY_MILLIS));
-        assertNotNull(ReferralRules.refusal(friend, ReferralRules.Kind.RETURNING, true, inviter,
-                full, SETTINGS, NOW));
-        List<ReferralRules.Referral> old = full.stream()
-                .map(row -> new ReferralRules.Referral(row.referrerOwner(), row.refereeOwner(),
-                        row.kind(), NOW - 40 * DAY_MILLIS))
-                .toList();
         assertNull(ReferralRules.refusal(friend, ReferralRules.Kind.RETURNING, true, inviter,
-                old, SETTINGS, NOW), "the limit is a rolling 30 days");
+                full, SETTINGS, NOW), "one player may bring as many people as they like");
 
         List<ReferralRules.Referral> turnAbout = List.of(new ReferralRules.Referral(
                 friend.ownerKey(), inviterKey, ReferralRules.Kind.RETURNING, NOW - 90 * DAY_MILLIS));

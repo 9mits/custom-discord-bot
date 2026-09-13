@@ -16,7 +16,6 @@ import java.util.UUID;
  */
 final class ReferralRules {
     static final long DAY_MILLIS = 86_400_000L;
-    static final long WINDOW_MILLIS = 30L * DAY_MILLIS;
 
     enum Kind {
         NEW,
@@ -43,7 +42,6 @@ final class ReferralRules {
     record Settings(
             long referrerMinimumDays,
             long referrerMinimumPlayMinutes,
-            int maximumPer30Days,
             boolean blockSharedAddress
     ) {
     }
@@ -113,7 +111,6 @@ final class ReferralRules {
         }
         String referrerOwner = referrer.ownerKey();
         String refereeOwner = referee.ownerKey();
-        int recent = 0;
         for (Referral past : history) {
             if (kind == Kind.NEW && past.kind() == Kind.NEW
                     && past.refereeOwner().equals(refereeOwner)) {
@@ -124,12 +121,6 @@ final class ReferralRules {
                     && past.refereeOwner().equals(referrerOwner)) {
                 return "You and that player have already referred each other.";
             }
-            if (past.referrerOwner().equals(referrerOwner) && now - past.at() < WINDOW_MILLIS) {
-                recent++;
-            }
-        }
-        if (recent >= settings.maximumPer30Days()) {
-            return "That player has reached their referral reward limit for now.";
         }
         return null;
     }

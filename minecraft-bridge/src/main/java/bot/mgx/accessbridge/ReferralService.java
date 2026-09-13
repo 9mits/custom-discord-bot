@@ -40,10 +40,10 @@ import static bot.mgx.accessbridge.MenuItems.ORANGE;
  * Shard rewards for coming back after a long absence and for bringing people to the
  * server, with {@code /referredby <player>} and {@code /referrals}.
  *
- * <p>Nothing is paid at the moment somebody joins. A new or returning player first has
- * to play a stretch of non-AFK minutes on the real server — the verification lobby does
- * not count — so an alt that joins, names its owner and leaves earns nobody anything.
- * {@link ReferralRules} decides the rest.
+ * <p>Rewards are instant: a returning player is paid as soon as they reach the real
+ * server, and a referral pays both sides the moment {@code /referredby} is accepted.
+ * There is no cap on how many players one person may bring. The verification lobby
+ * still holds everything back, and {@link ReferralRules} refuses alts.
  */
 final class ReferralService implements Listener, CommandExecutor, TabCompleter {
     private static final long TICKS_PER_MINUTE = 20L * 60L;
@@ -124,11 +124,8 @@ final class ReferralService implements Listener, CommandExecutor, TabCompleter {
             }
             if (kind != null) {
                 store.openWelcome(id, kind, now);
-                plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
-                    if (player.isOnline() && !VerificationLobbyService.isLobbyWorld(player.getWorld())) {
-                        sendWelcome(player);
-                    }
-                }, 80L);
+                // A tick of grace so the reward lands in a loaded inventory.
+                plugin.getServer().getScheduler().runTaskLater(plugin, () -> release(player), 80L);
             }
         }
         save();
@@ -137,14 +134,25 @@ final class ReferralService implements Listener, CommandExecutor, TabCompleter {
         }, 60L);
     }
 
-    /** A new player sees the offer when the verification lobby releases them, not inside it. */
+    /** A player held in the verification lobby is paid and told when it releases them. */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onWorldChange(PlayerChangedWorldEvent event) {
-        if (VerificationLobbyService.isLobbyWorld(event.getFrom())
-                && !VerificationLobbyService.isLobbyWorld(event.getPlayer().getWorld())
-                && store.welcome(event.getPlayer().getUniqueId()).isPresent()) {
-            sendWelcome(event.getPlayer());
+        if (VerificationLobbyService.isLobbyWorld(event.getFrom())) {
+            release(event.getPlayer());
         }
+    }
+
+    private void release(Player player) {
+        if (!player.isOnline() || VerificationLobbyService.isLobbyWorld(player.getWorld())) {
+            return;
+        }
+        Optional<ReferralStore.Welcome> open = store.welcome(player.getUniqueId());
+        if (open.isEmpty()) return;
+        if (enabled() && !open.get().qualified) {
+            qualify(player, open.get(), System.currentTimeMillis());
+            save();
+        }
+        sendWelcome(player);
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -161,7 +169,6 @@ final class ReferralService implements Listener, CommandExecutor, TabCompleter {
 
     private void tickMinute() {
         long now = System.currentTimeMillis();
-        int qualifyMinutes = variables.integer("referrals.qualify-active-minutes");
         int window = variables.integer("referrals.claim-window-minutes");
         for (Player player : List.copyOf(plugin.getServer().getOnlinePlayers())) {
             UUID id = player.getUniqueId();
@@ -174,11 +181,7 @@ final class ReferralService implements Listener, CommandExecutor, TabCompleter {
             }
             ReferralStore.Welcome welcome = open.get();
             welcome.onlineMinutes++;
-            AfkService afk = plugin.afkService();
-            if (afk == null || !afk.isAfk(id)) {
-                welcome.activeMinutes++;
-            }
-            if (enabled() && !welcome.qualified && welcome.activeMinutes >= qualifyMinutes) {
+            if (enabled() && !welcome.qualified) {
                 qualify(player, welcome, now);
             }
             boolean windowOver = welcome.onlineMinutes >= window;
@@ -324,21 +327,12 @@ final class ReferralService implements Listener, CommandExecutor, TabCompleter {
         welcome.referrer = referrerId.toString();
         store.addReferral(referrerId, referrer.ownerKey(), id, referee.ownerKey(),
                 welcome.kind, now);
-        String referrerName = target.getName() == null ? name : target.getName();
-        int waiting = Math.max(0,
-                variables.integer("referrals.qualify-active-minutes") - welcome.activeMinutes);
         if (welcome.qualified) {
             payReferral(player, welcome, now);
-            store.closeWelcome(id);
         } else {
-            info(player, "Saved: " + referrerName + " brought you here. Rewards arrive after "
-                    + waiting + " more active minute" + (waiting == 1 ? "" : "s") + " of play.");
+            qualify(player, welcome, now);
         }
-        Player online = target.getPlayer();
-        if (online != null && !welcome.qualified) {
-            info(online, player.getName() + " named you as the player who brought them. Your"
-                    + " Shards arrive once they have played for a little while.");
-        }
+        store.closeWelcome(id);
         save();
     }
 
@@ -355,8 +349,7 @@ final class ReferralService implements Listener, CommandExecutor, TabCompleter {
                 + variables.integer("referrals.returning-player-shards") + "."));
         player.sendMessage(line("They type /referredby <your name> within "
                 + variables.integer("referrals.claim-window-minutes")
-                + " minutes of joining. Shards arrive after "
-                + variables.integer("referrals.qualify-active-minutes") + " active minutes of play."));
+                + " minutes of joining and the Shards arrive instantly. There is no limit."));
         player.sendMessage(Component.text("Linked alts, shared connections and brand-new inviter"
                 + " accounts are not eligible.", NamedTextColor.GRAY));
         store.welcome(id).ifPresent(welcome -> player.sendMessage(Component.text(
@@ -365,11 +358,7 @@ final class ReferralService implements Listener, CommandExecutor, TabCompleter {
                         ? "You can still name who brought you with /referredby <player>."
                         : "Your referral is saved."), NamedTextColor.GREEN)));
         String owner = account(id, player).ownerKey();
-        long now = System.currentTimeMillis();
-        long recent = store.referralsBy(owner).stream()
-                .filter(row -> now - row.at < ReferralRules.WINDOW_MILLIS).count();
-        player.sendMessage(line("Your referrals in the last 30 days: " + recent + " / "
-                + variables.integer("referrals.maximum-rewards-30-days")));
+        player.sendMessage(line("Players you have brought: " + store.referralsBy(owner).size()));
         player.sendMessage(Component.empty());
     }
 
@@ -396,12 +385,9 @@ final class ReferralService implements Listener, CommandExecutor, TabCompleter {
         Optional<ReferralStore.Welcome> open = store.welcome(player.getUniqueId());
         if (open.isEmpty() || open.get().referrer != null) return;
         ReferralStore.Welcome welcome = open.get();
-        int minutes = variables.integer("referrals.qualify-active-minutes");
         player.sendMessage(Component.empty());
         if (welcome.kind == ReferralRules.Kind.RETURNING) {
             player.sendMessage(Component.text("WELCOME BACK", ORANGE, TextDecoration.BOLD));
-            player.sendMessage(line("Play for " + minutes + " active minutes to receive "
-                    + variables.integer("referrals.returning-player-shards") + " Shards."));
             player.sendMessage(line("Did someone bring you back? Type /referredby <player> and they"
                     + " get " + variables.integer("referrals.returning-referrer-shards")
                     + " Shards too."));
@@ -409,7 +395,7 @@ final class ReferralService implements Listener, CommandExecutor, TabCompleter {
             player.sendMessage(Component.text("WELCOME TO THE SERVER", ORANGE, TextDecoration.BOLD));
             player.sendMessage(line("Did a friend invite you? Type /referredby <player> within "
                     + variables.integer("referrals.claim-window-minutes") + " minutes."));
-            player.sendMessage(line("After " + minutes + " active minutes you get "
+            player.sendMessage(line("You instantly get "
                     + variables.integer("referrals.new-player-shards") + " Shards and they get "
                     + variables.integer("referrals.new-referrer-shards") + "."));
         }
@@ -507,7 +493,6 @@ final class ReferralService implements Listener, CommandExecutor, TabCompleter {
         return new ReferralRules.Settings(
                 variables.integer("referrals.referrer-minimum-days"),
                 variables.integer("referrals.referrer-minimum-play-minutes"),
-                variables.integer("referrals.maximum-rewards-30-days"),
                 variables.bool("referrals.block-shared-address"));
     }
 
