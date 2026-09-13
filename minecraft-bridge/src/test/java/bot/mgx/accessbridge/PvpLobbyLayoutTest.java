@@ -91,6 +91,38 @@ final class PvpLobbyLayoutTest {
     }
 
     @Test
+    void innerGardenBedsNeverTouchTheBottomOfAPortalFrame() {
+        List<int[]> gateways = gateRing();
+        for (int index = 0; index < 10; index++) {
+            double between = index * 36d + 18d;
+            int[] bed = PvpLobbyBuilder.innerGardenBedPosition(between);
+            for (int[] gate : gateways) {
+                boolean wideX = Math.abs(gate[0]) <= Math.abs(gate[1]);
+                for (int lateral = -3; lateral <= 3; lateral++) {
+                    int frameX = gate[0] + (wideX ? lateral : 0);
+                    int frameZ = gate[1] + (wideX ? 0 : lateral);
+                    assertTrue(Math.abs(frameX - bed[0]) + Math.abs(frameZ - bed[1]) > 2,
+                            "garden at " + between + " degrees touches portal frame "
+                                    + gate[0] + "," + gate[1]);
+                }
+            }
+        }
+    }
+
+    @Test
+    void portalsAreTheLastBlockGeometryWrittenDuringALobbyRebuild() {
+        String lobby = source();
+        String build = lobby.substring(lobby.indexOf("static Built build("),
+                lobby.indexOf("// ---------------------------------------------------------------- pads"));
+        int garden = build.indexOf("plantGarden(world);");
+        int queues = build.indexOf("buildGate(world", garden);
+        int returnGate = build.indexOf("buildReturnGate(world);", queues);
+        int labels = build.indexOf("buildHolograms(world", returnGate);
+        assertTrue(garden > 0 && queues > garden && returnGate > queues && labels > returnGate,
+                "portal frames must be assembled after every other block-building pass");
+    }
+
+    @Test
     void lobbyTickRepairsAFrameOrPortalPlaneThatBecomesDamaged() {
         String lobby = source();
         assertTrue(lobby.contains("static int repairPortals("));
