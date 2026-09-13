@@ -1125,17 +1125,26 @@ final class PvpLobbyBuilder {
         for (int lateral = -3; lateral <= 3; lateral++) {
             set(world, gx, gz, wideX, lateral, FLOOR_Y, Material.OBSIDIAN);
             for (int y = 1; y <= STRUCTURE_TOP; y++) {
-                boolean post = Math.abs(lateral) == 3;
-                boolean lintel = y >= STRUCTURE_TOP - 1;
-                if (post || lintel) {
-                    Material frame = lintel && Math.abs(lateral) <= 2
-                            ? Material.CHISELED_DEEPSLATE
-                            : post && (y == 3 || y == 6) ? gate.glass()
-                            : Material.OBSIDIAN;
-                    set(world, gx, gz, wideX, lateral, FLOOR_Y + y, frame);
+                Material block = gatewayCell(lateral, y);
+                if (block == Material.NETHER_PORTAL) {
+                    // Empty the mouth while the frame is assembled. Portal blocks are
+                    // installed in a second pass, after every side and lintel exists.
+                    set(world, gx, gz, wideX, lateral, FLOOR_Y + y, Material.AIR);
                 } else {
-                    setData(world, gx, gz, wideX, lateral, FLOOR_Y + y, portal);
+                    set(world, gx, gz, wideX, lateral, FLOOR_Y + y, block);
                 }
+            }
+        }
+        fillGatewayPortal(world, gx, gz, wideX, portal);
+        // Colour belongs in front of the posts, never inside them. The old glass
+        // courses replaced obsidian in both sides of the portal frame, so a later
+        // neighbouring update could erase the whole portal plane. These shallow
+        // accents preserve each queue's colour while leaving a vanilla-valid frame.
+        for (int y : new int[]{3, 6}) {
+            for (int lateral : new int[]{-3, 3}) {
+                int x = ringX(gate.angle(), GATE_RING - 1d, lateral);
+                int z = ringZ(gate.angle(), GATE_RING - 1d, lateral);
+                world.getBlockAt(x, FLOOR_Y + y, z).setType(gate.glass(), false);
             }
         }
         // Copper pylons on the approach rather than alongside the posts: at this ring
@@ -1161,18 +1170,42 @@ final class PvpLobbyBuilder {
         for (int lateral = -3; lateral <= 3; lateral++) {
             set(world, gx, gz, true, lateral, FLOOR_Y, Material.OBSIDIAN);
             for (int y = 1; y <= STRUCTURE_TOP; y++) {
-                boolean post = Math.abs(lateral) == 3;
-                boolean lintel = y >= STRUCTURE_TOP - 1;
-                if (post || lintel) {
-                    set(world, gx, gz, true, lateral, FLOOR_Y + y,
-                            lintel && Math.abs(lateral) <= 2 ? Material.CHISELED_DEEPSLATE
-                                    : Material.OBSIDIAN);
+                Material block = gatewayCell(lateral, y);
+                if (block == Material.NETHER_PORTAL) {
+                    set(world, gx, gz, true, lateral, FLOOR_Y + y, Material.AIR);
                 } else {
-                    setData(world, gx, gz, true, lateral, FLOOR_Y + y, portal);
+                    set(world, gx, gz, true, lateral, FLOOR_Y + y, block);
                 }
             }
         }
+        fillGatewayPortal(world, gx, gz, true, portal);
         set(world, gx, gz, true, 0, FLOOR_Y + STRUCTURE_TOP + 1, Material.LODESTONE);
+    }
+
+    /**
+     * Material occupying one cell above a gateway's obsidian base.
+     *
+     * <p>The portal is five blocks wide and six high. Its posts ({@code +/-3}) and
+     * immediate lintel ({@code STRUCTURE_TOP - 1}) must be uninterrupted obsidian;
+     * the decorative cornice sits one course above that valid frame.
+     */
+    static Material gatewayCell(int lateral, int y) {
+        if (Math.abs(lateral) == 3 || y == STRUCTURE_TOP - 1) {
+            return Material.OBSIDIAN;
+        }
+        if (y == STRUCTURE_TOP) return Material.CHISELED_DEEPSLATE;
+        return Material.NETHER_PORTAL;
+    }
+
+    /** Fills the portal only after its complete vanilla-valid frame is standing. */
+    private static void fillGatewayPortal(
+            World world, int gx, int gz, boolean wideX, BlockData portal
+    ) {
+        for (int lateral = -2; lateral <= 2; lateral++) {
+            for (int y = 1; y <= 6; y++) {
+                setData(world, gx, gz, wideX, lateral, FLOOR_Y + y, portal);
+            }
+        }
     }
 
     /** The lit square a player stands on to open a queue, so the trigger is visible. */
