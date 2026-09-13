@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -22,6 +23,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * -0.5000000000000004 and the two round in different directions. Nothing failed; it
  * just looked wrong from the middle of the island, which is the only place anybody
  * stands.
+ *
+ * <p>The second failure was not rounding at all. Three arches were left on bearings
+ * chosen for six, the consoles sat on the diagonals, and the records lived on a
+ * separate circle — so no two things on the island shared a bearing and the whole
+ * plan read as scattered. These tests pin the plan itself: one ring, one spacing.
  */
 final class PvpLobbyLayoutTest {
     @Test
@@ -48,33 +54,80 @@ final class PvpLobbyLayoutTest {
         assertNull(PvpLobbyBuilder.gatePosition(PvpMode.TRIPLES));
     }
 
-    @Test
-    void everyGatewaySitsOnTheRingAndNoTwoShareASpot() {
-        Set<String> seen = new HashSet<>();
+    /** Every structure on the island: three arches, six records walls, the way home. */
+    private static List<int[]> ring() {
+        List<int[]> spots = new ArrayList<>();
         for (PvpMode mode : PvpMode.values()) {
             int[] at = PvpLobbyBuilder.gatePosition(mode);
-            if (at == null) continue;
-            assertTrue(seen.add(at[0] + ":" + at[1]), mode + " shares a spot with another gateway");
+            if (at != null) spots.add(at);
+        }
+        for (PvpLobbyBuilder.LeaderboardBoard board
+                : PvpLobbyBuilder.LeaderboardBoard.values()) {
+            spots.add(PvpLobbyBuilder.leaderboardPosition(board));
+        }
+        spots.add(PvpLobbyBuilder.returnGatePosition());
+        return spots;
+    }
+
+    /**
+     * Ten structures, one circle, one spacing.
+     *
+     * <p>This is the whole organising idea of the island, and it is the thing that
+     * cannot be seen in a diff: a bearing that is not a multiple of the ring step
+     * compiles perfectly and looks, from the middle, like the builder gave up.
+     */
+    @Test
+    void everyStructureStandsOnTheOneRingAtTheOneSpacing() {
+        List<int[]> spots = ring();
+        assertEquals(10, spots.size(), "the ring is ten structures");
+        Set<String> seen = new HashSet<>();
+        for (int[] at : spots) {
+            assertTrue(seen.add(at[0] + ":" + at[1]),
+                    "two structures share the spot " + at[0] + "," + at[1]);
             double radius = Math.hypot(at[0], at[1]);
             // Rounding to whole blocks can move a point half a block off the circle.
             assertTrue(Math.abs(radius - PvpLobbyBuilder.gateRing()) <= 0.75d,
-                    mode + " sits at radius " + radius + ", off the gateway ring");
+                    "a structure sits at radius " + radius + ", off the ring");
+        }
+        double step = 360d / spots.size();
+        for (int[] at : spots) {
+            double bearing = (Math.toDegrees(Math.atan2(at[0], -at[1])) + 360d) % 360d;
+            double off = Math.min(bearing % step, step - bearing % step);
+            assertTrue(off <= 2.5d,
+                    "a structure sits on bearing " + bearing + ", off the " + step + " step");
         }
     }
 
-    /** Due south is kept clear so the walk home is not crowded by a queue arch. */
+    /** A plan that is not mirrored is the one thing a player notices from the middle. */
     @Test
-    void nothingStandsBetweenArrivalAndTheWayHome() {
+    void theRingMirrorsAcrossTheNorthSouthAxis() {
+        Set<String> spots = new HashSet<>();
+        for (int[] at : ring()) spots.add(at[0] + ":" + at[1]);
+        for (int[] at : ring()) {
+            assertTrue(spots.contains((-at[0]) + ":" + at[1]),
+                    "nothing mirrors " + at[0] + "," + at[1] + " across the axis");
+        }
+    }
+
+    /** Due south is the walk home, and due north the arch an arriving player faces. */
+    @Test
+    void theWayHomeOwnsTheSouthAndAnArchOwnsTheNorth() {
+        int[] home = PvpLobbyBuilder.returnGatePosition();
+        assertEquals(0, home[0], "the way home is not on the axis");
+        assertTrue(home[1] > 0, "the way home is not due south");
+        int[] ranked = PvpLobbyBuilder.gatePosition(PvpMode.RANKED_DUEL);
+        assertEquals(0, ranked[0], "the ranked arch is not on the axis");
+        assertTrue(ranked[1] < 0, "the ranked arch is not due north");
         for (PvpMode mode : PvpMode.values()) {
             int[] at = PvpLobbyBuilder.gatePosition(mode);
             if (at == null) continue;
-            boolean dueSouth = Math.abs(at[0]) <= 4 && at[1] > 0;
-            assertTrue(!dueSouth, mode + " blocks the southern approach to the return gate");
+            assertTrue(!(Math.abs(at[0]) <= 4 && at[1] > 0),
+                    mode + " blocks the southern approach to the way home");
         }
     }
 
     @Test
-    void everyPvpLeaderboardHasItsOwnProtectedGalleryBoard() {
+    void everyPvpLeaderboardHasItsOwnProtectedWall() {
         Set<String> seen = new HashSet<>();
         for (PvpLobbyBuilder.LeaderboardBoard board
                 : PvpLobbyBuilder.LeaderboardBoard.values()) {
@@ -82,28 +135,22 @@ final class PvpLobbyLayoutTest {
             assertTrue(seen.add(at[0] + ":" + at[1]), board + " shares a leaderboard frame");
             assertTrue(Math.hypot(at[0], at[1] - 12.5d) < PvpLobbyBuilder.PROTECTED_RADIUS,
                     board + " lies outside lobby protection");
-            double galleryRadius = Math.hypot(at[0],
-                    at[1] - PvpLobbyBuilder.galleryCentreZ());
-            assertTrue(Math.abs(galleryRadius - 14.8d) <= 1d,
-                    board + " is detached from the circular gallery wall");
-            assertTrue(!(Math.abs(at[0]) <= 4
-                            && at[1] > PvpLobbyBuilder.galleryCentreZ()),
-                    board + " blocks the gallery entrance");
+            // The northern arc belongs to the arches and due south to the way home.
+            assertTrue(!(Math.abs(at[0]) <= 4),
+                    board + " stands on the axis, which the arches and the way home own");
         }
         assertEquals(6, seen.size());
-        assertEquals(-40, PvpLobbyBuilder.galleryCentreZ());
-        assertEquals(16, PvpLobbyBuilder.galleryRadius());
     }
 
     @Test
-    void leaderboardWallsMirrorAcrossTheSharedConcourse() {
+    void leaderboardWallsMirrorAcrossTheAxis() {
         for (List<PvpLobbyBuilder.LeaderboardBoard> pair : List.of(
                 List.of(PvpLobbyBuilder.LeaderboardBoard.RATING,
-                        PvpLobbyBuilder.LeaderboardBoard.CLAN_KILLS),
+                        PvpLobbyBuilder.LeaderboardBoard.STREAK),
                 List.of(PvpLobbyBuilder.LeaderboardBoard.WINS,
                         PvpLobbyBuilder.LeaderboardBoard.CLAN_WINS),
                 List.of(PvpLobbyBuilder.LeaderboardBoard.KILLS,
-                        PvpLobbyBuilder.LeaderboardBoard.STREAK))) {
+                        PvpLobbyBuilder.LeaderboardBoard.CLAN_KILLS))) {
             int[] left = PvpLobbyBuilder.leaderboardPosition(pair.get(0));
             int[] right = PvpLobbyBuilder.leaderboardPosition(pair.get(1));
             assertEquals(-left[0], right[0], pair + " are not mirrored across x");
@@ -112,64 +159,65 @@ final class PvpLobbyLayoutTest {
     }
 
     /**
-     * The moat wall is the queue island's edge, and the boulevard is its one opening.
+     * The records came off their own island, so nothing that built it may remain.
      *
-     * <p>The wall ring is drawn before the concourse, so the route north is only clear
-     * because due north is a crossing and the concourse clears the headroom it left.
-     * Drop either and the two islands are rejoined by a wall a player cannot walk
-     * through, which is exactly how the first joined lobby shipped.
+     * <p>A leftover gallery builder would still run and still generate a second
+     * circle forty blocks north, which is the exact emptiness this rebuild removed.
      */
     @Test
-    void theBoulevardOpensTheWallRingItCrosses() throws Exception {
+    void theSeparateRecordsIslandIsGoneRatherThanUnused() {
         String lobby = source();
-        assertTrue(lobby.contains("CROSSINGS = {0d,"),
-                "due north must be a crossing or the boulevard ends at the moat wall");
-        String concourse = lobby.substring(lobby.indexOf("private static void buildSharedConcourse("),
-                lobby.indexOf("private static void buildGalleryMoat("));
-        assertTrue(concourse.contains("setType(Material.AIR, false)"),
-                "the concourse must clear the wall course it runs through");
+        for (String remnant : List.of("buildLeaderboardGallery", "buildGalleryMoat",
+                "buildSharedConcourse", "buildGalleryColonnade", "buildGalleryGardens",
+                "buildGalleryMonument", "GALLERY_CENTRE_Z", "galleryBridge")) {
+            assertTrue(!lobby.contains(remnant),
+                    remnant + " still exists; the records island was not actually removed");
+        }
+        assertTrue(lobby.contains("buildCourt(world)"));
+        assertTrue(lobby.contains("buildLeaderboardFrame(world, board)"));
     }
 
     /**
-     * The records court is composed, not just floored.
+     * One billboard for every label in the lobby.
      *
-     * <p>Six boards on a bare disc read as an annex of the queue island rather than
-     * the other half of one lobby, which is the whole reason the two were joined.
+     * <p>A label whose plane is fixed to the structure behind it reads as painted onto
+     * that structure while its neighbours turn to follow the reader, which is exactly
+     * how one arch's sign came to look like a solid object.
      */
     @Test
-    void theRecordsCourtIsComposedAndPlantedBeforeItsColonnade() throws Exception {
+    void everyLabelTurnsToFaceTheReader() {
         String lobby = source();
-        assertTrue(lobby.contains("buildGalleryMonument(world)"));
-        assertTrue(lobby.contains("buildGalleryGardens(world)"));
-        assertTrue(lobby.contains("buildGalleryColonnade(world)"));
-        // The colonnade lays a stone collar over the planting, so it has to run second.
-        assertTrue(lobby.indexOf("buildGalleryGardens(world);")
-                        < lobby.indexOf("buildGalleryColonnade(world);"),
-                "the colonnade must be built after the gardens it stands in");
+        assertTrue(!lobby.contains("Display.Billboard.FIXED"),
+                "a fixed-plane label reads as painted on, not as a sign");
+        assertTrue(lobby.contains("Display.Billboard.VERTICAL"));
+        assertTrue(!lobby.contains("fixedHologram"),
+                "the fixed-plane helper should be gone, not merely unused");
     }
 
     /**
      * The queue island stopped pointing at a leaderboard it does not hold.
      *
-     * <p>A whole island is dedicated to the boards and it is signposted at its own
-     * entrance, so a pavilion on the queue island that only said "follow the north
-     * concourse" spent a build slot telling players to walk away. That slot is now
-     * where a fight is actually configured.
+     * <p>The records now stand on the same ring as the arches, so a console whose only
+     * message was "follow the north concourse" has nothing left to say.
      */
     @Test
-    void theQueueIslandConfiguresFightsWhereItUsedToPointAtTheBoards() throws Exception {
+    void theConsoleThatPointedAtTheBoardsNowConfiguresAFight() {
         String lobby = source();
         assertTrue(lobby.contains("PavilionAction.PLAY"),
-                "the fourth pavilion is now where a fight is configured");
+                "the fourth console is now where a fight is configured");
         assertTrue(!lobby.contains("PavilionAction.RATINGS"),
-                "the ratings pavilion is replaced, not merely relabelled");
+                "the ratings console is replaced, not merely relabelled");
         assertTrue(!lobby.contains("FOLLOW THE NORTH CONCOURSE"),
-                "no pavilion should exist only to send players to the other island");
+                "no console should exist only to send players to another island");
     }
 
-    private static String source() throws Exception {
-        return Files.readString(
-                Path.of("src/main/java/bot/mgx/accessbridge/PvpLobbyBuilder.java"),
-                StandardCharsets.UTF_8);
+    private static String source() {
+        try {
+            return Files.readString(
+                    Path.of("src/main/java/bot/mgx/accessbridge/PvpLobbyBuilder.java"),
+                    StandardCharsets.UTF_8);
+        } catch (java.io.IOException error) {
+            throw new java.io.UncheckedIOException(error);
+        }
     }
 }

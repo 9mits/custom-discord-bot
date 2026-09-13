@@ -111,7 +111,7 @@ final class PvpCompetitionSafetyTest {
         assertTrue(lobby.contains("Material.NETHER_PORTAL.createBlockData()"));
         assertTrue(lobby.contains("touchesPortal(at)"));
         assertFalse(lobby.contains("Material.LECTERN"));
-        assertTrue(lobby.contains("RIGHT-CLICK PAVILION"));
+        assertTrue(lobby.contains("RIGHT-CLICK CONSOLE"));
         assertFalse(lobby.contains("You fight with the gear you walked in with."));
         assertTrue(!lobby.contains("Material.OAK_SIGN"));
         assertTrue(source.contains("public void onPortal(PlayerPortalEvent event)"));
@@ -119,21 +119,23 @@ final class PvpCompetitionSafetyTest {
         assertTrue(source.contains("suppressCustomPortalTravel()"));
         assertTrue(source.contains("else openMode(player, mode);"));
         assertTrue(source.contains("PvpLobbyBuilder.pavilionAction("));
-        assertTrue(lobby.contains("gateLabelLocation(world"));
-        assertTrue(lobby.contains("FLOOR_Y + 6.8d"));
-        assertTrue(lobby.contains("FLOOR_Y + 3.8d"));
-        assertTrue(lobby.contains("Display.Billboard.FIXED"));
-        assertTrue(lobby.contains("double inward = 2d"));
+        // Gate lettering is stacked above the lintel rather than hung in the portal
+        // mouth or alongside the posts, which is the only placement a label that turns
+        // to face the reader can occupy without sweeping into the arch.
+        assertTrue(lobby.contains("FLOOR_Y + STRUCTURE_TOP + 4.8d"));
+        assertTrue(lobby.contains("GATE_STATUS_Y = FLOOR_Y + STRUCTURE_TOP + 2.4d"));
+        assertTrue(lobby.contains("Display.Billboard.VERTICAL"));
+        assertFalse(lobby.contains("Display.Billboard.FIXED"));
         int lateClear = lobby.indexOf("clearLobbyLabels(world);", lobby.indexOf("plantGarden"));
         assertTrue(lateClear > 0 && lateClear < lobby.indexOf("buildHolograms(world", lateClear),
                 "stale labels must be removed after geometry loads their chunks");
-        assertTrue(lobby.contains("buildLeaderboardGallery(world)"));
-        assertTrue(lobby.contains("buildGalleryMoat(world)"));
-        assertTrue(lobby.contains("buildSharedConcourse(world)"));
+        assertTrue(lobby.contains("buildCourt(world)"));
+        assertTrue(lobby.contains("buildLeaderboardFrame(world, board)"));
+        assertTrue(lobby.contains("structurePlinth(world"));
         assertTrue(lobby.contains("clearLegacyFightingPlatforms(world)"));
         assertTrue(lobby.contains("{0, -180, 27}"));
         assertTrue(lobby.contains("{-180, -100, 46}"));
-        assertTrue(lobby.contains("GALLERY_LABEL_TAG"));
+        assertTrue(lobby.contains("RECORDS_LABEL_TAG"));
         assertTrue(lobby.contains("CLAN_KILLS(\"CLAN KILLS\""));
     }
 
