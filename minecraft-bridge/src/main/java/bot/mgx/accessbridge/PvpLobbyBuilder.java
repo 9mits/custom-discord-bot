@@ -81,6 +81,8 @@ final class PvpLobbyBuilder {
     private static final double PROMENADE = 19.5d;
     /** The shorter walk that ties the four gateways together. */
     private static final double INNER_WALK = 11.8d;
+    /** Inner planting ring, clear of the bottom corners of every gateway frame. */
+    private static final double INNER_BED_RING = 17d;
     /**
      * Two concentric rings, both stepped in the same ten bearings.
      *
@@ -226,22 +228,23 @@ final class PvpLobbyBuilder {
         buildCourt(world);
         buildMoat(world);
         buildRim(world);
-        for (Map.Entry<PvpMode, Gate> row : GATES.entrySet()) {
-            buildGate(world, row.getValue());
-        }
         for (LeaderboardBoard board : LeaderboardBoard.values()) {
             buildLeaderboardFrame(world, board);
         }
         for (double angle : new double[]{0d, 36d, 180d, 324d}) {
             buildOuterPylon(world, angle);
         }
-        buildReturnGate(world);
         buildMonument(world);
         buildArrival(world);
         buildPavilions(world);
-        // Last, so a tree is never planted where a gateway or the terrace is about to
-        // go and left hanging in the air with its trunk replaced.
         plantGarden(world);
+        // Gateway planes are the final block geometry written. Even if a future garden
+        // or furnishing rounds onto their footprint, it cannot leave a portal invalid
+        // at the end of a rebuild.
+        for (Map.Entry<PvpMode, Gate> row : GATES.entrySet()) {
+            buildGate(world, row.getValue());
+        }
+        buildReturnGate(world);
         // The first cleanup can run before a gate chunk has loaded. Geometry touches
         // every lobby chunk, so repeat it here to remove labels left by older formats
         // before the one canonical set is spawned.
@@ -839,7 +842,7 @@ final class PvpLobbyBuilder {
     private static void plantGarden(World world) {
         for (int index = 0; index < STRUCTURE_BEARINGS.length; index++) {
             double between = STRUCTURE_BEARINGS[index] + RING_STEP / 2d;
-            if (!consoleBearing(between)) bed(world, between, 15.6d);
+            if (!consoleBearing(between)) bed(world, between, INNER_BED_RING);
             if (!crossingBearing(between)) bed(world, between, 23d);
             // Not on a console bearing: the inner walk runs between the plaza and the
             // console, so a lamp here stands squarely in front of the thing a player
@@ -1125,7 +1128,6 @@ final class PvpLobbyBuilder {
         boolean wideX = Math.abs(gx) <= Math.abs(gz);
         structurePlinth(world, gate.angle(), GATE_RING, 4);
         pad(world, gx, gz, gate.emblem());
-        buildGatewayPlane(world, gx, gz, wideX);
         // Colour belongs in front of the posts, never inside them. The old glass
         // courses replaced obsidian in both sides of the portal frame, so a later
         // neighbouring update could erase the whole portal plane. These shallow
@@ -1149,6 +1151,9 @@ final class PvpLobbyBuilder {
             world.getBlockAt(px, FLOOR_Y + 2, pz).setType(gate.glass(), false);
             world.getBlockAt(px, FLOOR_Y + 3, pz).setType(Material.SOUL_LANTERN, false);
         }
+        // Assemble and fill after every decoration. The method exits with a valid
+        // frame even if a future accent is accidentally moved onto its footprint.
+        buildGatewayPlane(world, gx, gz, wideX);
         set(world, gx, gz, wideX, 0, FLOOR_Y + STRUCTURE_TOP + 1, gate.emblem());
     }
 
@@ -1209,6 +1214,12 @@ final class PvpLobbyBuilder {
         if (gate == null) return null;
         boolean wideX = Math.abs(gate.x()) <= Math.abs(gate.z());
         return gatewayDecorationPosition(gate, wideX, lateral, depth);
+    }
+
+    /** Centre of an inner garden bed, exposed so the radial plan stays collision-free. */
+    static int[] innerGardenBedPosition(double angle) {
+        return new int[]{ringX(angle, INNER_BED_RING, 0d),
+                ringZ(angle, INNER_BED_RING, 0d)};
     }
 
     private static int[] gatewayDecorationPosition(
