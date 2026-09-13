@@ -222,6 +222,55 @@ def configure_local_bridge(config: Path, *, verification_required: bool = False)
         log(f"{state} account verification on the local test server")
 
 
+VANILLA_DUPLICATION_SETTINGS = (
+    "allow-piston-duplication",
+    "allow-unsafe-end-portal-teleportation",
+)
+
+
+def vanilla_duplication_config(text: str) -> str:
+    """Enable technical-Minecraft dupers without opening unrelated exploits.
+
+    Paper keeps TNT/carpet/rail duplication and End-portal falling-block
+    duplication behind separate unsupported global settings. Headless pistons,
+    permanent-block breaking, and tripwire-hook duplication deliberately remain
+    at their safer defaults.
+    """
+    patched = text
+    missing: list[str] = []
+    for key in VANILLA_DUPLICATION_SETTINGS:
+        pattern = re.compile(
+            rf"(?m)^([ \t]+{re.escape(key)}[ \t]*:[ \t]*)"
+            r"(?:true|false)([ \t]*(?:#.*)?)$"
+        )
+        if pattern.search(patched):
+            patched = pattern.sub(r"\g<1>true\g<2>", patched, count=1)
+        else:
+            missing.append(key)
+    if not missing:
+        return patched
+
+    additions = "".join(f"  {key}: true\n" for key in missing)
+    section = re.search(r"(?m)^unsupported-settings:[^\n]*\n", patched)
+    if section:
+        return patched[:section.end()] + additions + patched[section.end():]
+    suffix = "" if patched.endswith("\n") else "\n"
+    return patched + suffix + "unsupported-settings:\n" + additions
+
+
+def configure_vanilla_duplication() -> bool:
+    """Apply the two approved Paper switches when its global file exists."""
+    config = SERVER / "config" / "paper-global.yml"
+    if not config.is_file():
+        return False
+    original = config.read_text()
+    patched = vanilla_duplication_config(original)
+    if patched != original:
+        config.write_text(patched)
+        log("enabled TNT, carpet, rail, sand and gravity-block duping")
+    return True
+
+
 def fetch(url: str, destination: Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     log(f"downloading {destination.name}")
@@ -735,6 +784,7 @@ def setup(_: argparse.Namespace) -> int:
         properties.write_text(SERVER_PROPERTIES)
 
     match_production_limits()
+    configure_vanilla_duplication()
 
     config = PLUGINS / "MGXAccessBridge" / "config.yml"
     if not config.exists():
@@ -769,6 +819,7 @@ def deploy(_: argparse.Namespace) -> int:
     env = dict(os.environ, JAVA_HOME=str(java_home()))
     geyser_build = refresh_geyser()
     ensure_world_protection()
+    configure_vanilla_duplication()
     log("building the plugin")
     result = subprocess.run(
         ["./gradlew", "clean", "shadowJar", "-q"], cwd=BRIDGE, env=env
@@ -874,6 +925,7 @@ def start(args: argparse.Namespace) -> int:
             verification_required=bool(getattr(args, "verification", False)),
         )
     match_production_limits()
+    configure_vanilla_duplication()
     configure_grim()
     running = running_server_pid()
     if running is not None:
