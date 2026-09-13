@@ -94,6 +94,8 @@ final class PvpCompetitionService implements Listener {
     private static final TextColor ORANGE = TextColor.color(0xFF9900);
     private static final long INVITE_MILLIS = 120_000L;
     private static final long PAD_COOLDOWN_MILLIS = 1_500L;
+    /** Line width for icon-led rule rows, matching How PvP Works. */
+    private static final int RULE_WIDTH = 560;
     /**
      * Passed as the back target by anything a console or a portal opened.
      *
@@ -1524,7 +1526,7 @@ final class PvpCompetitionService implements Listener {
             actions.add(new MenuAction(modeSprite(mode),
                     categoryLabel(mode),
                     queueSummary(mode) + " - " + modeHint(mode),
-                    p -> openMode(p, mode)));
+                    p -> openMode(p, mode, back)));
         }
         String body = "Choose one fight type, then set its size and access. Every match"
                 + " uses your own survival loadout in untouched overworld terrain.\n"
@@ -1533,38 +1535,51 @@ final class PvpCompetitionService implements Listener {
     }
 
     private void openMode(Player player, PvpMode selected) {
+        openMode(player, selected, this::openHub);
+    }
+
+    private void openMode(Player player, PvpMode selected,
+            java.util.function.Consumer<Player> back) {
         PvpMode family = PvpMatchSetup.category(selected);
         PvpMatchSetup setup = matchDraft(player, selected);
         Party party = parties.get(player.getUniqueId());
         int team = party == null ? 1 : party.members.size();
-        String partyLine = setup.freeForAll() ? "Entry: solo"
-                : "Your party: " + team + "/" + setup.teamSize();
-        String accessLine = setup.access() == PvpMatchSetup.Access.PUBLIC
-                ? "Random opponents may join through matchmaking."
-                : "Only opponents you invite and who accept may join.";
-        String body = modeHint(family) + "\n\n"
-                + "Match: " + setup.matchLabel() + "\n"
-                + "Access: " + setup.access().display() + "\n"
-                + partyLine + "\n"
-                + accessLine + "\n"
-                + "Loadout: your current inventory and armour";
-        if (setup.access() == PvpMatchSetup.Access.PUBLIC) {
-            body += "\n\n" + queueSummary(setup);
-        } else {
-            body += "\n\nYou control when the room starts. Once both sides have a player,"
-                    + " you may force an uneven fight such as 1v2.";
-        }
+        boolean open = setup.access() == PvpMatchSetup.Access.PUBLIC;
+        String partyLine = setup.freeForAll() ? "Solo entry"
+                : team + " of " + setup.teamSize() + " on your side";
+        String closing = open ? queueSummary(setup)
+                : "You control when the room starts. Once both sides have a player you"
+                        + " may force an uneven fight such as 1v2.";
+        List<DialogBody> page = List.of(
+                DialogBody.plainMessage(MenuText.stat("Match", setup.matchLabel()), RULE_WIDTH),
+                DialogBody.plainMessage(
+                        MenuText.stat("Access", setup.access().display()), RULE_WIDTH),
+                DialogBody.plainMessage(MenuText.stat("Your side", partyLine), RULE_WIDTH),
+                DialogBody.plainMessage(
+                        MenuText.stat("Loadout", "What you are carrying now"), RULE_WIDTH),
+                DialogBody.plainMessage(Component.empty(), RULE_WIDTH),
+                DialogBody.plainMessage(MenuText.rule(modeSprite(family), "The Fight",
+                        modeHint(family)), RULE_WIDTH),
+                DialogBody.plainMessage(MenuText.rule(
+                        open ? "item/spyglass" : "item/name_tag",
+                        open ? "Open to Anyone" : "Invite Only",
+                        open ? "Random opponents may join you through matchmaking."
+                                : "Only opponents you invite, and who accept, may join."),
+                        RULE_WIDTH),
+                DialogBody.plainMessage(MenuText.muted(closing), RULE_WIDTH));
+        String plain = setup.matchLabel() + " - " + setup.access().display()
+                + ". " + partyLine + ". " + closing;
         List<MenuAction> actions = new ArrayList<>();
         PvpMatchSetup sizeSetup = setup.nextSize();
         actions.add(new MenuAction("item/armor_stand", "Size: " + setup.sizeLabel(),
                 setup.freeForAll() ? "Choose 2 through 12 players."
                         : "Choose the number of players on each side.",
-                p -> updateMatchDraft(p, sizeSetup)));
+                p -> updateMatchDraft(p, sizeSetup, back)));
         PvpMatchSetup accessSetup = setup.toggleAccess();
         actions.add(new MenuAction(setup.access() == PvpMatchSetup.Access.PUBLIC
                 ? "item/spyglass" : "item/name_tag", "Access: " + setup.access().display(),
                 "Switch between public matchmaking and invited opponents only.",
-                p -> updateMatchDraft(p, accessSetup)));
+                p -> updateMatchDraft(p, accessSetup, back)));
         if (!setup.freeForAll() && !setup.clan()
                 && setup.access() == PvpMatchSetup.Access.PUBLIC && setup.teamSize() > 1) {
             PvpMatchSetup fillSetup = setup.toggleFill();
@@ -1572,13 +1587,13 @@ final class PvpCompetitionService implements Listener {
                     "Teammates: " + (setup.fill() ? "Allow Fill" : "Party Only"),
                     setup.fill() ? "Random players may fill open teammate slots."
                             : "Keep only your complete party on this side.",
-                    p -> updateMatchDraft(p, fillSetup)));
+                    p -> updateMatchDraft(p, fillSetup, back)));
         }
         if (!setup.freeForAll()) {
             actions.add(new MenuAction("item/writable_book", "Manage Team",
                     "Invite or remove the teammates on your side.",
                     viewer -> openParty(viewer,
-                            backViewer -> openMode(backViewer, family))));
+                            backViewer -> openMode(backViewer, family, back))));
         }
         PvpMatchSetup startSetup = setup;
         actions.add(new MenuAction("item/netherite_sword",
@@ -1588,12 +1603,14 @@ final class PvpCompetitionService implements Listener {
                         ? "Wait for random players using this exact setup."
                         : "Open a room, invite opponents, then choose when to start.",
                 p -> joinQueue(p, startSetup)));
-        showMenu(player, setup.matchLabel(), body, actions, this::openModes);
+        showPage(player, setup.matchLabel(), page, plain, actions,
+                viewer -> openModes(viewer, back));
     }
 
-    private void updateMatchDraft(Player player, PvpMatchSetup setup) {
+    private void updateMatchDraft(Player player, PvpMatchSetup setup,
+            java.util.function.Consumer<Player> back) {
         matchDrafts.put(player.getUniqueId(), setup);
-        openMode(player, setup.family());
+        openMode(player, setup.family(), back);
     }
 
     private PvpMatchSetup matchDraft(Player player, PvpMode selected) {
@@ -1665,24 +1682,31 @@ final class PvpCompetitionService implements Listener {
         long remaining = Math.max(0L, rank.nextFloor() - record.rating());
         String progress = rank == PvpRank.UNREAL ? "Top rank reached"
                 : remaining + " RP to " + PvpRank.values()[rank.ordinal() + 1].display();
-        String body = "YOUR RANK\n"
-                + rank.display() + " • " + record.rating() + " RP\n"
-                + progress + "\n\n"
-                + "Ranked 1v1, 2v2 and 3v3 use Elo rating."
-                + " Once you reach a tier, its floor stays unlocked permanently.";
-        showMenu(player, "Rank Progression", body, List.of(
+        List<DialogBody> page = List.of(
+                DialogBody.plainMessage(MenuText.stat("Rank", rank.display()), RULE_WIDTH),
+                DialogBody.plainMessage(
+                        MenuText.stat("Rating", record.rating() + " RP"), RULE_WIDTH),
+                DialogBody.plainMessage(MenuText.stat("Next", progress), RULE_WIDTH),
+                DialogBody.plainMessage(Component.empty(), RULE_WIDTH),
+                DialogBody.plainMessage(MenuText.rule("item/nether_star", "Elo Rating",
+                        "Ranked 1v1, 2v2 and 3v3 all score into one rating."), RULE_WIDTH),
+                DialogBody.plainMessage(MenuText.rule("item/gold_ingot", "Safe Floors",
+                        "Reach a tier and its floor is yours permanently."), RULE_WIDTH));
+        String plain = "Rank " + rank.display() + " - " + record.rating() + " RP. " + progress;
+        showPage(player, "Rank Progression", page, plain, List.of(
                 new MenuAction("item/nether_star", "View Every Tier",
-                        "See each tier and its starting rating.", this::openTierGuide),
+                        "See each tier and its starting rating.",
+                        viewer -> openTierGuide(viewer, back)),
                 new MenuAction("item/spyglass", "Top Ratings",
                         "Open the full current leaderboard.",
-                        viewer -> openRankings(viewer, this::openLadder)),
+                        viewer -> openRankings(viewer, parent -> openLadder(parent, back))),
                 new MenuAction("item/book", "My PvP Statistics",
                         "Open your complete PvP record.",
-                        viewer -> openStats(viewer, this::openLadder))
-        ), this::openHub);
+                        viewer -> openStats(viewer, parent -> openLadder(parent, back)))
+        ), back);
     }
 
-    private void openTierGuide(Player player) {
+    private void openTierGuide(Player player, java.util.function.Consumer<Player> root) {
         StringBuilder body = new StringBuilder("Divisions are "
                 + integer("pvp-ranked.division-size")
                 + " RP. Tier floors are permanent once reached.\n\n");
@@ -1692,7 +1716,8 @@ final class PvpCompetitionService implements Listener {
             body.append(rank.glyph()).append(' ').append(rank.tier())
                     .append(" • ").append(rank.floor()).append(" RP\n");
         }
-        showMenu(player, "PvP Rank Tiers", body.toString(), List.of(), this::openLadder);
+        showMenu(player, "PvP Rank Tiers", body.toString(), List.of(),
+                parent -> openLadder(parent, root));
     }
 
     private void openRankings(Player player) {
@@ -1736,14 +1761,24 @@ final class PvpCompetitionService implements Listener {
     }
 
     private void openRules(Player player, java.util.function.Consumer<Player> back) {
-        String body = "Every mode uses the armour, weapons, food and supplies you earned in survival.\n"
-                + "KEEP INVENTORY is active. The ring uses untouched overworld terrain,"
-                + " returns you to where you entered, and puts every changed block back.\n\n"
-                + "Competitive fights and rank-ups do not pay money. Private-fight wagers remain optional"
-                + " and use only the stakes both players accepted.\n\n"
-                + "Same-owner accounts cannot match. Repeated opponents are rested."
-                + " Forfeits, disconnects and AFK eliminations lose normally.";
-        showMenu(player, "PvP Rules & Fair Play", body, List.of(), back);
+        showRules(player, "PvP Rules & Fair Play", List.of(
+                new String[]{"item/netherite_chestplate", "Your Own Gear",
+                        "Every mode fights with the armour, weapons, food and supplies"
+                                + " you earned in survival."},
+                new String[]{"item/totem_of_undying", "Keep Inventory",
+                        "You drop nothing and your levels stay, win or lose."},
+                new String[]{"item/map", "The Ring",
+                        "Untouched overworld terrain. You return to the block you left"
+                                + " and every changed block is put back."},
+                new String[]{"item/gold_ingot", "No Payouts",
+                        "Competitive fights and rank-ups pay no money. Private wagers"
+                                + " are optional and use only the stakes both sides accepted."},
+                new String[]{"item/name_tag", "Fair Matches",
+                        "Accounts owned by the same player cannot meet, and a repeated"
+                                + " opponent is rested before you can face them again."},
+                new String[]{"item/barrier", "Giving Up",
+                        "Forfeits, disconnects and AFK eliminations all lose normally."}
+        ), List.of(), back);
     }
 
     void openLive(Player player) {
@@ -1759,7 +1794,7 @@ final class PvpCompetitionService implements Listener {
                 match.mode.display(), viewer -> spectate(viewer, match))).toList();
         showMenu(player, "Live PvP Matches",
                 live.isEmpty() ? "No competitive matches are live." : "Choose a match to watch.",
-                actions, this::openHub);
+                actions, back);
     }
 
     void openParty(Player player) {
@@ -2199,6 +2234,49 @@ final class PvpCompetitionService implements Listener {
         return players.isEmpty() ? "Waiting..." : players.stream()
                 .map(PvpCompetitionService::name).reduce((left, right) -> left + ", " + right)
                 .orElse("Waiting...");
+    }
+
+    /**
+     * A page whose body is already composed, rather than one block of prose.
+     *
+     * <p>The shape How PvP Works uses: one line per idea, an icon to anchor it, a bold
+     * heading to skim and muted detail to read. A paragraph on a dialog is read by
+     * nobody, and every screen here that explained something was one.
+     */
+    private void showPage(
+            Player player, String title, List<DialogBody> page, String plain,
+            List<MenuAction> actions, java.util.function.Consumer<Player> back
+    ) {
+        boolean standalone = back == STANDALONE;
+        if (!clientSupport.supportsDialogs(player)) {
+            List<BedrockForms.Button> buttons = actions.stream()
+                    .map(action -> new BedrockForms.Button(action.label(),
+                            () -> action.action().accept(player))).toList();
+            if (forms.menu(player, title, plain, buttons, standalone ? null : back)) return;
+            player.sendMessage(prefix().append(Component.text(title + ": " + plain,
+                    NamedTextColor.GRAY)));
+            return;
+        }
+        List<ActionButton> buttons = actions.stream().map(action -> Screens.button(
+                action.sprite(), action.label(), action.hint(), action.action())).toList();
+        int columns = Math.min(2, Math.max(1, buttons.size()));
+        if (standalone) Screens.showStandalone(player, title, page, buttons, columns);
+        else Screens.show(player, title, page, buttons, columns, back);
+    }
+
+    /** One icon-led row per rule: {@code {sprite, heading, detail}}. */
+    private void showRules(
+            Player player, String title, List<String[]> rules, List<MenuAction> actions,
+            java.util.function.Consumer<Player> back
+    ) {
+        List<DialogBody> page = new ArrayList<>();
+        StringBuilder plain = new StringBuilder();
+        for (String[] rule : rules) {
+            page.add(DialogBody.plainMessage(
+                    MenuText.rule(rule[0], rule[1], rule[2]), RULE_WIDTH));
+            plain.append(rule[1]).append(" - ").append(rule[2]).append("\n\n");
+        }
+        showPage(player, title, page, plain.toString().strip(), actions, back);
     }
 
     private void showMenu(
@@ -2949,7 +3027,7 @@ final class PvpCompetitionService implements Listener {
                 if (!player.isOnline() || isParticipant(playerId)) return;
                 if (roomByPlayer.containsKey(playerId)) openMatchRoom(player);
                 else if (queuedPlayers.containsKey(playerId)) openQueueStatus(player);
-                else openMode(player, mode);
+                else openMode(player, mode, STANDALONE);
             });
         });
     }

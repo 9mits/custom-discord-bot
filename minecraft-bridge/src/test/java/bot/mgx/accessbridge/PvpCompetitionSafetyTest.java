@@ -111,13 +111,14 @@ final class PvpCompetitionSafetyTest {
         assertTrue(lobby.contains("Material.NETHER_PORTAL.createBlockData()"));
         assertTrue(lobby.contains("touchesPortal(at)"));
         assertFalse(lobby.contains("Material.LECTERN"));
-        assertTrue(lobby.contains("RIGHT-CLICK CONSOLE"));
+        // The prompt says what to do, not what the furniture is called.
+        assertTrue(lobby.contains("RIGHT-CLICK TO OPEN"));
         assertFalse(lobby.contains("You fight with the gear you walked in with."));
         assertTrue(!lobby.contains("Material.OAK_SIGN"));
         assertTrue(source.contains("public void onPortal(PlayerPortalEvent event)"));
         assertTrue(source.contains("player.setPortalCooldown("));
         assertTrue(source.contains("suppressCustomPortalTravel()"));
-        assertTrue(source.contains("else openMode(player, mode);"));
+        assertTrue(source.contains("else openMode(player, mode, STANDALONE);"));
         assertTrue(source.contains("PvpLobbyBuilder.pavilionAction("));
         // Gate lettering is stacked above the lintel rather than hung in the portal
         // mouth or alongside the posts, which is the only placement a label that turns
@@ -197,8 +198,12 @@ final class PvpCompetitionSafetyTest {
         assertTrue(source.contains("private void openStats(Player player, Consumer<Player> back)"));
         assertTrue(source.contains("private void openRankings(Player player, Consumer<Player> back)"));
         assertTrue(source.contains("private void openParty(Player player, Consumer<Player> back)"));
-        assertTrue(source.contains("backViewer -> openMode(backViewer, family)"));
-        assertTrue(source.contains("viewer -> openRankings(viewer, this::openLadder)"));
+        // Each nested page carries the root it was opened from, so a page reached
+        // from a console keeps Close all the way down instead of growing a Back that
+        // leads out to the main menu.
+        assertTrue(source.contains("backViewer -> openMode(backViewer, family, back)"));
+        assertTrue(source.contains(
+                "viewer -> openRankings(viewer, parent -> openLadder(parent, back))"));
         String queueStatus = source.substring(source.indexOf("private void openQueueStatus("),
                 source.indexOf("int liveMatchCount()"));
         assertTrue(queueStatus.contains("duels::openHub"));
@@ -216,6 +221,6 @@ final class PvpCompetitionSafetyTest {
         assertFalse(variables.contains("pvp-competitive.participation-reward"));
         assertFalse(variables.contains("pvp-competitive.win-reward"));
         assertFalse(variables.contains("pvp-competitive.minimum-reward-seconds"));
-        assertTrue(source.contains("Private-fight wagers remain optional"));
+        assertTrue(source.contains("Private wagers"));
     }
 }
