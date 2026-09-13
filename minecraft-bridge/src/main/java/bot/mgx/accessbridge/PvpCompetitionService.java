@@ -155,9 +155,21 @@ final class PvpCompetitionService implements Listener {
         }
     }
 
+    /** One player's persistent, glanceable state while matchmaking is working. */
+    private static final class QueueHud {
+        BossBar bar;
+        int lastWaiting;
+        long lastActionBarAt;
+
+        QueueHud(int lastWaiting) {
+            this.lastWaiting = lastWaiting;
+        }
+    }
+
     private static final class Match {
         final UUID id = UUID.randomUUID();
         final PvpMode mode;
+        final boolean rated;
         final PvpDuelService.PreparedArena arena;
         final List<UUID> first;
         final List<UUID> second;
@@ -180,12 +192,19 @@ final class PvpCompetitionService implements Listener {
         long nextShrinkAt;
         long nextArenaSweepAt;
         double borderSize;
+        double borderFrom;
+        double borderTarget;
+        long borderMoveStartedAt;
+        long borderMoveEndsAt;
+        boolean borderMoving;
         boolean shrinkWarned;
         BukkitTask countdown;
         BukkitTask returnTask;
 
-        Match(PvpMode mode, PvpDuelService.PreparedArena arena, List<UUID> first, List<UUID> second) {
+        Match(PvpMode mode, boolean rated, PvpDuelService.PreparedArena arena,
+                List<UUID> first, List<UUID> second) {
             this.mode = mode;
+            this.rated = rated;
             this.arena = arena;
             this.first = List.copyOf(first);
             this.second = List.copyOf(second);
@@ -225,6 +244,8 @@ final class PvpCompetitionService implements Listener {
     private int boardTick;
     private final Map<UUID, Match> viewing = new HashMap<>();
     private final Map<UUID, PendingStart> preparing = new HashMap<>();
+    private final Map<UUID, QueueHud> queueHuds = new HashMap<>();
+    private final Map<UUID, BossBar> preparationHuds = new HashMap<>();
     private final Set<UUID> internalTeleports = new HashSet<>();
     private final Map<UUID, Long> padCooldowns = new HashMap<>();
     private final Map<UUID, Location> lobbyOrigins = new HashMap<>();
@@ -347,7 +368,8 @@ final class PvpCompetitionService implements Listener {
             case "queue", "play" -> {
                 if (args.length < 2) openModes(player);
                 else PvpMode.from(args[1]).filter(PvpMode::queueable)
-                        .ifPresentOrElse(mode -> openMode(player, mode),
+                        .ifPresentOrElse(mode -> joinQueue(player,
+                                        PvpMatchSetup.defaults(mode)),
                                 () -> error(player, "Choose ranked, clan, or ffa."));
                 return true;
             }
@@ -561,14 +583,12 @@ final class PvpCompetitionService implements Listener {
             queuedModes.put(memberId, mode);
             Player member = Bukkit.getPlayer(memberId);
             if (member != null) {
-                info(member, "Queued for " + setup.matchLabel()
-                        + (mode.freeForAll() || teamSize == 1 || mode.clan() ? "."
-                        : fill ? " with random teammate fill."
-                        : " with the current party only."));
                 teleportToLobbyIfReady(member);
+                beginQueueFeedback(member, setup);
             }
         }
         matchDrafts.remove(playerId);
+        refreshQueueFeedback(System.currentTimeMillis(), true);
         tryMatch(mode, System.currentTimeMillis());
     }
 
@@ -588,11 +608,13 @@ final class PvpCompetitionService implements Listener {
         for (UUID memberId : entry.members()) {
             queuedPlayers.remove(memberId);
             queuedModes.remove(memberId);
+            clearQueueHud(memberId);
             if (announce) {
                 Player member = Bukkit.getPlayer(memberId);
                 if (member != null) info(member, "Left the " + (mode == null ? "PvP" : mode.display()) + " queue.");
             }
         }
+        refreshQueueFeedback(System.currentTimeMillis(), true);
         return true;
     }
 
@@ -627,6 +649,7 @@ final class PvpCompetitionService implements Listener {
         for (PvpMode mode : PvpMode.values()) {
             if (mode.queueable()) tryMatch(mode, now);
         }
+        refreshQueueFeedback(now, true);
         for (Match match : List.copyOf(matches.values())) {
             tickMatch(match, now);
         }
@@ -643,7 +666,17 @@ final class PvpCompetitionService implements Listener {
     private int availablePlayers() {
         int available = 0;
         for (Player player : Bukkit.getOnlinePlayers()) {
-            if (!busy(player.getUniqueId()) && !plugin.inPvpDuel(player)) available++;
+            UUID playerId = player.getUniqueId();
+            // Somebody already waiting is part of the population that can fill this
+            // queue. Excluding them made a two-player server report only one available
+            // player the moment the first person queued, then suppressed the callout
+            // that was meant to bring the second person in.
+            if (!isParticipant(playerId)
+                    && !preparing.containsKey(playerId)
+                    && !roomByPlayer.containsKey(playerId)
+                    && !plugin.inPvpDuel(player)) {
+                available++;
+            }
         }
         return available;
     }
@@ -673,31 +706,15 @@ final class PvpCompetitionService implements Listener {
                 entry.targetPlayers(), PvpMatchSetup.Access.PUBLIC, entry.fill());
     }
 
-    int requiredPlayers(PvpMode mode) {
-        if (mode == PvpMode.CLAN_BATTLE) return 4;
-        if (mode == PvpMode.FFA) return 2;
-        return mode.maximumPlayers();
-    }
-
-    /** True when this mode cannot start however long anybody waits. */
-    boolean shortStaffed(PvpMode mode) {
-        return availablePlayers() < requiredPlayers(mode);
-    }
-
     /** One line of plain truth, written on the arch and repeated in the menu. */
     String queueSummary(PvpMode mode) {
         if (!enabled()) return "PvP is closed right now";
-        int required = requiredPlayers(mode);
         int queued = queuedForCategory(PvpMatchSetup.category(mode));
-        int available = availablePlayers();
-        if (available < required) {
-            return "Needs " + required + " players - " + available + " free online";
-        }
         if (queued == 0) return "Nobody waiting - be the first";
-        int missing = Math.max(0, required - queued);
-        return missing == 0
-                ? queued + " waiting - starting now"
-                : queued + " waiting - needs " + missing + " more";
+        // A physical gateway represents several exact setups (1v1/2v2/3v3 or
+        // multiple FFA sizes), so claiming this aggregate needs a particular number
+        // is misleading. The next page gives exact ready/required counts per setup.
+        return queued + " waiting across formats - choose yours";
     }
 
     private String queueSummary(PvpMatchSetup setup) {
@@ -707,6 +724,135 @@ final class PvpCompetitionService implements Listener {
         if (queued == 0) return "Nobody waiting for this setup";
         return missing == 0 ? queued + " waiting - starting now"
                 : queued + " waiting - needs " + missing + " more";
+    }
+
+    /** Confirms the click immediately, then leaves an always-current search readout. */
+    private void beginQueueFeedback(Player player, PvpMatchSetup setup) {
+        UUID playerId = player.getUniqueId();
+        clearQueueHud(playerId);
+        int waiting = queuedFor(setup);
+        QueueHud hud = new QueueHud(waiting);
+        queueHuds.put(playerId, hud);
+        updateQueueBar(player, hud, setup, queuedPlayers.get(playerId),
+                System.currentTimeMillis());
+        player.showTitle(Title.title(
+                Component.text("QUEUE JOINED", NamedTextColor.GREEN, TextDecoration.BOLD),
+                Component.text(setup.matchLabel() + "  •  " + waiting + "/"
+                        + setup.requiredPlayers() + " ready", NamedTextColor.GOLD),
+                Title.Times.times(Duration.ZERO, Duration.ofMillis(900), Duration.ofMillis(250))
+        ));
+        player.sendMessage(prefix()
+                .append(Component.text("QUEUE JOINED  ", NamedTextColor.GREEN,
+                        TextDecoration.BOLD))
+                .append(Component.text(setup.matchLabel() + "  •  " + waiting + "/"
+                        + setup.requiredPlayers() + " players ready  •  ", NamedTextColor.WHITE))
+                .append(Component.text("/pvp leave", ORANGE, TextDecoration.BOLD))
+                .append(Component.text(" to cancel", NamedTextColor.GRAY)));
+        player.playSound(player, Sound.BLOCK_NOTE_BLOCK_PLING, 0.7f, 1.6f);
+    }
+
+    /**
+     * Keeps matchmaking visibly alive without forcing the player to reopen a menu.
+     * Population changes are announced immediately; the ordinary pulse is deliberately
+     * slower so action-bar messages from nearby lobby interactions still get a turn.
+     */
+    private void refreshQueueFeedback(long now, boolean announceChanges) {
+        for (Map.Entry<UUID, PvpMatchmaking.Entry> row
+                : List.copyOf(queuedPlayers.entrySet())) {
+            UUID playerId = row.getKey();
+            Player player = Bukkit.getPlayer(playerId);
+            PvpMode mode = queuedModes.get(playerId);
+            if (player == null || mode == null) continue;
+            PvpMatchSetup setup = setupOf(mode, row.getValue());
+            int waiting = queuedFor(setup);
+            QueueHud hud = queueHuds.computeIfAbsent(playerId,
+                    ignored -> new QueueHud(waiting));
+            if (announceChanges && waiting != hud.lastWaiting) {
+                int difference = Math.abs(waiting - hud.lastWaiting);
+                String who = difference == 1 ? "A PLAYER"
+                        : difference + " PLAYERS";
+                String change = waiting > hud.lastWaiting ? who + " JOINED" : who + " LEFT";
+                player.sendActionBar(Component.text(change + "  •  " + waiting + "/"
+                                + setup.requiredPlayers() + " READY",
+                        waiting > hud.lastWaiting ? NamedTextColor.GREEN : NamedTextColor.RED,
+                        TextDecoration.BOLD));
+                player.playSound(player, waiting > hud.lastWaiting
+                                ? Sound.BLOCK_NOTE_BLOCK_BELL : Sound.BLOCK_NOTE_BLOCK_BASS,
+                        0.55f, waiting > hud.lastWaiting ? 1.45f : 0.8f);
+                hud.lastActionBarAt = now;
+                hud.lastWaiting = waiting;
+            }
+            updateQueueBar(player, hud, setup, row.getValue(), now);
+            long pulse = integer("pvp-competitive.queue-actionbar-interval-seconds") * 1_000L;
+            if (now - hud.lastActionBarAt >= pulse) {
+                player.sendActionBar(Component.text(queuePulse(setup, row.getValue(), now)
+                        + "  •  /pvp leave to cancel", NamedTextColor.GOLD));
+                hud.lastActionBarAt = now;
+            }
+        }
+    }
+
+    private void updateQueueBar(
+            Player player, QueueHud hud, PvpMatchSetup setup,
+            PvpMatchmaking.Entry entry, long now
+    ) {
+        boolean visible = plugin.gameVariables().bool("pvp-competitive.queue-boss-bar");
+        if (!visible && hud.bar != null) {
+            plugin.bossBars().hide(player, hud.bar);
+            hud.bar = null;
+        } else if (visible && hud.bar == null) {
+            hud.bar = BossBar.bossBar(Component.empty(), 0f,
+                    BossBar.Color.YELLOW, BossBar.Overlay.NOTCHED_10);
+            plugin.bossBars().show(player, hud.bar);
+        }
+        if (hud.bar == null) return;
+        int waiting = queuedFor(setup);
+        float progress = (float) Math.max(0d, Math.min(1d,
+                (double) waiting / setup.requiredPlayers()));
+        hud.bar.progress(progress);
+        hud.bar.color(waiting >= setup.requiredPlayers()
+                ? BossBar.Color.GREEN : BossBar.Color.YELLOW);
+        hud.bar.name(Component.text(queuePulse(setup, entry, now), NamedTextColor.GOLD));
+    }
+
+    private String queuePulse(PvpMatchSetup setup, PvpMatchmaking.Entry entry, long now) {
+        int waiting = queuedFor(setup);
+        long waited = Math.max(0L, now - entry.joinedAt());
+        String detail = waiting + "/" + setup.requiredPlayers() + " READY";
+        long early = ffaEarlyStartRemaining(setup, now);
+        if (early >= 0L && waiting < setup.requiredPlayers()) {
+            detail += "  •  STARTS IN " + formatSeconds(early);
+        } else if (setup.mode().rated()) {
+            long range = PvpMatchmaking.ratingWindow(waited,
+                    integer("pvp-competitive.matchmaking-base-range"),
+                    integer("pvp-competitive.matchmaking-widen-per-second"),
+                    integer("pvp-competitive.matchmaking-maximum-range"));
+            detail += "  •  SEARCH ±" + range + " RP";
+        }
+        return "SEARCHING  •  " + setup.matchLabel() + "  •  " + detail
+                + "  •  " + formatSeconds((waited + 999L) / 1_000L);
+    }
+
+    /** Seconds until an under-filled Last Standing lobby is allowed to launch. */
+    private long ffaEarlyStartRemaining(PvpMatchSetup setup, long now) {
+        if (!setup.freeForAll()) return -1L;
+        int minimum = Math.min(setup.targetPlayers(),
+                setup.mode().minimumPlayers(integer("pvp-competitive.ffa-minimum-players")));
+        java.util.OptionalLong readyAt = PvpMatchmaking.ffaReadyAt(
+                queues.getOrDefault(setup.mode(), List.of()), setup.teamSize(),
+                setup.targetPlayers(), minimum);
+        if (readyAt.isEmpty()) return -1L;
+        long startsAt = readyAt.getAsLong()
+                + integer("pvp-competitive.ffa-start-wait-seconds") * 1_000L;
+        return Math.max(0L, (startsAt - now + 999L) / 1_000L);
+    }
+
+    private void clearQueueHud(UUID playerId) {
+        QueueHud hud = queueHuds.remove(playerId);
+        Player player = Bukkit.getPlayer(playerId);
+        if (hud != null && hud.bar != null && player != null) {
+            plugin.bossBars().hide(player, hud.bar);
+        }
     }
 
     private Map<PvpLobbyBuilder.LeaderboardBoard, List<Component>> leaderboardBoards() {
@@ -853,7 +999,6 @@ final class PvpCompetitionService implements Listener {
                 announcedQueues.remove(mode);
                 continue;
             }
-            if (shortStaffed(mode)) continue;
             Long announcedAt = announcedQueues.get(mode);
             if (announcedAt != null && now - announcedAt < cooldown) continue;
             announcedQueues.put(mode, now);
@@ -941,15 +1086,30 @@ final class PvpCompetitionService implements Listener {
         int target = sorted.get(0).targetPlayers();
         List<PvpMatchmaking.Entry> compatible = sorted.stream()
                 .filter(entry -> entry.targetPlayers() == target).toList();
-        if (compatible.size() < target) return false;
+        int waiting = compatible.stream().mapToInt(entry -> entry.members().size()).sum();
+        int minimum = Math.min(target,
+                mode.minimumPlayers(integer("pvp-competitive.ffa-minimum-players")));
+        if (waiting < minimum) return false;
+        PvpMatchSetup setup = setupOf(mode, compatible.get(0));
+        long earlyRemaining = ffaEarlyStartRemaining(setup, now);
+        if (waiting < target && earlyRemaining > 0L) return false;
+        int wanted = Math.min(target, waiting);
         List<PvpMatchmaking.Entry> selected = new ArrayList<>();
+        int selectedPlayers = 0;
         for (PvpMatchmaking.Entry candidate : compatible) {
-            if (selected.size() >= target) break;
+            if (selectedPlayers >= wanted) break;
             boolean blockedPair = selected.stream().anyMatch(existing ->
                     !opponentsAllowed(existing.members(), candidate.members(), now));
-            if (!blockedPair) selected.add(candidate);
+            if (!blockedPair && selectedPlayers + candidate.members().size() <= wanted) {
+                selected.add(candidate);
+                selectedPlayers += candidate.members().size();
+            }
         }
-        if (selected.size() < target) return false;
+        // Prefer the configured full field. If fairness rules temporarily block one
+        // pairing, the same visible early-start timer may still launch the compatible
+        // minimum instead of letting one blocked account freeze everybody else.
+        if (selectedPlayers < target
+                && (selectedPlayers < minimum || earlyRemaining > 0L)) return false;
         List<UUID> first = selected.stream().flatMap(entry -> entry.members().stream()).toList();
         startPlan(mode, selected, List.of(), first, List.of());
         return true;
@@ -971,6 +1131,17 @@ final class PvpCompetitionService implements Listener {
             List<UUID> first,
             List<UUID> second
     ) {
+        startPlan(mode, firstEntries, secondEntries, first, second, mode.rated());
+    }
+
+    private void startPlan(
+            PvpMode mode,
+            List<PvpMatchmaking.Entry> firstEntries,
+            List<PvpMatchmaking.Entry> secondEntries,
+            List<UUID> first,
+            List<UUID> second,
+            boolean rated
+    ) {
         List<PvpMatchmaking.Entry> allEntries = new ArrayList<>(firstEntries);
         allEntries.addAll(secondEntries);
         for (PvpMatchmaking.Entry entry : allEntries) removeEntry(mode, entry, null);
@@ -980,12 +1151,17 @@ final class PvpCompetitionService implements Listener {
         }
         List<UUID> all = concat(first, second);
         PendingStart pending = new PendingStart(mode, all);
-        for (UUID playerId : all) preparing.put(playerId, pending);
+        for (UUID playerId : all) {
+            preparing.put(playerId, pending);
+            Player player = Bukkit.getPlayer(playerId);
+            if (player != null) beginPreparationFeedback(player, pending);
+        }
         List<Player> firstPlayers = first.stream().map(Bukkit::getPlayer)
                 .filter(java.util.Objects::nonNull).toList();
         List<Player> secondPlayers = second.stream().map(Bukkit::getPlayer)
                 .filter(java.util.Objects::nonNull).toList();
         duels.prepareCompetitiveArena(mode, firstPlayers, secondPlayers,
+                (stage, progress) -> updatePreparationFeedback(pending, stage, progress),
                 arena -> {
                     boolean current = all.stream().allMatch(id -> preparing.get(id) == pending);
                     clearPending(pending);
@@ -995,7 +1171,7 @@ final class PvpCompetitionService implements Listener {
                                 "The match could not start because somebody left.");
                         return;
                     }
-                    startMatch(mode, arena, first, second);
+                    startMatch(mode, rated, arena, first, second);
                 }, reason -> {
                     boolean current = all.stream().anyMatch(id -> preparing.get(id) == pending);
                     clearPending(pending);
@@ -1003,10 +1179,55 @@ final class PvpCompetitionService implements Listener {
                 });
     }
 
-    private void startMatch(
-            PvpMode mode, PvpDuelService.PreparedArena arena, List<UUID> first, List<UUID> second
+    private void beginPreparationFeedback(Player player, PendingStart pending) {
+        clearQueueHud(player.getUniqueId());
+        clearPreparationHud(player.getUniqueId());
+        BossBar bar = BossBar.bossBar(
+                Component.text("MATCH FOUND  •  Finding a safe arena  •  0%",
+                        NamedTextColor.GREEN),
+                0f, BossBar.Color.GREEN, BossBar.Overlay.NOTCHED_10);
+        preparationHuds.put(player.getUniqueId(), bar);
+        plugin.bossBars().show(player, bar);
+        player.showTitle(Title.title(
+                Component.text("MATCH FOUND", NamedTextColor.GREEN, TextDecoration.BOLD),
+                Component.text(pending.mode().display() + "  •  Finding a safe arena",
+                        NamedTextColor.GOLD),
+                Title.Times.times(Duration.ZERO, Duration.ofSeconds(1), Duration.ofMillis(250))
+        ));
+        player.playSound(player, Sound.UI_TOAST_CHALLENGE_COMPLETE, 0.75f, 1.25f);
+    }
+
+    private void updatePreparationFeedback(
+            PendingStart pending, String stage, int progress
     ) {
-        Match match = new Match(mode, arena, first, second);
+        int bounded = Math.max(0, Math.min(100, progress));
+        for (UUID playerId : pending.players()) {
+            if (preparing.get(playerId) != pending) continue;
+            BossBar bar = preparationHuds.get(playerId);
+            if (bar != null) {
+                bar.progress(bounded / 100f);
+                bar.name(Component.text("MATCH FOUND  •  " + stage + "  •  "
+                        + bounded + "%", NamedTextColor.GREEN));
+            }
+            Player player = Bukkit.getPlayer(playerId);
+            if (player != null) {
+                player.sendActionBar(Component.text(stage + "  ", NamedTextColor.GRAY)
+                        .append(Component.text(bounded + "%", ORANGE, TextDecoration.BOLD)));
+            }
+        }
+    }
+
+    private void clearPreparationHud(UUID playerId) {
+        BossBar bar = preparationHuds.remove(playerId);
+        Player player = Bukkit.getPlayer(playerId);
+        if (bar != null && player != null) plugin.bossBars().hide(player, bar);
+    }
+
+    private void startMatch(
+            PvpMode mode, boolean rated, PvpDuelService.PreparedArena arena,
+            List<UUID> first, List<UUID> second
+    ) {
+        Match match = new Match(mode, rated, arena, first, second);
         List<UUID> all = match.players;
         duels.activateCompetitiveArena(arena, all);
         Map<UUID, PvpDuelStore.Recovery> snapshots = new LinkedHashMap<>();
@@ -1054,6 +1275,8 @@ final class PvpCompetitionService implements Listener {
             return;
         }
         match.borderSize = arena.arena().diameter();
+        match.borderFrom = match.borderSize;
+        match.borderTarget = match.borderSize;
         match.bar = BossBar.bossBar(
                 Component.text(mode.display() + "  •  GET READY", NamedTextColor.GOLD),
                 1f, BossBar.Color.RED, BossBar.Overlay.PROGRESS
@@ -1142,6 +1365,16 @@ final class PvpCompetitionService implements Listener {
                     Title.Times.times(Duration.ZERO, Duration.ofSeconds(1), Duration.ofMillis(300))
             ));
             player.playSound(player, Sound.ENTITY_ENDER_DRAGON_GROWL, 0.65f, 1.35f);
+            if (match.mode.freeForAll()) {
+                player.sendMessage(prefix()
+                        .append(Component.text("SAFE ZONE  ", NamedTextColor.RED,
+                                TextDecoration.BOLD))
+                        .append(Component.text(Math.round(match.borderSize) + "×"
+                                + Math.round(match.borderSize)
+                                + " blocks, centered on the white beacon. The red wall"
+                                + " moves continuously when closing; follow the HUD to center.",
+                                NamedTextColor.WHITE)));
+            }
         });
         updateBar(match, match.fightingSince);
     }
@@ -1172,19 +1405,27 @@ final class PvpCompetitionService implements Listener {
             if (match.phase != Phase.FIGHTING) return;
         }
         if (match.mode.freeForAll()) {
+            match.borderSize = currentBorderSize(match, now);
             double minimum = decimal("pvp-competitive.ffa-minimum-border");
-            if (match.borderSize > minimum + 1.0e-6d && !match.shrinkWarned
+            if (!match.borderMoving && match.borderSize > minimum + 1.0e-6d
+                    && !match.shrinkWarned
                     && now >= match.nextShrinkAt - 10_000L) {
                 match.shrinkWarned = true;
                 long warningSeconds = Math.max(1L,
                         (match.nextShrinkAt - now + 999L) / 1_000L);
                 forEachOnline(concat(match.players, List.copyOf(match.spectators)), player -> {
-                    player.sendActionBar(Component.text(
-                            "Border shrinks in " + warningSeconds + " seconds!", NamedTextColor.RED));
+                    player.showTitle(Title.title(
+                            Component.text("BORDER MOVES IN " + warningSeconds,
+                                    NamedTextColor.RED, TextDecoration.BOLD),
+                            Component.text("Follow the HUD to the white center beacon",
+                                    NamedTextColor.GOLD),
+                            Title.Times.times(Duration.ZERO, Duration.ofMillis(900),
+                                    Duration.ofMillis(150))));
                     player.playSound(player, Sound.BLOCK_NOTE_BLOCK_PLING, 0.8f, 0.7f);
                 });
             }
             if (now >= match.nextShrinkAt) shrinkBorder(match, now);
+            renderFfaBorder(match);
         }
         updateBar(match, now);
     }
@@ -1194,40 +1435,190 @@ final class PvpCompetitionService implements Listener {
         long remaining = Math.max(0L, match.endsAt - now);
         float progress = duration <= 0L ? 0f
                 : (float) Math.max(0d, Math.min(1d, (double) remaining / duration));
-        match.bar.progress(progress);
         String text = match.mode.display() + "  •  " + match.alive.size() + " alive  •  "
                 + formatSeconds((remaining + 999L) / 1_000L);
-        if (!match.mode.freeForAll()) {
+        if (match.mode.freeForAll()) {
+            double minimum = decimal("pvp-competitive.ffa-minimum-border");
+            double initial = match.arena.arena().diameter();
+            progress = initial <= minimum ? 0f : (float) Math.max(0d, Math.min(1d,
+                    (match.borderSize - minimum) / (initial - minimum)));
+            long size = Math.round(match.borderSize);
+            if (match.borderMoving) {
+                text = "LAST STANDING  •  " + match.alive.size() + " ALIVE  •  SAFE ZONE "
+                        + size + "×" + size + " → " + Math.round(match.borderTarget)
+                        + "×" + Math.round(match.borderTarget) + "  •  CLOSING";
+                match.bar.color(BossBar.Color.RED);
+            } else if (match.nextShrinkAt == Long.MAX_VALUE) {
+                text = "LAST STANDING  •  " + match.alive.size()
+                        + " ALIVE  •  FINAL ZONE " + size + "×" + size;
+                match.bar.color(BossBar.Color.RED);
+            } else {
+                long starts = Math.max(0L, (match.nextShrinkAt - now + 999L) / 1_000L);
+                text = "LAST STANDING  •  " + match.alive.size() + " ALIVE  •  SAFE ZONE "
+                        + size + "×" + size + "  •  CLOSES IN " + formatSeconds(starts);
+                match.bar.color(BossBar.Color.YELLOW);
+            }
+        } else {
             long firstAlive = aliveOnTeam(match, 0);
             long secondAlive = aliveOnTeam(match, 1);
             text = match.mode.display() + "  •  " + firstAlive + "–" + secondAlive
                     + " alive  •  " + formatSeconds((remaining + 999L) / 1_000L);
         }
+        match.bar.progress(progress);
         match.bar.name(Component.text(text, NamedTextColor.GOLD));
     }
 
     private void shrinkBorder(Match match, long now) {
         double minimum = decimal("pvp-competitive.ffa-minimum-border");
+        double current = currentBorderSize(match, now);
         double next = Math.max(minimum,
-                match.borderSize - decimal("pvp-competitive.ffa-shrink-blocks"));
-        match.nextShrinkAt = now
-                + integer("pvp-competitive.ffa-shrink-interval-seconds") * 1_000L;
-        match.shrinkWarned = false;
-        if (next >= match.borderSize - 1.0e-6d) {
+                current - decimal("pvp-competitive.ffa-shrink-blocks"));
+        if (next >= current - 1.0e-6d) {
+            match.borderSize = minimum;
+            match.borderFrom = minimum;
+            match.borderTarget = minimum;
+            match.borderMoving = false;
             match.nextShrinkAt = Long.MAX_VALUE;
+            forEachOnline(concat(match.players, List.copyOf(match.spectators)), player -> {
+                player.showTitle(Title.title(
+                        Component.text("FINAL ZONE", NamedTextColor.RED, TextDecoration.BOLD),
+                        Component.text(Math.round(minimum) + "×" + Math.round(minimum)
+                                + " blocks around the center beacon", NamedTextColor.GOLD),
+                        Title.Times.times(Duration.ZERO, Duration.ofSeconds(1),
+                                Duration.ofMillis(200))));
+                player.playSound(player, Sound.BLOCK_BEACON_DEACTIVATE, 0.8f, 0.65f);
+            });
             return;
         }
-        match.borderSize = next;
-        forEachOnline(match.alive, player -> {
+        boolean firstMove = !match.borderMoving;
+        long duration = integer("pvp-competitive.ffa-shrink-interval-seconds") * 1_000L;
+        match.borderSize = current;
+        match.borderFrom = current;
+        match.borderTarget = next;
+        match.borderMoveStartedAt = now;
+        match.borderMoveEndsAt = now + duration;
+        match.nextShrinkAt = match.borderMoveEndsAt;
+        match.borderMoving = true;
+        match.shrinkWarned = true;
+        long ticks = Math.max(1L, duration / 50L);
+        forEachOnline(concat(match.players, List.copyOf(match.spectators)), player -> {
             WorldBorder border = player.getWorldBorder();
             if (border != null) {
                 border.setWarningDistance(6);
-                border.changeSize(next, 100L);
+                border.changeSize(next, ticks);
             }
-            player.sendActionBar(Component.text(
-                    "Border shrinking to " + Math.round(next) + " blocks!", NamedTextColor.RED));
+            if (firstMove) {
+                player.showTitle(Title.title(
+                        Component.text("BORDER CLOSING", NamedTextColor.RED,
+                                TextDecoration.BOLD),
+                        Component.text(Math.round(current) + "×" + Math.round(current)
+                                + " → " + Math.round(next) + "×" + Math.round(next)
+                                + "  •  Move to center", NamedTextColor.GOLD),
+                        Title.Times.times(Duration.ZERO, Duration.ofSeconds(1),
+                                Duration.ofMillis(200))));
+            }
             player.playSound(player, Sound.BLOCK_BEACON_DEACTIVATE, 0.8f, 1.1f);
         });
+    }
+
+    /** Exact interpolated size, shared by movement rules, particles and the HUD. */
+    private static double currentBorderSize(Match match, long now) {
+        if (!match.borderMoving || match.borderMoveEndsAt <= match.borderMoveStartedAt) {
+            return match.borderTarget;
+        }
+        return interpolatedBorderSize(match.borderFrom, match.borderTarget,
+                match.borderMoveStartedAt, match.borderMoveEndsAt, now);
+    }
+
+    /** Pure timeline shared with tests so visual and collision movement cannot jump. */
+    static double interpolatedBorderSize(
+            double from, double target, long startedAt, long endsAt, long now
+    ) {
+        if (endsAt <= startedAt || now >= endsAt) return target;
+        double progress = Math.max(0d, Math.min(1d,
+                (double) (now - startedAt) / (endsAt - startedAt)));
+        return from + (target - from) * progress;
+    }
+
+    /**
+     * Draws the actual moving square and a white center beacon for every participant.
+     * The coordinates move with the same interpolation used by the collision rule, so
+     * the wall is information rather than decoration.
+     */
+    private void renderFfaBorder(Match match) {
+        Location center = match.arena.arena().center();
+        if (center == null || center.getWorld() == null) return;
+        boolean particles = plugin.gameVariables().bool("pvp-competitive.ffa-border-particles");
+        boolean guidance = plugin.gameVariables().bool("pvp-competitive.ffa-border-guidance");
+        if (!particles && !guidance) return;
+        int spacing = integer("pvp-competitive.ffa-border-particle-spacing");
+        int height = integer("pvp-competitive.ffa-border-particle-height");
+        float size = (float) decimal("pvp-competitive.ffa-border-particle-size");
+        Particle.DustOptions wall = new Particle.DustOptions(
+                Color.fromRGB(255, 45, 45), size);
+        double half = match.borderSize / 2d;
+        forEachOnline(concat(match.players, List.copyOf(match.spectators)), player -> {
+            if (guidance) player.sendActionBar(ffaGuidance(match, player, center, half));
+            if (!particles || !player.getWorld().equals(center.getWorld())) return;
+            double lowY = player.getLocation().getY() - height / 2d;
+            int points = Math.max(1, (int) Math.ceil(match.borderSize / spacing));
+            for (int point = 0; point <= points; point++) {
+                double offset = -half + match.borderSize * point / points;
+                for (int y = 0; y <= height; y += 2) {
+                    double atY = lowY + y;
+                    spawnBorderParticle(player, center.getX() - half, atY,
+                            center.getZ() + offset, wall);
+                    spawnBorderParticle(player, center.getX() + half, atY,
+                            center.getZ() + offset, wall);
+                    spawnBorderParticle(player, center.getX() + offset, atY,
+                            center.getZ() - half, wall);
+                    spawnBorderParticle(player, center.getX() + offset, atY,
+                            center.getZ() + half, wall);
+                }
+            }
+            double beaconY = center.getY() + 1d;
+            for (int y = 0; y <= height * 2; y += 2) {
+                player.spawnParticle(Particle.END_ROD,
+                        new Location(center.getWorld(), center.getX(), beaconY + y,
+                                center.getZ()), 1, 0d, 0d, 0d, 0d, null, true);
+            }
+        });
+    }
+
+    private static void spawnBorderParticle(
+            Player player, double x, double y, double z, Particle.DustOptions wall
+    ) {
+        player.spawnParticle(Particle.DUST,
+                new Location(player.getWorld(), x, y, z),
+                1, 0d, 0d, 0d, 0d, wall, true);
+    }
+
+    private static Component ffaGuidance(
+            Match match, Player player, Location center, double half
+    ) {
+        Location at = player.getLocation();
+        double toX = center.getX() - at.getX();
+        double toZ = center.getZ() - at.getZ();
+        long centerDistance = Math.round(Math.hypot(toX, toZ));
+        long edgeDistance = Math.round(Math.max(0d,
+                Math.min(half - Math.abs(at.getX() - center.getX()),
+                        half - Math.abs(at.getZ() - center.getZ()))));
+        String motion = match.borderMoving ? "CLOSING" : match.nextShrinkAt == Long.MAX_VALUE
+                ? "FINAL ZONE" : "HOLDING";
+        return Component.text("SAFE ZONE " + Math.round(match.borderSize) + "×"
+                        + Math.round(match.borderSize) + "  •  CENTER "
+                        + compass(toX, toZ) + " " + centerDistance + "m  •  EDGE "
+                        + edgeDistance + "m  •  " + motion,
+                match.borderMoving ? NamedTextColor.RED : NamedTextColor.GOLD,
+                TextDecoration.BOLD);
+    }
+
+    private static String compass(double x, double z) {
+        double threshold = Math.max(Math.abs(x), Math.abs(z)) * 0.4d;
+        String northSouth = z < -threshold ? "N" : z > threshold ? "S" : "";
+        String eastWest = x > threshold ? "E" : x < -threshold ? "W" : "";
+        String direction = northSouth + eastWest;
+        return direction.isEmpty() ? "HERE" : direction;
     }
 
     private void eliminate(Match match, UUID victimId, UUID killerId, String reason) {
@@ -1289,9 +1680,9 @@ final class PvpCompetitionService implements Listener {
         try {
             changes = decided
                     ? records.settleMatch(match.mode, winners, losers, match.kills, deaths,
-                            match.mode.rated())
+                            match.rated)
                     : records.drawMatch(match.mode, match.players, match.kills, deaths,
-                            match.mode.rated());
+                            match.rated);
             if (decided && match.mode.clan()) settleClanMatch(match, winners, losers);
         } catch (RuntimeException failure) {
             plugin.getLogger().warning("Could not save competitive PvP result: " + failure.getMessage());
@@ -1370,6 +1761,7 @@ final class PvpCompetitionService implements Listener {
             Player player = Bukkit.getPlayer(playerId);
             if (player != null) restore(player);
             matchByPlayer.remove(playerId);
+            if (player != null) sendPlayAgain(player);
         }
         for (UUID spectatorId : List.copyOf(match.spectators)) {
             Player spectator = Bukkit.getPlayer(spectatorId);
@@ -1380,6 +1772,15 @@ final class PvpCompetitionService implements Listener {
                 player -> plugin.bossBars().hideExclusive(player, match.bar));
         matches.remove(match.id);
         duels.releaseCompetitiveArena(match.arena.id());
+    }
+
+    /** A finished round immediately offers the next meaningful action. */
+    private void sendPlayAgain(Player player) {
+        player.sendMessage(prefix()
+                .append(Component.text("PLAY AGAIN", NamedTextColor.GREEN,
+                                TextDecoration.BOLD)
+                        .clickEvent(net.kyori.adventure.text.event.ClickEvent.runCommand("/pvp")))
+                .append(Component.text("  Open PvP modes", NamedTextColor.GRAY)));
     }
 
     private void abortStart(Match match, String reason) {
@@ -1547,10 +1948,18 @@ final class PvpCompetitionService implements Listener {
                     queueSummary(mode) + " - " + modeHint(mode),
                     p -> openMode(p, mode, back)));
         }
-        String body = "Choose one fight type, then set its size and access. Every match"
-                + " uses your own survival loadout in untouched overworld terrain.\n"
-                + availablePlayers() + " player(s) are free to fight right now.";
-        showMenu(player, "Create a PvP Fight", body, actions, back);
+        List<DialogBody> page = List.of(
+                DialogBody.plainMessage(MenuText.stat("Players ready",
+                        availablePlayers() + " online and free to fight"), RULE_WIDTH),
+                DialogBody.plainMessage(MenuText.rule("item/spyglass", "Public Matchmaking",
+                        "Pick a format and join immediately. The queue stays visible while"
+                                + " you wait."), RULE_WIDTH),
+                DialogBody.plainMessage(MenuText.rule("item/netherite_chestplate", "Your Loadout",
+                        "Every mode uses the survival gear you are carrying. KEEP INVENTORY"
+                                + " is always active."), RULE_WIDTH));
+        showPage(player, "Play PvP", page,
+                availablePlayers() + " players ready. Choose Ranked, Clan, or Last Standing.",
+                actions, back);
     }
 
     private void openMode(Player player, PvpMode selected) {
@@ -1558,6 +1967,96 @@ final class PvpCompetitionService implements Listener {
     }
 
     private void openMode(Player player, PvpMode selected,
+            java.util.function.Consumer<Player> back) {
+        PvpMode family = PvpMatchSetup.category(selected);
+        List<MenuAction> actions = new ArrayList<>();
+        if (family == PvpMode.RANKED_DUEL) {
+            actions.add(quickQueueAction(publicSetup(family, 1), "Play 1v1"));
+            actions.add(quickQueueAction(publicSetup(family, 2), "Play 2v2"));
+            actions.add(quickQueueAction(publicSetup(family, 3), "Play 3v3"));
+        } else if (family == PvpMode.CLAN_BATTLE) {
+            actions.add(quickQueueAction(publicSetup(family, 2), "Play Clan 2v2"));
+            actions.add(quickQueueAction(publicSetup(family, 3), "Play Clan 3v3"));
+        } else {
+            actions.add(quickQueueAction(publicSetup(family, 4), "Quick Play • 4 Players"));
+            actions.add(new MenuAction("item/armor_stand", "Choose Player Count",
+                    "Pick any Last Standing field from 2 to 12 players.",
+                    viewer -> openFfaSizes(viewer,
+                            parent -> openMode(parent, family, back))));
+        }
+        if (!family.freeForAll()) {
+            actions.add(new MenuAction("item/writable_book", "Manage Team",
+                    family.clan() ? "Build the complete same-clan side required to queue."
+                            : "Invite friends before joining a team format.",
+                    viewer -> openParty(viewer,
+                            parent -> openMode(parent, family, back))));
+        }
+        actions.add(new MenuAction("item/name_tag", "Custom / Invite-Only",
+                "Advanced size, access, teammate-fill, and private-room options.",
+                viewer -> openMatchOptions(viewer, family, back)));
+
+        String queueRule = family == PvpMode.FFA
+                ? "Solo elimination. Once the minimum is ready, a visible countdown"
+                        + " starts instead of waiting forever for a full field."
+                : family == PvpMode.CLAN_BATTLE
+                ? "Two complete same-clan parties meet in an unrated clan battle."
+                : "Solo or team matchmaking. Opponent rating range expands as you wait.";
+        List<DialogBody> page = List.of(
+                DialogBody.plainMessage(MenuText.rule(modeSprite(family),
+                        categoryLabel(family), queueRule), RULE_WIDTH),
+                DialogBody.plainMessage(MenuText.rule("item/clock_00", "Live Queue",
+                        queueSummary(family)), RULE_WIDTH),
+                DialogBody.plainMessage(MenuText.rule("item/totem_of_undying", "Safe Stakes",
+                        "KEEP INVENTORY is on. Public matches never move money, items,"
+                                + " or cosmetics."), RULE_WIDTH));
+        showPage(player, categoryLabel(family), page,
+                queueRule + " " + queueSummary(family), actions,
+                viewer -> openModes(viewer, back));
+    }
+
+    private MenuAction quickQueueAction(PvpMatchSetup setup, String label) {
+        return new MenuAction(modeSprite(setup.mode()), label,
+                queueSummary(setup) + ". Join in one click.",
+                player -> joinQueue(player, setup));
+    }
+
+    private static PvpMatchSetup publicSetup(PvpMode family, int size) {
+        boolean ffa = PvpMatchSetup.category(family) == PvpMode.FFA;
+        return new PvpMatchSetup(family, ffa ? 1 : size,
+                ffa ? size : size * 2, PvpMatchSetup.Access.PUBLIC, true);
+    }
+
+    private void openFfaSizes(Player player, Consumer<Player> back) {
+        showMenu(player, "Last Standing Size",
+                "Choose a field group. Player counts stay on their own page so the main"
+                        + " mode screen remains quick to scan.",
+                List.of(
+                        new MenuAction("item/iron_sword", "Small • 2-4 Players",
+                                "Fast fights for a small online population.",
+                                viewer -> openFfaRange(viewer, 2, 4, back)),
+                        new MenuAction("item/diamond_sword", "Medium • 5-8 Players",
+                                "A larger field without the longest queue.",
+                                viewer -> openFfaRange(viewer, 5, 8, back)),
+                        new MenuAction("item/netherite_sword", "Large • 9-12 Players",
+                                "The full Last Standing experience.",
+                                viewer -> openFfaRange(viewer, 9, 12, back))
+                ), back);
+    }
+
+    private void openFfaRange(Player player, int first, int last, Consumer<Player> back) {
+        List<MenuAction> actions = new ArrayList<>();
+        for (int size = first; size <= last; size++) {
+            PvpMatchSetup setup = publicSetup(PvpMode.FFA, size);
+            actions.add(quickQueueAction(setup, size + " Players"));
+        }
+        showMenu(player, first + "-" + last + " Player Last Standing",
+                "Choose the exact field size. A full field starts immediately; an"
+                        + " under-filled field starts after the visible minimum-player timer.",
+                actions, viewer -> openFfaSizes(viewer, back));
+    }
+
+    /** Advanced choices live one level down; the common path above is one click. */
+    private void openMatchOptions(Player player, PvpMode selected,
             java.util.function.Consumer<Player> back) {
         PvpMode family = PvpMatchSetup.category(selected);
         PvpMatchSetup setup = matchDraft(player, selected);
@@ -1573,6 +2072,10 @@ final class PvpCompetitionService implements Listener {
                 DialogBody.plainMessage(MenuText.stat("Match", setup.matchLabel()), RULE_WIDTH),
                 DialogBody.plainMessage(
                         MenuText.stat("Access", setup.access().display()), RULE_WIDTH),
+                DialogBody.plainMessage(MenuText.stat("Rating",
+                        open && setup.mode().rated()
+                                ? "Changes from this public match"
+                                : "No rating change"), RULE_WIDTH),
                 DialogBody.plainMessage(MenuText.stat("Your side", partyLine), RULE_WIDTH),
                 DialogBody.plainMessage(
                         MenuText.stat("Loadout", "What you are carrying now"), RULE_WIDTH),
@@ -1612,7 +2115,7 @@ final class PvpCompetitionService implements Listener {
             actions.add(new MenuAction("item/writable_book", "Manage Team",
                     "Invite or remove the teammates on your side.",
                     viewer -> openParty(viewer,
-                            backViewer -> openMode(backViewer, family, back))));
+                            backViewer -> openMatchOptions(backViewer, family, back))));
         }
         PvpMatchSetup startSetup = setup;
         actions.add(new MenuAction("item/netherite_sword",
@@ -1623,13 +2126,13 @@ final class PvpCompetitionService implements Listener {
                         : "Open a room, invite opponents, then choose when to start.",
                 p -> joinQueue(p, startSetup)));
         showPage(player, setup.matchLabel(), page, plain, actions,
-                viewer -> openModes(viewer, back));
+                viewer -> openMode(viewer, family, back));
     }
 
     private void updateMatchDraft(Player player, PvpMatchSetup setup,
             java.util.function.Consumer<Player> back) {
         matchDrafts.put(player.getUniqueId(), setup);
-        openMode(player, setup.family(), back);
+        openMatchOptions(player, setup.family(), back);
     }
 
     private PvpMatchSetup matchDraft(Player player, PvpMode selected) {
@@ -2128,7 +2631,9 @@ final class PvpCompetitionService implements Listener {
             return;
         }
         removeMatchRoom(room, null);
-        startPlan(room.setup.mode(), List.of(), List.of(), first, second);
+        // Like professional custom-game rooms, explicitly invited matches are for
+        // practice and social play. They never move the public matchmaking rating.
+        startPlan(room.setup.mode(), List.of(), List.of(), first, second, false);
     }
 
     private void handleMatchRoom(Player player, String[] args) {
@@ -2475,19 +2980,14 @@ final class PvpCompetitionService implements Listener {
         PvpMode mode = queuedModes.get(player.getUniqueId());
         PendingStart pending = preparing.get(player.getUniqueId());
         if (pending != null) {
-            info(player, "Preparing untouched overworld terrain for "
-                    + pending.mode().display() + ".");
+            openQueueStatus(player);
             return;
         }
         if (mode == null) {
             info(player, "You are not waiting. Use /pvp to create a fight.");
             return;
         }
-        PvpMatchmaking.Entry entry = queuedPlayers.get(player.getUniqueId());
-        PvpMatchSetup setup = setupOf(mode, entry);
-        long waited = Math.max(0L, System.currentTimeMillis() - entry.joinedAt()) / 1_000L;
-        info(player, "Queued for " + setup.matchLabel() + " for " + formatSeconds(waited)
-                + " with " + entry.members().size() + " player(s).");
+        openQueueStatus(player);
     }
 
     private void openQueueStatus(Player player) {
@@ -2495,8 +2995,17 @@ final class PvpCompetitionService implements Listener {
         PvpMatchmaking.Entry entry = queuedPlayers.get(player.getUniqueId());
         PendingStart pending = preparing.get(player.getUniqueId());
         if (pending != null) {
-            showMenu(player, "PvP Match Found",
-                    "Preparing untouched overworld terrain for " + pending.mode().display() + ".",
+            showPage(player, "PvP Match Found", List.of(
+                            DialogBody.plainMessage(MenuText.stat("Match",
+                                    pending.mode().display()), RULE_WIDTH),
+                            DialogBody.plainMessage(MenuText.stat("Status",
+                                    "Preparing untouched overworld terrain"), RULE_WIDTH),
+                            DialogBody.plainMessage(MenuText.rule("item/clock_00",
+                                    "Live Progress",
+                                    "The preparation bar and bottom status update through"
+                                            + " location search, chunk loading, and safety checks."),
+                                    RULE_WIDTH)),
+                    "Match found. The live preparation bar shows every stage.",
                     List.of(new MenuAction("item/barrier", "Cancel Match",
                             "Cancel before the countdown begins.",
                             this::leaveQueueAndOpenHub)), duels::openHub);
@@ -2508,16 +3017,36 @@ final class PvpCompetitionService implements Listener {
         }
         long waited = Math.max(0L, System.currentTimeMillis() - entry.joinedAt()) / 1_000L;
         PvpMatchSetup setup = setupOf(mode, entry);
-        String body = "Queued for " + setup.matchLabel() + "\n"
-                + "Waiting: " + formatSeconds(waited) + "\n"
-                + (setup.freeForAll()
-                ? "Target: " + setup.targetPlayers() + " players"
-                : "Your side: " + entry.members().size() + "/" + setup.teamSize());
-        showMenu(player, "PvP Queue", body, List.of(
+        int waiting = queuedFor(setup);
+        int missing = Math.max(0, setup.requiredPlayers() - waiting);
+        long early = ffaEarlyStartRemaining(setup, System.currentTimeMillis());
+        String next = early >= 0L && waiting < setup.requiredPlayers()
+                ? "Starts with current field in " + formatSeconds(early)
+                : missing > 0 ? "Needs " + missing + " more player" + (missing == 1 ? "" : "s")
+                : "Enough players are ready; selecting a fair match";
+        List<DialogBody> page = new ArrayList<>(List.of(
+                DialogBody.plainMessage(MenuText.stat("Match", setup.matchLabel()), RULE_WIDTH),
+                DialogBody.plainMessage(MenuText.stat("Players ready",
+                        waiting + " / " + setup.requiredPlayers()), RULE_WIDTH),
+                DialogBody.plainMessage(MenuText.stat("Waiting",
+                        formatSeconds(waited)), RULE_WIDTH),
+                DialogBody.plainMessage(MenuText.stat("Next", next), RULE_WIDTH)));
+        if (mode.rated()) {
+            long range = PvpMatchmaking.ratingWindow(waited * 1_000L,
+                    integer("pvp-competitive.matchmaking-base-range"),
+                    integer("pvp-competitive.matchmaking-widen-per-second"),
+                    integer("pvp-competitive.matchmaking-maximum-range"));
+            page.add(DialogBody.plainMessage(MenuText.stat("Opponent search",
+                    "±" + range + " rating and expanding"), RULE_WIDTH));
+        }
+        showPage(player, "PvP Queue", page,
+                setup.matchLabel() + ". " + waiting + "/" + setup.requiredPlayers()
+                        + " ready. " + next + ". Waiting " + formatSeconds(waited) + ".",
+                List.of(
                 new MenuAction("item/barrier", "Leave Queue",
                         "Leave this queue with your current team.",
                         this::leaveQueueAndOpenHub)
-        ), duels::openHub);
+                ), duels::openHub);
     }
 
     private void leaveQueueAndOpenHub(Player player) {
@@ -2647,6 +3176,11 @@ final class PvpCompetitionService implements Listener {
         viewer.setCollidable(false);
         viewer.setCanPickupItems(false);
         viewer.setWorldBorder(personalBorder(match, match.borderSize));
+        if (match.borderMoving && viewer.getWorldBorder() != null) {
+            long remainingTicks = Math.max(1L,
+                    (match.borderMoveEndsAt - System.currentTimeMillis()) / 50L);
+            viewer.getWorldBorder().changeSize(match.borderTarget, remainingTicks);
+        }
         teleport(viewer, stand);
         plugin.bossBars().showExclusive(viewer, match.bar);
         info(viewer, "Watching " + match.mode.display()
@@ -3575,6 +4109,8 @@ final class PvpCompetitionService implements Listener {
             duels.releaseCompetitiveArena(match.arena.id());
         }
         matches.clear();
+        for (UUID playerId : List.copyOf(queueHuds.keySet())) clearQueueHud(playerId);
+        for (UUID playerId : List.copyOf(preparationHuds.keySet())) clearPreparationHud(playerId);
         preparing.clear();
         queues.clear();
         queuedPlayers.clear();
@@ -3604,12 +4140,16 @@ final class PvpCompetitionService implements Listener {
         for (UUID member : entry.members()) {
             queuedPlayers.remove(member);
             queuedModes.remove(member);
+            clearQueueHud(member);
         }
         if (message != null) notifyPlayers(entry.members(), message);
     }
 
     private void clearPending(PendingStart pending) {
-        for (UUID playerId : pending.players()) preparing.remove(playerId, pending);
+        for (UUID playerId : pending.players()) {
+            preparing.remove(playerId, pending);
+            clearPreparationHud(playerId);
+        }
     }
 
     private static List<UUID> flatten(List<PvpMatchmaking.Entry> entries) {

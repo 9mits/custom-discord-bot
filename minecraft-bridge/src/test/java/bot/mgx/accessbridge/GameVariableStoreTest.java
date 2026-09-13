@@ -96,6 +96,22 @@ final class GameVariableStoreTest {
     }
 
     @Test
+    void pvpQueueAndLastStandingFeedbackAreRuntimeConfigurable() throws Exception {
+        GameVariableStore variables = store();
+        assertTrue(variables.bool("pvp-competitive.queue-boss-bar"));
+        assertEquals(3,
+                variables.integer("pvp-competitive.queue-actionbar-interval-seconds"));
+        assertTrue(variables.bool("pvp-competitive.ffa-border-particles"));
+        assertTrue(variables.bool("pvp-competitive.ffa-border-guidance"));
+        assertEquals(12,
+                variables.integer("pvp-competitive.ffa-border-particle-spacing"));
+        assertEquals(6,
+                variables.integer("pvp-competitive.ffa-border-particle-height"));
+        assertEquals(1.35d,
+                variables.decimal("pvp-competitive.ffa-border-particle-size"));
+    }
+
+    @Test
     void everyAmethystArmorPieceUsesItsRealEquipmentSlot() {
         assertEquals(EquipmentSlot.HEAD, AmethystItemService.armorSlot("helmet"));
         assertEquals(EquipmentSlot.CHEST, AmethystItemService.armorSlot("chestplate"));

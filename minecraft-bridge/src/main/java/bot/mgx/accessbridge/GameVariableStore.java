@@ -1237,6 +1237,14 @@ final class GameVariableStore {
                 "PvP Competitive",
                 "Shortest gap between two announcements of the same queue.",
                 240, 30, 3_600, "seconds", false);
+        bool("pvp-competitive.queue-boss-bar", "Queue boss bar", "PvP Competitive",
+                "Keep the selected match, live player count, expanding rating search,"
+                        + " and wait time visible while a player is queued.", true);
+        integer("pvp-competitive.queue-actionbar-interval-seconds", "Queue status pulse",
+                "PvP Competitive",
+                "Seconds between bottom-of-screen queue status reminders. Joins and leaves"
+                        + " are still shown immediately.",
+                3, 1, 15, "seconds", false);
         decimal("pvp-competitive.lobby-title-scale", "Lobby title scale", "PvP Lobby",
                 "Scale of mode, pavilion, and centre titles in the PvP lobby.",
                 2.4, 0.5, 6.0, "scale");
@@ -1334,6 +1342,25 @@ final class GameVariableStore {
         decimal("pvp-competitive.ffa-minimum-border", "FFA final border",
                 "PvP Competitive", "Smallest FFA border width.",
                 18.0, 8.0, 100.0, "blocks");
+        bool("pvp-competitive.ffa-border-particles", "Visible FFA border",
+                "PvP Competitive",
+                "Draw the real Last Standing safe-zone wall in red particles and mark its"
+                        + " center with a white beacon.", true);
+        bool("pvp-competitive.ffa-border-guidance", "FFA border guidance",
+                "PvP Competitive",
+                "Show safe-zone dimensions, direction and distance to center, distance to"
+                        + " the nearest edge, and whether the wall is moving.", true);
+        integer("pvp-competitive.ffa-border-particle-spacing", "FFA border point spacing",
+                "PvP Competitive",
+                "Horizontal blocks between points in the visible Last Standing wall.",
+                12, 4, 32, "blocks", false);
+        integer("pvp-competitive.ffa-border-particle-height", "FFA border wall height",
+                "PvP Competitive",
+                "Vertical height of the visible Last Standing wall around each viewer.",
+                6, 2, 16, "blocks", false);
+        decimal("pvp-competitive.ffa-border-particle-size", "FFA border particle size",
+                "PvP Competitive", "Size of each red point in the visible safe-zone wall.",
+                1.35, 0.25, 4.0, "scale");
 
         integer("pvp-ranked.division-size", "PvP division size", "PvP Ranking",
                 "Rating points between ordinary PvP rank divisions.",

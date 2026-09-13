@@ -73,8 +73,14 @@ final class PvpCompetitionSafetyTest {
     void ffaActuallyShrinksAndDisconnectsCannotAvoidAResult() throws Exception {
         String source = Files.readString(SOURCE, StandardCharsets.UTF_8);
         assertTrue(source.contains("private void shrinkBorder(Match match, long now)"));
-        assertTrue(source.contains("Border shrinks in \" + warningSeconds + \" seconds!"));
-        assertTrue(source.contains("border.changeSize(next, 100L)"));
+        assertTrue(source.contains("BORDER MOVES IN \" + warningSeconds"));
+        assertTrue(source.contains("border.changeSize(next, ticks)"));
+        assertTrue(source.contains("private static double currentBorderSize("));
+        assertTrue(source.contains("private void renderFfaBorder(Match match)"));
+        assertTrue(source.contains("SAFE ZONE \" + Math.round(match.borderSize)"));
+        assertTrue(source.contains("CENTER \""));
+        assertTrue(source.contains("ffa-border-particles"));
+        assertTrue(source.contains("ffa-border-guidance"));
         assertTrue(source.contains("disconnected and forfeited"));
         assertTrue(source.contains("was eliminated for inactivity"));
         assertTrue(source.contains("Every remaining player was inactive — draw."));
@@ -167,6 +173,12 @@ final class PvpCompetitionSafetyTest {
         assertTrue(source.contains("List.of(\n                PvpMode.RANKED_DUEL, PvpMode.CLAN_BATTLE, PvpMode.FFA)"));
         assertTrue(source.contains("\"Access: \" + setup.access().display()"));
         assertTrue(source.contains("Create Invite-Only Room"));
+        assertTrue(source.contains("Play 1v1"));
+        assertTrue(source.contains("Play Clan 2v2"));
+        assertTrue(source.contains("Choose Player Count"));
+        assertTrue(source.contains("Custom / Invite-Only"));
+        assertTrue(source.contains("joinQueue(player,\n                                        PvpMatchSetup.defaults(mode))"),
+                "/pvp queue <mode> must join directly instead of reopening another menu");
         assertTrue(source.contains("Invite Opponents"));
         assertTrue(source.contains("\"Force Start \" + roomScore(room)"));
         assertTrue(source.contains("roomStartable(room)"));
@@ -201,13 +213,50 @@ final class PvpCompetitionSafetyTest {
         // Each nested page carries the root it was opened from, so a page reached
         // from a console keeps Close all the way down instead of growing a Back that
         // leads out to the main menu.
-        assertTrue(source.contains("backViewer -> openMode(backViewer, family, back)"));
+        assertTrue(source.contains("backViewer -> openMatchOptions(backViewer, family, back)"));
         assertTrue(source.contains(
                 "viewer -> openRankings(viewer, parent -> openLadder(parent, back))"));
         String queueStatus = source.substring(source.indexOf("private void openQueueStatus("),
                 source.indexOf("int liveMatchCount()"));
         assertTrue(queueStatus.contains("duels::openHub"));
         assertFalse(queueStatus.contains("), null);"));
+    }
+
+    @Test
+    void queueAndPreparationAlwaysExposeLiveProgress() throws Exception {
+        String source = Files.readString(SOURCE, StandardCharsets.UTF_8);
+        assertTrue(source.contains("QUEUE JOINED"));
+        assertTrue(source.contains("A PLAYER"));
+        assertTrue(source.contains("queue-boss-bar"));
+        assertTrue(source.contains("queue-actionbar-interval-seconds"));
+        assertTrue(source.contains("MATCH FOUND  •  \" + stage"));
+        assertTrue(source.contains("updatePreparationFeedback(pending, stage, progress)"));
+        assertTrue(source.contains("SEARCH ±"));
+        assertTrue(source.contains("ffaEarlyStartRemaining"));
+        assertTrue(source.contains("Somebody already waiting is part of the population"));
+    }
+
+    @Test
+    void rootMenuGroupsPrivateAndReadOnlyDestinations() throws Exception {
+        String duel = Files.readString(SOURCE.getParent().resolve("PvpDuelService.java"),
+                StandardCharsets.UTF_8);
+        String hub = duel.substring(duel.indexOf("void openHub(Player player)"),
+                duel.indexOf("private void openRankLeaderboard(Player player)"));
+        assertTrue(hub.contains("Play PvP"));
+        assertTrue(hub.contains("Private Fights"));
+        assertTrue(hub.contains("Activity & Records"));
+        assertTrue(hub.contains("private void openPrivateHome"));
+        assertTrue(hub.contains("private void openActivityHome"));
+    }
+
+    @Test
+    void invitedRoomsNeverChangePublicRating() throws Exception {
+        String source = Files.readString(SOURCE, StandardCharsets.UTF_8);
+        assertTrue(source.contains("final boolean rated;"));
+        assertTrue(source.contains("startPlan(room.setup.mode(), List.of(), List.of(),"
+                + " first, second, false)"));
+        assertTrue(source.contains("match.rated)"));
+        assertTrue(source.contains("No rating change"));
     }
 
     @Test

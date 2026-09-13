@@ -19,6 +19,28 @@ final class PvpMatchmakingTest {
     }
 
     @Test
+    void ffaEarlyStartBeginsWhenTheMinimumCompatibleSetupArrives() {
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        UUID third = UUID.randomUUID();
+        UUID wrongSize = UUID.randomUUID();
+        List<PvpMatchmaking.Entry> queue = List.of(
+                new PvpMatchmaking.Entry(first, List.of(first), true,
+                        1_000L, 0L, null, 1, 8),
+                new PvpMatchmaking.Entry(wrongSize, List.of(wrongSize), true,
+                        1_500L, 0L, null, 1, 4),
+                new PvpMatchmaking.Entry(second, List.of(second), true,
+                        2_000L, 0L, null, 1, 8),
+                new PvpMatchmaking.Entry(third, List.of(third), true,
+                        3_000L, 0L, null, 1, 8)
+        );
+        assertEquals(3_000L,
+                PvpMatchmaking.ffaReadyAt(queue, 1, 8, 3).orElseThrow());
+        assertTrue(PvpMatchmaking.ffaReadyAt(queue, 1, 8, 4).isEmpty());
+        assertTrue(PvpMatchmaking.ffaReadyAt(queue, 1, 12, 3).isEmpty());
+    }
+
+    @Test
     void soloPlayersFillTwoCompleteDoublesTeams() {
         long now = 100_000L;
         List<PvpMatchmaking.Entry> queue = new ArrayList<>();
