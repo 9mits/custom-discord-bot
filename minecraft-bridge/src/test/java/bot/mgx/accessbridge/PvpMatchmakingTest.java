@@ -25,7 +25,7 @@ final class PvpMatchmakingTest {
         for (int index = 0; index < 4; index++) {
             UUID player = UUID.randomUUID();
             queue.add(new PvpMatchmaking.Entry(player, List.of(player), true,
-                    now - index * 1_000L, 400 + index * 5L, null));
+                    now - index * 1_000L, 400 + index * 5L, null, 2, 4));
         }
         PvpMatchmaking.Plan plan = PvpMatchmaking.teams(
                 queue, 2, now, 100, 1, 500).orElseThrow();
@@ -40,7 +40,7 @@ final class PvpMatchmakingTest {
         long now = 100_000L;
         UUID solo = UUID.randomUUID();
         PvpMatchmaking.Entry incomplete = new PvpMatchmaking.Entry(
-                solo, List.of(solo), false, now, 0, null);
+                solo, List.of(solo), false, now, 0, null, 2, 4);
         assertTrue(PvpMatchmaking.teams(List.of(incomplete), 2, now,
                 1_000, 0, 1_000).isEmpty());
 
@@ -49,8 +49,10 @@ final class PvpMatchmakingTest {
         UUID secondA = UUID.randomUUID();
         UUID secondB = UUID.randomUUID();
         List<PvpMatchmaking.Entry> premades = List.of(
-                new PvpMatchmaking.Entry(firstA, List.of(firstA, firstB), false, now, 500, null),
-                new PvpMatchmaking.Entry(secondA, List.of(secondA, secondB), false, now, 500, null)
+                new PvpMatchmaking.Entry(firstA, List.of(firstA, firstB), false,
+                        now, 500, null, 2, 4),
+                new PvpMatchmaking.Entry(secondA, List.of(secondA, secondB), false,
+                        now, 500, null, 2, 4)
         );
         assertFalse(PvpMatchmaking.teams(premades, 2, now, 100, 0, 100,
                 (left, right) -> false).isPresent());
@@ -66,7 +68,7 @@ final class PvpMatchmakingTest {
         for (int index = 0; index < ratings.length; index++) {
             UUID player = UUID.randomUUID();
             queue.add(new PvpMatchmaking.Entry(player, List.of(player), true,
-                    now - (ratings.length - index) * 1_000L, ratings[index], null));
+                    now - (ratings.length - index) * 1_000L, ratings[index], null, 2, 4));
         }
         PvpMatchmaking.Plan plan = PvpMatchmaking.teams(
                 queue, 2, now, 100, 0, 100).orElseThrow();

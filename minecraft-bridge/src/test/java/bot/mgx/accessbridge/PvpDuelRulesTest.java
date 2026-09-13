@@ -29,4 +29,20 @@ final class PvpDuelRulesTest {
         assertTrue(PvpDuelRules.separated(0d, 0d, 300d, 0d, 288d));
         assertFalse(PvpDuelRules.separated(0d, 0d, 200d, 0d, 288d));
     }
+
+    @Test
+    void competitiveRingSizeFollowsThePlayersWhoActuallyStart() {
+        assertEquals("pvp-competitive.duel-arena-diameter",
+                PvpDuelService.competitiveDiameterKey(PvpMode.RANKED_DUEL, 1, 1));
+        assertEquals("pvp-competitive.2v2-arena-diameter",
+                PvpDuelService.competitiveDiameterKey(PvpMode.RANKED_DUEL, 1, 2));
+        assertEquals("pvp-competitive.3v3-arena-diameter",
+                PvpDuelService.competitiveDiameterKey(PvpMode.TRIPLES, 2, 3));
+        assertEquals("pvp-competitive.2v2-arena-diameter",
+                PvpDuelService.competitiveDiameterKey(PvpMode.CLAN_BATTLE, 2, 2));
+        assertEquals("pvp-competitive.clan-arena-diameter",
+                PvpDuelService.competitiveDiameterKey(PvpMode.CLAN_BATTLE, 3, 3));
+        assertEquals("pvp-competitive.ffa-arena-diameter",
+                PvpDuelService.competitiveDiameterKey(PvpMode.FFA, 7, 0));
+    }
 }

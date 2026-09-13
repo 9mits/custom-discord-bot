@@ -16,10 +16,14 @@ final class PvpMatchmaking {
             boolean fill,
             long joinedAt,
             long averageRating,
-            UUID clanId
+            UUID clanId,
+            int teamSize,
+            int targetPlayers
     ) {
         Entry {
             members = List.copyOf(members);
+            teamSize = Math.max(1, teamSize);
+            targetPlayers = Math.max(2, targetPlayers);
         }
     }
 
@@ -112,9 +116,9 @@ final class PvpMatchmaking {
                     .toList();
             for (List<Entry> second : opponentsByFit) {
                 Entry firstSummary = new Entry(first.get(0).id(), List.of(), true,
-                        oldest(first), firstRating, null);
+                        oldest(first), firstRating, null, teamSize, teamSize * 2);
                 Entry secondSummary = new Entry(second.get(0).id(), List.of(), true,
-                        oldest(second), average(second), null);
+                        oldest(second), average(second), null, teamSize, teamSize * 2);
                 if (ratingCompatible(firstSummary, secondSummary, now,
                         baseRange, widenPerSecond, maximumRange)
                         && opponents.test(Plan.members(first), Plan.members(second))) {

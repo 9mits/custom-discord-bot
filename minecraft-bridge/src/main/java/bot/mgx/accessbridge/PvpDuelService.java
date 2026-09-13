@@ -642,19 +642,26 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         for (Player player : players) {
             info(player, "Finding a fight location...");
         }
-        int diameter = competitiveDiameter(mode);
+        int diameter = competitiveDiameter(mode, first.size(), second.size());
         findCompetitiveArena(world, mode, first, second, players, diameter, 0, ready, failed);
     }
 
-    private int competitiveDiameter(PvpMode mode) {
-        String key = switch (mode) {
-            case CASUAL_DUEL, RANKED_DUEL, PRIVATE_DUEL -> "pvp-competitive.duel-arena-diameter";
-            case DOUBLES -> "pvp-competitive.2v2-arena-diameter";
-            case TRIPLES -> "pvp-competitive.3v3-arena-diameter";
-            case CLAN_BATTLE -> "pvp-competitive.clan-arena-diameter";
-            case FFA -> "pvp-competitive.ffa-arena-diameter";
-        };
-        return plugin.gameVariables().integer(key);
+    private int competitiveDiameter(PvpMode mode, int firstSize, int secondSize) {
+        return plugin.gameVariables().integer(
+                competitiveDiameterKey(mode, firstSize, secondSize));
+    }
+
+    /** Uneven invite rooms still get a ring sized for how many people actually enter. */
+    static String competitiveDiameterKey(PvpMode mode, int firstSize, int secondSize) {
+        if (mode.freeForAll()) return "pvp-competitive.ffa-arena-diameter";
+        int players = Math.max(0, firstSize) + Math.max(0, secondSize);
+        if (mode.clan()) {
+            return players <= 4 ? "pvp-competitive.2v2-arena-diameter"
+                    : "pvp-competitive.clan-arena-diameter";
+        }
+        if (players <= 2) return "pvp-competitive.duel-arena-diameter";
+        if (players <= 4) return "pvp-competitive.2v2-arena-diameter";
+        return "pvp-competitive.3v3-arena-diameter";
     }
 
     private void findCompetitiveArena(

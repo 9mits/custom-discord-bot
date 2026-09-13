@@ -12,7 +12,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 final class PvpModeTest {
     @Test
     void everyAdvertisedModeResolvesToARealImplementation() {
-        assertSame(PvpMode.CASUAL_DUEL, PvpMode.from("casual").orElseThrow());
+        assertSame(PvpMode.RANKED_DUEL, PvpMode.from("casual").orElseThrow());
         assertSame(PvpMode.RANKED_DUEL, PvpMode.from("1v1").orElseThrow());
         assertSame(PvpMode.DOUBLES, PvpMode.from("doubles").orElseThrow());
         assertSame(PvpMode.TRIPLES, PvpMode.from("3v3").orElseThrow());
@@ -32,6 +32,10 @@ final class PvpModeTest {
         assertEquals(3, PvpMode.FFA.minimumPlayers(3));
         assertEquals(12, PvpMode.FFA.minimumPlayers(99));
         assertFalse(PvpMode.PRIVATE_DUEL.queueable());
+        assertFalse(PvpMode.CASUAL_DUEL.queueable());
+        assertEquals(Set.of(PvpMode.RANKED_DUEL, PvpMode.CLAN_BATTLE, PvpMode.FFA),
+                java.util.Arrays.stream(PvpMode.values()).filter(PvpMode::lobbyCategory)
+                        .collect(java.util.stream.Collectors.toSet()));
         assertEquals(Set.of(PvpMode.RANKED_DUEL, PvpMode.DOUBLES, PvpMode.TRIPLES),
                 java.util.Arrays.stream(PvpMode.values()).filter(PvpMode::rated)
                         .collect(java.util.stream.Collectors.toSet()));

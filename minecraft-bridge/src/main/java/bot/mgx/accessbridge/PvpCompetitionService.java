@@ -99,7 +99,8 @@ final class PvpCompetitionService implements Listener {
     private static final String ENTRANCE_FALLBACK_TAG = "mgx_pvp_entrance_fallback";
     private static final List<String> PLAYER_COMMANDS = List.of(
             "queue", "leave", "status", "party", "lobby", "return", "spectate",
-            "live", "stats", "rankings", "rules", "rewards", "private", "forfeit", "giveup"
+            "live", "stats", "rankings", "rules", "rewards", "private", "room",
+            "forfeit", "giveup"
     );
 
     private enum Phase { COUNTDOWN, FIGHTING, AFTERMATH, ENDING }
@@ -115,6 +116,28 @@ final class PvpCompetitionService implements Listener {
     }
 
     private record PartyInvite(UUID leader, long expiresAt) { }
+
+    /** An explicitly joined, owner-started room for invited opponents. */
+    private static final class MatchRoom {
+        final UUID id = UUID.randomUUID();
+        final UUID owner;
+        final PvpMatchSetup setup;
+        final LinkedHashSet<UUID> first = new LinkedHashSet<>();
+        final LinkedHashSet<UUID> second = new LinkedHashSet<>();
+        final LinkedHashSet<UUID> invited = new LinkedHashSet<>();
+
+        MatchRoom(UUID owner, PvpMatchSetup setup, Collection<UUID> first) {
+            this.owner = owner;
+            this.setup = setup;
+            this.first.addAll(first);
+        }
+
+        List<UUID> players() {
+            return concat(List.copyOf(first), List.copyOf(second));
+        }
+    }
+
+    private record MatchInvite(UUID roomId, long expiresAt) { }
 
     private record PendingStart(PvpMode mode, List<UUID> players) {
         PendingStart {
@@ -181,6 +204,10 @@ final class PvpCompetitionService implements Listener {
     private final Map<UUID, PvpMode> queuedModes = new HashMap<>();
     private final Map<UUID, Party> parties = new HashMap<>();
     private final Map<UUID, PartyInvite> partyInvites = new HashMap<>();
+    private final Map<UUID, PvpMatchSetup> matchDrafts = new HashMap<>();
+    private final Map<UUID, MatchRoom> matchRooms = new LinkedHashMap<>();
+    private final Map<UUID, MatchRoom> roomByPlayer = new HashMap<>();
+    private final Map<UUID, MatchInvite> matchInvites = new HashMap<>();
     private final Map<UUID, Match> matches = new LinkedHashMap<>();
     private final Map<UUID, Match> matchByPlayer = new HashMap<>();
     /** When each mode's queue was last called out, so the shout cannot become spam. */
@@ -265,7 +292,7 @@ final class PvpCompetitionService implements Listener {
 
     boolean busy(UUID playerId) {
         return isParticipant(playerId) || queuedPlayers.containsKey(playerId)
-                || preparing.containsKey(playerId);
+                || preparing.containsKey(playerId) || roomByPlayer.containsKey(playerId);
     }
 
     boolean areOpponents(UUID first, UUID second) {
@@ -287,32 +314,43 @@ final class PvpCompetitionService implements Listener {
                 openQueueStatus(player);
                 return true;
             }
+            if (roomByPlayer.containsKey(player.getUniqueId())) {
+                openMatchRoom(player);
+                return true;
+            }
+            MatchInvite invite = matchInvites.get(player.getUniqueId());
+            if (invite != null && invite.expiresAt() > System.currentTimeMillis()) {
+                openMatchInvite(player, invite);
+                return true;
+            }
             return false;
         }
         String root = args[0].toLowerCase(Locale.ROOT);
         if ((queuedPlayers.containsKey(player.getUniqueId())
-                || preparing.containsKey(player.getUniqueId()))
-                && !List.of("leave", "status", "return", "exit").contains(root)) {
-            openQueueStatus(player);
+                || preparing.containsKey(player.getUniqueId())
+                || roomByPlayer.containsKey(player.getUniqueId()))
+                && !List.of("leave", "status", "return", "exit", "room").contains(root)) {
+            showWaitingStatus(player);
             return true;
         }
         switch (root) {
             case "queue", "play" -> {
                 if (args.length < 2) openModes(player);
                 else PvpMode.from(args[1]).filter(PvpMode::queueable)
-                        .ifPresentOrElse(mode -> joinQueue(player, mode,
-                                        args.length < 3 || !args[2].equalsIgnoreCase("nofill")),
-                                () -> error(player, "Choose casual, ranked, 2v2, 3v3, clan, or ffa."));
+                        .ifPresentOrElse(mode -> openMode(player, mode),
+                                () -> error(player, "Choose ranked, clan, or ffa."));
                 return true;
             }
             case "leave" -> {
-                if (!leaveQueue(player.getUniqueId(), true)) {
-                    error(player, "You are not in a competitive queue.");
+                if (!leaveQueue(player.getUniqueId(), true)
+                        && !leaveMatchRoom(player.getUniqueId(), true)) {
+                    error(player, "You are not waiting for a competitive match.");
                 }
                 return true;
             }
             case "status" -> {
-                showStatus(player);
+                if (roomByPlayer.containsKey(player.getUniqueId())) openMatchRoom(player);
+                else showStatus(player);
                 return true;
             }
             case "party" -> {
@@ -350,6 +388,10 @@ final class PvpCompetitionService implements Listener {
                 openLive(player);
                 return true;
             }
+            case "room" -> {
+                handleMatchRoom(player, slice(args, 1));
+                return true;
+            }
             case "portal" -> {
                 handleAdmin(player, args);
                 return true;
@@ -378,16 +420,20 @@ final class PvpCompetitionService implements Listener {
             return partial(args[0], roots);
         }
         if (args.length == 2 && List.of("queue", "play").contains(args[0].toLowerCase(Locale.ROOT))) {
-            return partial(args[1], List.of("casual", "ranked", "2v2", "3v3", "clan", "ffa"));
-        }
-        if (args.length == 3 && List.of("queue", "play").contains(args[0].toLowerCase(Locale.ROOT))) {
-            return partial(args[2], List.of("fill", "nofill"));
+            return partial(args[1], List.of("ranked", "2v2", "3v3", "clan", "ffa"));
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("party")) {
             return partial(args[1], List.of("invite", "accept", "leave", "kick", "disband"));
         }
         if (args.length == 3 && args[0].equalsIgnoreCase("party")
                 && List.of("invite", "kick").contains(args[1].toLowerCase(Locale.ROOT))) {
+            return partial(args[2], Bukkit.getOnlinePlayers().stream().map(Player::getName).toList());
+        }
+        if (args.length == 2 && args[0].equalsIgnoreCase("room")) {
+            return partial(args[1], List.of("invite", "accept", "decline", "start", "leave"));
+        }
+        if (args.length == 3 && args[0].equalsIgnoreCase("room")
+                && args[1].equalsIgnoreCase("invite")) {
             return partial(args[2], Bukkit.getOnlinePlayers().stream().map(Player::getName).toList());
         }
         if (isAdmin(sender)) return adminTabs(args);
@@ -417,7 +463,14 @@ final class PvpCompetitionService implements Listener {
         }
     }
 
-    private void joinQueue(Player player, PvpMode mode, boolean fill) {
+    private void joinQueue(Player player, PvpMatchSetup setup) {
+        if (setup.access() == PvpMatchSetup.Access.INVITE_ONLY) {
+            createMatchRoom(player, setup);
+            return;
+        }
+        PvpMode mode = setup.mode();
+        int teamSize = setup.teamSize();
+        boolean fill = setup.fill();
         UUID playerId = player.getUniqueId();
         if (!enabled()) {
             error(player, "Competitive PvP is currently disabled.");
@@ -445,17 +498,18 @@ final class PvpCompetitionService implements Listener {
             error(player, "FFA is a solo queue. Leave your party first.");
             return;
         }
-        if (members.size() > mode.teamSize()) {
-            error(player, mode.display() + " allows at most " + mode.teamSize() + " player(s) per team.");
+        if (members.size() > teamSize) {
+            error(player, setup.matchLabel() + " allows at most " + teamSize
+                    + " player(s) per team.");
             return;
         }
-        if (!fill && members.size() != mode.teamSize()) {
-            error(player, "No-fill requires a complete team of " + mode.teamSize() + ".");
+        if (!fill && members.size() != teamSize) {
+            error(player, "Party-only matchmaking needs a complete team of " + teamSize + ".");
             return;
         }
         if (mode.clan()) {
-            if (members.size() != mode.teamSize()) {
-                error(player, "Clan vs Clan requires a complete party of " + mode.teamSize() + ".");
+            if (members.size() != teamSize) {
+                error(player, setup.matchLabel() + " needs a complete same-clan party.");
                 return;
             }
             Optional<ClanStore.ClanView> clan = clans.clanOf(playerId);
@@ -488,7 +542,8 @@ final class PvpCompetitionService implements Listener {
         long totalRating = members.stream().mapToLong(id -> records.of(id).rating()).sum();
         PvpMatchmaking.Entry entry = new PvpMatchmaking.Entry(
                 party == null ? playerId : party.leader,
-                members, fill, System.currentTimeMillis(), totalRating / members.size(), clanId
+                members, fill, System.currentTimeMillis(), totalRating / members.size(), clanId,
+                teamSize, setup.targetPlayers()
         );
         queues.computeIfAbsent(mode, ignored -> new ArrayList<>()).add(entry);
         for (UUID memberId : members) {
@@ -496,10 +551,14 @@ final class PvpCompetitionService implements Listener {
             queuedModes.put(memberId, mode);
             Player member = Bukkit.getPlayer(memberId);
             if (member != null) {
-                info(member, "Queued for " + mode.display() + (fill ? " with fill." : " with no-fill."));
+                info(member, "Queued for " + setup.matchLabel()
+                        + (mode.freeForAll() || teamSize == 1 || mode.clan() ? "."
+                        : fill ? " with random teammate fill."
+                        : " with the current party only."));
                 teleportToLobbyIfReady(member);
             }
         }
+        matchDrafts.remove(playerId);
         tryMatch(mode, System.currentTimeMillis());
     }
 
@@ -548,6 +607,12 @@ final class PvpCompetitionService implements Listener {
         suppressCustomPortalTravel();
         announceWaiting(now);
         partyInvites.entrySet().removeIf(row -> row.getValue().expiresAt() <= now);
+        matchInvites.entrySet().removeIf(row -> {
+            if (row.getValue().expiresAt() > now) return false;
+            MatchRoom room = matchRooms.get(row.getValue().roomId());
+            if (room != null) room.invited.remove(row.getKey());
+            return true;
+        });
         validateQueues();
         for (PvpMode mode : PvpMode.values()) {
             if (mode.queueable()) tryMatch(mode, now);
@@ -568,7 +633,7 @@ final class PvpCompetitionService implements Listener {
     private int availablePlayers() {
         int available = 0;
         for (Player player : Bukkit.getOnlinePlayers()) {
-            if (!isParticipant(player.getUniqueId())) available++;
+            if (!busy(player.getUniqueId()) && !plugin.inPvpDuel(player)) available++;
         }
         return available;
     }
@@ -578,8 +643,30 @@ final class PvpCompetitionService implements Listener {
                 .mapToInt(entry -> entry.members().size()).sum();
     }
 
+    private int queuedForCategory(PvpMode category) {
+        if (category == PvpMode.RANKED_DUEL) {
+            return queuedFor(PvpMode.RANKED_DUEL)
+                    + queuedFor(PvpMode.DOUBLES) + queuedFor(PvpMode.TRIPLES);
+        }
+        return queuedFor(category);
+    }
+
+    private int queuedFor(PvpMatchSetup setup) {
+        return queues.getOrDefault(setup.mode(), List.of()).stream()
+                .filter(entry -> entry.teamSize() == setup.teamSize()
+                        && entry.targetPlayers() == setup.targetPlayers())
+                .mapToInt(entry -> entry.members().size()).sum();
+    }
+
+    private static PvpMatchSetup setupOf(PvpMode mode, PvpMatchmaking.Entry entry) {
+        return new PvpMatchSetup(PvpMatchSetup.category(mode), entry.teamSize(),
+                entry.targetPlayers(), PvpMatchSetup.Access.PUBLIC, entry.fill());
+    }
+
     int requiredPlayers(PvpMode mode) {
-        return mode.minimumPlayers(integer("pvp-competitive.ffa-minimum-players"));
+        if (mode == PvpMode.CLAN_BATTLE) return 4;
+        if (mode == PvpMode.FFA) return 2;
+        return mode.maximumPlayers();
     }
 
     /** True when this mode cannot start however long anybody waits. */
@@ -591,7 +678,7 @@ final class PvpCompetitionService implements Listener {
     String queueSummary(PvpMode mode) {
         if (!enabled()) return "PvP is closed right now";
         int required = requiredPlayers(mode);
-        int queued = queuedFor(mode);
+        int queued = queuedForCategory(PvpMatchSetup.category(mode));
         int available = availablePlayers();
         if (available < required) {
             return "Needs " + required + " players - " + available + " free online";
@@ -600,6 +687,15 @@ final class PvpCompetitionService implements Listener {
         int missing = Math.max(0, required - queued);
         return missing == 0
                 ? queued + " waiting - starting now"
+                : queued + " waiting - needs " + missing + " more";
+    }
+
+    private String queueSummary(PvpMatchSetup setup) {
+        if (!enabled()) return "PvP is closed right now";
+        int queued = queuedFor(setup);
+        int missing = Math.max(0, setup.requiredPlayers() - queued);
+        if (queued == 0) return "Nobody waiting for this setup";
+        return missing == 0 ? queued + " waiting - starting now"
                 : queued + " waiting - needs " + missing + " more";
     }
 
@@ -717,20 +813,15 @@ final class PvpCompetitionService implements Listener {
     }
 
     private Component gateStatus(PvpMode mode) {
-        int required = requiredPlayers(mode);
-        int queued = queuedFor(mode);
+        int queued = queuedForCategory(mode);
         int available = availablePlayers();
         String line;
         if (!enabled()) line = "CLOSED";
-        else if (available < required) line = available + " ONLINE • " + required + " NEEDED";
-        else if (queued == 0) line = "READY • WALK THROUGH";
-        else {
-            int missing = Math.max(0, required - queued);
-            line = missing == 0 ? queued + "/" + required + " QUEUED • STARTING"
-                    : queued + "/" + required + " QUEUED • " + missing + " TO START";
-        }
-        NamedTextColor colour = !enabled() || shortStaffed(mode) ? NamedTextColor.RED
-                : queuedFor(mode) > 0 ? NamedTextColor.GREEN : NamedTextColor.GRAY;
+        else if (queued == 0) line = "READY • WALK THROUGH TO CONFIGURE";
+        else line = queued + " WAITING • CHOOSE YOUR SETUP";
+        NamedTextColor colour = !enabled() ? NamedTextColor.RED
+                : queued > 0 ? NamedTextColor.GREEN
+                : available < 2 ? NamedTextColor.RED : NamedTextColor.GRAY;
         return Component.text(line, colour, TextDecoration.BOLD);
     }
 
@@ -822,6 +913,7 @@ final class PvpCompetitionService implements Listener {
                 PvpMatchmaking.Entry left = sorted.get(first);
                 PvpMatchmaking.Entry right = sorted.get(second);
                 if (left.clanId() != null && right.clanId() != null
+                        && left.teamSize() == right.teamSize()
                         && !left.clanId().equals(right.clanId())
                         && opponentsAllowed(left.members(), right.members(), now)) {
                     startPlan(mode, List.of(left), List.of(right));
@@ -833,21 +925,21 @@ final class PvpCompetitionService implements Listener {
     }
 
     private boolean tryFfa(PvpMode mode, List<PvpMatchmaking.Entry> queue, long now) {
-        int minimum = mode.minimumPlayers(integer("pvp-competitive.ffa-minimum-players"));
-        if (queue.size() < minimum) return false;
         List<PvpMatchmaking.Entry> sorted = queue.stream()
                 .sorted(Comparator.comparingLong(PvpMatchmaking.Entry::joinedAt)).toList();
-        long waited = now - sorted.get(0).joinedAt();
-        if (queue.size() < mode.maximumPlayers()
-                && waited < integer("pvp-competitive.ffa-start-wait-seconds") * 1_000L) return false;
+        if (sorted.isEmpty()) return false;
+        int target = sorted.get(0).targetPlayers();
+        List<PvpMatchmaking.Entry> compatible = sorted.stream()
+                .filter(entry -> entry.targetPlayers() == target).toList();
+        if (compatible.size() < target) return false;
         List<PvpMatchmaking.Entry> selected = new ArrayList<>();
-        for (PvpMatchmaking.Entry candidate : sorted) {
-            if (selected.size() >= mode.maximumPlayers()) break;
+        for (PvpMatchmaking.Entry candidate : compatible) {
+            if (selected.size() >= target) break;
             boolean blockedPair = selected.stream().anyMatch(existing ->
                     !opponentsAllowed(existing.members(), candidate.members(), now));
             if (!blockedPair) selected.add(candidate);
         }
-        if (selected.size() < minimum) return false;
+        if (selected.size() < target) return false;
         List<UUID> first = selected.stream().flatMap(entry -> entry.members().stream()).toList();
         startPlan(mode, selected, List.of(), first, List.of());
         return true;
@@ -1387,11 +1479,26 @@ final class PvpCompetitionService implements Listener {
     }
 
     private void openHub(Player player) {
-        if (queuedPlayers.containsKey(player.getUniqueId())) {
+        UUID playerId = player.getUniqueId();
+        if (queuedPlayers.containsKey(playerId) || preparing.containsKey(playerId)) {
             openQueueStatus(player);
             return;
         }
+        if (roomByPlayer.containsKey(playerId)) {
+            openMatchRoom(player);
+            return;
+        }
+        MatchInvite invite = matchInvites.get(playerId);
+        if (invite != null && invite.expiresAt() > System.currentTimeMillis()) {
+            openMatchInvite(player, invite);
+            return;
+        }
         duels.openHub(player);
+    }
+
+    private void showWaitingStatus(Player player) {
+        if (roomByPlayer.containsKey(player.getUniqueId())) openMatchRoom(player);
+        else openQueueStatus(player);
     }
 
     private record MenuAction(
@@ -1400,56 +1507,98 @@ final class PvpCompetitionService implements Listener {
 
     void openModes(Player player) {
         List<MenuAction> actions = new ArrayList<>();
-        for (PvpMode mode : PvpMode.values()) {
-            if (!mode.queueable()) continue;
-            // The live count, not just the description: whether a queue can fill is
-            // the thing a player is deciding, and it changes minute to minute here.
+        for (PvpMode mode : List.of(
+                PvpMode.RANKED_DUEL, PvpMode.CLAN_BATTLE, PvpMode.FFA)) {
             actions.add(new MenuAction(modeSprite(mode),
-                    mode.display() + (shortStaffed(mode) ? " (not enough players)" : ""),
+                    categoryLabel(mode),
                     queueSummary(mode) + " - " + modeHint(mode),
                     p -> openMode(p, mode)));
         }
-        String body = "Choose a mode. Every match uses your own survival loadout"
-                + " in untouched overworld terrain.\n"
-                + availablePlayers() + " player(s) free to fight right now.";
-        showMenu(player, "Choose PvP Mode", body, actions, this::openHub);
+        String body = "Choose one fight type, then set its size and access. Every match"
+                + " uses your own survival loadout in untouched overworld terrain.\n"
+                + availablePlayers() + " player(s) are free to fight right now.";
+        showMenu(player, "Create a PvP Fight", body, actions, this::openHub);
     }
 
-    private void openMode(Player player, PvpMode mode) {
+    private void openMode(Player player, PvpMode selected) {
+        PvpMode family = PvpMatchSetup.category(selected);
+        PvpMatchSetup setup = matchDraft(player, selected);
         Party party = parties.get(player.getUniqueId());
         int team = party == null ? 1 : party.members.size();
-        String body = modeHint(mode) + "\n\n"
-                + queueSummary(mode) + "\n"
-                + "Party: " + team + "/" + mode.teamSize() + "\n"
+        String partyLine = setup.freeForAll() ? "Entry: solo"
+                : "Your party: " + team + "/" + setup.teamSize();
+        String accessLine = setup.access() == PvpMatchSetup.Access.PUBLIC
+                ? "Random opponents may join through matchmaking."
+                : "Only opponents you invite and who accept may join.";
+        String body = modeHint(family) + "\n\n"
+                + "Match: " + setup.matchLabel() + "\n"
+                + "Access: " + setup.access().display() + "\n"
+                + partyLine + "\n"
+                + accessLine + "\n"
                 + "Loadout: your current inventory and armour";
-        if (shortStaffed(mode)) {
-            // Said plainly rather than hiding the button: players do arrange to come
-            // online together, and a queue they chose to sit in is their call.
-            body += "\n\nThis mode needs " + requiredPlayers(mode)
-                    + " players and cannot start yet. You can still wait here.";
+        if (setup.access() == PvpMatchSetup.Access.PUBLIC) {
+            body += "\n\n" + queueSummary(setup);
+        } else {
+            body += "\n\nYou control when the room starts. Once both sides have a player,"
+                    + " you may force an uneven fight such as 1v2.";
         }
         List<MenuAction> actions = new ArrayList<>();
-        if (mode.teamSize() == 1 && !mode.freeForAll()) {
-            actions.add(new MenuAction("item/lime_dye", "Join Queue",
-                    "Find an opponent automatically.", p -> joinQueue(p, mode, true)));
-        } else if (!mode.clan()) {
-            actions.add(new MenuAction("item/lime_dye", "Queue with Fill",
-                    "Match missing teammate slots automatically.", p -> joinQueue(p, mode, true)));
+        PvpMatchSetup sizeSetup = setup.nextSize();
+        actions.add(new MenuAction("item/armor_stand", "Size: " + setup.sizeLabel(),
+                setup.freeForAll() ? "Choose 2 through 12 players."
+                        : "Choose the number of players on each side.",
+                p -> updateMatchDraft(p, sizeSetup)));
+        PvpMatchSetup accessSetup = setup.toggleAccess();
+        actions.add(new MenuAction(setup.access() == PvpMatchSetup.Access.PUBLIC
+                ? "item/spyglass" : "item/name_tag", "Access: " + setup.access().display(),
+                "Switch between public matchmaking and invited opponents only.",
+                p -> updateMatchDraft(p, accessSetup)));
+        if (!setup.freeForAll() && !setup.clan()
+                && setup.access() == PvpMatchSetup.Access.PUBLIC && setup.teamSize() > 1) {
+            PvpMatchSetup fillSetup = setup.toggleFill();
+            actions.add(new MenuAction(setup.fill() ? "item/lime_dye" : "item/red_dye",
+                    "Teammates: " + (setup.fill() ? "Allow Fill" : "Party Only"),
+                    setup.fill() ? "Random players may fill open teammate slots."
+                            : "Keep only your complete party on this side.",
+                    p -> updateMatchDraft(p, fillSetup)));
         }
-        if (mode.teamSize() > 1 && team == mode.teamSize()) {
-            actions.add(new MenuAction("item/red_dye", "Queue No-Fill",
-                    "Keep this complete party together.", p -> joinQueue(p, mode, false)));
-        }
-        if (mode.freeForAll()) {
-            actions = new ArrayList<>(List.of(new MenuAction("item/lime_dye", "Join FFA Queue",
-                    "Start full or after the minimum-player wait.", p -> joinQueue(p, mode, true))));
-        }
-        if (mode.teamSize() > 1 && !mode.freeForAll()) {
+        if (!setup.freeForAll()) {
             actions.add(new MenuAction("item/writable_book", "Manage Team",
-                    "Invite or remove teammates for this queue.",
-                    viewer -> openParty(viewer, backViewer -> openMode(backViewer, mode))));
+                    "Invite or remove the teammates on your side.",
+                    viewer -> openParty(viewer,
+                            backViewer -> openMode(backViewer, family))));
         }
-        showMenu(player, mode.display(), body, actions, this::openModes);
+        PvpMatchSetup startSetup = setup;
+        actions.add(new MenuAction("item/netherite_sword",
+                setup.access() == PvpMatchSetup.Access.PUBLIC
+                        ? "Join Public Matchmaking" : "Create Invite-Only Room",
+                setup.access() == PvpMatchSetup.Access.PUBLIC
+                        ? "Wait for random players using this exact setup."
+                        : "Open a room, invite opponents, then choose when to start.",
+                p -> joinQueue(p, startSetup)));
+        showMenu(player, setup.matchLabel(), body, actions, this::openModes);
+    }
+
+    private void updateMatchDraft(Player player, PvpMatchSetup setup) {
+        matchDrafts.put(player.getUniqueId(), setup);
+        openMode(player, setup.family());
+    }
+
+    private PvpMatchSetup matchDraft(Player player, PvpMode selected) {
+        PvpMode family = PvpMatchSetup.category(selected);
+        PvpMatchSetup existing = matchDrafts.get(player.getUniqueId());
+        if (existing != null && existing.family() == family) return existing;
+        PvpMatchSetup created = PvpMatchSetup.defaults(selected);
+        matchDrafts.put(player.getUniqueId(), created);
+        return created;
+    }
+
+    private static String categoryLabel(PvpMode mode) {
+        return switch (PvpMatchSetup.category(mode)) {
+            case CLAN_BATTLE -> "Clan Battle";
+            case FFA -> "Last Standing";
+            default -> "Ranked Battle";
+        };
     }
 
     void openStats(Player player) {
@@ -1637,6 +1786,397 @@ final class PvpCompetitionService implements Listener {
                 actions, viewer -> openParty(viewer, back));
     }
 
+    // ------------------------------------------------ configurable match rooms
+
+    private void createMatchRoom(Player player, PvpMatchSetup setup) {
+        UUID playerId = player.getUniqueId();
+        if (!enabled()) {
+            error(player, "Competitive PvP is currently disabled.");
+            return;
+        }
+        if (busy(playerId) || plugin.inPvpDuel(player)) {
+            error(player, "Finish or leave your current PvP activity first.");
+            return;
+        }
+        if (recovery.find(playerId).isPresent()) {
+            recover(player, true);
+            return;
+        }
+        Party party = parties.get(playerId);
+        if (party != null && !party.leader.equals(playerId)) {
+            error(player, "Only the party leader can create a match room.");
+            return;
+        }
+        if (setup.freeForAll() && party != null) {
+            error(player, "Last Standing rooms are solo. Leave your PvP party first.");
+            return;
+        }
+        List<UUID> first = party == null ? List.of(playerId) : List.copyOf(party.members);
+        if (first.size() > setup.teamSize()) {
+            error(player, setup.matchLabel() + " allows at most " + setup.teamSize()
+                    + " player(s) on your side.");
+            return;
+        }
+        String problem = roomPlayerProblem(first);
+        if (problem != null) {
+            error(player, problem);
+            return;
+        }
+        if (setup.clan() && !oneClan(first)) {
+            error(player, "Every player on your side must belong to the same clan.");
+            return;
+        }
+        MatchRoom room = new MatchRoom(playerId, setup, first);
+        matchRooms.put(room.id, room);
+        for (UUID member : first) roomByPlayer.put(member, room);
+        matchDrafts.remove(playerId);
+        notifyPlayers(first, player.getName() + " created an invite-only "
+                + setup.matchLabel() + " room.");
+        forEachOnline(first, this::teleportToLobbyIfReady);
+        openMatchRoom(player);
+    }
+
+    private void openMatchRoom(Player player) {
+        MatchRoom room = roomByPlayer.get(player.getUniqueId());
+        if (room == null) {
+            MatchInvite invite = matchInvites.get(player.getUniqueId());
+            if (invite != null && invite.expiresAt() > System.currentTimeMillis()) {
+                openMatchInvite(player, invite);
+            } else {
+                openModes(player);
+            }
+            return;
+        }
+        boolean owner = room.owner.equals(player.getUniqueId());
+        boolean complete = roomComplete(room);
+        boolean startable = roomStartable(room);
+        String body;
+        if (room.setup.freeForAll()) {
+            body = room.setup.matchLabel() + "\n"
+                    + "Access: Invite only\n"
+                    + "Players (" + room.first.size() + "/" + room.setup.targetPlayers()
+                    + "): " + names(room.first);
+        } else {
+            body = room.setup.matchLabel() + "\n"
+                    + "Access: Invite only\n"
+                    + "Your side (" + room.first.size() + "/" + room.setup.teamSize()
+                    + "): " + names(room.first) + "\n"
+                    + "Opponents (" + room.second.size() + "/" + room.setup.teamSize()
+                    + "): " + names(room.second);
+        }
+        body += "\n\n" + (startable
+                ? complete ? "Both sides are full. The owner can start now."
+                : "Both sides exist. The owner may force-start this uneven match."
+                : "Invite at least one opponent before the match can start.");
+        List<MenuAction> actions = new ArrayList<>();
+        if (owner && roomHasSpace(room)) {
+            actions.add(new MenuAction("item/name_tag", "Invite Opponents",
+                    "Only players who accept may enter this room.",
+                    viewer -> openMatchRoomInvites(viewer, room)));
+        }
+        if (owner && startable) {
+            actions.add(new MenuAction("item/netherite_sword",
+                    complete ? "Start Match" : "Force Start " + roomScore(room),
+                    complete ? "Start with the configured number of players."
+                            : "Start now with the players who explicitly joined.",
+                    viewer -> startMatchRoom(viewer, room)));
+        }
+        actions.add(new MenuAction("item/barrier", owner ? "Cancel Room" : "Leave Room",
+                owner ? "Release every player from this waiting room."
+                        : "Leave this room before it starts.",
+                viewer -> {
+                    leaveMatchRoom(viewer.getUniqueId(), true);
+                    openHub(viewer);
+                }));
+        showMenu(player, "Invite-Only Match", body, actions, this::openHub);
+    }
+
+    private void openMatchRoomInvites(Player player, MatchRoom room) {
+        if (matchRooms.get(room.id) != room || !room.owner.equals(player.getUniqueId())) {
+            error(player, "That match room is no longer available.");
+            return;
+        }
+        List<MenuAction> actions = Bukkit.getOnlinePlayers().stream()
+                .filter(candidate -> canInvite(room, candidate))
+                .sorted(Comparator.comparing(Player::getName, String.CASE_INSENSITIVE_ORDER))
+                .map(candidate -> {
+                    Party party = parties.get(candidate.getUniqueId());
+                    int count = party == null ? 1 : party.members.size();
+                    String hint = room.setup.freeForAll() ? "Invite this player."
+                            : "Invite " + count + " opponent" + (count == 1 ? "" : "s") + ".";
+                    return new MenuAction(null, candidate.getName(), hint,
+                            ignored -> inviteToMatchRoom(player, room, candidate.getName()));
+                }).toList();
+        showMenu(player, "Invite Opponents",
+                actions.isEmpty() ? "No eligible players are online."
+                        : "Choose opponents. Every invitation requires acceptance.",
+                actions, this::openMatchRoom);
+    }
+
+    private boolean canInvite(MatchRoom room, Player candidate) {
+        UUID candidateId = candidate.getUniqueId();
+        if (room.players().contains(candidateId) || busy(candidateId)
+                || plugin.inPvpDuel(candidate)) return false;
+        Party party = parties.get(candidateId);
+        if (room.setup.freeForAll()) return party == null;
+        if (party != null && !party.leader.equals(candidateId)) return false;
+        List<UUID> members = party == null ? List.of(candidateId) : List.copyOf(party.members);
+        if (room.second.size() + members.size() > room.setup.teamSize()) return false;
+        if (roomPlayerProblem(members) != null) return false;
+        if (!room.setup.clan()) return true;
+        return oneClan(members) && differentClans(room.first, members);
+    }
+
+    private void inviteToMatchRoom(Player owner, MatchRoom room, String typed) {
+        Player target = Bukkit.getPlayerExact(typed);
+        if (target == null || !canInvite(room, target)) {
+            error(owner, "That player or party cannot join this room.");
+            openMatchRoom(owner);
+            return;
+        }
+        MatchInvite previous = matchInvites.put(target.getUniqueId(),
+                new MatchInvite(room.id, System.currentTimeMillis() + INVITE_MILLIS));
+        if (previous != null) {
+            MatchRoom old = matchRooms.get(previous.roomId());
+            if (old != null) old.invited.remove(target.getUniqueId());
+        }
+        room.invited.add(target.getUniqueId());
+        info(owner, "Invited " + target.getName() + " to the match room.");
+        target.sendMessage(prefix()
+                .append(Component.text(owner.getName(), NamedTextColor.GOLD))
+                .append(Component.text(" invited you to " + room.setup.matchLabel() + ". ",
+                        NamedTextColor.WHITE))
+                .append(Component.text("Open", ORANGE, TextDecoration.BOLD)
+                        .clickEvent(net.kyori.adventure.text.event.ClickEvent.runCommand(
+                                "/pvp room accept")))
+                .append(Component.text(" or use /pvp.", NamedTextColor.GRAY)));
+        openMatchRoom(owner);
+    }
+
+    private void openMatchInvite(Player player, MatchInvite invite) {
+        MatchRoom room = matchRooms.get(invite.roomId());
+        if (room == null || invite.expiresAt() <= System.currentTimeMillis()) {
+            matchInvites.remove(player.getUniqueId(), invite);
+            error(player, "That match-room invitation expired.");
+            return;
+        }
+        String body = name(room.owner) + " invited you to " + room.setup.matchLabel() + ".\n"
+                + "You will join " + (room.setup.freeForAll() ? "as an opponent."
+                : "the opposing side.") + "\n"
+                + "The owner may force-start once both sides have a player.";
+        showMenu(player, "PvP Room Invitation", body, List.of(
+                new MenuAction("item/lime_dye", "Accept Invitation",
+                        "Join this invite-only room.", this::acceptMatchRoom),
+                new MenuAction("item/barrier", "Decline Invitation",
+                        "Reject this room invitation.", this::declineMatchRoom)
+        ), this::openHub);
+    }
+
+    private void acceptMatchRoom(Player player) {
+        UUID playerId = player.getUniqueId();
+        MatchInvite invite = matchInvites.get(playerId);
+        MatchRoom room = invite == null ? null : matchRooms.get(invite.roomId());
+        if (invite == null || room == null || invite.expiresAt() <= System.currentTimeMillis()
+                || !canInvite(room, player)) {
+            if (invite != null) matchInvites.remove(playerId, invite);
+            error(player, "That match-room invitation is no longer available.");
+            return;
+        }
+        Party party = parties.get(playerId);
+        List<UUID> joining = room.setup.freeForAll() || party == null
+                ? List.of(playerId) : List.copyOf(party.members);
+        if (room.setup.freeForAll()) room.first.add(playerId);
+        else room.second.addAll(joining);
+        for (UUID member : joining) {
+            roomByPlayer.put(member, room);
+            matchDrafts.remove(member);
+            matchInvites.remove(member);
+        }
+        room.invited.remove(playerId);
+        notifyPlayers(room.players(), name(playerId) + " joined the match room.");
+        forEachOnline(joining, this::teleportToLobbyIfReady);
+        openMatchRoom(player);
+    }
+
+    private void declineMatchRoom(Player player) {
+        MatchInvite invite = matchInvites.remove(player.getUniqueId());
+        if (invite != null) {
+            MatchRoom room = matchRooms.get(invite.roomId());
+            if (room != null) {
+                room.invited.remove(player.getUniqueId());
+                Player owner = Bukkit.getPlayer(room.owner);
+                if (owner != null) info(owner, player.getName() + " declined the room invitation.");
+            }
+        }
+        info(player, "Match-room invitation declined.");
+        openHub(player);
+    }
+
+    private void startMatchRoom(Player player, MatchRoom room) {
+        if (matchRooms.get(room.id) != room || !room.owner.equals(player.getUniqueId())) {
+            error(player, "Only the room owner can start this match.");
+            return;
+        }
+        if (!roomStartable(room)) {
+            error(player, "At least one player must exist on both sides.");
+            return;
+        }
+        List<UUID> first = List.copyOf(room.first);
+        List<UUID> second = List.copyOf(room.second);
+        if (room.setup.freeForAll()) second = List.of();
+        String problem = roomPlayerProblem(room.players(), room);
+        if (problem != null) {
+            error(player, problem);
+            return;
+        }
+        if (room.setup.clan()
+                && (!oneClan(first) || !oneClan(second) || !differentClans(first, second))) {
+            error(player, "Clan Battle needs two different clans, one on each side.");
+            return;
+        }
+        if (room.setup.freeForAll()) {
+            List<UUID> players = room.players();
+            for (int left = 0; left < players.size(); left++) {
+                for (int right = left + 1; right < players.size(); right++) {
+                    if (!opponentsAllowed(List.of(players.get(left)),
+                            List.of(players.get(right)), System.currentTimeMillis())) {
+                        error(player, "One invited pairing is temporarily blocked by PvP fairness rules.");
+                        return;
+                    }
+                }
+            }
+        } else if (!opponentsAllowed(first, second, System.currentTimeMillis())) {
+            error(player, "These sides are temporarily blocked by PvP fairness rules.");
+            return;
+        }
+        removeMatchRoom(room, null);
+        startPlan(room.setup.mode(), List.of(), List.of(), first, second);
+    }
+
+    private void handleMatchRoom(Player player, String[] args) {
+        if (args.length == 0) {
+            openMatchRoom(player);
+            return;
+        }
+        switch (args[0].toLowerCase(Locale.ROOT)) {
+            case "invite" -> {
+                MatchRoom room = roomByPlayer.get(player.getUniqueId());
+                if (room == null || !room.owner.equals(player.getUniqueId())) {
+                    error(player, "Only a room owner can invite opponents.");
+                } else if (args.length < 2) openMatchRoomInvites(player, room);
+                else inviteToMatchRoom(player, room, args[1]);
+            }
+            case "accept" -> acceptMatchRoom(player);
+            case "decline", "deny" -> declineMatchRoom(player);
+            case "start", "force" -> {
+                MatchRoom room = roomByPlayer.get(player.getUniqueId());
+                if (room == null) error(player, "You do not own a match room.");
+                else startMatchRoom(player, room);
+            }
+            case "leave", "cancel" -> {
+                if (!leaveMatchRoom(player.getUniqueId(), true)) {
+                    error(player, "You are not in a match room.");
+                }
+            }
+            default -> error(player,
+                    "Use /pvp room invite, accept, decline, start, or leave.");
+        }
+    }
+
+    private boolean leaveMatchRoom(UUID playerId, boolean announce) {
+        MatchRoom room = roomByPlayer.get(playerId);
+        if (room == null) return false;
+        if (room.owner.equals(playerId)) {
+            removeMatchRoom(room, announce ? "The match-room owner cancelled the room." : null);
+            return true;
+        }
+        room.first.remove(playerId);
+        room.second.remove(playerId);
+        roomByPlayer.remove(playerId, room);
+        if (announce) notifyPlayers(room.players(), name(playerId) + " left the match room.");
+        return true;
+    }
+
+    private void removeMatchRoom(MatchRoom room, String message) {
+        matchRooms.remove(room.id, room);
+        for (UUID member : room.players()) roomByPlayer.remove(member, room);
+        for (UUID invited : room.invited) matchInvites.remove(invited);
+        room.invited.clear();
+        if (message != null) notifyPlayers(room.players(), message);
+    }
+
+    private boolean roomStartable(MatchRoom room) {
+        return room.setup.freeForAll() ? room.first.size() >= 2
+                : !room.first.isEmpty() && !room.second.isEmpty();
+    }
+
+    private boolean roomComplete(MatchRoom room) {
+        return room.setup.freeForAll() ? room.first.size() >= room.setup.targetPlayers()
+                : room.first.size() == room.setup.teamSize()
+                && room.second.size() == room.setup.teamSize();
+    }
+
+    private boolean roomHasSpace(MatchRoom room) {
+        return room.setup.freeForAll() ? room.first.size() < room.setup.targetPlayers()
+                : room.second.size() < room.setup.teamSize();
+    }
+
+    private static String roomScore(MatchRoom room) {
+        return room.setup.freeForAll() ? room.first.size() + " Players"
+                : room.first.size() + "v" + room.second.size();
+    }
+
+    private String roomPlayerProblem(Collection<UUID> players) {
+        return roomPlayerProblem(players, null);
+    }
+
+    private String roomPlayerProblem(Collection<UUID> players, MatchRoom allowedRoom) {
+        for (UUID playerId : players) {
+            Player member = Bukkit.getPlayer(playerId);
+            if (member == null || !member.isOnline()) return name(playerId) + " went offline.";
+            MatchRoom held = roomByPlayer.get(playerId);
+            if ((busy(playerId) && held != allowedRoom) || plugin.inPvpDuel(member)) {
+                return name(playerId) + " is already busy with PvP.";
+            }
+            if (recovery.find(playerId).isPresent()) {
+                return name(playerId) + " has PvP state waiting to be restored.";
+            }
+            if (VerificationLobbyService.isLobbyWorld(member.getWorld())
+                    || plugin.inScreenshotMode(member)) {
+                return name(playerId) + " cannot fight from their current mode.";
+            }
+            if (plugin.afkService() != null && plugin.afkService().inCombat(member)) {
+                return name(playerId) + " must finish their current combat tag first.";
+            }
+        }
+        return null;
+    }
+
+    private boolean oneClan(Collection<UUID> players) {
+        UUID found = null;
+        for (UUID player : players) {
+            UUID clan = clans.clanOf(player).map(ClanStore.ClanView::id).orElse(null);
+            if (clan == null) return false;
+            if (found == null) found = clan;
+            else if (!found.equals(clan)) return false;
+        }
+        return !players.isEmpty();
+    }
+
+    private boolean differentClans(Collection<UUID> first, Collection<UUID> second) {
+        UUID left = first.stream().findFirst().flatMap(clans::clanOf)
+                .map(ClanStore.ClanView::id).orElse(null);
+        UUID right = second.stream().findFirst().flatMap(clans::clanOf)
+                .map(ClanStore.ClanView::id).orElse(null);
+        return left != null && right != null && !left.equals(right);
+    }
+
+    private static String names(Collection<UUID> players) {
+        return players.isEmpty() ? "Waiting..." : players.stream()
+                .map(PvpCompetitionService::name).reduce((left, right) -> left + ", " + right)
+                .orElse("Waiting...");
+    }
+
     private void showMenu(
             Player player, String title, String body, List<MenuAction> actions,
             java.util.function.Consumer<Player> back
@@ -1670,12 +2210,11 @@ final class PvpCompetitionService implements Listener {
 
     private static String modeHint(PvpMode mode) {
         return switch (mode) {
-            case CASUAL_DUEL -> "Automatic unrated 1v1 with the gear you brought.";
-            case RANKED_DUEL -> "Skill-matched 1v1 that changes your PvP rating.";
-            case DOUBLES -> "Ranked 2v2. Bring a teammate or let fill create your team.";
-            case TRIPLES -> "Ranked 3v3. Parties stay together and open slots are filled.";
-            case CLAN_BATTLE -> "Three members of one existing clan eliminate another clan.";
-            case FFA -> "Solo elimination. The personal border shrinks until one player remains.";
+            case CASUAL_DUEL, RANKED_DUEL, DOUBLES, TRIPLES ->
+                    "One ranked population. Choose 1v1, 2v2 or 3v3 before joining.";
+            case CLAN_BATTLE ->
+                    "Choose a 2v2 or 3v3 fight between members of two existing clans.";
+            case FFA -> "Choose a 2-12 player elimination fight with a shrinking border.";
             default -> "Unrated private survival-inventory fight.";
         };
     }
@@ -1805,6 +2344,10 @@ final class PvpCompetitionService implements Listener {
             info(player, "Watching " + watched.mode.display() + ".");
             return;
         }
+        if (roomByPlayer.containsKey(player.getUniqueId())) {
+            openMatchRoom(player);
+            return;
+        }
         PvpMode mode = queuedModes.get(player.getUniqueId());
         PendingStart pending = preparing.get(player.getUniqueId());
         if (pending != null) {
@@ -1813,12 +2356,13 @@ final class PvpCompetitionService implements Listener {
             return;
         }
         if (mode == null) {
-            info(player, "You are not queued. Use /pvp to choose a mode.");
+            info(player, "You are not waiting. Use /pvp to create a fight.");
             return;
         }
         PvpMatchmaking.Entry entry = queuedPlayers.get(player.getUniqueId());
+        PvpMatchSetup setup = setupOf(mode, entry);
         long waited = Math.max(0L, System.currentTimeMillis() - entry.joinedAt()) / 1_000L;
-        info(player, "Queued for " + mode.display() + " for " + formatSeconds(waited)
+        info(player, "Queued for " + setup.matchLabel() + " for " + formatSeconds(waited)
                 + " with " + entry.members().size() + " player(s).");
     }
 
@@ -1839,9 +2383,12 @@ final class PvpCompetitionService implements Listener {
             return;
         }
         long waited = Math.max(0L, System.currentTimeMillis() - entry.joinedAt()) / 1_000L;
-        String body = "Queued for " + mode.display() + "\n"
+        PvpMatchSetup setup = setupOf(mode, entry);
+        String body = "Queued for " + setup.matchLabel() + "\n"
                 + "Waiting: " + formatSeconds(waited) + "\n"
-                + "Team: " + entry.members().size() + "/" + mode.teamSize();
+                + (setup.freeForAll()
+                ? "Target: " + setup.targetPlayers() + " players"
+                : "Your side: " + entry.members().size() + "/" + setup.teamSize());
         showMenu(player, "PvP Queue", body, List.of(
                 new MenuAction("item/barrier", "Leave Queue",
                         "Leave this queue with your current team.",
@@ -1898,6 +2445,7 @@ final class PvpCompetitionService implements Listener {
             return;
         }
         leaveQueue(player.getUniqueId(), true);
+        leaveMatchRoom(player.getUniqueId(), true);
         Location target = lobbyOrigins.remove(player.getUniqueId());
         if (target == null) {
             World world = Bukkit.getWorlds().stream().filter(candidate -> !isPvpWorld(candidate))
@@ -2232,10 +2780,11 @@ final class PvpCompetitionService implements Listener {
         Location registered = lobbyStore.portal().map(PvpLobbyStore.Point::resolve).orElse(null);
         if (registered == null) return;
         Set<Location> blocks = activeEntrancePortalBlocks();
-        Location anchor = portalCentre(blocks, registered);
+        Location anchor = portalTopCentre(blocks, registered);
         double height = decimal("pvp-competitive.portal-display-height");
         entranceLabel(anchor.clone().add(0d, height, 0d),
-                Component.text(plugin.gameVariables().string("pvp-competitive.portal-title"),
+                Component.text("✦ " + plugin.gameVariables().string(
+                                "pvp-competitive.portal-title") + " ✦",
                         TextColor.color(0xB56CFF), TextDecoration.BOLD),
                 (float) decimal("pvp-competitive.portal-title-scale"));
         entranceLabel(anchor.clone().add(0d, height - 1.35d, 0d),
@@ -2264,17 +2813,28 @@ final class PvpCompetitionService implements Listener {
                 (minimumY + maximumY + 1d) / 2d, (minimumZ + maximumZ + 1d) / 2d);
     }
 
+    /** Horizontal portal centre at the top of its active interior, below the frame label. */
+    private static Location portalTopCentre(Set<Location> blocks, Location fallback) {
+        if (blocks.isEmpty()) return fallback.clone().add(0d, 1d, 0d);
+        Location centre = portalCentre(blocks, fallback);
+        int maximumY = blocks.stream().mapToInt(Location::getBlockY).max()
+                .orElse(fallback.getBlockY());
+        centre.setY(maximumY + 1d);
+        return centre;
+    }
+
     private void entranceLabel(Location at, Component text, float scale) {
         at.getWorld().spawn(at, TextDisplay.class, display -> {
             display.addScoreboardTag(ENTRANCE_DISPLAY_TAG);
             display.addScoreboardTag(ENTRANCE_TEXT_TAG);
             display.text(text);
-            display.setBillboard(Display.Billboard.VERTICAL);
+            // Match the Dragon portal: the registered SMP entrance is the one portal
+            // whose label belongs above the frame and faces every approaching player.
+            display.setBillboard(Display.Billboard.CENTER);
             display.setAlignment(TextDisplay.TextAlignment.CENTER);
             display.setShadowed(true);
-            display.setSeeThrough(false);
+            display.setSeeThrough(true);
             display.setLineWidth(320);
-            display.setBackgroundColor(Color.fromARGB(225, 5, 3, 10));
             display.setTextOpacity((byte) -1);
             display.setBrightness(new Display.Brightness(15, 15));
             display.setViewRange(12f);
@@ -2446,6 +3006,7 @@ final class PvpCompetitionService implements Listener {
         return isParticipant(playerId)
                 || queuedPlayers.containsKey(playerId)
                 || preparing.containsKey(playerId)
+                || roomByPlayer.containsKey(playerId)
                 || inLobbyArea(player.getLocation());
     }
 
@@ -2525,7 +3086,8 @@ final class PvpCompetitionService implements Listener {
             player.setPortalCooldown(integer("pvp-competitive.portal-suppression-ticks"));
             padCooldowns.put(playerId, now + PAD_COOLDOWN_MILLIS);
             plugin.getServer().getScheduler().runTask(plugin, () -> {
-                if (queuedPlayers.containsKey(playerId)) openQueueStatus(player);
+                if (roomByPlayer.containsKey(playerId)) openMatchRoom(player);
+                else if (queuedPlayers.containsKey(playerId)) openQueueStatus(player);
                 else openMode(player, pad);
             });
         } else if (PvpLobbyBuilder.returnPad(lobby, event.getTo())) {
@@ -2559,7 +3121,8 @@ final class PvpCompetitionService implements Listener {
                 Player player = event.getPlayer();
                 plugin.getServer().getScheduler().runTask(plugin, () -> {
                     if (!player.isOnline() || isParticipant(player.getUniqueId())) return;
-                    if (queuedPlayers.containsKey(player.getUniqueId())) openQueueStatus(player);
+                    if (roomByPlayer.containsKey(player.getUniqueId())) openMatchRoom(player);
+                    else if (queuedPlayers.containsKey(player.getUniqueId())) openQueueStatus(player);
                     else openMode(player, mode);
                 });
             }
@@ -2665,7 +3228,7 @@ final class PvpCompetitionService implements Listener {
         switch (action) {
             case LADDER -> openLadder(player);
             case RULES -> openRules(player);
-            case RATINGS -> openRankings(player);
+            case PLAY -> openModes(player);
             case LIVE -> openLive(player);
         }
     }
@@ -2767,6 +3330,12 @@ final class PvpCompetitionService implements Listener {
         Player player = event.getPlayer();
         UUID playerId = player.getUniqueId();
         leaveQueue(playerId, true);
+        MatchInvite roomInvite = matchInvites.remove(playerId);
+        if (roomInvite != null) {
+            MatchRoom invitedRoom = matchRooms.get(roomInvite.roomId());
+            if (invitedRoom != null) invitedRoom.invited.remove(playerId);
+        }
+        leaveMatchRoom(playerId, true);
         Party party = parties.get(playerId);
         if (party != null) {
             party.members.remove(playerId);
@@ -2794,6 +3363,9 @@ final class PvpCompetitionService implements Listener {
             for (PvpMatchmaking.Entry entry : List.copyOf(queues.getOrDefault(mode, List.of()))) {
                 removeEntry(mode, entry, reason);
             }
+        }
+        for (MatchRoom room : List.copyOf(matchRooms.values())) {
+            removeMatchRoom(room, reason);
         }
         for (Match match : List.copyOf(matches.values())) {
             if (match.phase == Phase.COUNTDOWN) abortStart(match, reason);
@@ -2833,6 +3405,10 @@ final class PvpCompetitionService implements Listener {
         queuedModes.clear();
         partyInvites.clear();
         parties.clear();
+        matchDrafts.clear();
+        matchRooms.clear();
+        roomByPlayer.clear();
+        matchInvites.clear();
         farmGuard.clear();
     }
 
