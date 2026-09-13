@@ -285,7 +285,7 @@ final class PvpLobbyLayoutTest {
         String service = service();
         assertTrue(service.contains("private void openQueuePage("));
         int step = service.indexOf("if (approach != null) teleport(player, approach);");
-        int open = service.indexOf("else openMode(player, mode);", step);
+        int open = service.indexOf("else openMode(player, mode, STANDALONE);", step);
         assertTrue(step > 0 && open > step,
                 "the player must be stepped out before the page is opened");
         assertTrue(source().contains("static Location gateApproach("));
@@ -308,6 +308,51 @@ final class PvpLobbyLayoutTest {
         assertTrue(lobby.contains("THE PROVING GROUNDS"));
         assertTrue(!lobby.contains("NOTHING LOST"),
                 "the centre title carries no motto under it");
+    }
+
+    /**
+     * Explanations are skimmable rows, not paragraphs.
+     *
+     * <p>How PvP Works set the shape: an icon to anchor each idea, a bold heading to
+     * skim and muted detail to read. The competitive screens were blocks of prose in
+     * the same dialog frame, which nobody reads.
+     */
+    @Test
+    void pagesThatExplainSomethingUseRowsRatherThanProse() {
+        String service = service();
+        assertTrue(service.contains("MenuText.rule("),
+                "an explanation should be icon-led rows, like How PvP Works");
+        assertTrue(service.contains("MenuText.stat("),
+                "a readout should be labelled stats, not a run-on line");
+        // The rules page in particular was one paragraph in a dialog.
+        String rules = service.substring(service.indexOf("private void openRules("),
+                service.indexOf("void openLive(Player player)"));
+        assertTrue(rules.contains("showRules(player, \"PvP Rules & Fair Play\""));
+        assertTrue(!rules.contains("\\n\\n"),
+                "the rules page should no longer be assembling a paragraph");
+    }
+
+    /**
+     * The one block a player is meant to click must not look like scenery.
+     *
+     * <p>The consoles were a stone stem with a lantern and a crystal on top, which is
+     * exactly what the lamp standards around them are — and a lamp on the inner walk
+     * stood directly between the plaza and the console it was hiding.
+     */
+    @Test
+    void aConsoleLooksLikeSomethingYouClick() {
+        String lobby = source();
+        String console = lobby.substring(lobby.indexOf("private static void buildPavilions("),
+                lobby.indexOf("private static List<Pavilion> pavilions()"));
+        assertTrue(console.contains("Material.SEA_LANTERN") && console.contains("CUT_COPPER"),
+                "a console needs a lit screen in a surround nothing else on the island has");
+        assertTrue(console.contains("DEEPSLATE_BRICK_SLAB"), "and a desk to walk up to");
+        assertTrue(!console.contains("AMETHYST_CLUSTER"),
+                "a crystal on a stem is what made it read as a lamp standard");
+        assertTrue(lobby.contains("if (!consoleBearing(between)) lamp(world, between, INNER_WALK)"),
+                "no lamp may stand between the plaza and a console");
+        assertTrue(lobby.contains("RIGHT-CLICK TO OPEN"),
+                "the prompt should say what to do");
     }
 
     private static String service() {

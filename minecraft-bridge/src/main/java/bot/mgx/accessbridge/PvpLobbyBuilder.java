@@ -836,7 +836,10 @@ final class PvpLobbyBuilder {
             double between = STRUCTURE_BEARINGS[index] + RING_STEP / 2d;
             if (!consoleBearing(between)) bed(world, between, 15.6d);
             if (!crossingBearing(between)) bed(world, between, 23d);
-            lamp(world, between, INNER_WALK);
+            // Not on a console bearing: the inner walk runs between the plaza and the
+            // console, so a lamp here stands squarely in front of the thing a player
+            // is meant to walk up to and click.
+            if (!consoleBearing(between)) lamp(world, between, INNER_WALK);
             lamp(world, between, PROMENADE);
         }
     }
@@ -1294,42 +1297,70 @@ final class PvpLobbyBuilder {
      * works, where the records live, what the rules are, and what is live — were all
      * buried inside menus. On the rim they are things you walk past.
      */
+    /**
+     * A lit terminal on a desk, facing the plaza.
+     *
+     * <p>The consoles used to be a stone stem with a lantern and a crystal on top,
+     * which is exactly what the lamp standards around them look like — so the one
+     * thing in the lobby a player is supposed to click looked like scenery. This is
+     * a desk with a screen in a copper surround: nothing else on the island has that
+     * silhouette, and the prompt sits directly above it rather than up in the sky.
+     */
     private static void buildPavilions(World world) {
         for (Pavilion pavilion : pavilions()) {
-            int cx = ringX(pavilion.angle(), PAVILION_RING, 0d);
-            int cz = ringZ(pavilion.angle(), PAVILION_RING, 0d);
-            for (int dx = -1; dx <= 1; dx++) {
-                for (int dz = -1; dz <= 1; dz++) {
-                    world.getBlockAt(cx + dx, FLOOR_Y, cz + dz).setType(
-                            Material.POLISHED_DEEPSLATE, false);
-                    boolean corner = dx != 0 && dz != 0;
-                    world.getBlockAt(cx + dx, FLOOR_Y + 1, cz + dz).setType(
-                            corner ? Material.DEEPSLATE_BRICK_WALL
-                                    : Material.DEEPSLATE_BRICK_SLAB, false);
+            double angle = pavilion.angle();
+            // Lateral runs across the face; step runs away from the plaza.
+            for (int lateral = -1; lateral <= 1; lateral++) {
+                for (double step = -1d; step <= 1d; step += 1d) {
+                    int x = ringX(angle, PAVILION_RING + step, lateral);
+                    int z = ringZ(angle, PAVILION_RING + step, lateral);
+                    world.getBlockAt(x, FLOOR_Y, z).setType(
+                            Math.abs(lateral) == 1 ? Material.CHISELED_DEEPSLATE
+                                    : Material.POLISHED_DEEPSLATE, false);
                 }
             }
-            // A short lit stem rather than a shelter: these stand inside the court,
-            // where a roof would hide the arch behind them from the plaza.
-            world.getBlockAt(cx, FLOOR_Y + 1, cz).setType(Material.CHISELED_DEEPSLATE, false);
-            world.getBlockAt(cx, FLOOR_Y + 2, cz).setType(Material.AMETHYST_BLOCK, false);
-            world.getBlockAt(cx, FLOOR_Y + 3, cz).setType(Material.SEA_LANTERN, false);
-            world.getBlockAt(cx, FLOOR_Y + 4, cz).setType(Material.AMETHYST_CLUSTER, false);
+            // The desk lip the player walks up to.
+            for (int lateral = -1; lateral <= 1; lateral++) {
+                world.getBlockAt(ringX(angle, PAVILION_RING - 1d, lateral), FLOOR_Y + 1,
+                                ringZ(angle, PAVILION_RING - 1d, lateral))
+                        .setType(Material.DEEPSLATE_BRICK_SLAB, false);
+            }
+            // The screen: two lit courses in a copper surround, angled at the plaza.
+            for (int y = 1; y <= 2; y++) {
+                world.getBlockAt(ringX(angle, PAVILION_RING + 1d, 0d), FLOOR_Y + y,
+                                ringZ(angle, PAVILION_RING + 1d, 0d))
+                        .setType(Material.SEA_LANTERN, false);
+                for (int lateral : new int[]{-1, 1}) {
+                    world.getBlockAt(ringX(angle, PAVILION_RING + 1d, lateral), FLOOR_Y + y,
+                                    ringZ(angle, PAVILION_RING + 1d, lateral))
+                            .setType(y == 1 ? Material.CUT_COPPER
+                                    : Material.EXPOSED_CUT_COPPER, false);
+                }
+            }
+            for (int lateral = -1; lateral <= 1; lateral++) {
+                world.getBlockAt(ringX(angle, PAVILION_RING + 1d, lateral), FLOOR_Y + 3,
+                                ringZ(angle, PAVILION_RING + 1d, lateral))
+                        .setType(Material.CHISELED_DEEPSLATE, false);
+            }
+            world.getBlockAt(ringX(angle, PAVILION_RING + 1d, 0d), FLOOR_Y + 4,
+                            ringZ(angle, PAVILION_RING + 1d, 0d))
+                    .setType(Material.AMETHYST_BLOCK, false);
         }
     }
 
     private static List<Pavilion> pavilions() {
         List<Pavilion> boards = new ArrayList<>();
         boards.add(new Pavilion(PAVILION_BEARINGS[0], "RANK PROGRESSION", Board.STATIC,
-                List.of("18 ranks • 8 permanent tiers"), "RIGHT-CLICK CONSOLE",
+                List.of("18 ranks • 8 permanent tiers"), "► RIGHT-CLICK TO OPEN",
                 PavilionAction.LADDER));
         boards.add(new Pavilion(PAVILION_BEARINGS[1], "FIGHT RULES", Board.STATIC,
-                List.of("YOUR GEAR • REAL TERRAIN • KEEP INVENTORY"), "RIGHT-CLICK CONSOLE",
+                List.of("YOUR GEAR • REAL TERRAIN • KEEP INVENTORY"), "► RIGHT-CLICK TO OPEN",
                 PavilionAction.RULES));
         boards.add(new Pavilion(PAVILION_BEARINGS[2], "CREATE A FIGHT", Board.STATIC,
                 List.of("TEAM SIZE • ACCESS • INVITES"),
-                "RIGHT-CLICK CONSOLE", PavilionAction.PLAY));
+                "► RIGHT-CLICK TO OPEN", PavilionAction.PLAY));
         boards.add(new Pavilion(PAVILION_BEARINGS[3], "LIVE MATCHES", Board.LIVE, List.of(),
-                "RIGHT-CLICK CONSOLE", PavilionAction.LIVE));
+                "► RIGHT-CLICK TO OPEN", PavilionAction.LIVE));
         return boards;
     }
 
@@ -1396,14 +1427,17 @@ final class PvpLobbyBuilder {
                 titleScale, NEAR_GATE_TAG);
 
         for (Pavilion pavilion : pavilions()) {
-            double x = ringX(pavilion.angle(), PAVILION_RING, 0d) + 0.5d;
-            double z = ringZ(pavilion.angle(), PAVILION_RING, 0d) + 0.5d;
-            // The whole stack clears the kiosk, whose cluster tops out at FLOOR_Y + 4.
-            // The prompt used to sit at 2.4, which is inside the kiosk's own stem.
-            hologram(world, x, FLOOR_Y + 9d, z,
+            // Anchored over the desk rather than the screen, so the whole stack reads
+            // as belonging to the console a player is standing at.
+            double x = ringX(pavilion.angle(), PAVILION_RING - 0.5d, 0d) + 0.5d;
+            double z = ringZ(pavilion.angle(), PAVILION_RING - 0.5d, 0d) + 0.5d;
+            // A tight stack sitting on the console, whose cap tops out at FLOOR_Y + 4.
+            // Floating it higher broke the link between the prompt and the block it
+            // is telling the player to click.
+            hologram(world, x, FLOOR_Y + 7.2d, z,
                     Component.text(pavilion.title(), AMETHYST, TextDecoration.BOLD),
                     titleScale, NEAR_BOARD_TAG);
-            double line = FLOOR_Y + 7.9d;
+            double line = FLOOR_Y + 6.1d;
             for (String text : pavilion.body()) {
                 hologram(world, x, line, z,
                         Component.text(text, NamedTextColor.WHITE),
@@ -1420,7 +1454,7 @@ final class PvpLobbyBuilder {
                     line -= 0.72d;
                 }
             }
-            hologram(world, x, Math.max(FLOOR_Y + 5.2d, line), z,
+            hologram(world, x, Math.max(FLOOR_Y + 4.9d, line), z,
                     Component.text(pavilion.prompt(), CRYSTAL, TextDecoration.BOLD),
                     lineScale, NEAR_BOARD_TAG);
         }
