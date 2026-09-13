@@ -19,17 +19,16 @@ import java.util.UUID;
 /** Persistent PvP lobby and main-world entrance; combat arenas are never stored here. */
 final class PvpLobbyStore {
     /**
-     * Bumped to 12 so every gateway is rebuilt around a continuous obsidian portal
-     * frame. Earlier formats replaced pieces of the sides and top with decoration,
-     * which left placed portal blocks alive only until their next block update.
-     * A newer format rebuilds the lobby once on the next start and re-saves the spawn.
+     * Bumped to 13 so diagonal-gate decorations are rebuilt on the arch's block axis.
+     * Format 12 moved the visible glass off the frame, but its rounded approach pylon
+     * still landed on the Last Standing post and invalidated that portal later.
      *
      * <p>This has to move with <em>any</em> change to {@code PvpLobbyBuilder}'s
      * geometry. A build that changes the plan without bumping it installs cleanly,
      * logs nothing, and leaves the previous lobby standing in the world — which looks
      * exactly like the change never shipped.
      */
-    private static final int FORMAT_VERSION = 12;
+    private static final int FORMAT_VERSION = 13;
 
     record Point(
             String worldId,

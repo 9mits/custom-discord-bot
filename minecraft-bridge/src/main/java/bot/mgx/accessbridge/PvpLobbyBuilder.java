@@ -13,6 +13,7 @@ import org.bukkit.Material;
 import org.bukkit.Particle;
 import org.bukkit.World;
 import org.bukkit.WorldCreator;
+import org.bukkit.block.Block;
 import org.bukkit.block.data.BlockData;
 import org.bukkit.block.data.Levelled;
 import org.bukkit.block.data.Orientable;
@@ -1122,10 +1123,48 @@ final class PvpLobbyBuilder {
         int gz = gate.z();
         // Faces the middle, so every arch is read from the plaza.
         boolean wideX = Math.abs(gx) <= Math.abs(gz);
-        Orientable portal = (Orientable) Material.NETHER_PORTAL.createBlockData();
-        portal.setAxis(wideX ? Axis.X : Axis.Z);
         structurePlinth(world, gate.angle(), GATE_RING, 4);
         pad(world, gx, gz, gate.emblem());
+        buildGatewayPlane(world, gx, gz, wideX);
+        // Colour belongs in front of the posts, never inside them. The old glass
+        // courses replaced obsidian in both sides of the portal frame, so a later
+        // neighbouring update could erase the whole portal plane. These shallow
+        // accents preserve each queue's colour while leaving a vanilla-valid frame.
+        for (int y : new int[]{3, 6}) {
+            for (int lateral : new int[]{-3, 3}) {
+                int[] at = gatewayDecorationPosition(gate, wideX, lateral, 1);
+                world.getBlockAt(at[0], FLOOR_Y + y, at[1]).setType(gate.glass(), false);
+            }
+        }
+        // Use the arch's actual block axis, not another rounded polar coordinate.
+        // At the diagonal Last Standing gate, the old radius/lateral calculation put
+        // its left pylon directly on the obsidian post. It looked lit until Minecraft's
+        // next neighbour update noticed the invalid frame and removed every portal block.
+        for (int lateral : new int[]{-2, 2}) {
+            int[] at = gatewayDecorationPosition(gate, wideX, lateral, 2);
+            int px = at[0];
+            int pz = at[1];
+            world.getBlockAt(px, FLOOR_Y, pz).setType(Material.POLISHED_DEEPSLATE, false);
+            world.getBlockAt(px, FLOOR_Y + 1, pz).setType(Material.CUT_COPPER, false);
+            world.getBlockAt(px, FLOOR_Y + 2, pz).setType(gate.glass(), false);
+            world.getBlockAt(px, FLOOR_Y + 3, pz).setType(Material.SOUL_LANTERN, false);
+        }
+        set(world, gx, gz, wideX, 0, FLOOR_Y + STRUCTURE_TOP + 1, gate.emblem());
+    }
+
+    private static void buildReturnGate(World world) {
+        int gx = RETURN_GATE[0];
+        int gz = RETURN_GATE[1];
+        structurePlinth(world, 180d, GATE_RING, 4);
+        pad(world, gx, gz, Material.LODESTONE);
+        buildGatewayPlane(world, gx, gz, true);
+        set(world, gx, gz, true, 0, FLOOR_Y + STRUCTURE_TOP + 1, Material.LODESTONE);
+    }
+
+    /** Builds the complete valid frame first, then fills its portal plane. */
+    private static void buildGatewayPlane(World world, int gx, int gz, boolean wideX) {
+        Orientable portal = (Orientable) Material.NETHER_PORTAL.createBlockData();
+        portal.setAxis(wideX ? Axis.X : Axis.Z);
         for (int lateral = -3; lateral <= 3; lateral++) {
             set(world, gx, gz, wideX, lateral, FLOOR_Y, Material.OBSIDIAN);
             for (int y = 1; y <= STRUCTURE_TOP; y++) {
@@ -1140,50 +1179,6 @@ final class PvpLobbyBuilder {
             }
         }
         fillGatewayPortal(world, gx, gz, wideX, portal);
-        // Colour belongs in front of the posts, never inside them. The old glass
-        // courses replaced obsidian in both sides of the portal frame, so a later
-        // neighbouring update could erase the whole portal plane. These shallow
-        // accents preserve each queue's colour while leaving a vanilla-valid frame.
-        for (int y : new int[]{3, 6}) {
-            for (int lateral : new int[]{-3, 3}) {
-                int x = ringX(gate.angle(), GATE_RING - 1d, lateral);
-                int z = ringZ(gate.angle(), GATE_RING - 1d, lateral);
-                world.getBlockAt(x, FLOOR_Y + y, z).setType(gate.glass(), false);
-            }
-        }
-        // Copper pylons on the approach rather than alongside the posts: at this ring
-        // spacing a ninth block of width would touch the structure next door.
-        for (int lateral : new int[]{-2, 2}) {
-            int px = ringX(gate.angle(), GATE_RING - 2d, lateral);
-            int pz = ringZ(gate.angle(), GATE_RING - 2d, lateral);
-            world.getBlockAt(px, FLOOR_Y, pz).setType(Material.POLISHED_DEEPSLATE, false);
-            world.getBlockAt(px, FLOOR_Y + 1, pz).setType(Material.CUT_COPPER, false);
-            world.getBlockAt(px, FLOOR_Y + 2, pz).setType(gate.glass(), false);
-            world.getBlockAt(px, FLOOR_Y + 3, pz).setType(Material.SOUL_LANTERN, false);
-        }
-        set(world, gx, gz, wideX, 0, FLOOR_Y + STRUCTURE_TOP + 1, gate.emblem());
-    }
-
-    private static void buildReturnGate(World world) {
-        int gx = RETURN_GATE[0];
-        int gz = RETURN_GATE[1];
-        Orientable portal = (Orientable) Material.NETHER_PORTAL.createBlockData();
-        portal.setAxis(Axis.X);
-        structurePlinth(world, 180d, GATE_RING, 4);
-        pad(world, gx, gz, Material.LODESTONE);
-        for (int lateral = -3; lateral <= 3; lateral++) {
-            set(world, gx, gz, true, lateral, FLOOR_Y, Material.OBSIDIAN);
-            for (int y = 1; y <= STRUCTURE_TOP; y++) {
-                Material block = gatewayCell(lateral, y);
-                if (block == Material.NETHER_PORTAL) {
-                    set(world, gx, gz, true, lateral, FLOOR_Y + y, Material.AIR);
-                } else {
-                    set(world, gx, gz, true, lateral, FLOOR_Y + y, block);
-                }
-            }
-        }
-        fillGatewayPortal(world, gx, gz, true, portal);
-        set(world, gx, gz, true, 0, FLOOR_Y + STRUCTURE_TOP + 1, Material.LODESTONE);
     }
 
     /**
@@ -1199,6 +1194,90 @@ final class PvpLobbyBuilder {
         }
         if (y == STRUCTURE_TOP) return Material.CHISELED_DEEPSLATE;
         return Material.NETHER_PORTAL;
+    }
+
+    /**
+     * A decoration in front of a queue arch, expressed on its real block grid.
+     *
+     * <p>Polar rounding is suitable for placing the arch as a whole, but applying it
+     * again to individual decoration can collapse a different radius onto the same
+     * frame block. Once the arch exists, its own axis is the only safe coordinate
+     * system for anything placed beside it.
+     */
+    static int[] gatewayDecorationPosition(PvpMode mode, int lateral, int depth) {
+        Gate gate = GATES.get(mode);
+        if (gate == null) return null;
+        boolean wideX = Math.abs(gate.x()) <= Math.abs(gate.z());
+        return gatewayDecorationPosition(gate, wideX, lateral, depth);
+    }
+
+    private static int[] gatewayDecorationPosition(
+            Gate gate, boolean wideX, int lateral, int depth
+    ) {
+        int inward = wideX ? Integer.compare(0, gate.z()) : Integer.compare(0, gate.x());
+        if (inward == 0) inward = 1;
+        return wideX
+                ? new int[]{gate.x() + lateral, gate.z() + inward * depth}
+                : new int[]{gate.x() + inward * depth, gate.z() + lateral};
+    }
+
+    /** Repairs any queue or return portal whose frame or portal plane was disturbed. */
+    static int repairPortals(PvpLobbyStore.Point lobby) {
+        Location centre = lobby == null ? null : lobby.resolve();
+        if (centre == null || centre.getWorld() == null) return 0;
+        World world = centre.getWorld();
+        int originX = (int) Math.round(centre.getX() - 0.5d);
+        int originZ = (int) Math.round(centre.getZ() - SPAWN_Z);
+        int repaired = 0;
+        for (Gate gate : GATES.values()) {
+            int gx = originX + gate.x();
+            int gz = originZ + gate.z();
+            boolean wideX = Math.abs(gate.x()) <= Math.abs(gate.z());
+            if (!gatewayPortalIntact(world, gx, gz, wideX)) {
+                buildGatewayPlane(world, gx, gz, wideX);
+                repaired++;
+            }
+        }
+        int returnX = originX + RETURN_GATE[0];
+        int returnZ = originZ + RETURN_GATE[1];
+        if (!gatewayPortalIntact(world, returnX, returnZ, true)) {
+            buildGatewayPlane(world, returnX, returnZ, true);
+            repaired++;
+        }
+        return repaired;
+    }
+
+    private static boolean gatewayPortalIntact(
+            World world, int gx, int gz, boolean wideX
+    ) {
+        for (int lateral = -3; lateral <= 3; lateral++) {
+            if (block(world, gx, gz, wideX, lateral, FLOOR_Y).getType()
+                    != Material.OBSIDIAN
+                    || block(world, gx, gz, wideX, lateral, FLOOR_Y + 7).getType()
+                    != Material.OBSIDIAN) {
+                return false;
+            }
+        }
+        for (int y = 1; y <= 7; y++) {
+            if (block(world, gx, gz, wideX, -3, FLOOR_Y + y).getType()
+                    != Material.OBSIDIAN
+                    || block(world, gx, gz, wideX, 3, FLOOR_Y + y).getType()
+                    != Material.OBSIDIAN) {
+                return false;
+            }
+        }
+        Axis expected = wideX ? Axis.X : Axis.Z;
+        for (int lateral = -2; lateral <= 2; lateral++) {
+            for (int y = 1; y <= 6; y++) {
+                BlockData data = block(world, gx, gz, wideX, lateral, FLOOR_Y + y)
+                        .getBlockData();
+                if (!(data instanceof Orientable portal) || portal.getAxis() != expected
+                        || data.getMaterial() != Material.NETHER_PORTAL) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     /** Fills the portal only after its complete vanilla-valid frame is standing. */
@@ -1625,15 +1704,20 @@ final class PvpLobbyBuilder {
     private static void set(
             World world, int x, int z, boolean wideX, int lateral, int y, Material material
     ) {
-        world.getBlockAt(x + (wideX ? lateral : 0), y, z + (wideX ? 0 : lateral))
-                .setType(material, false);
+        block(world, x, z, wideX, lateral, y).setType(material, false);
     }
 
     private static void setData(
             World world, int x, int z, boolean wideX, int lateral, int y, BlockData data
     ) {
-        world.getBlockAt(x + (wideX ? lateral : 0), y, z + (wideX ? 0 : lateral))
-                .setBlockData(data.clone(), false);
+        block(world, x, z, wideX, lateral, y).setBlockData(data.clone(), false);
+    }
+
+    private static Block block(
+            World world, int x, int z, boolean wideX, int lateral, int y
+    ) {
+        return world.getBlockAt(x + (wideX ? lateral : 0), y,
+                z + (wideX ? 0 : lateral));
     }
 
     private static boolean touchesPortal(Location location) {
