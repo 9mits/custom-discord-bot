@@ -81,9 +81,18 @@ final class PvpLobbyLayoutTest {
                 : PvpLobbyBuilder.LeaderboardBoard.values()) {
             int[] at = PvpLobbyBuilder.leaderboardPosition(board);
             assertTrue(seen.add(at[0] + ":" + at[1]), board + " shares a leaderboard frame");
-            assertTrue(Math.hypot(at[0], at[1]) < PvpLobbyBuilder.PROTECTED_RADIUS,
+            assertTrue(Math.hypot(at[0], at[1] - 12.5d) < PvpLobbyBuilder.PROTECTED_RADIUS,
                     board + " lies outside lobby protection");
+            double galleryRadius = Math.hypot(at[0] + 0.5d,
+                    at[1] + 0.5d - PvpLobbyBuilder.galleryCentreZ());
+            assertTrue(Math.abs(galleryRadius - 14.25d) <= 1.25d,
+                    board + " is detached from the circular gallery wall");
+            assertTrue(!(Math.abs(at[0]) <= 4
+                            && at[1] > PvpLobbyBuilder.galleryCentreZ()),
+                    board + " blocks the gallery entrance");
         }
         assertEquals(6, seen.size());
+        assertEquals(-43, PvpLobbyBuilder.galleryCentreZ());
+        assertEquals(16, PvpLobbyBuilder.galleryRadius());
     }
 }
