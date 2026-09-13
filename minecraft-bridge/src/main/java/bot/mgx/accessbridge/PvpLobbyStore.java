@@ -19,11 +19,12 @@ import java.util.UUID;
 /** Persistent PvP lobby and main-world entrance; combat arenas are never stored here. */
 final class PvpLobbyStore {
     /**
-     * Bumped to 8 for the open north boulevard, richer records court and consolidated
-     * configurable queue gateways. A newer format rebuilds the lobby once on the next
-     * start and re-saves the spawn.
+     * Bumped to 9 for the single-island rebuild: ten structures on one ring, the
+     * records walls brought in off their own island, and one billboard for every
+     * label. A newer format rebuilds the lobby once on the next start and re-saves
+     * the spawn.
      */
-    private static final int FORMAT_VERSION = 8;
+    private static final int FORMAT_VERSION = 9;
 
     record Point(
             String worldId,
