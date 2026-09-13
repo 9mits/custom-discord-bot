@@ -275,23 +275,75 @@ final class PvpLobbyLayoutTest {
     /**
      * The queue page cannot be read while its reader is stood in a live portal.
      *
-     * <p>The client dismisses its own dialog when portal travel begins, and travel
-     * begins again every time the suppression cooldown lapses, so the page opened and
-     * vanished on a loop. Stepping the player out is the fix; a longer cooldown is
-     * only a faster race.
+     * <p>The client throws its own dialog away when portal travel begins, so the page
+     * only survives if the player is not in the arch. Stepping them out once was not
+     * enough: a player still holding forward walks back into it a tick later, and if
+     * the step-out sits behind the same cooldown as the page, that second entry leaves
+     * them standing in the portal with the page already open. Observed directly — the
+     * screen opened as "Ranked 1v1" and was gone on the next poll.
      */
     @Test
-    void walkingIntoAnArchStepsYouBackOutBeforeThePageOpens() {
+    void everyTouchOfAnArchStepsYouOutEvenWhenThePageDoesNotReopen() {
         String service = service();
-        assertTrue(service.contains("private void openQueuePage("));
-        int step = service.indexOf("if (approach != null) teleport(player, approach);");
-        int open = service.indexOf("else openMode(player, mode, STANDALONE);", step);
-        assertTrue(step > 0 && open > step,
-                "the player must be stepped out before the page is opened");
+        // The move path steps out unconditionally and only then consults the gate.
+        int step = service.indexOf("if (approach != null) event.setTo(approach);");
+        int gate = service.indexOf("queueTouched(player, queue);", step);
+        assertTrue(step > 0 && gate > step,
+                "the step-out must happen on every touch, not behind the page cooldown");
+        assertTrue(service.contains("private void queueTouched(Player player, PvpMode mode)"),
+                "one gate, so whichever path sees the touch opens the page");
+        // And the page itself must not be drawn in the same tick as that move.
+        assertTrue(service.contains("private void openQueuePage(Player player, PvpMode mode)"));
+        assertTrue(service.contains("else openMode(player, mode, STANDALONE);"));
         assertTrue(source().contains("static Location gateApproach("));
-        // Both the walk-in and the portal event take the same path.
-        assertEquals(2, service.split("openQueuePage\\(", -1).length - 1 - 1,
-                "both portal entry paths should call openQueuePage");
+        // A player who stops moving inside an arch fires no further move event.
+        String sweep = service.substring(
+                service.indexOf("private void suppressCustomPortalTravel()"),
+                service.indexOf("private void installStarterLobby()"));
+        assertTrue(sweep.contains("gateApproach(lobby, queue)"),
+                "the sweep must also get a stationary player out of an arch");
+        assertTrue(sweep.contains("queueTouched(player, queue);"),
+                "a sweep that steps a player out must not swallow their queue");
+    }
+
+    /**
+     * Arriving in the lobby shows the hub, a couple of ticks after the teleport.
+     *
+     * <p>Drawn in the same tick as the world change it is discarded along with the
+     * loading screen, which is why entering the PvP dimension showed no menu at all.
+     */
+    @Test
+    void enteringTheLobbyOpensTheHubOnceTheTeleportHasSettled() {
+        String service = service();
+        String enter = service.substring(service.indexOf("void enterLobby(Player player)"),
+                service.indexOf("private void teleportToLobbyIfReady("));
+        int teleport = enter.indexOf("teleport(player, lobby);");
+        int open = enter.indexOf("openHub(player)", teleport);
+        assertTrue(teleport > 0 && open > teleport);
+        assertTrue(enter.contains("runTaskLater("),
+                "the hub must not be drawn in the same tick as the teleport");
+    }
+
+    /**
+     * A finished fight puts you back where you started it.
+     *
+     * <p>Which is the lobby for anyone who queued at an arch — being dropped into the
+     * middle of survival after every match means walking back to the entrance portal
+     * to fight twice. Someone who started from the ordinary world is the exception and
+     * is put back exactly where they were.
+     */
+    @Test
+    void aFinishedFightReturnsYouToWhereYouStartedIt() {
+        String service = service();
+        assertTrue(service.contains("private Location returnDestination("));
+        assertTrue(service.contains("Location destination = returnDestination(saved);"),
+                "restore must use the rule, not the raw snapshot position");
+        String rule = service.substring(service.indexOf("private Location returnDestination("),
+                service.indexOf("private PvpDuelStore.Recovery snapshot("));
+        assertTrue(rule.contains("if (!isPvpWorld(started.getWorld())) return started;"),
+                "a fight started in the ordinary world returns there");
+        assertTrue(rule.contains("lobbyStore.lobby()"),
+                "a fight started in the lobby returns to the lobby");
     }
 
     /**

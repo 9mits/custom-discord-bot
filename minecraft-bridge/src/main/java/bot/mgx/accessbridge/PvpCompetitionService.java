@@ -1438,7 +1438,7 @@ final class PvpCompetitionService implements Listener {
             player.setHealth(Math.max(0.1d, Math.min(saved.health(),
                     player.getAttribute(Attribute.MAX_HEALTH).getValue())));
         }
-        Location destination = origin(saved);
+        Location destination = returnDestination(saved);
         if (destination == null && !Bukkit.getWorlds().isEmpty()) {
             destination = Bukkit.getWorlds().get(0).getSpawnLocation();
         }
@@ -1453,6 +1453,25 @@ final class PvpCompetitionService implements Listener {
         plugin.bossBars().restore(player);
         safeRemoveRecovery(player.getUniqueId());
         player.saveData();
+    }
+
+    /**
+     * Where a finished fight puts a player back.
+     *
+     * <p>Into the lobby, because that is where they queued and where the next fight is
+     * started from — being dropped back into the middle of survival after every match
+     * means walking to the entrance portal again to fight twice.
+     *
+     * <p>The exception is a player who never came to the lobby at all. The snapshot is
+     * taken before anyone is moved to an arena, so the world it records is simply
+     * where the fight was started from: if that is the ordinary world, they wanted to
+     * be standing there and they are put back exactly there.
+     */
+    private Location returnDestination(PvpDuelStore.Recovery saved) {
+        Location started = origin(saved);
+        if (started == null || started.getWorld() == null) return started;
+        if (!isPvpWorld(started.getWorld())) return started;
+        return lobbyStore.lobby().map(PvpLobbyStore.Point::resolve).orElse(started);
     }
 
     private PvpDuelStore.Recovery snapshot(UUID matchId, PvpDuelStore.Role role, Player player) {
@@ -2529,7 +2548,12 @@ final class PvpCompetitionService implements Listener {
         }
         teleport(player, lobby);
         player.playSound(player, Sound.ENTITY_ENDERMAN_TELEPORT, 0.8f, 1.2f);
-        openHub(player);
+        // Two ticks after the world change. A dialog drawn in the same tick as the
+        // teleport that brought the player here is discarded with the loading screen,
+        // which is why arriving in the lobby showed no menu at all.
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+            if (player.isOnline() && !isParticipant(player.getUniqueId())) openHub(player);
+        }, 2L);
     }
 
     private void teleportToLobbyIfReady(Player player) {
@@ -3016,19 +3040,31 @@ final class PvpCompetitionService implements Listener {
      * approach removes the cause instead of racing it, and the step is taken first so
      * the teleport cannot dismiss the page it is about to open.
      */
-    private void openQueuePage(Player player, PvpLobbyStore.Point lobby, PvpMode mode) {
+    /**
+     * A touch of a queue arch, from whichever path noticed it first.
+     *
+     * <p>The move event and the tick sweep both step a player out of an arch, so
+     * either can be the one that sees the entry — and when only the move event opened
+     * the page, a sweep that got there first stepped the player out and silently
+     * swallowed the queue. Both call this instead.
+     */
+    private void queueTouched(Player player, PvpMode mode) {
         UUID playerId = player.getUniqueId();
-        Location approach = PvpLobbyBuilder.gateApproach(lobby, mode);
+        long now = System.currentTimeMillis();
+        if (padCooldowns.getOrDefault(playerId, 0L) > now) return;
+        padCooldowns.put(playerId, now + PAD_COOLDOWN_MILLIS);
+        openQueuePage(player, mode);
+    }
+
+    private void openQueuePage(Player player, PvpMode mode) {
+        UUID playerId = player.getUniqueId();
+        // One tick later: a page drawn in the same tick as the move that placed the
+        // player is thrown away by their own client along with the portal transition.
         plugin.getServer().getScheduler().runTask(plugin, () -> {
             if (!player.isOnline() || isParticipant(playerId)) return;
-            if (approach != null) teleport(player, approach);
-            player.setPortalCooldown(integer("pvp-competitive.portal-suppression-ticks"));
-            plugin.getServer().getScheduler().runTask(plugin, () -> {
-                if (!player.isOnline() || isParticipant(playerId)) return;
-                if (roomByPlayer.containsKey(playerId)) openMatchRoom(player);
-                else if (queuedPlayers.containsKey(playerId)) openQueueStatus(player);
-                else openMode(player, mode, STANDALONE);
-            });
+            if (roomByPlayer.containsKey(playerId)) openMatchRoom(player);
+            else if (queuedPlayers.containsKey(playerId)) openQueueStatus(player);
+            else openMode(player, mode, STANDALONE);
         });
     }
 
@@ -3037,9 +3073,17 @@ final class PvpCompetitionService implements Listener {
         int cooldown = integer("pvp-competitive.portal-suppression-ticks");
         for (Player player : Bukkit.getOnlinePlayers()) {
             Location at = player.getLocation();
-            if (touchesEntrancePortal(at) || PvpLobbyBuilder.modePad(lobby, at) != null
+            PvpMode queue = PvpLobbyBuilder.modePad(lobby, at);
+            if (touchesEntrancePortal(at) || queue != null
                     || PvpLobbyBuilder.returnPad(lobby, at)) {
                 player.setPortalCooldown(cooldown);
+            }
+            // A player who stopped moving inside an arch never fires another move
+            // event, so the sweep is what gets them out of it.
+            if (queue != null && queue.queueable() && !isParticipant(player.getUniqueId())) {
+                Location approach = PvpLobbyBuilder.gateApproach(lobby, queue);
+                if (approach != null) teleport(player, approach);
+                queueTouched(player, queue);
             }
         }
     }
@@ -3205,6 +3249,18 @@ final class PvpCompetitionService implements Listener {
                     () -> teleport(event.getPlayer(), lobbyAt));
             return;
         }
+        // Queue portals are handled before the pad cooldown, because stepping a player
+        // back out has to happen on every touch. Gate only the page behind the
+        // cooldown: a player still walking forward re-enters the arch a tick later,
+        // and standing in a live portal is what makes their client throw the page away.
+        PvpMode queue = PvpLobbyBuilder.modePad(lobby, event.getTo());
+        if (queue != null && queue.queueable()) {
+            Location approach = PvpLobbyBuilder.gateApproach(lobby, queue);
+            if (approach != null) event.setTo(approach);
+            player.setPortalCooldown(integer("pvp-competitive.portal-suppression-ticks"));
+            queueTouched(player, queue);
+            return;
+        }
         if (padCooldowns.getOrDefault(playerId, 0L) > now) return;
         if (touchesEntrancePortal(event.getTo())) {
             player.setPortalCooldown(integer("pvp-competitive.portal-suppression-ticks"));
@@ -3212,12 +3268,7 @@ final class PvpCompetitionService implements Listener {
             plugin.getServer().getScheduler().runTask(plugin, () -> enterLobby(player));
             return;
         }
-        PvpMode pad = PvpLobbyBuilder.modePad(lobby, event.getTo());
-        if (pad != null && pad.queueable()) {
-            player.setPortalCooldown(integer("pvp-competitive.portal-suppression-ticks"));
-            padCooldowns.put(playerId, now + PAD_COOLDOWN_MILLIS);
-            openQueuePage(player, lobby, pad);
-        } else if (PvpLobbyBuilder.returnPad(lobby, event.getTo())) {
+        if (PvpLobbyBuilder.returnPad(lobby, event.getTo())) {
             player.setPortalCooldown(integer("pvp-competitive.portal-suppression-ticks"));
             padCooldowns.put(playerId, now + PAD_COOLDOWN_MILLIS);
             plugin.getServer().getScheduler().runTask(plugin, () -> returnToServer(player));
@@ -3245,7 +3296,10 @@ final class PvpCompetitionService implements Listener {
             // landed has already dismissed its dialog. Step it out of the arch and
             // re-open, which is the same path a normal walk-in takes.
             if (mode != null && mode.queueable()) {
-                openQueuePage(event.getPlayer(), lobby, mode);
+                Player player = event.getPlayer();
+                Location approach = PvpLobbyBuilder.gateApproach(lobby, mode);
+                if (approach != null) teleport(player, approach);
+                queueTouched(player, mode);
             }
         }
     }
