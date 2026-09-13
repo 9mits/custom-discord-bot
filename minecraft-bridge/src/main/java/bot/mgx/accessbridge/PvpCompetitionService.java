@@ -94,6 +94,14 @@ final class PvpCompetitionService implements Listener {
     private static final TextColor ORANGE = TextColor.color(0xFF9900);
     private static final long INVITE_MILLIS = 120_000L;
     private static final long PAD_COOLDOWN_MILLIS = 1_500L;
+    /**
+     * Passed as the back target by anything a console or a portal opened.
+     *
+     * <p>Those pages were opened from the world, so Back has nowhere to return to and
+     * the framework's fallback sends the player to the server's main menu instead —
+     * out of the page the console exists to show. Such a page offers Close only.
+     */
+    private static final java.util.function.Consumer<Player> STANDALONE = player -> { };
     private static final String ENTRANCE_DISPLAY_TAG = "mgx_pvp_entrance_display";
     private static final String ENTRANCE_TEXT_TAG = "mgx_pvp_entrance_text";
     private static final String ENTRANCE_FALLBACK_TAG = "mgx_pvp_entrance_fallback";
@@ -1506,6 +1514,10 @@ final class PvpCompetitionService implements Listener {
     ) { }
 
     void openModes(Player player) {
+        openModes(player, this::openHub);
+    }
+
+    void openModes(Player player, java.util.function.Consumer<Player> back) {
         List<MenuAction> actions = new ArrayList<>();
         for (PvpMode mode : List.of(
                 PvpMode.RANKED_DUEL, PvpMode.CLAN_BATTLE, PvpMode.FFA)) {
@@ -1517,7 +1529,7 @@ final class PvpCompetitionService implements Listener {
         String body = "Choose one fight type, then set its size and access. Every match"
                 + " uses your own survival loadout in untouched overworld terrain.\n"
                 + availablePlayers() + " player(s) are free to fight right now.";
-        showMenu(player, "Create a PvP Fight", body, actions, this::openHub);
+        showMenu(player, "Create a PvP Fight", body, actions, back);
     }
 
     private void openMode(Player player, PvpMode selected) {
@@ -1644,6 +1656,10 @@ final class PvpCompetitionService implements Listener {
     }
 
     private void openLadder(Player player) {
+        openLadder(player, this::openHub);
+    }
+
+    private void openLadder(Player player, java.util.function.Consumer<Player> back) {
         PvpRecordStore.Record record = records.of(player.getUniqueId());
         PvpRank rank = record.rank();
         long remaining = Math.max(0L, rank.nextFloor() - record.rating());
@@ -1716,6 +1732,10 @@ final class PvpCompetitionService implements Listener {
     }
 
     private void openRules(Player player) {
+        openRules(player, this::openHub);
+    }
+
+    private void openRules(Player player, java.util.function.Consumer<Player> back) {
         String body = "Every mode uses the armour, weapons, food and supplies you earned in survival.\n"
                 + "KEEP INVENTORY is active. The ring uses untouched overworld terrain,"
                 + " returns you to where you entered, and puts every changed block back.\n\n"
@@ -1723,10 +1743,14 @@ final class PvpCompetitionService implements Listener {
                 + " and use only the stakes both players accepted.\n\n"
                 + "Same-owner accounts cannot match. Repeated opponents are rested."
                 + " Forfeits, disconnects and AFK eliminations lose normally.";
-        showMenu(player, "PvP Rules & Fair Play", body, List.of(), this::openHub);
+        showMenu(player, "PvP Rules & Fair Play", body, List.of(), back);
     }
 
     void openLive(Player player) {
+        openLive(player, this::openHub);
+    }
+
+    void openLive(Player player, java.util.function.Consumer<Player> back) {
         List<Match> live = matches.values().stream()
                 .filter(match -> match.phase == Phase.FIGHTING || match.phase == Phase.COUNTDOWN)
                 .toList();
@@ -2181,19 +2205,22 @@ final class PvpCompetitionService implements Listener {
             Player player, String title, String body, List<MenuAction> actions,
             java.util.function.Consumer<Player> back
     ) {
+        boolean standalone = back == STANDALONE;
         if (!clientSupport.supportsDialogs(player)) {
             List<BedrockForms.Button> buttons = actions.stream()
                     .map(action -> new BedrockForms.Button(action.label(),
                             () -> action.action().accept(player))).toList();
-            if (forms.menu(player, title, body, buttons, back)) return;
+            if (forms.menu(player, title, body, buttons, standalone ? null : back)) return;
             player.sendMessage(prefix().append(Component.text(title + ": " + body,
                     NamedTextColor.GRAY)));
             return;
         }
         List<ActionButton> buttons = actions.stream().map(action -> Screens.button(
                 action.sprite(), action.label(), action.hint(), action.action())).toList();
-        Screens.show(player, title, List.of(DialogBody.plainMessage(MenuText.body(body), 500)),
-                buttons, Math.min(2, Math.max(1, buttons.size())), back);
+        List<DialogBody> page = List.of(DialogBody.plainMessage(MenuText.body(body), 500));
+        int columns = Math.min(2, Math.max(1, buttons.size()));
+        if (standalone) Screens.showStandalone(player, title, page, buttons, columns);
+        else Screens.show(player, title, page, buttons, columns, back);
     }
 
     private static String modeSprite(PvpMode mode) {
@@ -2901,6 +2928,32 @@ final class PvpCompetitionService implements Listener {
     }
 
     /** Keeps vanilla Nether travel from taking focus away from a custom portal menu. */
+    /**
+     * Steps the player out of the arch, then opens the page on the next tick.
+     *
+     * <p>The screen used to open and vanish because the player was left standing in a
+     * live nether portal: the client dismisses its own dialog the moment portal travel
+     * begins, and travel begins again every time the suppression cooldown lapses, so
+     * the page could be seen but never read. Moving the player one step onto the
+     * approach removes the cause instead of racing it, and the step is taken first so
+     * the teleport cannot dismiss the page it is about to open.
+     */
+    private void openQueuePage(Player player, PvpLobbyStore.Point lobby, PvpMode mode) {
+        UUID playerId = player.getUniqueId();
+        Location approach = PvpLobbyBuilder.gateApproach(lobby, mode);
+        plugin.getServer().getScheduler().runTask(plugin, () -> {
+            if (!player.isOnline() || isParticipant(playerId)) return;
+            if (approach != null) teleport(player, approach);
+            player.setPortalCooldown(integer("pvp-competitive.portal-suppression-ticks"));
+            plugin.getServer().getScheduler().runTask(plugin, () -> {
+                if (!player.isOnline() || isParticipant(playerId)) return;
+                if (roomByPlayer.containsKey(playerId)) openMatchRoom(player);
+                else if (queuedPlayers.containsKey(playerId)) openQueueStatus(player);
+                else openMode(player, mode);
+            });
+        });
+    }
+
     private void suppressCustomPortalTravel() {
         PvpLobbyStore.Point lobby = lobbyStore.lobby().orElse(null);
         int cooldown = integer("pvp-competitive.portal-suppression-ticks");
@@ -3085,11 +3138,7 @@ final class PvpCompetitionService implements Listener {
         if (pad != null && pad.queueable()) {
             player.setPortalCooldown(integer("pvp-competitive.portal-suppression-ticks"));
             padCooldowns.put(playerId, now + PAD_COOLDOWN_MILLIS);
-            plugin.getServer().getScheduler().runTask(plugin, () -> {
-                if (roomByPlayer.containsKey(playerId)) openMatchRoom(player);
-                else if (queuedPlayers.containsKey(playerId)) openQueueStatus(player);
-                else openMode(player, pad);
-            });
+            openQueuePage(player, lobby, pad);
         } else if (PvpLobbyBuilder.returnPad(lobby, event.getTo())) {
             player.setPortalCooldown(integer("pvp-competitive.portal-suppression-ticks"));
             padCooldowns.put(playerId, now + PAD_COOLDOWN_MILLIS);
@@ -3114,17 +3163,11 @@ final class PvpCompetitionService implements Listener {
             event.setCancelled(true);
             event.getPlayer().setPortalCooldown(
                     integer("pvp-competitive.portal-suppression-ticks"));
-            // If a client reached portal processing before the proactive cooldown was
-            // applied, it may already have dismissed its dialog. Restore the exact
-            // queue page on the next tick instead of leaving the player with no UI.
+            // A client that reached portal processing before the proactive cooldown
+            // landed has already dismissed its dialog. Step it out of the arch and
+            // re-open, which is the same path a normal walk-in takes.
             if (mode != null && mode.queueable()) {
-                Player player = event.getPlayer();
-                plugin.getServer().getScheduler().runTask(plugin, () -> {
-                    if (!player.isOnline() || isParticipant(player.getUniqueId())) return;
-                    if (roomByPlayer.containsKey(player.getUniqueId())) openMatchRoom(player);
-                    else if (queuedPlayers.containsKey(player.getUniqueId())) openQueueStatus(player);
-                    else openMode(player, mode);
-                });
+                openQueuePage(event.getPlayer(), lobby, mode);
             }
         }
     }
@@ -3225,11 +3268,12 @@ final class PvpCompetitionService implements Listener {
                 lobby, event.getClickedBlock().getLocation());
         if (action == null) return;
         event.setCancelled(true);
+        // Opened from a block in the world, so each page is its own destination.
         switch (action) {
-            case LADDER -> openLadder(player);
-            case RULES -> openRules(player);
-            case PLAY -> openModes(player);
-            case LIVE -> openLive(player);
+            case LADDER -> openLadder(player, STANDALONE);
+            case RULES -> openRules(player, STANDALONE);
+            case PLAY -> openModes(player, STANDALONE);
+            case LIVE -> openLive(player, STANDALONE);
         }
     }
 

@@ -995,8 +995,10 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         }
         List<ActionButton> buttons = new ArrayList<>();
         if (competition != null) {
+            // A lambda, not a method reference: openModes is overloaded on arity and
+            // Screens.button is overloaded on handler shape, so the pair is ambiguous.
             buttons.add(Screens.button("item/netherite_sword", "Find a Fight",
-                    "Choose a queue.", competition::openModes));
+                    "Choose a queue.", viewer -> competition.openModes(viewer)));
         }
         buttons.addAll(List.of(
                 Screens.button("item/diamond_sword", "Private Fight",

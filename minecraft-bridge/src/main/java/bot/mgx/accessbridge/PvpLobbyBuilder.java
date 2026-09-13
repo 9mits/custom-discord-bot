@@ -73,36 +73,52 @@ final class PvpLobbyBuilder {
     private static final int FLOOR_Y = 80;
 
     /** Outer edge of the rim walkway. Everything is inside this. */
-    private static final int RIM = 22;
-    private static final int MOAT_OUTER = 20;
-    private static final int MOAT_INNER = 18;
-    /** The ring walk that runs behind every structure. */
-    private static final double PROMENADE = 16.4d;
+    private static final int RIM = 31;
+    private static final int MOAT_OUTER = 29;
+    private static final int MOAT_INNER = 27;
+    /** The reading walk, in front of the records ring. */
+    private static final double PROMENADE = 19.5d;
+    /** The shorter walk that ties the four gateways together. */
+    private static final double INNER_WALK = 11.8d;
     /**
-     * The one ring every tall thing stands on.
+     * Two concentric rings, both stepped in the same ten bearings.
      *
-     * <p>Three portals, six leaderboards and the way home are ten structures, and ten
-     * structures on one circle at one spacing is the whole organising idea of this
-     * island. Nothing stands on a bearing nothing else uses.
+     * <p>One ring could not hold both: a records wall needs its text to stand five
+     * blocks clear of its own backing, and six sets of five result rows at that
+     * standoff overlap each other long before the boards themselves do. So the four
+     * gateways take the inner ring, where the thing a player came to do is closest,
+     * and the six records walls take the outer one, where they have the arc to fill.
+     * Every bearing is still a multiple of the ring step, and both rings are still
+     * mirrored about the north-south axis.
      */
-    private static final int STRUCTURE_RING = 15;
-    /** Every structure on the ring caps here, giving the island one cornice line. */
+    private static final int GATE_RING = 15;
+    private static final int BOARD_RING = 24;
+    /** Result rows stand here: five clear of the wall, and clear of each other. */
+    private static final double BOARD_LABEL_RING = 19d;
+    /** Every gateway caps here, giving the inner ring one cornice line. */
     private static final int STRUCTURE_TOP = 8;
+    /** The outer ring stands taller, so the island reads as rising from the edge in. */
+    private static final int BOARD_TOP = 11;
     private static final double RING_STEP = 36d;
     private static final double[] STRUCTURE_BEARINGS = structureBearings();
     private static final int PLAZA = 9;
     /** The raised disc the monument stands on, inside the sunken plaza. */
     private static final int PLINTH = 5;
     /** The four low consoles, inside the plaza and between the approaches. */
-    private static final double PAVILION_RING = 11.5d;
-    /** Four of the ten between-structure bearings carry a console instead of a bed. */
-    private static final double[] PAVILION_BEARINGS = {54d, 126d, 234d, 306d};
-    /** Board text stands this far in front of its wall, so turning never clips it. */
-    private static final double BOARD_LABEL_RING = STRUCTURE_RING - 3.5d;
+    private static final double PAVILION_RING = 13.6d;
+    /**
+     * The four between-structure bearings that are clear of a gateway.
+     *
+     * <p>The gateways take 324, 0, 36 and 180, so the gaps at 18, 54, 306 and 342 are
+     * only eighteen degrees from an arch — close enough that a console title turning
+     * to face a reader sweeps into the arch beside it. These four are fifty-four
+     * degrees clear, and still mirror across the axis.
+     */
+    private static final double[] PAVILION_BEARINGS = {90d, 126d, 234d, 270d};
     /** Height of the retitled status line, shared by the build and the lookup. */
     private static final double GATE_STATUS_Y = FLOOR_Y + STRUCTURE_TOP + 2.4d;
     private static final double SPAWN_Z = 10.5d;
-    private static final int[] RETURN_GATE = {0, STRUCTURE_RING};
+    private static final int[] RETURN_GATE = {0, GATE_RING};
     /** The moat is crossed east and west, clear of every structure. */
     private static final double[] CROSSINGS = {90d, 270d};
     /** Starter arenas generated in this void world by the retired 8.0 PvP system. */
@@ -138,11 +154,11 @@ final class PvpLobbyBuilder {
             double angle, Material glass, Material emblem, String title, String subtitle
     ) {
         int x() {
-            return ringX(angle, STRUCTURE_RING, 0d);
+            return ringX(angle, GATE_RING, 0d);
         }
 
         int z() {
-            return ringZ(angle, STRUCTURE_RING, 0d);
+            return ringZ(angle, GATE_RING, 0d);
         }
     }
 
@@ -215,6 +231,9 @@ final class PvpLobbyBuilder {
         for (LeaderboardBoard board : LeaderboardBoard.values()) {
             buildLeaderboardFrame(world, board);
         }
+        for (double angle : new double[]{0d, 36d, 180d, 324d}) {
+            buildOuterPylon(world, angle);
+        }
         buildReturnGate(world);
         buildMonument(world);
         buildArrival(world);
@@ -282,6 +301,31 @@ final class PvpLobbyBuilder {
         }
         return new Location(centre.getWorld(), centre.getX() - 0.5d, centre.getY(),
                 centre.getZ() - SPAWN_Z);
+    }
+
+    /**
+     * The step in front of a gateway, facing it.
+     *
+     * <p>Where a player is put the instant they touch a queue portal. Standing inside a
+     * live nether portal is what made the queue screen open and vanish: the client
+     * dismisses its own dialog when portal travel starts, and travel starts again every
+     * time the suppression cooldown lapses, so the screen could never be read. Stepping
+     * the player back out removes the cause rather than racing it.
+     */
+    static Location gateApproach(PvpLobbyStore.Point lobby, PvpMode mode) {
+        Gate gate = GATES.get(mode);
+        Location centre = lobby == null ? null : lobby.resolve();
+        if (gate == null || centre == null || centre.getWorld() == null) return null;
+        double originX = centre.getX() - 0.5d;
+        double originZ = centre.getZ() - SPAWN_Z;
+        double standX = ringX(gate.angle(), GATE_RING - 2.5d, 0d) + 0.5d;
+        double standZ = ringZ(gate.angle(), GATE_RING - 2.5d, 0d) + 0.5d;
+        Location at = new Location(centre.getWorld(), originX + standX,
+                FLOOR_Y + 1d, originZ + standZ);
+        // Look back at the arch that was just walked into.
+        at.setDirection(new org.bukkit.util.Vector(
+                gate.x() + 0.5d - standX, 0d, gate.z() + 0.5d - standZ));
+        return at;
     }
 
     private static boolean onPad(Location at, Location origin, int x, int z) {
@@ -417,7 +461,7 @@ final class PvpLobbyBuilder {
     }
 
     static int gateRing() {
-        return STRUCTURE_RING;
+        return GATE_RING;
     }
 
     /**
@@ -480,9 +524,15 @@ final class PvpLobbyBuilder {
         return LIVE_BOARD_LINES;
     }
 
+    /** Where a records wall stands, which is the outer ring and not the gateway ring. */
     static int[] leaderboardPosition(LeaderboardBoard board) {
-        return new int[]{ringX(board.angle, STRUCTURE_RING, 0d),
-                ringZ(board.angle, STRUCTURE_RING, 0d)};
+        return new int[]{ringX(board.angle, BOARD_RING, 0d),
+                ringZ(board.angle, BOARD_RING, 0d)};
+    }
+
+    /** The two rings, so a layout test can assert each one holds what it should. */
+    static int boardRing() {
+        return BOARD_RING;
     }
 
     private static Map<PvpMode, Gate> gates() {
@@ -726,12 +776,27 @@ final class PvpLobbyBuilder {
             for (int z = -MOAT_INNER; z <= MOAT_INNER; z++) {
                 double radius = Math.hypot(x, z);
                 if (radius <= PLAZA + 0.5d || radius > MOAT_INNER - 0.5d) continue;
-                double arc = Math.toRadians(spokeGap(bearing(x, z))) * radius;
+                double degrees = bearing(x, z);
+                double arc = Math.toRadians(spokeGap(degrees)) * radius;
+                // Past the reading walk the bridges get an approach of their own,
+                // otherwise the only route to the rim crosses a planted bed.
+                if (radius > PROMENADE) {
+                    for (double crossing : CROSSINGS) {
+                        arc = Math.min(arc,
+                                Math.toRadians(angularGap(degrees, crossing)) * radius);
+                    }
+                }
                 Material ground;
-                if (radius >= PROMENADE - 0.6d) {
-                    ground = within(radius, MOAT_INNER - 1d) ? Material.SMOOTH_BASALT
+                if (within(radius, MOAT_INNER - 1.4d)) {
+                    ground = Material.POLISHED_DEEPSLATE;
+                } else if (Math.abs(radius - PROMENADE) <= 1.8d) {
+                    // The reading walk: wide, because six boards are read from it.
+                    ground = Math.abs(radius - PROMENADE) > 1.2d ? Material.SMOOTH_BASALT
                             : ((x + z) & 1) == 0 ? Material.CALCITE
                             : Material.POLISHED_DIORITE;
+                } else if (Math.abs(radius - INNER_WALK) <= 1.2d) {
+                    ground = Math.abs(radius - INNER_WALK) > 0.8d ? Material.SMOOTH_BASALT
+                            : Material.CALCITE;
                 } else if (arc < 1.9d) {
                     ground = Material.CALCITE;
                 } else if (arc < 2.7d) {
@@ -751,7 +816,7 @@ final class PvpLobbyBuilder {
                     world.getBlockAt(x, FLOOR_Y - depth, z)
                             .setType(Material.COBBLED_DEEPSLATE, false);
                 }
-                for (int y = 1; y <= 12; y++) {
+                for (int y = 1; y <= 14; y++) {
                     world.getBlockAt(x, FLOOR_Y + y, z).setType(Material.AIR, false);
                 }
             }
@@ -759,46 +824,63 @@ final class PvpLobbyBuilder {
     }
 
     /**
-     * One planted bed in each of the ten gaps between structures, and a lamp post on
-     * the promenade between every pair.
+     * Planted beds in the gaps, on both sides of the reading walk.
      *
-     * <p>Mirrored across the north-south axis like everything else here, and kept
-     * clear of both the approaches and the promenade so no planting is ever something
-     * a player has to walk around.
+     * <p>The court is eighteen blocks deep between plaza and moat, which is what six
+     * filling leaderboards need and far more ground than one ring of beds can hold.
+     * Everything here sits on a between-structure bearing, so no planting is ever
+     * something a player has to walk around on the way to a board or an arch.
      */
     private static void plantGarden(World world) {
         for (int index = 0; index < STRUCTURE_BEARINGS.length; index++) {
             double between = STRUCTURE_BEARINGS[index] + RING_STEP / 2d;
-            if (consoleBearing(between)) continue;
-            int cx = ringX(between, 12.6d, 0d);
-            int cz = ringZ(between, 12.6d, 0d);
-            for (int dx = -1; dx <= 1; dx++) {
-                for (int dz = -1; dz <= 1; dz++) {
-                    if (Math.abs(dx) + Math.abs(dz) > 1) continue;
-                    world.getBlockAt(cx + dx, FLOOR_Y, cz + dz).setType(
-                            dx == 0 && dz == 0 ? Material.CALCITE : Material.MOSS_BLOCK,
-                            false);
-                }
-            }
-            world.getBlockAt(cx, FLOOR_Y + 1, cz).setType(Material.BUDDING_AMETHYST, false);
-            world.getBlockAt(cx, FLOOR_Y + 2, cz).setType(Material.AMETHYST_CLUSTER, false);
-            world.getBlockAt(cx - 1, FLOOR_Y + 1, cz)
-                    .setType(Material.FLOWERING_AZALEA, false);
-            world.getBlockAt(cx + 1, FLOOR_Y + 1, cz)
-                    .setType(Material.FLOWERING_AZALEA, false);
-
-            // A lamp post out on the promenade, on the same bearing as the bed.
-            int lx = ringX(between, PROMENADE + 0.8d, 0d);
-            int lz = ringZ(between, PROMENADE + 0.8d, 0d);
-            for (int y = 1; y <= 3; y++) {
-                world.getBlockAt(lx, FLOOR_Y + y, lz).setType(
-                        y == 2 ? Material.AMETHYST_BLOCK : Material.POLISHED_DEEPSLATE,
-                        false);
-            }
-            world.getBlockAt(lx, FLOOR_Y + 4, lz).setType(Material.SEA_LANTERN, false);
-            world.getBlockAt(lx, FLOOR_Y + 5, lz)
-                    .setType(Material.DEEPSLATE_BRICK_SLAB, false);
+            if (!consoleBearing(between)) bed(world, between, 15.6d);
+            if (!crossingBearing(between)) bed(world, between, 23d);
+            lamp(world, between, INNER_WALK);
+            lamp(world, between, PROMENADE);
         }
+    }
+
+    /** One mirrored planting: a low crystal, a stone heart and two flowering shrubs. */
+    private static void bed(World world, double angle, double radius) {
+        int cx = ringX(angle, radius, 0d);
+        int cz = ringZ(angle, radius, 0d);
+        for (int dx = -2; dx <= 2; dx++) {
+            for (int dz = -2; dz <= 2; dz++) {
+                if (Math.abs(dx) + Math.abs(dz) > 2) continue;
+                world.getBlockAt(cx + dx, FLOOR_Y, cz + dz).setType(
+                        Math.abs(dx) + Math.abs(dz) == 2 ? Material.MOSS_BLOCK
+                                : Material.CALCITE, false);
+            }
+        }
+        world.getBlockAt(cx, FLOOR_Y + 1, cz).setType(Material.CHISELED_DEEPSLATE, false);
+        world.getBlockAt(cx, FLOOR_Y + 2, cz).setType(Material.AMETHYST_BLOCK, false);
+        world.getBlockAt(cx, FLOOR_Y + 3, cz).setType(Material.SEA_LANTERN, false);
+        for (int[] offset : List.of(new int[]{-1, 0}, new int[]{1, 0},
+                new int[]{0, -1}, new int[]{0, 1})) {
+            world.getBlockAt(cx + offset[0], FLOOR_Y + 1, cz + offset[1])
+                    .setType(Material.FLOWERING_AZALEA, false);
+        }
+    }
+
+    /** A lamp standard on a walk, so both ring walks are lit at the same rhythm. */
+    private static void lamp(World world, double angle, double radius) {
+        int x = ringX(angle, radius, 0d);
+        int z = ringZ(angle, radius, 0d);
+        for (int y = 1; y <= 3; y++) {
+            world.getBlockAt(x, FLOOR_Y + y, z).setType(
+                    y == 2 ? Material.AMETHYST_BLOCK : Material.POLISHED_DEEPSLATE, false);
+        }
+        world.getBlockAt(x, FLOOR_Y + 4, z).setType(Material.SEA_LANTERN, false);
+        world.getBlockAt(x, FLOOR_Y + 5, z).setType(Material.DEEPSLATE_BRICK_SLAB, false);
+    }
+
+    /** Whether a bridge to the rim leaves on this bearing. */
+    private static boolean crossingBearing(double degrees) {
+        for (double crossing : CROSSINGS) {
+            if (angularGap(degrees, crossing) < 1d) return true;
+        }
+        return false;
     }
 
     /** Whether one of the four consoles already stands in this gap. */
@@ -917,13 +999,13 @@ final class PvpLobbyBuilder {
      */
     private static void buildLeaderboardFrame(World world, LeaderboardBoard board) {
         double angle = board.angle;
-        structurePlinth(world, angle);
-        for (int lateral = -3; lateral <= 3; lateral++) {
-            int x = ringX(angle, STRUCTURE_RING, lateral);
-            int z = ringZ(angle, STRUCTURE_RING, lateral);
-            for (int y = 1; y <= STRUCTURE_TOP; y++) {
-                boolean edge = Math.abs(lateral) == 3;
-                boolean cap = y == STRUCTURE_TOP;
+        structurePlinth(world, angle, BOARD_RING, 5);
+        for (int lateral = -4; lateral <= 4; lateral++) {
+            int x = ringX(angle, BOARD_RING, lateral);
+            int z = ringZ(angle, BOARD_RING, lateral);
+            for (int y = 1; y <= BOARD_TOP; y++) {
+                boolean edge = Math.abs(lateral) == 4;
+                boolean cap = y == BOARD_TOP;
                 Material material;
                 if (cap && Math.abs(lateral) <= 2) material = Material.CHISELED_DEEPSLATE;
                 else if (edge && (y == 3 || y == 6)) material = Material.AMETHYST_BLOCK;
@@ -935,17 +1017,50 @@ final class PvpLobbyBuilder {
                     Math.abs(lateral) == 3 ? Material.POLISHED_DEEPSLATE
                             : Material.SMOOTH_BASALT, false);
         }
-        int crownX = ringX(angle, STRUCTURE_RING, 0d);
-        int crownZ = ringZ(angle, STRUCTURE_RING, 0d);
-        world.getBlockAt(crownX, FLOOR_Y + STRUCTURE_TOP + 1, crownZ)
+        int crownX = ringX(angle, BOARD_RING, 0d);
+        int crownZ = ringZ(angle, BOARD_RING, 0d);
+        world.getBlockAt(crownX, FLOOR_Y + BOARD_TOP + 1, crownZ)
                 .setType(Material.SEA_LANTERN, false);
-        // Two lamps on the approach, level with a reader's eye.
-        for (int lateral : new int[]{-4, 4}) {
-            int x = ringX(angle, STRUCTURE_RING - 0.6d, lateral);
-            int z = ringZ(angle, STRUCTURE_RING - 0.6d, lateral);
-            world.getBlockAt(x, FLOOR_Y + 1, z).setType(Material.POLISHED_DEEPSLATE, false);
-            world.getBlockAt(x, FLOOR_Y + 2, z).setType(Material.SEA_LANTERN, false);
+        // Two lamp standards flanking the reading position, level with the rows.
+        for (int lateral : new int[]{-5, 5}) {
+            int x = ringX(angle, BOARD_RING - 1.4d, lateral);
+            int z = ringZ(angle, BOARD_RING - 1.4d, lateral);
+            for (int y = 1; y <= 3; y++) {
+                world.getBlockAt(x, FLOOR_Y + y, z).setType(
+                        y == 3 ? Material.SEA_LANTERN : Material.POLISHED_DEEPSLATE, false);
+            }
         }
+    }
+
+    /**
+     * A lantern pylon on each outer bearing no records wall uses.
+     *
+     * <p>Six boards on a ten-bearing ring leaves four gaps, and on a circle this size
+     * a gap is sixty blocks of nothing. The pylons complete the rhythm and stand
+     * behind the gateways, framing them from the plaza.
+     */
+    private static void buildOuterPylon(World world, double angle) {
+        structurePlinth(world, angle, BOARD_RING, 3);
+        int x = ringX(angle, BOARD_RING, 0d);
+        int z = ringZ(angle, BOARD_RING, 0d);
+        for (int y = 1; y <= BOARD_TOP; y++) {
+            Material course = y == BOARD_TOP ? Material.CHISELED_DEEPSLATE
+                    : y % 4 == 0 ? Material.AMETHYST_BLOCK
+                    : (y & 1) == 0 ? Material.POLISHED_DEEPSLATE
+                    : Material.DEEPSLATE_BRICKS;
+            world.getBlockAt(x, FLOOR_Y + y, z).setType(course, false);
+            if (y == 3 || y == 7) {
+                for (int lateral : new int[]{-1, 1}) {
+                    world.getBlockAt(ringX(angle, BOARD_RING, lateral), FLOOR_Y + y,
+                                    ringZ(angle, BOARD_RING, lateral))
+                            .setType(Material.DEEPSLATE_BRICK_WALL, false);
+                }
+            }
+        }
+        world.getBlockAt(x, FLOOR_Y + BOARD_TOP + 1, z)
+                .setType(Material.SEA_LANTERN, false);
+        world.getBlockAt(x, FLOOR_Y + BOARD_TOP + 2, z)
+                .setType(Material.DEEPSLATE_BRICK_SLAB, false);
     }
 
     /**
@@ -954,20 +1069,20 @@ final class PvpLobbyBuilder {
      * <p>Ten structures sharing one base course is what stops them reading as ten
      * objects placed on a floor. The step also gives the approach somewhere to arrive.
      */
-    private static void structurePlinth(World world, double angle) {
-        for (int lateral = -4; lateral <= 4; lateral++) {
+    private static void structurePlinth(World world, double angle, double radius, int half) {
+        for (int lateral = -half; lateral <= half; lateral++) {
             for (double step = -1.4d; step <= 1.4d; step += 0.7d) {
-                int x = ringX(angle, STRUCTURE_RING + step, lateral);
-                int z = ringZ(angle, STRUCTURE_RING + step, lateral);
+                int x = ringX(angle, radius + step, lateral);
+                int z = ringZ(angle, radius + step, lateral);
                 world.getBlockAt(x, FLOOR_Y, z).setType(
-                        Math.abs(lateral) == 4 ? Material.CHISELED_DEEPSLATE
+                        Math.abs(lateral) == half ? Material.CHISELED_DEEPSLATE
                                 : Material.POLISHED_DEEPSLATE, false);
             }
         }
         // A half step out front, so the base is read as a tread rather than a kerb.
-        for (int lateral = -3; lateral <= 3; lateral++) {
-            int x = ringX(angle, STRUCTURE_RING - 2.1d, lateral);
-            int z = ringZ(angle, STRUCTURE_RING - 2.1d, lateral);
+        for (int lateral = 1 - half; lateral <= half - 1; lateral++) {
+            int x = ringX(angle, radius - 2.1d, lateral);
+            int z = ringZ(angle, radius - 2.1d, lateral);
             world.getBlockAt(x, FLOOR_Y, z).setType(Material.DEEPSLATE_BRICK_SLAB, false);
         }
     }
@@ -1002,7 +1117,7 @@ final class PvpLobbyBuilder {
         boolean wideX = Math.abs(gx) <= Math.abs(gz);
         Orientable portal = (Orientable) Material.NETHER_PORTAL.createBlockData();
         portal.setAxis(wideX ? Axis.X : Axis.Z);
-        structurePlinth(world, gate.angle());
+        structurePlinth(world, gate.angle(), GATE_RING, 4);
         pad(world, gx, gz, gate.emblem());
         for (int lateral = -3; lateral <= 3; lateral++) {
             set(world, gx, gz, wideX, lateral, FLOOR_Y, Material.OBSIDIAN);
@@ -1023,8 +1138,8 @@ final class PvpLobbyBuilder {
         // Copper pylons on the approach rather than alongside the posts: at this ring
         // spacing a ninth block of width would touch the structure next door.
         for (int lateral : new int[]{-2, 2}) {
-            int px = ringX(gate.angle(), STRUCTURE_RING - 2d, lateral);
-            int pz = ringZ(gate.angle(), STRUCTURE_RING - 2d, lateral);
+            int px = ringX(gate.angle(), GATE_RING - 2d, lateral);
+            int pz = ringZ(gate.angle(), GATE_RING - 2d, lateral);
             world.getBlockAt(px, FLOOR_Y, pz).setType(Material.POLISHED_DEEPSLATE, false);
             world.getBlockAt(px, FLOOR_Y + 1, pz).setType(Material.CUT_COPPER, false);
             world.getBlockAt(px, FLOOR_Y + 2, pz).setType(gate.glass(), false);
@@ -1038,7 +1153,7 @@ final class PvpLobbyBuilder {
         int gz = RETURN_GATE[1];
         Orientable portal = (Orientable) Material.NETHER_PORTAL.createBlockData();
         portal.setAxis(Axis.X);
-        structurePlinth(world, 180d);
+        structurePlinth(world, 180d, GATE_RING, 4);
         pad(world, gx, gz, Material.LODESTONE);
         for (int lateral = -3; lateral <= 3; lateral++) {
             set(world, gx, gz, true, lateral, FLOOR_Y, Material.OBSIDIAN);
@@ -1273,21 +1388,22 @@ final class PvpLobbyBuilder {
                 Component.text("WALK THROUGH • BACK TO YOUR EXACT LOCATION", CRYSTAL),
                 lineScale, NEAR_GATE_TAG);
 
-        // Clear of the shard, whose tip reaches FLOOR_Y + 14.
+        // Clear of the shard, whose tip reaches FLOOR_Y + 14. One line only: /pvp is
+        // permanent and is not part of any running event, so it is named rather than
+        // themed, and it does not need a motto under its own name.
         hologram(world, 0.5d, FLOOR_Y + 17.6d, 0.5d,
-                Component.text("THE AMETHYST TERRACE", AMETHYST, TextDecoration.BOLD),
+                Component.text("THE PROVING GROUNDS", AMETHYST, TextDecoration.BOLD),
                 titleScale, NEAR_GATE_TAG);
-        hologram(world, 0.5d, FLOOR_Y + 16.4d, 0.5d,
-                Component.text("YOUR GEAR • REAL TERRAIN • NOTHING LOST", CRYSTAL),
-                lineScale, NEAR_GATE_TAG);
 
         for (Pavilion pavilion : pavilions()) {
             double x = ringX(pavilion.angle(), PAVILION_RING, 0d) + 0.5d;
             double z = ringZ(pavilion.angle(), PAVILION_RING, 0d) + 0.5d;
-            hologram(world, x, FLOOR_Y + 6.3d, z,
+            // The whole stack clears the kiosk, whose cluster tops out at FLOOR_Y + 4.
+            // The prompt used to sit at 2.4, which is inside the kiosk's own stem.
+            hologram(world, x, FLOOR_Y + 9d, z,
                     Component.text(pavilion.title(), AMETHYST, TextDecoration.BOLD),
                     titleScale, NEAR_BOARD_TAG);
-            double line = FLOOR_Y + 5.25d;
+            double line = FLOOR_Y + 7.9d;
             for (String text : pavilion.body()) {
                 hologram(world, x, line, z,
                         Component.text(text, NamedTextColor.WHITE),
@@ -1304,7 +1420,7 @@ final class PvpLobbyBuilder {
                     line -= 0.72d;
                 }
             }
-            hologram(world, x, Math.max(FLOOR_Y + 2.4d, line), z,
+            hologram(world, x, Math.max(FLOOR_Y + 5.2d, line), z,
                     Component.text(pavilion.prompt(), CRYSTAL, TextDecoration.BOLD),
                     lineScale, NEAR_BOARD_TAG);
         }
@@ -1312,10 +1428,10 @@ final class PvpLobbyBuilder {
         for (LeaderboardBoard board : LeaderboardBoard.values()) {
             double x = board.x();
             double z = board.z();
-            hologram(world, x, FLOOR_Y + 7.4d, z,
+            hologram(world, x, FLOOR_Y + 7.6d, z,
                     Component.text(board.title, AMETHYST, TextDecoration.BOLD),
                     leaderboardTitleScale, RECORDS_LABEL_TAG);
-            double line = FLOOR_Y + 5.9d;
+            double line = FLOOR_Y + 6.1d;
             for (int row = 0; row < LEADERBOARD_LINES; row++) {
                 hologram(world, x, line, z,
                         Component.text(" ", NamedTextColor.DARK_GRAY), lineScale,
