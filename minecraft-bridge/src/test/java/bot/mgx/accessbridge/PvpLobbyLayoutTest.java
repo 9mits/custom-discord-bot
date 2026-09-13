@@ -83,16 +83,32 @@ final class PvpLobbyLayoutTest {
             assertTrue(seen.add(at[0] + ":" + at[1]), board + " shares a leaderboard frame");
             assertTrue(Math.hypot(at[0], at[1] - 12.5d) < PvpLobbyBuilder.PROTECTED_RADIUS,
                     board + " lies outside lobby protection");
-            double galleryRadius = Math.hypot(at[0] + 0.5d,
-                    at[1] + 0.5d - PvpLobbyBuilder.galleryCentreZ());
-            assertTrue(Math.abs(galleryRadius - 14.25d) <= 1.25d,
+            double galleryRadius = Math.hypot(at[0],
+                    at[1] - PvpLobbyBuilder.galleryCentreZ());
+            assertTrue(Math.abs(galleryRadius - 14.8d) <= 1d,
                     board + " is detached from the circular gallery wall");
             assertTrue(!(Math.abs(at[0]) <= 4
                             && at[1] > PvpLobbyBuilder.galleryCentreZ()),
                     board + " blocks the gallery entrance");
         }
         assertEquals(6, seen.size());
-        assertEquals(-43, PvpLobbyBuilder.galleryCentreZ());
+        assertEquals(-40, PvpLobbyBuilder.galleryCentreZ());
         assertEquals(16, PvpLobbyBuilder.galleryRadius());
+    }
+
+    @Test
+    void leaderboardWallsMirrorAcrossTheSharedConcourse() {
+        for (List<PvpLobbyBuilder.LeaderboardBoard> pair : List.of(
+                List.of(PvpLobbyBuilder.LeaderboardBoard.RATING,
+                        PvpLobbyBuilder.LeaderboardBoard.CLAN_KILLS),
+                List.of(PvpLobbyBuilder.LeaderboardBoard.WINS,
+                        PvpLobbyBuilder.LeaderboardBoard.CLAN_WINS),
+                List.of(PvpLobbyBuilder.LeaderboardBoard.KILLS,
+                        PvpLobbyBuilder.LeaderboardBoard.STREAK))) {
+            int[] left = PvpLobbyBuilder.leaderboardPosition(pair.get(0));
+            int[] right = PvpLobbyBuilder.leaderboardPosition(pair.get(1));
+            assertEquals(-left[0], right[0], pair + " are not mirrored across x");
+            assertEquals(left[1], right[1], pair + " do not share one curved wall");
+        }
     }
 }
