@@ -78,6 +78,24 @@ final class PvpMatchmaking {
         return Math.abs(first.averageRating() - second.averageRating()) <= window;
     }
 
+    /** When the configured minimum compatible FFA population first became ready. */
+    static java.util.OptionalLong ffaReadyAt(
+            List<Entry> source, int teamSize, int targetPlayers, int minimumPlayers
+    ) {
+        int minimum = Math.max(2, Math.min(targetPlayers, minimumPlayers));
+        int found = 0;
+        List<Entry> compatible = source.stream()
+                .filter(entry -> entry.teamSize() == teamSize
+                        && entry.targetPlayers() == targetPlayers)
+                .sorted(Comparator.comparingLong(Entry::joinedAt))
+                .toList();
+        for (Entry entry : compatible) {
+            found += entry.members().size();
+            if (found >= minimum) return java.util.OptionalLong.of(entry.joinedAt());
+        }
+        return java.util.OptionalLong.empty();
+    }
+
     static java.util.Optional<Plan> teams(
             List<Entry> source,
             int teamSize,

@@ -109,6 +109,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 /**
@@ -625,6 +626,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             PvpMode mode,
             List<Player> first,
             List<Player> second,
+            BiConsumer<String, Integer> progress,
             Consumer<PreparedArena> ready,
             Consumer<String> failed
     ) {
@@ -642,8 +644,10 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         for (Player player : players) {
             info(player, "Finding a fight location...");
         }
+        progress.accept("Finding a safe arena", 0);
         int diameter = competitiveDiameter(mode, first.size(), second.size());
-        findCompetitiveArena(world, mode, first, second, players, diameter, 0, ready, failed);
+        findCompetitiveArena(world, mode, first, second, players, diameter, 0,
+                progress, ready, failed);
     }
 
     private int competitiveDiameter(PvpMode mode, int firstSize, int secondSize) {
@@ -672,6 +676,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             List<Player> players,
             int diameter,
             int attempted,
+            BiConsumer<String, Integer> progress,
             Consumer<PreparedArena> ready,
             Consumer<String> failed
     ) {
@@ -683,7 +688,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         Candidate candidate = candidate(world, diameter);
         if (candidate == null) {
             findCompetitiveArena(world, mode, first, second, players, diameter,
-                    attempted + 1, ready, failed);
+                    attempted + 1, progress, ready, failed);
             return;
         }
         List<int[]> positions = competitiveSpawnPositions(
@@ -702,7 +707,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                         .runTask(plugin, () -> {
                             if (failure != null || players.stream().anyMatch(player -> !player.isOnline())) {
                                 findCompetitiveArena(world, mode, first, second, players, diameter,
-                                        attempted + 1, ready, failed);
+                                        attempted + 1, progress, ready, failed);
                                 return;
                             }
                             List<Location> spawns = new ArrayList<>();
@@ -712,7 +717,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                                 Location spawn = safeLocation(world, position[0], position[1], yaw);
                                 if (spawn == null) {
                                     findCompetitiveArena(world, mode, first, second, players, diameter,
-                                            attempted + 1, ready, failed);
+                                            attempted + 1, progress, ready, failed);
                                     return;
                                 }
                                 spawns.add(spawn);
@@ -720,11 +725,12 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                             Location middle = safeLocation(world, candidate.x(), candidate.z(), 0f);
                             if (middle == null) {
                                 findCompetitiveArena(world, mode, first, second, players, diameter,
-                                        attempted + 1, ready, failed);
+                                        attempted + 1, progress, ready, failed);
                                 return;
                             }
                             Arena arena = new Arena(middle, spawns.get(0), spawns.get(1), diameter);
-                            prepareCompetitiveChunks(players, arena, held -> {
+                            progress.accept("Safe arena found", 10);
+                            prepareCompetitiveChunks(players, arena, progress, held -> {
                                 double highest = spawns.stream().mapToDouble(Location::getY)
                                         .max().orElse(middle.getY());
                                 Location spectator = middle.clone().add(0d,
@@ -771,6 +777,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     private void prepareCompetitiveChunks(
             List<Player> players,
             Arena arena,
+            BiConsumer<String, Integer> progress,
             Consumer<List<Chunk>> ready,
             Consumer<String> failed
     ) {
@@ -792,7 +799,8 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         }
         wanted.sort(Comparator.comparingLong(at ->
                 (at[0] - centerX) * (at[0] - centerX) + (at[1] - centerZ) * (at[1] - centerZ)));
-        loadCompetitiveChunks(players, world, wanted, new ArrayList<>(), 0, ready, failed);
+        loadCompetitiveChunks(players, world, wanted, new ArrayList<>(), 0,
+                progress, ready, failed);
     }
 
     private void loadCompetitiveChunks(
@@ -801,6 +809,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             List<long[]> wanted,
             List<Chunk> held,
             int from,
+            BiConsumer<String, Integer> progress,
             Consumer<List<Chunk>> ready,
             Consumer<String> failed
     ) {
@@ -810,6 +819,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             return;
         }
         if (from >= wanted.size()) {
+            progress.accept("Final safety check", 100);
             for (Player player : players) info(player, "You will be teleported shortly...");
             plugin.getServer().getScheduler().runTaskLater(plugin, () -> ready.accept(held), 25L);
             return;
@@ -820,10 +830,12 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             long[] at = wanted.get(index);
             batch.add(world.getChunkAtAsync((int) at[0], (int) at[1], true));
         }
-        int progress = (int) Math.round(until * 100d / wanted.size());
+        int chunkProgress = (int) Math.round(until * 100d / wanted.size());
+        int overallProgress = 10 + (int) Math.round(chunkProgress * 0.9d);
+        progress.accept("Loading arena terrain", overallProgress);
         for (Player player : players) {
             player.sendActionBar(Component.text("Preparing the arena  ", NamedTextColor.GRAY)
-                    .append(Component.text(progress + "%", ORANGE, TextDecoration.BOLD)));
+                    .append(Component.text(overallProgress + "%", ORANGE, TextDecoration.BOLD)));
         }
         CompletableFuture.allOf(batch.toArray(CompletableFuture[]::new))
                 .whenComplete((ignored, failure) -> plugin.getServer().getScheduler()
@@ -837,7 +849,8 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                                 Chunk chunk = loading.getNow(null);
                                 if (chunk != null && chunk.addPluginChunkTicket(plugin)) held.add(chunk);
                             }
-                            loadCompetitiveChunks(players, world, wanted, held, until, ready, failed);
+                            loadCompetitiveChunks(players, world, wanted, held, until,
+                                    progress, ready, failed);
                         }));
     }
 
@@ -976,18 +989,16 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         if (!clientSupport.supportsDialogs(player)) {
             List<BedrockForms.Button> buttons = new ArrayList<>();
             if (competition != null) {
-                buttons.add(new BedrockForms.Button("Find a Fight", () -> competition.openModes(player)));
+                buttons.add(new BedrockForms.Button("Play PvP",
+                        () -> competition.openModes(player)));
             }
             buttons.addAll(List.of(
-                    new BedrockForms.Button("Private Fight", () -> openTargets(player)),
-                    new BedrockForms.Button("Incoming (" + incoming + ")", () -> openIncoming(player)),
-                    new BedrockForms.Button("Watch Private Fights (" + fights.size() + ")", () -> openLive(player)),
+                    new BedrockForms.Button("Private Fights" + (incoming == 0
+                            ? "" : " (" + incoming + " new)"), () -> openPrivateHome(player)),
+                    new BedrockForms.Button("Activity & Records",
+                            () -> openActivityHome(player)),
                     new BedrockForms.Button("How It Works", () -> openRules(player))
             ));
-            if (competition != null) {
-                buttons.add(new BedrockForms.Button(
-                        "PvP Statistics", () -> competition.openStats(player)));
-            }
             if (!forms.menu(player, "PvP", hubBody() + "\n" + record, buttons)) {
                 openChestHub(player);
             }
@@ -997,28 +1008,93 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         if (competition != null) {
             // A lambda, not a method reference: openModes is overloaded on arity and
             // Screens.button is overloaded on handler shape, so the pair is ambiguous.
-            buttons.add(Screens.button("item/netherite_sword", "Find a Fight",
-                    "Choose a queue.", viewer -> competition.openModes(viewer)));
+            buttons.add(Screens.button("item/netherite_sword", "Play PvP",
+                    "Choose a mode, then join in one click.", viewer -> competition.openModes(viewer)));
         }
         buttons.addAll(List.of(
-                Screens.button("item/diamond_sword", "Private Fight",
-                        "Choose a player.", this::openTargets),
-                Screens.button("item/writable_book", "Incoming (" + incoming + ")",
-                        "View your challenges.", this::openIncoming),
-                Screens.button("item/spyglass", "Watch Private Fights (" + fights.size() + ")",
-                        "Watch an arranged fight.", this::openLive),
+                Screens.button("item/diamond_sword", "Private Fights"
+                                + (incoming == 0 ? "" : " (" + incoming + " new)"),
+                        "Challenges, incoming requests, and private spectators.",
+                        this::openPrivateHome),
+                Screens.button("item/nether_star", "Activity & Records",
+                        "Live matches, your statistics, and rankings.", this::openActivityHome),
                 Screens.button("item/book", "How It Works",
                         "See the fight rules.", this::openRules)
         ));
-        if (competition != null) {
-            buttons.add(Screens.button("item/nether_star", "PvP Statistics",
-                    "Ranks and records.", competition::openStats));
-        }
         Screens.show(player, "PvP", List.of(
                 DialogBody.plainMessage(MenuText.body(hubBody()), 400),
                 DialogBody.plainMessage(Component.empty(), 400),
                 DialogBody.plainMessage(MenuText.muted(record), 400)
         ), buttons, 1, null);
+    }
+
+    /** Private challenges are one destination, rather than three root-menu buttons. */
+    private void openPrivateHome(Player player) {
+        int incoming = incoming(player.getUniqueId()).size();
+        String body = "Challenge a specific player, review requests sent to you, or watch"
+                + " an arranged private fight. Optional wagers live only inside a challenge.";
+        if (!clientSupport.supportsDialogs(player)) {
+            List<BedrockForms.Button> buttons = List.of(
+                    new BedrockForms.Button("Challenge a Player", () -> openTargets(player)),
+                    new BedrockForms.Button("Incoming (" + incoming + ")",
+                            () -> openIncoming(player)),
+                    new BedrockForms.Button("Watch Private Fights (" + fights.size() + ")",
+                            () -> openLive(player))
+            );
+            if (!forms.menu(player, "Private Fights", body, buttons, this::openHub)) {
+                openChestHub(player);
+            }
+            return;
+        }
+        Screens.show(player, "Private Fights",
+                List.of(DialogBody.plainMessage(MenuText.body(body), 460)),
+                List.of(
+                        Screens.button("item/diamond_sword", "Challenge a Player",
+                                "Choose one online opponent.", this::openTargets),
+                        Screens.button("item/writable_book", "Incoming (" + incoming + ")",
+                                "Accept or decline challenges sent to you.", this::openIncoming),
+                        Screens.button("item/spyglass",
+                                "Watch Private Fights (" + fights.size() + ")",
+                                "View an arranged fight from its anchored stand.", this::openLive)
+                ), 1, this::openHub);
+    }
+
+    /** Live play and permanent progression share one quiet read-only destination. */
+    private void openActivityHome(Player player) {
+        int competitive = competition == null ? 0 : competition.liveMatchCount();
+        String body = (competitive + fights.size()) + " fight(s) live right now."
+                + " Open your record for rank progress and the full leaderboard.";
+        if (!clientSupport.supportsDialogs(player)) {
+            List<BedrockForms.Button> buttons = new ArrayList<>();
+            if (competition != null) {
+                buttons.add(new BedrockForms.Button("PvP Statistics",
+                        () -> competition.openStats(player)));
+                buttons.add(new BedrockForms.Button(
+                        "Live Competitive Matches (" + competitive + ")",
+                        () -> competition.openLive(player)));
+            } else {
+                buttons.add(new BedrockForms.Button("PvP Rank Leaderboard",
+                        () -> openRankLeaderboard(player)));
+            }
+            if (!forms.menu(player, "Activity & Records", body, buttons, this::openHub)) {
+                openChestHub(player);
+            }
+            return;
+        }
+        List<ActionButton> buttons = new ArrayList<>();
+        if (competition != null) {
+            buttons.add(Screens.button("item/nether_star", "PvP Statistics",
+                    "Your rank, records, and leaderboard.", competition::openStats));
+            buttons.add(Screens.button("item/spyglass",
+                    "Live Competitive Matches (" + competitive + ")",
+                    "Watch a live queue match.", viewer -> competition.openLive(viewer)));
+        } else {
+            buttons.add(Screens.button("item/nether_star", "PvP Rank Leaderboard",
+                    "View ranks and records.", this::openRankLeaderboard));
+        }
+        Screens.show(player, "Activity & Records",
+                List.of(DialogBody.plainMessage(MenuText.body(body), 460)),
+                buttons, 1, this::openHub);
     }
 
     /** The only rank leaderboard surface: it belongs beside the fights that score it. */
