@@ -19,15 +19,15 @@ import java.util.UUID;
 /** Persistent PvP lobby and main-world entrance; combat arenas are never stored here. */
 final class PvpLobbyStore {
     /**
-     * Bumped to 14 so the corrected diagonal decorations and clear garden spacing are
-     * rebuilt together, with every portal plane written after the surrounding geometry.
+     * Bumped to 15 so the three category islands and their waiting halls are generated
+     * beside the Proving Grounds, whose arches now travel to them.
      *
      * <p>This has to move with <em>any</em> change to {@code PvpLobbyBuilder}'s
      * geometry. A build that changes the plan without bumping it installs cleanly,
      * logs nothing, and leaves the previous lobby standing in the world — which looks
      * exactly like the change never shipped.
      */
-    private static final int FORMAT_VERSION = 14;
+    private static final int FORMAT_VERSION = 15;
 
     record Point(
             String worldId,

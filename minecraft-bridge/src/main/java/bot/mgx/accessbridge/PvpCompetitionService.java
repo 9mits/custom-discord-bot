@@ -109,7 +109,7 @@ final class PvpCompetitionService implements Listener {
     private static final List<String> PLAYER_COMMANDS = List.of(
             "queue", "leave", "status", "party", "lobby", "return", "spectate",
             "live", "stats", "rankings", "rules", "rewards", "private", "room",
-            "forfeit", "giveup"
+            "forfeit", "giveup", "again"
     );
 
     private enum Phase { COUNTDOWN, FIGHTING, AFTERMATH, ENDING }
@@ -159,6 +159,8 @@ final class PvpCompetitionService implements Listener {
         BossBar bar;
         int lastWaiting;
         long lastActionBarAt;
+        /** The last early-start second called out, so each number is shown once. */
+        long lastCountdown = -1L;
 
         QueueHud(int lastWaiting) {
             this.lastWaiting = lastWaiting;
@@ -234,6 +236,8 @@ final class PvpCompetitionService implements Listener {
     private final Map<UUID, Party> parties = new HashMap<>();
     private final Map<UUID, PartyInvite> partyInvites = new HashMap<>();
     private final Map<UUID, PvpMatchSetup> matchDrafts = new HashMap<>();
+    /** The last public setup each player queued for, which is what Play Again repeats. */
+    private final Map<UUID, PvpMatchSetup> lastSetups = new HashMap<>();
     private final Map<UUID, MatchRoom> matchRooms = new LinkedHashMap<>();
     private final Map<UUID, MatchRoom> roomByPlayer = new HashMap<>();
     private final Map<UUID, MatchInvite> matchInvites = new HashMap<>();
@@ -395,6 +399,12 @@ final class PvpCompetitionService implements Listener {
             }
             case "return", "exit" -> {
                 returnToServer(player);
+                return true;
+            }
+            case "again", "requeue" -> {
+                PvpMatchSetup last = lastSetups.get(player.getUniqueId());
+                if (last == null) openModes(player);
+                else joinQueue(player, last);
                 return true;
             }
             case "stats" -> {
@@ -578,22 +588,69 @@ final class PvpCompetitionService implements Listener {
                 teamSize, setup.targetPlayers()
         );
         queues.computeIfAbsent(mode, ignored -> new ArrayList<>()).add(entry);
+        boolean inHall = false;
         for (UUID memberId : members) {
             queuedPlayers.put(memberId, entry);
             queuedModes.put(memberId, mode);
+            lastSetups.put(memberId, setup);
             Player member = Bukkit.getPlayer(memberId);
             if (member != null) {
-                teleportToLobbyIfReady(member);
+                boolean moved = sendToHall(member, setup);
+                if (memberId.equals(playerId)) inHall = moved;
                 beginQueueFeedback(member, setup);
             }
         }
+        announceQueueChange(setup, members, true);
         matchDrafts.remove(playerId);
         refreshQueueFeedback(System.currentTimeMillis(), true);
         tryMatch(mode, System.currentTimeMillis());
         // A successful action must replace the choice screen with the state it
         // created. Leaving the old mode buttons visible made the click look ignored
-        // even though matchmaking and its HUD had started behind the dialog.
-        if (player.isOnline()) openQueueStatus(player, true);
+        // even though matchmaking and its HUD had started behind the dialog. In the
+        // waiting hall the room itself is that state, so no page is drawn over it.
+        if (player.isOnline() && !inHall) openQueueStatus(player, true);
+    }
+
+    /**
+     * Moves a newly queued player into their category's waiting hall.
+     *
+     * <p>The pre-game lobby of every large network: a place you are held while the match
+     * is found, with the count in front of you and one obvious way out. Falls back to the
+     * hub when the islands are not generated yet.
+     */
+    private boolean sendToHall(Player player, PvpMatchSetup setup) {
+        PvpLobbyStore.Point lobby = lobbyStore.lobby().orElse(null);
+        Location hall = lobby == null ? null
+                : PvpIslandBuilder.hallSpawn(lobby, PvpIslandBuilder.Island.of(setup.mode()));
+        if (hall == null) {
+            teleportToLobbyIfReady(player);
+            return false;
+        }
+        if (!inLobbyArea(player.getLocation())) {
+            lobbyOrigins.put(player.getUniqueId(), player.getLocation().clone());
+        }
+        player.closeDialog();
+        teleport(player, hall);
+        player.playSound(player, Sound.BLOCK_BEACON_ACTIVATE, 0.6f, 1.5f);
+        return true;
+    }
+
+    /** "Name has joined (3/8)!" to everyone already waiting for the same exact setup. */
+    private void announceQueueChange(PvpMatchSetup setup, List<UUID> changed, boolean joined) {
+        int waiting = queuedFor(setup);
+        for (Map.Entry<UUID, PvpMatchmaking.Entry> row : queuedPlayers.entrySet()) {
+            if (changed.contains(row.getKey())) continue;
+            PvpMode mode = queuedModes.get(row.getKey());
+            if (mode == null || !setupKey(setupOf(mode, row.getValue())).equals(setupKey(setup))) continue;
+            Player listener = Bukkit.getPlayer(row.getKey());
+            if (listener == null) continue;
+            for (UUID changedId : changed) {
+                listener.sendMessage(Component.text(name(changedId), NamedTextColor.GRAY)
+                        .append(Component.text(joined
+                                ? " has joined (" + waiting + "/" + setup.requiredPlayers() + ")!"
+                                : " has quit!", NamedTextColor.YELLOW)));
+            }
+        }
     }
 
     private boolean leaveQueue(UUID playerId, boolean announce) {
@@ -609,6 +666,7 @@ final class PvpCompetitionService implements Listener {
         PvpMode mode = queuedModes.get(playerId);
         List<PvpMatchmaking.Entry> queue = mode == null ? null : queues.get(mode);
         if (queue != null) queue.remove(entry);
+        PvpMatchSetup leftSetup = mode == null ? null : setupOf(mode, entry);
         for (UUID memberId : entry.members()) {
             queuedPlayers.remove(memberId);
             queuedModes.remove(memberId);
@@ -618,6 +676,7 @@ final class PvpCompetitionService implements Listener {
                 if (member != null) info(member, "Left the " + (mode == null ? "PvP" : mode.display()) + " queue.");
             }
         }
+        if (leftSetup != null && announce) announceQueueChange(leftSetup, entry.members(), false);
         refreshQueueFeedback(System.currentTimeMillis(), true);
         return true;
     }
@@ -625,7 +684,8 @@ final class PvpCompetitionService implements Listener {
     private void tick() {
         long now = System.currentTimeMillis();
         lobbyStore.lobby().ifPresent(lobby -> {
-            int repaired = PvpLobbyBuilder.repairPortals(lobby);
+            int repaired = PvpLobbyBuilder.repairPortals(lobby)
+                    + PvpIslandBuilder.repairPortals(lobby);
             if (repaired > 0) {
                 plugin.getLogger().warning("Restored " + repaired
                         + " damaged PvP lobby portal" + (repaired == 1 ? "." : "s."));
@@ -637,6 +697,10 @@ final class PvpCompetitionService implements Listener {
                     decimal("pvp-competitive.lobby-board-view-distance"),
                     decimal("pvp-competitive.lobby-leaderboard-view-distance"));
             PvpLobbyBuilder.refreshStatus(lobby, this::gateStatus);
+            PvpIslandBuilder.pulse(lobby, integer("pvp-competitive.lobby-portal-particle-count"));
+            PvpIslandBuilder.refreshStatus(lobby, this::stationStatus);
+            PvpIslandBuilder.refreshHallBoards(lobby, this::hallBoard);
+            releaseIdleHallPlayers(lobby);
             // The boards move far more slowly than a queue count; every fifth tick is
             // plenty and keeps the entity work off the other four.
             if (boardTick++ % 5 == 0) {
@@ -708,6 +772,11 @@ final class PvpCompetitionService implements Listener {
                 .filter(entry -> entry.teamSize() == setup.teamSize()
                         && entry.targetPlayers() == setup.targetPlayers())
                 .mapToInt(entry -> entry.members().size()).sum();
+    }
+
+    /** The identity queuedFor counts by: one mode, one side size, one field size. */
+    private static String setupKey(PvpMatchSetup setup) {
+        return setup.mode() + ":" + setup.teamSize() + ":" + setup.targetPlayers();
     }
 
     private static PvpMatchSetup setupOf(PvpMode mode, PvpMatchmaking.Entry entry) {
@@ -792,12 +861,46 @@ final class PvpCompetitionService implements Listener {
                 hud.lastWaiting = waiting;
             }
             updateQueueBar(player, hud, setup, row.getValue(), now);
+            callCountdown(player, hud, setup, waiting, now);
             long pulse = integer("pvp-competitive.queue-actionbar-interval-seconds") * 1_000L;
             if (now - hud.lastActionBarAt >= pulse) {
                 player.sendActionBar(Component.text(queuePulse(setup, row.getValue(), now)
                         + "  •  /pvp leave to cancel", NamedTextColor.GOLD));
                 hud.lastActionBarAt = now;
             }
+        }
+    }
+
+    /**
+     * The pre-game countdown, called the way players already know it: a chat line at
+     * thirty and ten seconds, then one big number a second for the final five.
+     */
+    private void callCountdown(
+            Player player, QueueHud hud, PvpMatchSetup setup, int waiting, long now
+    ) {
+        long early = ffaEarlyStartRemaining(setup, now);
+        if (early < 0L || waiting >= setup.requiredPlayers()) {
+            hud.lastCountdown = -1L;
+            return;
+        }
+        if (early == hud.lastCountdown || early <= 0L) return;
+        hud.lastCountdown = early;
+        if (early == 30L || early == 10L) {
+            player.sendMessage(Component.text("The match starts in ", NamedTextColor.YELLOW)
+                    .append(Component.text(early, NamedTextColor.RED))
+                    .append(Component.text(" seconds!", NamedTextColor.YELLOW)));
+            player.playSound(player, Sound.BLOCK_NOTE_BLOCK_HAT, 0.7f, 1.2f);
+        }
+        if (early <= 5L) {
+            NamedTextColor colour = early <= 2L ? NamedTextColor.RED
+                    : early <= 3L ? NamedTextColor.GOLD : NamedTextColor.YELLOW;
+            player.showTitle(Title.title(
+                    Component.text(String.valueOf(early), colour, TextDecoration.BOLD),
+                    Component.text(setup.matchLabel() + "  •  " + waiting + " ready",
+                            NamedTextColor.GOLD),
+                    Title.Times.times(Duration.ZERO, Duration.ofMillis(900), Duration.ofMillis(100))));
+            player.playSound(player, Sound.BLOCK_NOTE_BLOCK_PLING, 0.8f,
+                    early == 1L ? 2f : 1.2f);
         }
     }
 
@@ -976,12 +1079,171 @@ final class PvpCompetitionService implements Listener {
         int available = availablePlayers();
         String line;
         if (!enabled()) line = "CLOSED";
-        else if (queued == 0) line = "READY • WALK THROUGH TO CONFIGURE";
-        else line = queued + " WAITING • CHOOSE YOUR SETUP";
+        else if (queued == 0) line = "WALK THROUGH • TO THE ISLAND";
+        else line = queued + " WAITING • WALK THROUGH TO JOIN";
         NamedTextColor colour = !enabled() ? NamedTextColor.RED
                 : queued > 0 ? NamedTextColor.GREEN
                 : available < 2 ? NamedTextColor.RED : NamedTextColor.GRAY;
         return Component.text(line, colour, TextDecoration.BOLD);
+    }
+
+    /** The live line under an island arch: that exact setup's count, never an aggregate. */
+    private Component stationStatus(PvpIslandBuilder.Station station) {
+        if (!enabled()) return Component.text("CLOSED", NamedTextColor.RED, TextDecoration.BOLD);
+        PvpMatchSetup setup = station.setup();
+        int waiting = queuedFor(setup);
+        String line = waiting == 0 ? "WALK IN • BE THE FIRST TO QUEUE"
+                : waiting + "/" + setup.requiredPlayers() + " READY • WALK IN TO JOIN";
+        return Component.text(line, waiting > 0 ? NamedTextColor.GREEN : NamedTextColor.GRAY,
+                TextDecoration.BOLD);
+    }
+
+    /**
+     * The waiting hall's board: every setup in the category somebody is waiting for,
+     * the island's own arches first, then what happens next.
+     */
+    private List<Component> hallBoard(PvpIslandBuilder.Island island) {
+        List<Component> rows = new ArrayList<>();
+        // Keyed the way queuedFor counts, so a party-only entry is not a second row.
+        Map<String, PvpMatchSetup> shown = new LinkedHashMap<>();
+        for (PvpIslandBuilder.Station station : PvpIslandBuilder.stations(island)) {
+            shown.putIfAbsent(setupKey(station.setup()), station.setup());
+        }
+        for (PvpMode mode : PvpMode.values()) {
+            if (!mode.queueable() || PvpIslandBuilder.Island.of(mode) != island) continue;
+            for (PvpMatchmaking.Entry entry : queues.getOrDefault(mode, List.of())) {
+                PvpMatchSetup setup = setupOf(mode, entry);
+                shown.putIfAbsent(setupKey(setup), setup);
+            }
+        }
+        long now = System.currentTimeMillis();
+        String next = null;
+        for (PvpMatchSetup setup : shown.values()) {
+            int waiting = queuedFor(setup);
+            rows.add(Component.text(setup.matchLabel() + "  ", NamedTextColor.WHITE)
+                    .append(Component.text(waiting + "/" + setup.requiredPlayers() + " READY",
+                            waiting > 0 ? NamedTextColor.GREEN : NamedTextColor.DARK_GRAY,
+                            TextDecoration.BOLD)));
+            long early = ffaEarlyStartRemaining(setup, now);
+            if (next == null && early >= 0L && waiting < setup.requiredPlayers()) {
+                next = setup.matchLabel() + " starts in " + formatSeconds(early);
+            }
+        }
+        boolean preparingHere = preparing.values().stream()
+                .anyMatch(pending -> PvpIslandBuilder.Island.of(pending.mode()) == island);
+        if (preparingHere) next = "MATCH FOUND • PREPARING THE ARENA";
+        int limit = PvpIslandBuilder.hallBoardLines();
+        List<Component> trimmed = new ArrayList<>(rows.subList(0, Math.min(rows.size(), limit - 1)));
+        trimmed.add(next == null
+                ? Component.text("Waiting for players • walk through LEAVE QUEUE to cancel",
+                        NamedTextColor.GRAY)
+                : Component.text(next, ORANGE, TextDecoration.BOLD));
+        return List.copyOf(trimmed);
+    }
+
+    /**
+     * Puts anybody standing in a waiting hall who is no longer waiting back on the island.
+     *
+     * <p>One rule instead of a teleport on every path that ends a queue — a leave, a
+     * disconnected teammate, a failed arena search, a rejoin after a restart — so none
+     * of them can strand a player in a room that exists only to wait in.
+     */
+    private void releaseIdleHallPlayers(PvpLobbyStore.Point lobby) {
+        Location centre = lobby.resolve();
+        if (centre == null || centre.getWorld() == null) return;
+        for (Player player : List.copyOf(centre.getWorld().getPlayers())) {
+            UUID playerId = player.getUniqueId();
+            if (queuedPlayers.containsKey(playerId) || preparing.containsKey(playerId)
+                    || isParticipant(playerId)) continue;
+            PvpIslandBuilder.Zone zone = PvpIslandBuilder.zone(lobby, player.getLocation());
+            if (zone == null || !zone.hall()) continue;
+            Location island = PvpIslandBuilder.islandSpawn(lobby, zone.island());
+            if (island == null) continue;
+            teleport(player, island);
+            player.playSound(player, Sound.ENTITY_ENDERMAN_TELEPORT, 0.6f, 1.1f);
+            info(player, "You are not in a queue, so you are back on the "
+                    + categoryLabel(zone.island().family()) + " island.");
+        }
+    }
+
+    /** Arrival on a category island, named the way the hub arch named it. */
+    private void travelToIsland(Player player, PvpIslandBuilder.Island island) {
+        if (!player.isOnline() || isParticipant(player.getUniqueId())) return;
+        Location spawn = lobbyStore.lobby()
+                .map(lobby -> PvpIslandBuilder.islandSpawn(lobby, island)).orElse(null);
+        if (spawn == null) return;
+        teleport(player, spawn);
+        player.playSound(player, Sound.ENTITY_ENDERMAN_TELEPORT, 0.8f, 1.2f);
+        player.showTitle(Title.title(
+                Component.text(island.title(), PvpLobbyBuilder.AMETHYST, TextDecoration.BOLD),
+                Component.text("Walk into a portal to join its queue", NamedTextColor.GOLD),
+                Title.Times.times(Duration.ZERO, Duration.ofMillis(1600), Duration.ofMillis(300))));
+    }
+
+    /**
+     * A touch of an island arch, the island's way back, or a hall's Leave Queue arch.
+     *
+     * <p>The same shape as {@link #queueTouched}: rate-limited here, then acted on after
+     * the client has finished its portal transition.
+     */
+    private void islandTouched(Player player, PvpIslandBuilder.Touch touch) {
+        UUID playerId = player.getUniqueId();
+        long now = System.currentTimeMillis();
+        player.setPortalCooldown(integer("pvp-competitive.portal-suppression-ticks"));
+        if (padCooldowns.getOrDefault(playerId, 0L) > now) return;
+        padCooldowns.put(playerId, now + PAD_COOLDOWN_MILLIS);
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+            if (!player.isOnline() || isParticipant(playerId)) return;
+            switch (touch.kind()) {
+                case STATION -> {
+                    if (roomByPlayer.containsKey(playerId)) openMatchRoom(player);
+                    else if (queuedPlayers.containsKey(playerId)
+                            || preparing.containsKey(playerId)) openQueueStatus(player);
+                    else joinQueue(player, touch.station().setup());
+                }
+                case ISLAND_RETURN -> {
+                    Location hub = lobbyStore.lobby().map(PvpLobbyStore.Point::resolve).orElse(null);
+                    if (hub == null) return;
+                    teleport(player, hub);
+                    player.playSound(player, Sound.ENTITY_ENDERMAN_TELEPORT, 0.8f, 0.9f);
+                }
+                case HALL_LEAVE -> {
+                    leaveQueue(playerId, true);
+                    travelToIsland(player, touch.island());
+                }
+            }
+        }, integer("pvp-competitive.lobby-gate-menu-delay-ticks"));
+    }
+
+    /** Where somebody who falls off the lobby world belongs: their own platform. */
+    private Location recoverySpawn(PvpLobbyStore.Point lobby, Location at, Location hub) {
+        PvpIslandBuilder.Zone zone = PvpIslandBuilder.zone(lobby, at);
+        if (zone == null) return hub;
+        Location own = zone.hall() ? PvpIslandBuilder.hallSpawn(lobby, zone.island())
+                : PvpIslandBuilder.islandSpawn(lobby, zone.island());
+        return own == null ? hub : own;
+    }
+
+    /** Queue rows for the sidebar, the pre-game scoreboard every network shows. */
+    List<String[]> sidebarQueue(UUID playerId) {
+        PendingStart pending = preparing.get(playerId);
+        if (pending != null) {
+            return List.of(new String[]{"Match", pending.mode().display()},
+                    new String[]{"Status", "Arena loading"});
+        }
+        PvpMode mode = queuedModes.get(playerId);
+        PvpMatchmaking.Entry entry = queuedPlayers.get(playerId);
+        if (mode == null || entry == null) return List.of();
+        PvpMatchSetup setup = setupOf(mode, entry);
+        long now = System.currentTimeMillis();
+        List<String[]> rows = new ArrayList<>();
+        rows.add(new String[]{"Match", setup.matchLabel()});
+        rows.add(new String[]{"Players", queuedFor(setup) + "/" + setup.requiredPlayers()});
+        long early = ffaEarlyStartRemaining(setup, now);
+        rows.add(early >= 0L && queuedFor(setup) < setup.requiredPlayers()
+                ? new String[]{"Starts in", formatSeconds(early)}
+                : new String[]{"Waiting", formatSeconds(Math.max(0L, now - entry.joinedAt()) / 1_000L)});
+        return List.copyOf(rows);
     }
 
     /**
@@ -1689,11 +1951,18 @@ final class PvpCompetitionService implements Listener {
 
     /** A finished round immediately offers the next meaningful action. */
     private void sendPlayAgain(Player player) {
-        player.sendMessage(prefix()
-                .append(Component.text("PLAY AGAIN", NamedTextColor.GREEN,
-                                TextDecoration.BOLD)
+        PvpMatchSetup last = lastSetups.get(player.getUniqueId());
+        Component again = last == null ? Component.empty()
+                : Component.text("PLAY AGAIN", NamedTextColor.GREEN, TextDecoration.BOLD)
+                .clickEvent(net.kyori.adventure.text.event.ClickEvent.runCommand("/pvp again"))
+                .hoverEvent(net.kyori.adventure.text.event.HoverEvent.showText(Component.text(
+                        "Queue for " + last.matchLabel() + " again", NamedTextColor.GRAY)))
+                .append(Component.text("  " + last.matchLabel() + "   ", NamedTextColor.GRAY));
+        player.sendMessage(prefix().append(again)
+                .append(Component.text(last == null ? "PLAY AGAIN" : "OTHER MODES",
+                                last == null ? NamedTextColor.GREEN : ORANGE, TextDecoration.BOLD)
                         .clickEvent(net.kyori.adventure.text.event.ClickEvent.runCommand("/pvp")))
-                .append(Component.text("  Open PvP modes", NamedTextColor.GRAY)));
+                .append(Component.text(last == null ? "  Open PvP modes" : "", NamedTextColor.GRAY)));
     }
 
     private void abortStart(Match match, String reason) {
@@ -1785,6 +2054,12 @@ final class PvpCompetitionService implements Listener {
         Location started = origin(saved);
         if (started == null || started.getWorld() == null) return started;
         if (!isPvpWorld(started.getWorld())) return started;
+        // Queued from an island or its waiting hall: back to that island, where the
+        // next fight in the same category is one walk away.
+        PvpLobbyStore.Point lobby = lobbyStore.lobby().orElse(null);
+        PvpIslandBuilder.Zone zone = PvpIslandBuilder.zone(lobby, started);
+        Location island = zone == null ? null : PvpIslandBuilder.islandSpawn(lobby, zone.island());
+        if (island != null) return island;
         return lobbyStore.lobby().map(PvpLobbyStore.Point::resolve).orElse(started);
     }
 
@@ -1881,8 +2156,9 @@ final class PvpCompetitionService implements Listener {
                 DialogBody.plainMessage(MenuText.stat("Players ready",
                         availablePlayers() + " online and free to fight"), RULE_WIDTH),
                 DialogBody.plainMessage(MenuText.rule("item/spyglass", "Public Matchmaking",
-                        "Pick a format and join immediately. The queue stays visible while"
-                                + " you wait."), RULE_WIDTH),
+                        "Pick a format and join immediately. You wait in that category's"
+                                + " queue lobby, with the count on the board and your sidebar."),
+                        RULE_WIDTH),
                 DialogBody.plainMessage(MenuText.rule("item/netherite_chestplate", "Your Loadout",
                         "Every mode uses the survival gear you are carrying. KEEP INVENTORY"
                                 + " is always active."), RULE_WIDTH));
@@ -2305,6 +2581,9 @@ final class PvpCompetitionService implements Listener {
                         "Every mode has Minecraft's real world-border wall around untouched"
                                 + " overworld terrain. You return to the block you left and"
                                 + " every changed block is put back."},
+                new String[]{"item/clock_00", "Queue Lobby",
+                        "Joining a queue moves you to that category's waiting hall until"
+                                + " the match is found. Walk through Leave Queue to cancel."},
                 new String[]{"item/gold_ingot", "No Payouts",
                         "Competitive fights and rank-ups pay no money. Private wagers"
                                 + " are optional and use only the stakes both sides accepted."},
@@ -3623,7 +3902,17 @@ final class PvpCompetitionService implements Listener {
         long now = System.currentTimeMillis();
         if (padCooldowns.getOrDefault(playerId, 0L) > now) return;
         padCooldowns.put(playerId, now + PAD_COOLDOWN_MILLIS);
-        openQueuePage(player, mode);
+        // The arch is a way to the category's island. Somebody already waiting or in
+        // a room is shown that state instead, and a lobby without islands keeps the page.
+        boolean islands = lobbyStore.lobby().map(lobby -> PvpIslandBuilder.islandSpawn(
+                lobby, PvpIslandBuilder.Island.of(mode))).isPresent();
+        if (!islands || queuedPlayers.containsKey(playerId) || roomByPlayer.containsKey(playerId)) {
+            openQueuePage(player, mode);
+            return;
+        }
+        plugin.getServer().getScheduler().runTaskLater(plugin,
+                () -> travelToIsland(player, PvpIslandBuilder.Island.of(mode)),
+                integer("pvp-competitive.lobby-gate-menu-delay-ticks"));
     }
 
     private void openQueuePage(Player player, PvpMode mode) {
@@ -3644,9 +3933,17 @@ final class PvpCompetitionService implements Listener {
         for (Player player : Bukkit.getOnlinePlayers()) {
             Location at = player.getLocation();
             PvpMode queue = PvpLobbyBuilder.modePad(lobby, at);
-            if (touchesEntrancePortal(at) || queue != null
+            PvpIslandBuilder.Touch island = PvpIslandBuilder.touch(lobby, at);
+            if (touchesEntrancePortal(at) || queue != null || island != null
                     || PvpLobbyBuilder.returnPad(lobby, at)) {
                 player.setPortalCooldown(cooldown);
+            }
+            if (island != null && !isParticipant(player.getUniqueId())) {
+                if (island.kind() == PvpIslandBuilder.TouchKind.STATION) {
+                    Location exit = PvpIslandBuilder.stationExit(lobby, island.station());
+                    if (exit != null) teleport(player, exit);
+                }
+                islandTouched(player, island);
             }
             // A player who stopped moving inside an arch never fires another move
             // event, so the sweep is what gets them out of it.
@@ -3816,8 +4113,18 @@ final class PvpCompetitionService implements Listener {
         Location lobbyAt = lobby == null ? null : lobby.resolve();
         if (lobbyAt != null && isPvpWorld(event.getPlayer().getWorld())
                 && event.getTo().getY() < lobbyAt.getY() - 8d) {
+            Location safe = recoverySpawn(lobby, event.getTo(), lobbyAt);
             plugin.getServer().getScheduler().runTask(plugin,
-                    () -> teleport(event.getPlayer(), lobbyAt));
+                    () -> teleport(event.getPlayer(), safe));
+            return;
+        }
+        PvpIslandBuilder.Touch island = PvpIslandBuilder.touch(lobby, event.getTo());
+        if (island != null) {
+            if (island.kind() == PvpIslandBuilder.TouchKind.STATION) {
+                Location exit = PvpIslandBuilder.stationExit(lobby, island.station());
+                if (exit != null) event.setTo(exit);
+            }
+            islandTouched(player, island);
             return;
         }
         // Queue portals are handled before the pad cooldown because every touch must
@@ -3844,8 +4151,15 @@ final class PvpCompetitionService implements Listener {
             plugin.getServer().getScheduler().runTask(plugin, () -> returnToServer(player));
         } else if (lobbyAt != null && isPvpWorld(player.getWorld())) {
             PvpMode nearby = PvpLobbyBuilder.nearbyMode(lobby, event.getTo(), 8d);
-            if (nearby != null) {
-                player.sendActionBar(Component.text(nearby.display() + "  •  WALK THROUGH TO CHOOSE",
+            PvpIslandBuilder.Station station = PvpIslandBuilder.nearbyStation(lobby, event.getTo(), 7d);
+            if (station != null) {
+                PvpMatchSetup setup = station.setup();
+                player.sendActionBar(Component.text(setup.matchLabel() + "  •  "
+                                + queuedFor(setup) + "/" + setup.requiredPlayers()
+                                + " READY  •  WALK IN TO QUEUE",
+                        TextColor.color(0xE3C6FF), TextDecoration.BOLD));
+            } else if (nearby != null) {
+                player.sendActionBar(Component.text(nearby.display() + "  •  WALK THROUGH TO TRAVEL",
                         TextColor.color(0xE3C6FF), TextDecoration.BOLD));
             }
         }
@@ -3857,6 +4171,17 @@ final class PvpCompetitionService implements Listener {
         PvpLobbyStore.Point lobby = lobbyStore.lobby().orElse(null);
         Location from = event.getFrom();
         PvpMode mode = PvpLobbyBuilder.modePad(lobby, from);
+        PvpIslandBuilder.Touch island = PvpIslandBuilder.touch(lobby, from);
+        if (island != null) {
+            event.setCancelled(true);
+            Player player = event.getPlayer();
+            if (island.kind() == PvpIslandBuilder.TouchKind.STATION) {
+                Location exit = PvpIslandBuilder.stationExit(lobby, island.station());
+                if (exit != null) teleport(player, exit);
+            }
+            islandTouched(player, island);
+            return;
+        }
         if (touchesEntrancePortal(from) || mode != null
                 || PvpLobbyBuilder.returnPad(lobby, from)) {
             event.setCancelled(true);
@@ -3969,7 +4294,21 @@ final class PvpCompetitionService implements Listener {
         PvpLobbyStore.Point lobby = lobbyStore.lobby().orElse(null);
         PvpLobbyBuilder.PavilionAction action = PvpLobbyBuilder.pavilionAction(
                 lobby, event.getClickedBlock().getLocation());
-        if (action == null) return;
+        if (action == null) {
+            PvpIslandBuilder.Clicked console = PvpIslandBuilder.console(
+                    lobby, event.getClickedBlock().getLocation());
+            if (console == null) return;
+            event.setCancelled(true);
+            switch (console.action()) {
+                case TEAM -> openParty(player, STANDALONE);
+                case CUSTOM -> openMatchOptions(player, console.island().family(), STANDALONE);
+                case SIZES -> openFfaSizes(player, STANDALONE);
+                case STATS -> openStats(player, STANDALONE);
+                case RULES -> openRules(player, STANDALONE);
+                case STATUS -> openQueueStatus(player);
+            }
+            return;
+        }
         event.setCancelled(true);
         // Opened from a block in the world, so each page is its own destination.
         switch (action) {
@@ -4392,6 +4731,8 @@ final class PvpCompetitionService implements Listener {
     }
 
     private boolean inLobbyArea(Location at) {
+        // The generated world is nothing but lobby: the hub, its islands and their halls.
+        if (at != null && isPvpWorld(at.getWorld())) return true;
         Location lobby = lobbyStore.lobby().map(PvpLobbyStore.Point::resolve).orElse(null);
         return lobby != null && sameWorld(lobby, at)
                 && horizontalSquared(lobby, at)

@@ -1572,6 +1572,10 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         return amethystEvents;
     }
 
+    PvpCompetitionService pvpCompetition() {
+        return pvpCompetition;
+    }
+
     PlayerPerkService perks() {
         return perkService;
     }
