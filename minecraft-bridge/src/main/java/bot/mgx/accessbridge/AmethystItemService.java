@@ -107,6 +107,7 @@ final class AmethystItemService implements Listener {
     private final NamespacedKey arrowKey;
     private final NamespacedKey eternalKey;
     private final NamespacedKey seasonKey;
+    private final NamespacedKey seasonPieceKey;
     private final Map<UUID, Long> lastSeasonSweep = new HashMap<>();
     private final Set<UUID> multiBreaking = new HashSet<>();
     private final Map<UUID, Integer> blockedHits = new HashMap<>();
@@ -126,6 +127,7 @@ final class AmethystItemService implements Listener {
         arrowKey = new NamespacedKey(plugin, "amethyst_arrow");
         eternalKey = new NamespacedKey(plugin, "amethyst_eternal");
         seasonKey = new NamespacedKey(plugin, "season_gear");
+        seasonPieceKey = new NamespacedKey(plugin, "season_gear_piece");
     }
 
     void useAuctionSweep(Runnable auctionSweep) {
@@ -374,38 +376,100 @@ final class AmethystItemService implements Listener {
      */
     ItemStack createSeasonGear(SeasonCosmetics.Theme theme, SeasonGear.Piece piece) {
         String modelKey = SeasonGear.modelKey(theme.season(), piece);
-        ItemStack item = createTimed(Material.valueOf(piece.material), piece.kind,
-                SeasonGear.displayName(theme, piece), piece.ability, piece.detail, modelKey);
+        ItemStack item = new ItemStack(Material.valueOf(piece.material));
         ItemMeta meta = item.getItemMeta();
         PersistentDataContainer data = meta.getPersistentDataContainer();
-        data.set(eternalKey, PersistentDataType.BYTE, (byte) 1);
+        // Deliberately no Amethyst kind: season gear has its own, smaller abilities.
         data.set(seasonKey, PersistentDataType.INTEGER, theme.season());
+        data.set(seasonPieceKey, PersistentDataType.STRING, piece.key);
+        data.set(serialKey, PersistentDataType.STRING, UUID.randomUUID().toString());
         TextColor colour = TextColor.color(theme.primary());
         meta.displayName(Component.text(SeasonGear.displayName(theme, piece), colour, TextDecoration.BOLD)
                 .decoration(TextDecoration.ITALIC, false));
+        NamespacedKey model = NamespacedKey.fromString(modelKey);
+        if (model != null) meta.setItemModel(model);
+        meta.addEnchant(Enchantment.UNBREAKING, 3, true);
         switch (piece) {
             case SCYTHE -> {
+                meta.addEnchant(Enchantment.SHARPNESS, 5, true);
                 meta.addEnchant(Enchantment.LOOTING, 3, true);
                 meta.addEnchant(Enchantment.SWEEPING_EDGE, 3, true);
             }
-            case PICKAXE -> meta.addEnchant(Enchantment.FORTUNE, 3, true);
-            case AXE -> meta.addEnchant(Enchantment.SHARPNESS, 5, true);
+            case PICKAXE -> {
+                meta.addEnchant(Enchantment.EFFICIENCY, 5, true);
+                meta.addEnchant(Enchantment.FORTUNE, 3, true);
+            }
+            case AXE -> meta.addEnchant(Enchantment.EFFICIENCY, 5, true);
             case WINGS -> {
-                meta.addEnchant(Enchantment.UNBREAKING,
-                        (int) tuned("amethyst-items.elytra-unbreaking-level", 5), true);
                 org.bukkit.inventory.meta.components.EquippableComponent equippable = meta.getEquippable();
                 equippable.setSlot(EquipmentSlot.CHEST);
-                equippable.setModel(NamespacedKey.fromString(modelKey));
+                equippable.setModel(model);
                 meta.setEquippable(equippable);
             }
         }
         meta.lore(List.of(
                 line(piece.ability), line(piece.detail), Component.empty(),
                 Component.text("Season " + theme.season() + " Exclusive", colour, TextDecoration.BOLD)
-                        .decoration(TextDecoration.ITALIC, false),
-                Component.text("Never Expires", ETERNAL).decoration(TextDecoration.ITALIC, false)));
+                        .decoration(TextDecoration.ITALIC, false)));
         item.setItemMeta(meta);
         return item;
+    }
+
+    private Optional<SeasonGear.Piece> seasonPiece(ItemStack item) {
+        if (item == null || item.getType().isAir() || !item.hasItemMeta()) return Optional.empty();
+        return SeasonGear.Piece.parse(item.getItemMeta().getPersistentDataContainer()
+                .get(seasonPieceKey, PersistentDataType.STRING));
+    }
+
+    /** Reaper: a Season Scythe hits mobs harder. Players are never affected. */
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onSeasonScythe(EntityDamageByEntityEvent event) {
+        if (!(event.getDamager() instanceof Player player) || event.getEntity() instanceof Player
+                || !(event.getEntity() instanceof LivingEntity)) {
+            return;
+        }
+        if (seasonPiece(player.getInventory().getItemInMainHand()).filter(SeasonGear.Piece.SCYTHE::equals).isPresent()) {
+            event.setDamage(event.getDamage() * (1d + SeasonGear.Piece.MOB_DAMAGE_BONUS));
+        }
+    }
+
+    /** Forge Touch: a Season Pickaxe smelts ore drops, and only ore drops. */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onSeasonSmelt(BlockDropItemEvent event) {
+        if (seasonPiece(event.getPlayer().getInventory().getItemInMainHand())
+                .filter(SeasonGear.Piece.PICKAXE::equals).isEmpty()) {
+            return;
+        }
+        event.getItems().forEach(entity -> {
+            ItemStack stack = entity.getItemStack();
+            Material result = switch (stack.getType()) {
+                case RAW_IRON -> Material.IRON_INGOT;
+                case RAW_GOLD -> Material.GOLD_INGOT;
+                case RAW_COPPER -> Material.COPPER_INGOT;
+                default -> null;
+            };
+            if (result != null) entity.setItemStack(new ItemStack(result, stack.getAmount()));
+        });
+    }
+
+    /** Timber: a Season Axe fells a smaller tree than the Amethyst Axe can. */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onSeasonTimber(BlockBreakEvent event) {
+        Player player = event.getPlayer();
+        Block origin = event.getBlock();
+        if (!Tag.LOGS.isTagged(origin.getType()) || multiBreaking.contains(player.getUniqueId())
+                || seasonPiece(player.getInventory().getItemInMainHand()).filter(SeasonGear.Piece.AXE::equals).isEmpty()) {
+            return;
+        }
+        plugin.getServer().getScheduler().runTask(plugin, () -> {
+            if (!player.isOnline()) return;
+            multiBreaking.add(player.getUniqueId());
+            try {
+                fellTree(player, origin, SeasonGear.Piece.TIMBER_LIMIT);
+            } finally {
+                multiBreaking.remove(player.getUniqueId());
+            }
+        });
     }
 
     /** The season a piece of season gear belongs to, or 0 for anything else. */
@@ -421,7 +485,7 @@ final class AmethystItemService implements Listener {
         Player player = event.getPlayer();
         ItemStack weapon = player.getInventory().getItemInMainHand();
         int season = season(weapon);
-        if (season <= 0 || !kind(weapon).filter("sword"::equals).isPresent()) return;
+        if (season <= 0 || seasonPiece(weapon).filter(SeasonGear.Piece.SCYTHE::equals).isEmpty()) return;
         var theme = SeasonCosmetics.theme(season);
         if (theme.isEmpty()) return;
         long now = System.currentTimeMillis();
@@ -625,7 +689,7 @@ final class AmethystItemService implements Listener {
             multiBreaking.add(player.getUniqueId());
             try {
                 if (tree) {
-                    fellTree(player, centre);
+                    fellTree(player, centre, 256);
                 } else if (kind.equals("hoe")) {
                     harvestCrops(player, centre, centreCrop);
                 } else {
@@ -775,7 +839,7 @@ final class AmethystItemService implements Listener {
                 : String.format(Locale.ROOT, "%.1f hours", hours);
     }
 
-    private void fellTree(Player player, Block origin) {
+    private void fellTree(Player player, Block origin, int limit) {
         ArrayDeque<Block> pending = new ArrayDeque<>();
         Set<String> visited = new HashSet<>();
         for (int x = -1; x <= 1; x++) {
@@ -788,7 +852,7 @@ final class AmethystItemService implements Listener {
             }
         }
         int broken = 0;
-        while (!pending.isEmpty() && broken < 256) {
+        while (!pending.isEmpty() && broken < limit) {
             Block block = pending.removeFirst();
             String key = block.getX() + ":" + block.getY() + ":" + block.getZ();
             if (!visited.add(key) || !Tag.LOGS.isTagged(block.getType())) {

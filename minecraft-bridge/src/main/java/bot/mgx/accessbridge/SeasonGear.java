@@ -6,15 +6,14 @@ import java.util.Locale;
 import java.util.Optional;
 
 /**
- * The permanent gear only one season's pass ever pays: a Scythe, a Pickaxe, an Axe and
- * Wings in that season's palette.
+ * The gear only one season's pass pays: a Scythe, a Pickaxe, an Axe and Wings in that
+ * season's colours.
  *
- * <p>Each piece is an Eternal item underneath. Every Amethyst ability is keyed on the
- * item's kind, so a Season Pickaxe mines 3x3 and smelts, a Season Axe fells whole trees,
- * a Season Scythe carries the heavy sword bonus and Wings glide faster — with nothing
- * duplicated that could drift from the originals. On top of that each piece is netherite
- * where the Eternal is diamond, carries extra enchantments, and never comes back once its
- * season ends.
+ * <p>Everyone who plays the season can earn these, so they are balanced as deserved
+ * rewards rather than power: vanilla-maximum enchantments, normal durability (Mending
+ * works), and one modest ability each that never adds an edge against another player.
+ * They sit below the Eternal Amethyst gear, which stays the rare chase. What makes a
+ * piece special is that its season's version never comes back.
  *
  * <p>Free of Bukkit so names, models and parsing are unit tested. Model keys are
  * persisted on items, so they never change once shipped.
@@ -22,13 +21,18 @@ import java.util.Optional;
 final class SeasonGear {
     enum Piece {
         SCYTHE("scythe", "Scythe", "sword", "NETHERITE_SWORD",
-                "Reaper's Edge", "Heavy bonus damage, lightning and a season sweep"),
+                "Reaper", "Deals 20% more damage to mobs"),
         PICKAXE("pickaxe", "Pickaxe", "pickaxe", "NETHERITE_PICKAXE",
-                "3x3 Mining", "Smelts what it breaks, with Fortune III"),
+                "Forge Touch", "Smelts the ores it mines"),
         AXE("axe", "Axe", "axe", "NETHERITE_AXE",
-                "Timber", "Fells up to 256 connected logs"),
+                "Timber", "Fells up to 32 connected logs"),
         WINGS("wings", "Wings", "elytra", "ELYTRA",
-                "Lightning Speed", "Glides 50% faster");
+                "Season Colours", "Shows this season's colours in flight");
+
+        /** Logs one swing of a Season Axe can fell. */
+        static final int TIMBER_LIMIT = 32;
+        /** Extra damage a Season Scythe deals to mobs, never to players. */
+        static final double MOB_DAMAGE_BONUS = 0.20;
 
         final String key;
         final String label;
