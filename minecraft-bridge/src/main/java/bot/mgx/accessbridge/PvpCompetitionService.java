@@ -1118,7 +1118,14 @@ final class PvpCompetitionService implements Listener {
         }
         long now = System.currentTimeMillis();
         String next = null;
-        for (PvpMatchSetup setup : shown.values()) {
+        int limit = PvpIslandBuilder.hallBoardLines();
+        List<PvpMatchSetup> listed = new ArrayList<>(shown.values());
+        // An empty arch row is the first to give up its line, so a live custom size
+        // is never pushed off the board by a portal nobody is using.
+        for (int index = listed.size() - 1; index >= 0 && listed.size() > limit - 1; index--) {
+            if (queuedFor(listed.get(index)) == 0) listed.remove(index);
+        }
+        for (PvpMatchSetup setup : listed) {
             int waiting = queuedFor(setup);
             rows.add(Component.text(setup.matchLabel() + "  ", NamedTextColor.WHITE)
                     .append(Component.text(waiting + "/" + setup.requiredPlayers() + " READY",
@@ -1132,7 +1139,6 @@ final class PvpCompetitionService implements Listener {
         boolean preparingHere = preparing.values().stream()
                 .anyMatch(pending -> PvpIslandBuilder.Island.of(pending.mode()) == island);
         if (preparingHere) next = "MATCH FOUND • PREPARING THE ARENA";
-        int limit = PvpIslandBuilder.hallBoardLines();
         List<Component> trimmed = new ArrayList<>(rows.subList(0, Math.min(rows.size(), limit - 1)));
         trimmed.add(next == null
                 ? Component.text("Waiting for players • walk through LEAVE QUEUE to cancel",
@@ -1199,7 +1205,15 @@ final class PvpCompetitionService implements Listener {
                     if (roomByPlayer.containsKey(playerId)) openMatchRoom(player);
                     else if (queuedPlayers.containsKey(playerId)
                             || preparing.containsKey(playerId)) openQueueStatus(player);
-                    else joinQueue(player, touch.station().setup());
+                    else {
+                        joinQueue(player, touch.station().setup());
+                        // A match found on the spot moves straight to preparing, which
+                        // is a success and must not be mistaken for a refusal.
+                        if (!queuedPlayers.containsKey(playerId) && !preparing.containsKey(playerId)
+                                && !isParticipant(playerId)) {
+                            helpAfterRefusal(player, touch.station().setup());
+                        }
+                    }
                 }
                 case ISLAND_RETURN -> {
                     Location hub = lobbyStore.lobby().map(PvpLobbyStore.Point::resolve).orElse(null);
@@ -1213,6 +1227,26 @@ final class PvpCompetitionService implements Listener {
                 }
             }
         }, integer("pvp-competitive.lobby-gate-menu-delay-ticks"));
+    }
+
+    /**
+     * The next step after a clan arch turned somebody away.
+     *
+     * <p>A refusal in chat is correct and useless on its own: the player is standing on
+     * an island with the answer one page away. Somebody without a clan is told where
+     * clans are made; somebody with one is shown the team page the arch needed.
+     */
+    private void helpAfterRefusal(Player player, PvpMatchSetup setup) {
+        if (!setup.clan()) return;
+        if (clans.clanOf(player.getUniqueId()).isEmpty()) {
+            player.sendMessage(prefix()
+                    .append(Component.text("Clan battles need a clan. ", NamedTextColor.GRAY))
+                    .append(Component.text("/clans", ORANGE, TextDecoration.BOLD)
+                            .clickEvent(net.kyori.adventure.text.event.ClickEvent.runCommand("/clans")))
+                    .append(Component.text(" to create or join one.", NamedTextColor.GRAY)));
+            return;
+        }
+        openParty(player, STANDALONE);
     }
 
     /** Where somebody who falls off the lobby world belongs: their own platform. */
@@ -3906,7 +3940,8 @@ final class PvpCompetitionService implements Listener {
         // a room is shown that state instead, and a lobby without islands keeps the page.
         boolean islands = lobbyStore.lobby().map(lobby -> PvpIslandBuilder.islandSpawn(
                 lobby, PvpIslandBuilder.Island.of(mode))).isPresent();
-        if (!islands || queuedPlayers.containsKey(playerId) || roomByPlayer.containsKey(playerId)) {
+        if (!islands || queuedPlayers.containsKey(playerId) || preparing.containsKey(playerId)
+                || roomByPlayer.containsKey(playerId)) {
             openQueuePage(player, mode);
             return;
         }
@@ -3922,7 +3957,8 @@ final class PvpCompetitionService implements Listener {
         plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
             if (!player.isOnline() || isParticipant(playerId)) return;
             if (roomByPlayer.containsKey(playerId)) openMatchRoom(player);
-            else if (queuedPlayers.containsKey(playerId)) openQueueStatus(player);
+            else if (queuedPlayers.containsKey(playerId)
+                    || preparing.containsKey(playerId)) openQueueStatus(player);
             else openMode(player, mode, STANDALONE);
         }, integer("pvp-competitive.lobby-gate-menu-delay-ticks"));
     }
