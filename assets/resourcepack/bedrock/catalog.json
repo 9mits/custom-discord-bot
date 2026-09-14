@@ -112,6 +112,22 @@
     {"java_item": "minecraft:iron_sword", "model": "mgx:cosmetic/season_3_kill", "bedrock_identifier": "mgx:cosmetic_season_3_kill", "display_name": "Verdant Verdict"},
     {"java_item": "minecraft:crimson_fungus", "model": "mgx:cosmetic/season_4_aura", "bedrock_identifier": "mgx:cosmetic_season_4_aura", "display_name": "Eclipse Crown"},
     {"java_item": "minecraft:redstone", "model": "mgx:cosmetic/season_4_trail", "bedrock_identifier": "mgx:cosmetic_season_4_trail", "display_name": "Eclipse Wake"},
-    {"java_item": "minecraft:netherite_sword", "model": "mgx:cosmetic/season_4_kill", "bedrock_identifier": "mgx:cosmetic_season_4_kill", "display_name": "Eclipse Verdict"}
+    {"java_item": "minecraft:netherite_sword", "model": "mgx:cosmetic/season_4_kill", "bedrock_identifier": "mgx:cosmetic_season_4_kill", "display_name": "Eclipse Verdict"},
+    {"java_item": "minecraft:netherite_sword", "model": "mgx:season_1_scythe", "bedrock_identifier": "mgx:season_1_scythe", "display_name": "Solstice Scythe"},
+    {"java_item": "minecraft:netherite_pickaxe", "model": "mgx:season_1_pickaxe", "bedrock_identifier": "mgx:season_1_pickaxe", "display_name": "Solstice Pickaxe"},
+    {"java_item": "minecraft:netherite_axe", "model": "mgx:season_1_axe", "bedrock_identifier": "mgx:season_1_axe", "display_name": "Solstice Axe"},
+    {"java_item": "minecraft:elytra", "model": "mgx:season_1_wings", "bedrock_identifier": "mgx:season_1_wings", "display_name": "Solstice Wings"},
+    {"java_item": "minecraft:netherite_sword", "model": "mgx:season_2_scythe", "bedrock_identifier": "mgx:season_2_scythe", "display_name": "Frostbound Scythe"},
+    {"java_item": "minecraft:netherite_pickaxe", "model": "mgx:season_2_pickaxe", "bedrock_identifier": "mgx:season_2_pickaxe", "display_name": "Frostbound Pickaxe"},
+    {"java_item": "minecraft:netherite_axe", "model": "mgx:season_2_axe", "bedrock_identifier": "mgx:season_2_axe", "display_name": "Frostbound Axe"},
+    {"java_item": "minecraft:elytra", "model": "mgx:season_2_wings", "bedrock_identifier": "mgx:season_2_wings", "display_name": "Frostbound Wings"},
+    {"java_item": "minecraft:netherite_sword", "model": "mgx:season_3_scythe", "bedrock_identifier": "mgx:season_3_scythe", "display_name": "Verdant Scythe"},
+    {"java_item": "minecraft:netherite_pickaxe", "model": "mgx:season_3_pickaxe", "bedrock_identifier": "mgx:season_3_pickaxe", "display_name": "Verdant Pickaxe"},
+    {"java_item": "minecraft:netherite_axe", "model": "mgx:season_3_axe", "bedrock_identifier": "mgx:season_3_axe", "display_name": "Verdant Axe"},
+    {"java_item": "minecraft:elytra", "model": "mgx:season_3_wings", "bedrock_identifier": "mgx:season_3_wings", "display_name": "Verdant Wings"},
+    {"java_item": "minecraft:netherite_sword", "model": "mgx:season_4_scythe", "bedrock_identifier": "mgx:season_4_scythe", "display_name": "Eclipse Scythe"},
+    {"java_item": "minecraft:netherite_pickaxe", "model": "mgx:season_4_pickaxe", "bedrock_identifier": "mgx:season_4_pickaxe", "display_name": "Eclipse Pickaxe"},
+    {"java_item": "minecraft:netherite_axe", "model": "mgx:season_4_axe", "bedrock_identifier": "mgx:season_4_axe", "display_name": "Eclipse Axe"},
+    {"java_item": "minecraft:elytra", "model": "mgx:season_4_wings", "bedrock_identifier": "mgx:season_4_wings", "display_name": "Eclipse Wings"}
   ]
 }

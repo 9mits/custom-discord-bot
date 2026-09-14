@@ -1454,7 +1454,7 @@ final class GameVariableStore {
                 "Shards for third place when the season ends.", 3, 0, 640, "shards", false);
         integer("season.hearts.lifetime-cap", "Season Heart cap", "Season Pass",
                 "Most permanent Season Hearts one player can ever hold, across every season.",
-                3, 0, 20, "hearts", false);
+                5, 0, 20, "hearts", false);
         integer("season.hearts.capped-shards", "Shards per capped heart", "Season Pass",
                 "Shards a heart tier pays instead once the player already holds the cap.",
                 2, 0, 64, "shards", false);
@@ -1464,32 +1464,49 @@ final class GameVariableStore {
         // Never money or keys: both are minted in such volume that a tier paying them
         // meant nothing. Every default here is scarce, permanent, or both.
         String rewardFormat = " Parts are separated by ; and read hearts:N, shards:N,"
-                + " reward:<crate reward id>, cosmetic:<id> or cosmetic:season:<aura|trail|kill>.";
+                + " reward:<crate reward id>[:count], gear:<scythe|pickaxe|axe|wings>, cosmetic:<id>"
+                + " or cosmetic:season:<aura|trail|kill>.";
         text("season.reward.odd", "Odd tier reward", "Season Pass Rewards",
-                "What each odd tier pays." + rewardFormat, "reward:ancient_debris", 200);
+                "What each odd tier pays." + rewardFormat, "reward:ancient_debris:2;reward:golden_apple:2", 200);
         text("season.reward.even", "Even tier reward", "Season Pass Rewards",
-                "What each even tier pays." + rewardFormat, "reward:fortune_potion_ii", 200);
+                "What each even tier pays." + rewardFormat,
+                "reward:fortune_potion_ii;reward:crate_luck_ii;reward:amethyst_experience_bottles", 200);
         text("season.reward.every-5", "Every 5th tier reward", "Season Pass Rewards",
                 "What tiers 5, 15, 35 and so on pay." + rewardFormat,
-                "reward:totem_of_undying;reward:fortune_potion_iii", 200);
+                "reward:totem_of_undying;reward:fortune_potion_iii;reward:netherite_ingot", 200);
         text("season.reward.every-10", "Every 10th tier reward", "Season Pass Rewards",
-                "What tiers 20 and every other unlisted tenth tier pay." + rewardFormat,
-                "shards:1;reward:enchanted_golden_apple", 200);
+                "What any tenth tier without its own reward pays." + rewardFormat,
+                "shards:1;reward:enchanted_golden_apple:2", 200);
+        text("season.reward.tier-5", "Tier 5 reward", "Season Pass Rewards",
+                "The first taste: this season's Pickaxe." + rewardFormat,
+                "gear:pickaxe;reward:totem_of_undying", 200);
         text("season.reward.tier-10", "Tier 10 reward", "Season Pass Rewards",
                 "The first exclusive: this season's trail." + rewardFormat,
-                "cosmetic:season:trail;shards:1", 200);
+                "cosmetic:season:trail;shards:1;reward:enchanted_golden_apple", 200);
+        text("season.reward.tier-15", "Tier 15 reward", "Season Pass Rewards",
+                "This season's Axe." + rewardFormat,
+                "gear:axe;reward:netherite_ingot:2", 200);
+        text("season.reward.tier-20", "Tier 20 reward", "Season Pass Rewards",
+                "This season's Wings." + rewardFormat,
+                "gear:wings;shards:1;reward:enchanted_golden_apple:2", 200);
         text("season.reward.tier-25", "Tier 25 reward", "Season Pass Rewards",
                 "The halfway reward: a permanent heart." + rewardFormat,
-                "hearts:1;reward:netherite_ingot", 200);
+                "hearts:1;reward:netherite_ingot:2;reward:totem_of_undying:2", 200);
         text("season.reward.tier-30", "Tier 30 reward", "Season Pass Rewards",
                 "The second exclusive: this season's kill effect." + rewardFormat,
-                "cosmetic:season:kill;shards:1", 200);
+                "cosmetic:season:kill;shards:1;reward:enchanted_golden_apple:2", 200);
+        text("season.reward.tier-35", "Tier 35 reward", "Season Pass Rewards",
+                "The chase weapon: this season's Scythe." + rewardFormat,
+                "gear:scythe;reward:fortune_potion_v", 200);
         text("season.reward.tier-40", "Tier 40 reward", "Season Pass Rewards",
                 "The late-season chase reward." + rewardFormat,
-                "shards:2;reward:mace", 200);
+                "shards:2;reward:mace;reward:heavy_core", 200);
+        text("season.reward.tier-45", "Tier 45 reward", "Season Pass Rewards",
+                "The last push before the crown." + rewardFormat,
+                "hearts:1;shards:2;reward:netherite_ingot:4", 200);
         text("season.reward.tier-50", "Tier 50 reward", "Season Pass Rewards",
-                "The final tier: this season's crown and a second permanent heart." + rewardFormat,
-                "cosmetic:season:aura;hearts:1;shards:3;reward:crate_luck_v", 200);
+                "The final tier: this season's crown and another permanent heart." + rewardFormat,
+                "cosmetic:season:aura;hearts:1;shards:3;reward:crate_luck_v;reward:fortune_potion_v", 200);
 
         bool("streaks.enabled", "Daily login streaks", "Login Streaks",
                 "Reward players for playing a few active minutes every UTC day.", true);

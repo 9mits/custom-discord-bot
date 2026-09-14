@@ -6,6 +6,7 @@ import net.kyori.adventure.text.format.TextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Bukkit;
+import org.bukkit.Color;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.Particle;
@@ -27,6 +28,7 @@ import org.bukkit.event.entity.EntityShootBowEvent;
 import org.bukkit.event.entity.EntityResurrectEvent;
 import org.bukkit.event.entity.ItemSpawnEvent;
 import org.bukkit.event.inventory.InventoryOpenEvent;
+import org.bukkit.event.player.PlayerAnimationEvent;
 import org.bukkit.event.player.PlayerItemConsumeEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerItemDamageEvent;
@@ -104,6 +106,8 @@ final class AmethystItemService implements Listener {
     private final NamespacedKey expiresKey;
     private final NamespacedKey arrowKey;
     private final NamespacedKey eternalKey;
+    private final NamespacedKey seasonKey;
+    private final Map<UUID, Long> lastSeasonSweep = new HashMap<>();
     private final Set<UUID> multiBreaking = new HashSet<>();
     private final Map<UUID, Integer> blockedHits = new HashMap<>();
     /** Timed ground items only; avoids scanning every entity in every world each second. */
@@ -121,6 +125,7 @@ final class AmethystItemService implements Listener {
         expiresKey = new NamespacedKey(plugin, "amethyst_expires_at");
         arrowKey = new NamespacedKey(plugin, "amethyst_arrow");
         eternalKey = new NamespacedKey(plugin, "amethyst_eternal");
+        seasonKey = new NamespacedKey(plugin, "season_gear");
     }
 
     void useAuctionSweep(Runnable auctionSweep) {
@@ -361,6 +366,86 @@ final class AmethystItemService implements Listener {
         meta.lore(lore);
         item.setItemMeta(meta);
         return item;
+    }
+
+    /**
+     * One piece of a season's gear: an Eternal item of the piece's kind, so every ability
+     * comes from the same code the Amethyst set uses, in netherite and the season's colour.
+     */
+    ItemStack createSeasonGear(SeasonCosmetics.Theme theme, SeasonGear.Piece piece) {
+        String modelKey = SeasonGear.modelKey(theme.season(), piece);
+        ItemStack item = createTimed(Material.valueOf(piece.material), piece.kind,
+                SeasonGear.displayName(theme, piece), piece.ability, piece.detail, modelKey);
+        ItemMeta meta = item.getItemMeta();
+        PersistentDataContainer data = meta.getPersistentDataContainer();
+        data.set(eternalKey, PersistentDataType.BYTE, (byte) 1);
+        data.set(seasonKey, PersistentDataType.INTEGER, theme.season());
+        TextColor colour = TextColor.color(theme.primary());
+        meta.displayName(Component.text(SeasonGear.displayName(theme, piece), colour, TextDecoration.BOLD)
+                .decoration(TextDecoration.ITALIC, false));
+        switch (piece) {
+            case SCYTHE -> {
+                meta.addEnchant(Enchantment.LOOTING, 3, true);
+                meta.addEnchant(Enchantment.SWEEPING_EDGE, 3, true);
+            }
+            case PICKAXE -> meta.addEnchant(Enchantment.FORTUNE, 3, true);
+            case AXE -> meta.addEnchant(Enchantment.SHARPNESS, 5, true);
+            case WINGS -> {
+                meta.addEnchant(Enchantment.UNBREAKING,
+                        (int) tuned("amethyst-items.elytra-unbreaking-level", 5), true);
+                org.bukkit.inventory.meta.components.EquippableComponent equippable = meta.getEquippable();
+                equippable.setSlot(EquipmentSlot.CHEST);
+                equippable.setModel(NamespacedKey.fromString(modelKey));
+                meta.setEquippable(equippable);
+            }
+        }
+        meta.lore(List.of(
+                line(piece.ability), line(piece.detail), Component.empty(),
+                Component.text("Season " + theme.season() + " Exclusive", colour, TextDecoration.BOLD)
+                        .decoration(TextDecoration.ITALIC, false),
+                Component.text("Never Expires", ETERNAL).decoration(TextDecoration.ITALIC, false)));
+        item.setItemMeta(meta);
+        return item;
+    }
+
+    /** The season a piece of season gear belongs to, or 0 for anything else. */
+    int season(ItemStack item) {
+        if (item == null || !item.hasItemMeta()) return 0;
+        Integer season = item.getItemMeta().getPersistentDataContainer().get(seasonKey, PersistentDataType.INTEGER);
+        return season == null ? 0 : season;
+    }
+
+    /** A Season Scythe swing draws a crescent in its season's colours in front of the wielder. */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onSeasonSweep(PlayerAnimationEvent event) {
+        Player player = event.getPlayer();
+        ItemStack weapon = player.getInventory().getItemInMainHand();
+        int season = season(weapon);
+        if (season <= 0 || !kind(weapon).filter("sword"::equals).isPresent()) return;
+        var theme = SeasonCosmetics.theme(season);
+        if (theme.isEmpty()) return;
+        long now = System.currentTimeMillis();
+        if (now - lastSeasonSweep.getOrDefault(player.getUniqueId(), 0L) < 450L) return;
+        lastSeasonSweep.put(player.getUniqueId(), now);
+        Color[] colours = {
+                Color.fromRGB(theme.get().secondary()), Color.fromRGB(theme.get().primary()),
+                Color.fromRGB(theme.get().highlight())
+        };
+        org.bukkit.Location eye = player.getEyeLocation();
+        Vector forward = eye.getDirection().setY(0d);
+        if (forward.lengthSquared() < 0.001d) forward = new Vector(0d, 0d, 1d);
+        forward.normalize();
+        Vector side = new Vector(-forward.getZ(), 0d, forward.getX());
+        for (int point = 0; point <= 12; point++) {
+            double progress = point / 12d;
+            double angle = (progress - 0.5d) * Math.PI * 0.9d;
+            org.bukkit.Location at = eye.clone().add(0d, -0.35d + progress * 0.25d, 0d)
+                    .add(forward.clone().multiply(Math.cos(angle) * 1.6d))
+                    .add(side.clone().multiply(Math.sin(angle) * 1.6d));
+            player.getWorld().spawnParticle(Particle.DUST, at, 1, 0d, 0d, 0d, 0d,
+                    new Particle.DustOptions(colours[Math.min(2, (int) (progress * 3d))], 1.1f));
+        }
+        player.getWorld().playSound(player.getLocation(), Sound.ENTITY_PLAYER_ATTACK_SWEEP, 0.6f, 0.8f);
     }
 
     private ItemStack createTotem() {
@@ -886,6 +971,7 @@ final class AmethystItemService implements Listener {
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
         lastWearTick.remove(event.getPlayer().getUniqueId());
+        lastSeasonSweep.remove(event.getPlayer().getUniqueId());
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)

@@ -1622,6 +1622,10 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         return seasonPass;
     }
 
+    AmethystItemService amethystItems() {
+        return amethystItems;
+    }
+
     LoginStreakService loginStreaks() {
         return loginStreaks;
     }

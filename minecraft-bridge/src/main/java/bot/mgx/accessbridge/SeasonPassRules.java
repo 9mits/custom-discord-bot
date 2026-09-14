@@ -117,13 +117,16 @@ final class SeasonPassRules {
 
     /** Most permanent hearts one tier can grant, whatever a setting says. */
     static final int MAX_HEARTS_PER_TIER = 5;
+    /** Most copies of one crate reward a tier can pay. */
+    static final long MAX_REWARD_COUNT = 16L;
 
     /**
-     * Parses a tier reward such as {@code hearts:1;shards:2;reward:totem_of_undying;cosmetic:season:aura}.
+     * Parses a tier reward such as {@code hearts:1;shards:2;reward:ancient_debris:2;gear:scythe;cosmetic:season:aura}.
      *
      * <p>{@code cosmetic:season:<aura|trail|kill>} names this season's exclusive rather than
      * a fixed id, so one setting pays Season 1's crown in Season 1 and Season 2's in
-     * Season 2. Unknown or malformed parts are skipped rather than failing the whole tier.
+     * Season 2, and {@code gear:<scythe|pickaxe|axe|wings>} does the same for season gear.
+     * Unknown or malformed parts are skipped rather than failing the whole tier.
      * Money is deliberately not a reward kind: its value moves with every economy change.
      */
     static List<Grant> parse(String spec) {
@@ -153,8 +156,20 @@ final class SeasonPassRules {
                         grants.add(new Grant(kind, 1L, lower));
                     }
                 }
+                case "gear" -> SeasonGear.Piece.parse(value).ifPresent(piece ->
+                        grants.add(new Grant("season_gear", 1L, piece.name())));
                 case "reward" -> {
-                    if (!value.isBlank()) grants.add(new Grant(kind, 1L, value.toLowerCase(Locale.ROOT)));
+                    // reward:<id> or reward:<id>:<count>, so a tier can pay a stack.
+                    String[] reward = value.toLowerCase(Locale.ROOT).split(":", 2);
+                    long count = 1L;
+                    if (reward.length == 2) {
+                        try {
+                            count = Math.max(1L, Math.min(MAX_REWARD_COUNT, Long.parseLong(reward[1].strip())));
+                        } catch (NumberFormatException ignored) {
+                            continue;
+                        }
+                    }
+                    if (!reward[0].isBlank()) grants.add(new Grant(kind, count, reward[0].strip()));
                 }
                 default -> {
                     // skipped
