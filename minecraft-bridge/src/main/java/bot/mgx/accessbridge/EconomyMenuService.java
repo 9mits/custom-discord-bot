@@ -1761,6 +1761,9 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         if (rankBonus > 0d && credit > 0L) {
             credit = Math.addExact(credit, Math.round(credit * rankBonus));
         }
+        if (credit > 0L && plugin.seasonPass() != null) {
+            plugin.seasonPass().progress(player, SeasonPassRules.QuestType.SELL_MONEY, credit);
+        }
         return new Sold(player.getUniqueId(), sold, credit, counts);
     }
 

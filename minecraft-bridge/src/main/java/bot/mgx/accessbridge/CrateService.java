@@ -1272,6 +1272,9 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         // Once an opening is over nothing remembers it happened, so "crates opened this
         // week" has to be counted as it occurs rather than derived afterwards.
         plugin.metricCounters().increment(ServerMetrics.CRATES_OPENED, pull);
+        if (plugin.seasonPass() != null) {
+            plugin.seasonPass().progress(player, SeasonPassRules.QuestType.OPEN_CRATES, pull);
+        }
         plugin.metricCounters().increment(ServerMetrics.KEYS_SPENT, cost);
         ServerEvent.Builder builder = ServerEvent.of(
                 "crate_open",

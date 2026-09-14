@@ -1389,6 +1389,46 @@ final class GameVariableStore {
                         + " Stacks with potions and events inside the normal luck ceiling.",
                 15, 0, 50, "percent", false);
 
+        bool("season.enabled", "Season Pass", "Season Pass",
+                "Run the Season Pass: daily and weekly quests, Season XP and tier rewards.", true);
+        integer("season.length-days", "Season length", "Season Pass",
+                "Days a season runs before its top three are paid and the next begins.",
+                42, 7, 365, "days", false);
+        integer("season.tiers", "Season tiers", "Season Pass",
+                "Tiers in the pass. Each pays a reward the moment it is reached.",
+                50, 10, 200, "tiers", false);
+        integer("season.xp-per-tier", "XP per tier", "Season Pass",
+                "Season XP between one tier and the next.", 1_000, 50, 100_000, "xp", false);
+        integer("season.xp-per-active-minute", "XP per active minute", "Season Pass",
+                "Season XP for every non-AFK minute on the server.", 2, 0, 100, "xp", false);
+        integer("season.streak-xp", "XP per streak day", "Season Pass",
+                "Season XP for claiming a daily login streak day.", 100, 0, 10_000, "xp", false);
+        integer("season.first-place-shards", "First place Shards", "Season Pass",
+                "Shards for the highest Season XP when the season ends.", 10, 0, 640, "shards", false);
+        integer("season.second-place-shards", "Second place Shards", "Season Pass",
+                "Shards for second place when the season ends.", 6, 0, 640, "shards", false);
+        integer("season.third-place-shards", "Third place Shards", "Season Pass",
+                "Shards for third place when the season ends.", 3, 0, 640, "shards", false);
+        String rewardFormat = " Parts are separated by ; and read keys:N, shards:N, money:N,"
+                + " cosmetic:<id> or reward:<crate reward id>.";
+        text("season.reward.odd", "Odd tier reward", "Season Pass Rewards",
+                "What each odd tier pays." + rewardFormat, "keys:3", 200);
+        text("season.reward.even", "Even tier reward", "Season Pass Rewards",
+                "What each even tier pays." + rewardFormat, "money:3000", 200);
+        text("season.reward.every-5", "Every 5th tier reward", "Season Pass Rewards",
+                "What tiers 5, 15, 35 and so on pay." + rewardFormat, "keys:6;shards:1", 200);
+        text("season.reward.every-10", "Every 10th tier reward", "Season Pass Rewards",
+                "What tiers 10, 20, 30 and so on pay." + rewardFormat,
+                "keys:12;shards:2;money:20000", 200);
+        text("season.reward.tier-25", "Tier 25 reward", "Season Pass Rewards",
+                "The halfway chase reward." + rewardFormat, "cosmetic:ender_trail;shards:3", 200);
+        text("season.reward.tier-40", "Tier 40 reward", "Season Pass Rewards",
+                "The late-season chase reward." + rewardFormat,
+                "cosmetic:celestial_crown;shards:5", 200);
+        text("season.reward.tier-50", "Tier 50 reward", "Season Pass Rewards",
+                "The final tier's reward." + rewardFormat,
+                "cosmetic:prismatic_trail;shards:10;money:100000", 200);
+
         bool("streaks.enabled", "Daily login streaks", "Login Streaks",
                 "Reward players for playing a few active minutes every UTC day.", true);
         integer("streaks.required-minutes", "Daily streak playtime", "Login Streaks",
