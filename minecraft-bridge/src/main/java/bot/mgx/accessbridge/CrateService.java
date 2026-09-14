@@ -238,6 +238,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     private final Map<UUID, OnlineRewardState> onlineRewardStates = new HashMap<>();
     /** The last tier rendered during this connected session, used to announce upgrades once. */
     private final Map<UUID, Integer> displayedOnlineTiers = new HashMap<>();
+    /** AFK time inside each player's current stay-reward interval. */
+    private final Map<UUID, Long> onlineAfkMillis = new HashMap<>();
     private final Map<UUID, BossBar> keyBars = new HashMap<>();
     private BukkitTask keyBarTask;
     private BukkitTask hourlyTask;
@@ -1524,9 +1526,10 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         Long previous = onlineCreditStarted.remove(player.getUniqueId());
         long now = System.currentTimeMillis();
         if (previous != null && now > previous) {
-            creditOnline(Map.of(player.getUniqueId(), now - previous));
+            creditOnline(Map.of(player.getUniqueId(), afkCredit(player, now - previous)));
         }
         creditOnlineRewardOnQuit(player, now);
+        onlineAfkMillis.remove(player.getUniqueId());
         autoRuns.remove(player.getUniqueId());
         autoTrashed.remove(player.getUniqueId());
         lastRewardTrashed.remove(player.getUniqueId());
@@ -1712,8 +1715,24 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                 Math.addExact(tier.bonusKeys(), onlineBonus), eventMultiplier
         );
         return new OnlineRewardDisplay.Status(
-                tier.number(), keys, onlinePlayers, onlineBonus, intervalMinutes, remaining
+                tier.number(), keys, onlinePlayers, onlineBonus, intervalMinutes, remaining,
+                isAfk(player), variables.integer("online-rewards.afk-key-percent")
         );
+    }
+
+    private boolean isAfk(Player player) {
+        return plugin.afkService() != null && plugin.afkService().isAfk(player.getUniqueId());
+    }
+
+    /**
+     * The pulse's online time as hourly keys see it, and the AFK part of it remembered
+     * for the stay-reward ladder. Active time is credited in full.
+     */
+    private long afkCredit(Player player, long elapsedMillis) {
+        boolean afk = isAfk(player);
+        if (afk) onlineAfkMillis.merge(player.getUniqueId(), elapsedMillis, Long::sum);
+        return AfkRewardShare.creditedMillis(elapsedMillis, afk,
+                variables.integer("online-rewards.afk-key-percent"));
     }
 
     private static long lifetimeOnlineSeconds(Player player) {
@@ -1755,7 +1774,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                 onlineCreditStarted.put(player.getUniqueId(), now);
                 onlineRewardStarted.putIfAbsent(player.getUniqueId(), now);
             } else if (now > previous) {
-                elapsed.put(player.getUniqueId(), now - previous);
+                elapsed.put(player.getUniqueId(), afkCredit(player, now - previous));
             }
         }
         Map<UUID, CrateStore.KeyCredit> credits = creditOnline(elapsed);
@@ -1830,6 +1849,9 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             onlineRewardStates.put(playerId, new OnlineRewardState(startedAt, completed));
             return;
         }
+        double afkShare = AfkRewardShare.share(onlineAfkMillis.getOrDefault(playerId, 0L),
+                Math.max(1L, completed - rewarded) * intervalMillis);
+        if (rewarded < completed) onlineAfkMillis.remove(playerId);
         while (rewarded < completed) {
             long interval = rewarded + 1L;
             long lifetimeAtReward = Math.max(
@@ -1838,7 +1860,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                             * (intervalMillis / 1_000L)
             );
             try {
-                deliverOnlineReward(player, lifetimeAtReward, onlinePlayers);
+                deliverOnlineReward(player, lifetimeAtReward, onlinePlayers, afkShare);
             } catch (ArithmeticException | UncheckedIOException exception) {
                 plugin.getLogger().warning("Could not deliver an online stay reward to "
                         + player.getName() + ": " + exception.getMessage());
@@ -1868,7 +1890,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private void deliverOnlineReward(
-            Player player, long lifetimeOnlineSeconds, int onlinePlayers
+            Player player, long lifetimeOnlineSeconds, int onlinePlayers, double afkShare
     ) {
         GameVariableStore.OnlineRewardTier tier = variables.onlineRewardTier(lifetimeOnlineSeconds);
         int onlineBonus = variables.onlinePopulationBonusKeys(onlinePlayers);
@@ -1879,6 +1901,11 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             keys = Math.multiplyExact(keys, eventMultiplier);
             displayedOnlineBonus = Math.multiplyExact(onlineBonus, eventMultiplier);
         }
+        int afkPercent = variables.integer("online-rewards.afk-key-percent");
+        int fullKeys = keys;
+        keys = AfkRewardShare.keys(keys, afkShare, afkPercent);
+        boolean itemRolls = AfkRewardShare.itemRolls(afkShare,
+                variables.bool("online-rewards.afk-item-rolls"));
 
         List<String> delivered = new ArrayList<>();
         if (keys > 0) {
@@ -1887,10 +1914,10 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             delivered.add(keys + " bonus " + (keys == 1 ? "key" : "keys")
                     + (accepted < keys ? " (banked if inventory is full)" : ""));
         }
-        int emeralds = rollAmount(tier.emeralds(), tier.emeraldOneIn());
-        int diamonds = rollAmount(tier.diamonds(), tier.diamondOneIn());
-        int netherite = rollAmount(tier.netheriteIngots(), tier.netheriteOneIn());
-        int shards = rollAmount(tier.shards(), tier.shardOneIn());
+        int emeralds = itemRolls ? rollAmount(tier.emeralds(), tier.emeraldOneIn()) : 0;
+        int diamonds = itemRolls ? rollAmount(tier.diamonds(), tier.diamondOneIn()) : 0;
+        int netherite = itemRolls ? rollAmount(tier.netheriteIngots(), tier.netheriteOneIn()) : 0;
+        int shards = itemRolls ? rollAmount(tier.shards(), tier.shardOneIn()) : 0;
         giveOnlineRewardItem(player, Material.EMERALD, emeralds, delivered, "emerald");
         giveOnlineRewardItem(player, Material.DIAMOND, diamonds, delivered, "diamond");
         giveOnlineRewardItem(player, Material.NETHERITE_INGOT, netherite, delivered, "netherite ingot");
@@ -1908,6 +1935,10 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         }
         if (delivered.isEmpty()) {
             delivered.add("progress toward the next tier");
+        }
+        if (keys < fullKeys || !itemRolls) {
+            delivered.add("reduced for AFK time (" + afkPercent + "% keys"
+                    + (itemRolls ? "" : ", no item rolls") + ")");
         }
         // One persistent line per connected interval is the receipt for the whole ladder.
         player.sendMessage(PlayerMenuService.prefix()
@@ -1976,6 +2007,13 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                     + exception.getMessage());
             return null;
         }
+    }
+
+    /** Banks keys earned elsewhere and hands over whatever fits, like hourly keys. */
+    int grantKeys(Player player, int keys) {
+        if (keys <= 0) return 0;
+        store.bankKeys(player.getUniqueId(), keys);
+        return deliverBankedKeys(player, false);
     }
 
     private int deliverBankedKeys(Player player, boolean notify) {

@@ -248,6 +248,11 @@ final class SidebarService {
                 rows.add(Row.important("Rank", profile.rankLabel(), TextColor.color(profile.rankColour())));
             }
             rows.add(Row.important("Server Level", String.valueOf(profile.level()), NamedTextColor.GREEN));
+            LoginStreakService streaks = plugin.loginStreaks();
+            int streak = streaks == null ? 0 : streaks.liveStreak(playerId);
+            if (streak > 0) {
+                rows.add(Row.important("Streak", streak + (streak == 1 ? " day" : " days"), ORANGE));
+            }
             // The total, not just the level half: level hearts and clan hearts are two
             // separate attribute modifiers that stack in game, so reporting one of them
             // understated what the player was actually carrying. The tab list breaks out
