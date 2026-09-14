@@ -87,7 +87,7 @@
   var PAGE_INTROS = {
     crates: "What each crate can give and how often. The tables below are the whole reward pool — every row is something a player can open and receive.",
     airdrops: "How often Airdrops arrive, how far out they land, and what is inside. Rarity is rolled first, then the contents for that rarity.",
-    online_rewards: "What players get for staying connected. Six tiers, reached by lifetime hours played, each with its own rewards and chances.",
+    online_rewards: "What players get for staying connected: bonus keys and AFK Crate openings. Six tiers, reached by lifetime hours played.",
     amethyst_blocks: "Every cooperative Amethyst Block tier: its size, health, rarity, payout, effects, and presentation.",
     dragon_event: "The complete Amethyst Dragon schedule, arena, fight, rewards, portal, effects, mobs, crate phase, and presentation.",
     admin_events: "What the events you trigger by hand are worth. These do not happen on their own.",

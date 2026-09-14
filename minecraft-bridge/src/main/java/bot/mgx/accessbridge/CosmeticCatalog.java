@@ -688,7 +688,7 @@ final class CosmeticCatalog {
                         DRAGON_REWARDS.stream(), HIDDEN_DRAGON_REWARDS.stream(),
                         CLAN_BATTLE_REWARDS.stream(), DRAGON_CLAN_REWARDS.stream(),
                         LEADERBOARD_REWARDS.stream(), DRAGON_LEADERBOARD_REWARDS.stream(),
-                        SeasonCosmetics.definitions().stream()
+                        SeasonCosmetics.definitions().stream(), CrateCosmetics.definitions().stream()
                 )
                 .flatMap(stream -> stream)
                 .toList();

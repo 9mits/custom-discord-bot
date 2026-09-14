@@ -33,11 +33,6 @@ final class AfkRewardShare {
         return (int) Math.round(keys * kept);
     }
 
-    /** Whether an interval may roll emeralds, diamonds, netherite and Shards. */
-    static boolean itemRolls(double afkShare, boolean afkMayRollItems) {
-        return afkMayRollItems || afkShare < 0.5d;
-    }
-
     private static int clampPercent(int percent) {
         return Math.max(0, Math.min(100, percent));
     }

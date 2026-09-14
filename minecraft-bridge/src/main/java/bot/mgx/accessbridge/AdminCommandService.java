@@ -745,6 +745,16 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 success(sender, "Gave " + what + " to " + describeTargets(targets, count) + ".");
                 audit(sender, targets, what, count);
             }
+            case DAILY_OPENINGS, AFK_OPENINGS -> {
+                int amount = (int) request.amount();
+                boolean daily = request.type() == AdminGive.Type.DAILY_OPENINGS;
+                if (crates.passes() == null) throw new IllegalArgumentException("Crate openings are unavailable.");
+                int count = forEachTarget(targets, player -> crates.passes().refund(player.getUniqueId(),
+                        daily ? CratePassStore.Pass.DAILY : CratePassStore.Pass.AFK, amount));
+                String what = amount + (daily ? " Daily" : " AFK") + " Crate " + (amount == 1 ? "opening" : "openings");
+                success(sender, "Gave " + what + " to " + describeTargets(targets, count) + ".");
+                audit(sender, targets, what, count);
+            }
             case SHARD -> {
                 int amount = (int) request.amount();
                 int count = forEachTarget(targets, player -> hand(player, crateItems.shard(amount)));

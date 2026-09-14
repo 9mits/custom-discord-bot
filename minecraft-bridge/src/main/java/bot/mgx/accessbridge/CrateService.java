@@ -83,6 +83,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     private static final int SELECT_DEFAULT_SLOT = 11;
     private static final int SELECT_SHARD_SLOT = 13;
     private static final int SELECT_AMETHYST_SLOT = 15;
+    private static final int SELECT_DAILY_SLOT = 21;
+    private static final int SELECT_AFK_SLOT = 23;
     /** A countdown that only redraws when a screen opens is a timestamp, not a timer. */
     private static final long COUNTDOWN_TICKS = 20L;
 
@@ -277,6 +279,20 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         this.clanBattles = clanBattles;
     }
 
+    private CratePassStore passes;
+
+    void usePasses(CratePassStore passes) {
+        this.passes = passes;
+    }
+
+    CratePassStore passes() {
+        return passes;
+    }
+
+    private static CratePassStore.Pass pass(CrateKind kind) {
+        return kind.currency() == CrateKind.Currency.DAILY ? CratePassStore.Pass.DAILY : CratePassStore.Pass.AFK;
+    }
+
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         args = CommandArgs.withoutEchoedSender(sender.getName(), args);
@@ -346,7 +362,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         if (args.length == 2 && (args[0].equalsIgnoreCase("open")
                 || args[0].equalsIgnoreCase("odds"))) {
             String prefix = args[1].toLowerCase(Locale.ROOT);
-            return Stream.of("default", "amethyst", "shard")
+            return Stream.of("default", "amethyst", "shard", "daily", "afk")
                     .filter(value -> value.startsWith(prefix))
                     .toList();
         }
@@ -407,6 +423,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         inventory.setItem(SELECT_DEFAULT_SLOT, selectButton(CrateKind.DEFAULT, oddsOnly, now));
         inventory.setItem(SELECT_SHARD_SLOT, selectButton(CrateKind.SHARD, oddsOnly, now));
         inventory.setItem(SELECT_AMETHYST_SLOT, selectButton(CrateKind.AMETHYST, oddsOnly, now));
+        inventory.setItem(SELECT_DAILY_SLOT, selectButton(CrateKind.DAILY, oddsOnly, now));
+        inventory.setItem(SELECT_AFK_SLOT, selectButton(CrateKind.AFK, oddsOnly, now));
         MenuItems.show(plugin, player, inventory);
     }
 
@@ -670,6 +688,10 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             return;
         }
         int luck = specialItems.crateLuckPercent(player);
+        if (kind == CrateKind.DAILY) {
+            // A long streak is the Daily Crate's own luck: it stacks with a potion.
+            luck = CrateCatalog.clampLuckPercent((int) Math.round(luck * (100 + streakLuck(player)) / 100d));
+        }
         // The balancer steers the realised rare rate back towards the published one. It is
         // composed with the player's own luck rather than replacing it, so a potion still
         // does exactly what its lore says on top of whatever the table currently needs.
@@ -1286,8 +1308,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                         + (pull == 1 ? "the " : pull + "x the ") + kind.displayName())
                 .detail("crate", kind.displayName())
                 .detail("openings", pull)
-                .detail(kind.currency() == CrateKind.Currency.SHARD
-                        ? "shards_spent" : "keys_spent", cost);
+                .detail(kind.currency() == CrateKind.Currency.SHARD ? "shards_spent"
+                        : kind.currency().pass() ? "openings_spent" : "keys_spent", cost);
         if (luck != CrateCatalog.NO_LUCK_PERCENT) {
             builder.detail("crate_luck", luck + "%");
         }
@@ -1363,6 +1385,13 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                     openOdds(player, CrateKind.DEFAULT, 1, true);
                 } else {
                     openKindHub(player, CrateKind.DEFAULT);
+                }
+            } else if (event.getSlot() == SELECT_DAILY_SLOT || event.getSlot() == SELECT_AFK_SLOT) {
+                CrateKind chosen = event.getSlot() == SELECT_DAILY_SLOT ? CrateKind.DAILY : CrateKind.AFK;
+                if (oddsOnly) {
+                    openOdds(player, chosen, 1, true);
+                } else {
+                    openKindHub(player, chosen);
                 }
             } else if (event.getSlot() == SELECT_SHARD_SLOT) {
                 if (oddsOnly) {
@@ -1907,8 +1936,6 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         int afkPercent = variables.integer("online-rewards.afk-key-percent");
         int fullKeys = keys;
         keys = AfkRewardShare.keys(keys, afkShare, afkPercent);
-        boolean itemRolls = AfkRewardShare.itemRolls(afkShare,
-                variables.bool("online-rewards.afk-item-rolls"));
 
         List<String> delivered = new ArrayList<>();
         if (keys > 0) {
@@ -1917,31 +1944,23 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             delivered.add(keys + " bonus " + (keys == 1 ? "key" : "keys")
                     + (accepted < keys ? " (banked if inventory is full)" : ""));
         }
-        int emeralds = itemRolls ? rollAmount(tier.emeralds(), tier.emeraldOneIn()) : 0;
-        int diamonds = itemRolls ? rollAmount(tier.diamonds(), tier.diamondOneIn()) : 0;
-        int netherite = itemRolls ? rollAmount(tier.netheriteIngots(), tier.netheriteOneIn()) : 0;
-        int shards = itemRolls ? rollAmount(tier.shards(), tier.shardOneIn()) : 0;
-        giveOnlineRewardItem(player, Material.EMERALD, emeralds, delivered, "emerald");
-        giveOnlineRewardItem(player, Material.DIAMOND, diamonds, delivered, "diamond");
-        giveOnlineRewardItem(player, Material.NETHERITE_INGOT, netherite, delivered, "netherite ingot");
-        if (shards > 0) {
-            giveOnlineRewardStack(player, items.shard(shards));
-            delivered.add(shards + " " + (shards == 1 ? "Shard" : "Shards"));
-            ServerEvent.of(
-                    "online_shard_reward", ServerEvent.CATEGORY_CRATE,
-                    player.getUniqueId(), player.getName(), plugin::recordServerEvent
-            ).summary(player.getName() + " earned an exceptionally rare online Shard")
-                    .detail("Online tier", tier.number())
-                    .detail("Lifetime online hours", lifetimeOnlineSeconds / 3_600L)
-                    .detail("Online players", onlinePlayers)
-                    .record();
+        // The AFK Crate is the AFK reward, so time spent AFK earns its openings in full.
+        int openings = tier.afkOpenings();
+        if (openings > 0 && passes != null) {
+            int cap = variables.integer("crate.afk.bank-cap");
+            int added = passes.add(player.getUniqueId(), CratePassStore.Pass.AFK, openings, cap);
+            if (added > 0) {
+                delivered.add(added + " AFK Crate " + (added == 1 ? "opening" : "openings"));
+            }
+            if (added < openings) {
+                delivered.add("AFK Crate openings full (" + cap + "), open some with /crate");
+            }
         }
         if (delivered.isEmpty()) {
             delivered.add("progress toward the next tier");
         }
-        if (keys < fullKeys || !itemRolls) {
-            delivered.add("reduced for AFK time (" + afkPercent + "% keys"
-                    + (itemRolls ? "" : ", no item rolls") + ")");
+        if (keys < fullKeys) {
+            delivered.add("keys reduced for AFK time (" + afkPercent + "%)");
         }
         // One persistent line per connected interval is the receipt for the whole ladder.
         player.sendMessage(PlayerMenuService.prefix()
@@ -1952,35 +1971,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                 .append(Component.text(onlinePlayers + " online added " + displayedOnlineBonus
                         + " bonus " + (displayedOnlineBonus == 1 ? "key" : "keys") + ".",
                         NamedTextColor.GRAY)));
-        player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP,
-                0.8f, shards > 0 ? 1.7f : 1.25f);
-    }
-
-    private static int rollAmount(int amount, int oneIn) {
-        if (amount <= 0) {
-            return 0;
-        }
-        return ThreadLocalRandom.current().nextInt(Math.max(1, oneIn)) == 0 ? amount : 0;
-    }
-
-    private void giveOnlineRewardItem(
-            Player player, Material material, int amount, List<String> delivered, String name
-    ) {
-        if (amount <= 0) {
-            return;
-        }
-        for (int portion : StackSplit.portions(amount, material.getMaxStackSize())) {
-            giveOnlineRewardStack(player, new ItemStack(material, portion));
-        }
-        delivered.add(amount + " " + name + (amount == 1 ? "" : "s"));
-    }
-
-    private static void giveOnlineRewardStack(Player player, ItemStack stack) {
-        player.getInventory().addItem(stack).values().forEach(overflow -> {
-            Item drop = player.getWorld().dropItemNaturally(player.getLocation(), overflow);
-            drop.setOwner(player.getUniqueId());
-            drop.setPickupDelay(0);
-        });
+        player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 0.8f, 1.25f);
     }
 
     /** What an hour online is worth to this player, before any live event. */
@@ -2060,11 +2051,20 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         return delivered;
     }
 
+    /** The Daily Crate's rare-weight bonus, in percent, for the streak a player holds. */
+    int streakLuck(Player player) {
+        if (plugin.loginStreaks() == null) return 0;
+        int streak = plugin.loginStreaks().liveStreak(player.getUniqueId());
+        return Math.min(variables.integer("crate.daily.streak-luck-maximum"),
+                streak * variables.integer("crate.daily.streak-luck-per-day"));
+    }
+
     private long currencyCount(Player player, CrateKind kind) {
         return switch (kind.currency()) {
             case SHARD -> items.countShards(player);
             case KEY -> items.countMysteryKeys(player);
             case TOKEN -> items.count(player);
+            case DAILY, AFK -> passes == null ? 0 : passes.count(player.getUniqueId(), pass(kind));
         };
     }
 
@@ -2073,19 +2073,26 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             case SHARD -> items.removeShards(player, count);
             case KEY -> items.removeMysteryKeys(player, count);
             case TOKEN -> items.remove(player, count);
+            case DAILY, AFK -> passes == null ? 0 : passes.take(player.getUniqueId(), pass(kind), count);
         };
     }
 
+    /** What stands for a crate's currency on its screens. Openings are shown, never handed out. */
     private ItemStack currencyItem(CrateKind kind, int count) {
         return switch (kind.currency()) {
             case SHARD -> items.shard(count);
             case KEY -> items.mysteryKey(count);
             case TOKEN -> items.token(count);
+            case DAILY, AFK -> new ItemStack(kind.icon(), Math.max(1, Math.min(99, count)));
         };
     }
 
     private void returnCurrency(Player player, CrateKind kind, int count) {
         if (count <= 0) {
+            return;
+        }
+        if (kind.currency().pass()) {
+            if (passes != null) passes.refund(player.getUniqueId(), pass(kind), count);
             return;
         }
         if (kind.currency() == CrateKind.Currency.TOKEN && items.giveKeys(player, count)) return;
@@ -2178,6 +2185,20 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     /** The key tile on a crate's own screen, carrying that crate's countdown. */
     private ItemStack hubKeys(Player player, CrateKind kind, long now) {
         String held = "In inventory: " + currencyCount(player, kind);
+        if (kind == CrateKind.DAILY) {
+            int luck = streakLuck(player);
+            return named(currencyItem(kind, 1), "Your Daily Openings",
+                    "Openings: " + currencyCount(player, kind) + " / " + variables.integer("crate.daily.bank-cap"),
+                    "Earned by claiming your daily login streak.",
+                    luck > 0 ? "Streak luck: +" + luck + "% rare rewards" : "Build a streak for bonus luck.",
+                    "No keys needed.");
+        }
+        if (kind == CrateKind.AFK) {
+            return named(currencyItem(kind, 1), "Your AFK Openings",
+                    "Openings: " + currencyCount(player, kind) + " / " + variables.integer("crate.afk.bank-cap"),
+                    "Earned every online reward interval, AFK or not.",
+                    "No keys needed.");
+        }
         if (!kind.limited()) {
             return named(
                     currencyItem(kind, 1),

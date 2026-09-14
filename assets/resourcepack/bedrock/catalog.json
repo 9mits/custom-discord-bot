@@ -128,6 +128,19 @@
     {"java_item": "minecraft:netherite_sword", "model": "mgx:season_4_scythe", "bedrock_identifier": "mgx:season_4_scythe", "display_name": "Eclipse Scythe"},
     {"java_item": "minecraft:netherite_pickaxe", "model": "mgx:season_4_pickaxe", "bedrock_identifier": "mgx:season_4_pickaxe", "display_name": "Eclipse Pickaxe"},
     {"java_item": "minecraft:netherite_axe", "model": "mgx:season_4_axe", "bedrock_identifier": "mgx:season_4_axe", "display_name": "Eclipse Axe"},
-    {"java_item": "minecraft:elytra", "model": "mgx:season_4_wings", "bedrock_identifier": "mgx:season_4_wings", "display_name": "Eclipse Wings"}
+    {"java_item": "minecraft:elytra", "model": "mgx:season_4_wings", "bedrock_identifier": "mgx:season_4_wings", "display_name": "Eclipse Wings"},
+    {"java_item": "minecraft:diamond_pickaxe", "model": "mgx:veinseeker_pickaxe", "bedrock_identifier": "mgx:veinseeker_pickaxe", "display_name": "Veinseeker Pickaxe"},
+    {"java_item": "minecraft:diamond_shovel", "model": "mgx:magnetite_shovel", "bedrock_identifier": "mgx:magnetite_shovel", "display_name": "Magnetite Shovel"},
+    {"java_item": "minecraft:diamond_sword", "model": "mgx:bloodthirst_blade", "bedrock_identifier": "mgx:bloodthirst_blade", "display_name": "Bloodthirst Blade"},
+    {"java_item": "minecraft:bow", "model": "mgx:frostbite_bow", "bedrock_identifier": "mgx:frostbite_bow", "display_name": "Frostbite Bow"},
+    {"java_item": "minecraft:diamond_hoe", "model": "mgx:verdant_sickle", "bedrock_identifier": "mgx:verdant_sickle", "display_name": "Verdant Sickle"},
+    {"java_item": "minecraft:diamond_helmet", "model": "mgx:lantern_helm", "bedrock_identifier": "mgx:lantern_helm", "display_name": "Lantern Helm"},
+    {"java_item": "minecraft:diamond_boots", "model": "mgx:cloudstrider_boots", "bedrock_identifier": "mgx:cloudstrider_boots", "display_name": "Cloudstrider Boots"},
+    {"java_item": "minecraft:orange_tulip", "model": "mgx:cosmetic/dawnbreak_aura", "bedrock_identifier": "mgx:cosmetic_dawnbreak_aura", "display_name": "Dawnbreak Orbit"},
+    {"java_item": "minecraft:honeycomb", "model": "mgx:cosmetic/dawnbreak_trail", "bedrock_identifier": "mgx:cosmetic_dawnbreak_trail", "display_name": "Dawnbreak Helix"},
+    {"java_item": "minecraft:copper_ingot", "model": "mgx:cosmetic/dawnbreak_kill", "bedrock_identifier": "mgx:cosmetic_dawnbreak_kill", "display_name": "Dawnbreak Shockwave"},
+    {"java_item": "minecraft:phantom_membrane", "model": "mgx:cosmetic/dreamdrift_aura", "bedrock_identifier": "mgx:cosmetic_dreamdrift_aura", "display_name": "Dreamdrift Orbit"},
+    {"java_item": "minecraft:feather", "model": "mgx:cosmetic/dreamdrift_trail", "bedrock_identifier": "mgx:cosmetic_dreamdrift_trail", "display_name": "Dreamdrift Helix"},
+    {"java_item": "minecraft:ender_pearl", "model": "mgx:cosmetic/dreamdrift_kill", "bedrock_identifier": "mgx:cosmetic_dreamdrift_kill", "display_name": "Dreamdrift Shockwave"}
   ]
 }

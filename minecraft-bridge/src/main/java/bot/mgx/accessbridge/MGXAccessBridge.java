@@ -102,6 +102,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private SentinelService sentinel;
     private CosmeticItems cosmeticItemsForSentinel;
     private AmethystItemService amethystItems;
+    private RelicItemService relics;
     private AmethystDragonService amethystDragon;
     private CrateDisplayService crateDisplays;
     private ActivityLogService activityLog;
@@ -637,6 +638,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         );
         amethystItems = new AmethystItemService(this);
         SpecialItemService specialItems = new SpecialItemService(this, amethystItems);
+        relics = new RelicItemService(this);
+        specialItems.useRelics(relics);
         crateItems = new CrateItems(this, cosmeticStore, specialItems, gameVariables);
         clanBattles = new ClanBattleService(
                 this, clanBattleStore, clanStore, crateItems, cosmeticStore,
@@ -670,6 +673,11 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 crateOdds,
                 gameVariables
         );
+        try {
+            crates.usePasses(new CratePassStore(getDataFolder().toPath().resolve("crate-openings.json")));
+        } catch (IOException exception) {
+            getLogger().severe("Daily and AFK Crate openings are unavailable: " + exception.getMessage());
+        }
         amethystMobs = new AmethystMobService(
                 this, crateItems, java.util.concurrent.ThreadLocalRandom.current(), gameVariables
         );
@@ -710,6 +718,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(amethystMobs, this);
         getServer().getPluginManager().registerEvents(specialItems, this);
         getServer().getPluginManager().registerEvents(amethystItems, this);
+        getServer().getPluginManager().registerEvents(relics, this);
         getServer().getPluginManager().registerEvents(amethystDragon, this);
         // Registered after every custom weapon modifier. The damage cap sees the
         // value a victim would really receive, then the competition handler records
@@ -1052,6 +1061,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         amethystDragon.start();
         amethystMobs.start();
         amethystItems.start();
+        relics.start();
         amethystShop.start();
         crateDisplays.refresh();
         cosmeticEffects.start();

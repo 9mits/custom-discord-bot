@@ -60,18 +60,12 @@ final class GameVariableStore {
         }
     }
 
+    /** One rung of the stay-online ladder: bonus keys and AFK Crate openings per interval. */
     record OnlineRewardTier(
             int number,
             int minimumHours,
             int bonusKeys,
-            int emeralds,
-            int emeraldOneIn,
-            int diamonds,
-            int diamondOneIn,
-            int netheriteIngots,
-            int netheriteOneIn,
-            int shards,
-            int shardOneIn
+            int afkOpenings
     ) { }
 
     private final Path file;
@@ -1028,6 +1022,21 @@ final class GameVariableStore {
                 "Shards consumed by one Shard Crate opening.", CrateKind.SHARD.keyCost(), 1, 64, "shards", false);
         integer("crate.dragon.key-cost", "Dragon crate key cost", "Crates",
                 "Keys consumed by one Dragon Crate opening.", CrateKind.DRAGON.keyCost(), 1, 64, "keys", false);
+        integer("crate.daily.key-cost", "Daily crate opening cost", "Crates",
+                "Daily openings consumed by one Daily Crate opening.", CrateKind.DAILY.keyCost(), 1, 64, "openings", false);
+        integer("crate.afk.key-cost", "AFK crate opening cost", "Crates",
+                "AFK openings consumed by one AFK Crate opening.", CrateKind.AFK.keyCost(), 1, 64, "openings", false);
+        integer("crate.daily.bank-cap", "Daily openings held", "Crates",
+                "Most Daily Crate openings a player can bank. Openings past it are lost, so a"
+                        + " streak has to be spent rather than hoarded.", 7, 1, 365, "openings", false);
+        integer("crate.afk.bank-cap", "AFK openings held", "Crates",
+                "Most AFK Crate openings a player can bank.", 24, 1, 1_000, "openings", false);
+        integer("crate.daily.streak-luck-per-day", "Streak luck per day", "Crates",
+                "Extra rare-reward weight in the Daily Crate for each day of a live login streak.",
+                5, 0, 100, "percent", false);
+        integer("crate.daily.streak-luck-maximum", "Streak luck ceiling", "Crates",
+                "Most extra rare-reward weight a login streak can add to the Daily Crate.",
+                50, 0, 200, "percent", false);
         integer("crate.keys-per-hour", "Keys per online hour", "Crates",
                 "Ordinary keys earned for each completed online hour.", CrateService.KEYS_PER_HOUR, 1, 256, "keys", false);
         integer("crate.key-stack-size", "Keys per stack", "Crates",
@@ -1517,27 +1526,13 @@ final class GameVariableStore {
                 "Most streak freezes a player can hold. One is earned every 7th day and"
                         + " covers one missed day. Zero turns freezes off.",
                 2, 0, 7, "freezes", false);
-        integer("streaks.milestone-every-days", "Streak milestone", "Login Streaks",
-                "Every this many streak days pays the milestone Shards on top. Zero turns it off.",
-                30, 0, 365, "days", false);
-        integer("streaks.milestone-shards", "Milestone Shards", "Login Streaks",
-                "Extra Shards paid on each streak milestone day.", 5, 0, 64, "shards", false);
-        // keys, shards, then a crate reward id. Never money: see the Season Pass rewards.
-        int[][] streakDays = {{2, 0}, {3, 0}, {4, 0}, {5, 0}, {6, 1}, {7, 0}, {10, 3}};
-        String[] streakPotions = {"", "", "fortune_potion_ii", "", "", "crate_luck_ii", "crate_luck_iii"};
-        for (int day = 1; day <= streakDays.length; day++) {
-            String base = "streaks.day-" + day + ".";
-            String category = "Login Streak Day " + day;
-            integer(base + "keys", "Keys", category,
-                    "Mysterious Crate Keys for claiming day " + day + " of the 7-day cycle.",
-                    streakDays[day - 1][0], 0, 256, "keys", false);
-            integer(base + "shards", "Shards", category,
-                    "Shards for claiming day " + day + " of the 7-day cycle.",
-                    streakDays[day - 1][1], 0, 64, "shards", false);
-            text(base + "reward", "Crate reward", category,
-                    "A crate reward id, such as a potion, for claiming day " + day
-                            + " of the 7-day cycle. Blank for none.",
-                    streakPotions[day - 1], 64);
+        // Every streak day pays Daily Crate openings. The crate is the reward: no keys to
+        // inflate, and the openings only exist for somebody who keeps coming back.
+        int[] streakOpenings = {1, 1, 1, 2, 1, 2, 3};
+        for (int day = 1; day <= streakOpenings.length; day++) {
+            integer("streaks.day-" + day + ".openings", "Daily Crate openings", "Login Streak Day " + day,
+                    "Daily Crate openings for claiming day " + day + " of the 7-day cycle.",
+                    streakOpenings[day - 1], 0, 20, "openings", false);
         }
 
         bool("referrals.enabled", "Referral rewards", "Referrals",
@@ -2101,27 +2096,19 @@ final class GameVariableStore {
                 "Share of hourly keys and stay-ladder bonus keys that AFK time earns. Active"
                         + " time always earns the full amount.",
                 25, 0, 100, "percent", false);
-        bool("online-rewards.afk-item-rolls", "AFK hours roll items", "Online Rewards",
-                "Whether an interval spent mostly AFK may still roll emeralds, diamonds,"
-                        + " netherite and Shards.", false);
 
-        // Rebalanced so leaving the game running is no longer the best income on the
-        // server: fewer bonus keys, and ores that are a treat rather than a salary.
-        defineOnlineRewardTier(1, 1, 0, 0, 1, 0, 1, 0, 1, 0, 1);
-        defineOnlineRewardTier(2, 3, 1, 1, 3, 0, 1, 0, 1, 0, 1);
-        defineOnlineRewardTier(3, 6, 1, 1, 2, 1, 8, 0, 1, 0, 1);
-        defineOnlineRewardTier(4, 12, 2, 1, 2, 1, 4, 0, 1, 0, 1);
-        defineOnlineRewardTier(5, 24, 2, 2, 2, 1, 3, 1, 72, 0, 1);
-        // Passive Shards must remain far rarer than active event rewards. They start
-        // only after 72 lifetime online hours, then average one per 5,000 hourly rolls.
-        defineOnlineRewardTier(6, 72, 3, 2, 2, 1, 2, 1, 96, 1, 5_000);
+        // Stripped down to keys, event tokens and the AFK Crate. Ores and Shards rolled
+        // straight into the inventory made leaving the game running a salary; now an hour
+        // online pays openings of a crate whose table the owner can see and tune.
+        defineOnlineRewardTier(1, 1, 0, 1);
+        defineOnlineRewardTier(2, 3, 1, 1);
+        defineOnlineRewardTier(3, 6, 1, 1);
+        defineOnlineRewardTier(4, 12, 2, 1);
+        defineOnlineRewardTier(5, 24, 2, 2);
+        defineOnlineRewardTier(6, 72, 3, 2);
     }
 
-    private void defineOnlineRewardTier(
-            int tier, int minimumHours, int bonusKeys,
-            int emeralds, int emeraldOneIn, int diamonds, int diamondOneIn,
-            int netherite, int netheriteOneIn, int shards, int shardOneIn
-    ) {
+    private void defineOnlineRewardTier(int tier, int minimumHours, int bonusKeys, int afkOpenings) {
         String base = "online-rewards.tier." + tier + ".";
         String category = "Online Tier " + tier;
         integer(base + "minimum-hours", "Minimum lifetime playtime", category,
@@ -2130,22 +2117,9 @@ final class GameVariableStore {
         integer(base + "bonus-keys", "Bonus keys", category,
                 "Keys added by this online tier before the population bonus.",
                 bonusKeys, 0, 1_024, "keys", false);
-        rewardRoll(base, category, "emerald", "Emeralds", emeralds, emeraldOneIn, 2_304);
-        rewardRoll(base, category, "diamond", "Diamonds", diamonds, diamondOneIn, 2_304);
-        rewardRoll(base, category, "netherite", "Netherite Ingots", netherite, netheriteOneIn, 64);
-        rewardRoll(base, category, "shard", "Shards", shards, shardOneIn, 64);
-    }
-
-    private void rewardRoll(
-            String base, String category, String key, String label,
-            int amount, int oneIn, int maximumAmount
-    ) {
-        integer(base + key + "-amount", label, category,
-                label + " delivered when this tier's roll succeeds. Zero disables the reward.",
-                amount, 0, maximumAmount, "items", false);
-        integer(base + key + "-one-in", label + " chance", category,
-                "One successful " + label + " roll in this many online stay rewards.",
-                oneIn, 1, 100_000_000, "one in", key.equals("shard"));
+        integer(base + "afk-openings", "AFK Crate openings", category,
+                "AFK Crate openings paid each online interval at this tier, AFK or not.",
+                afkOpenings, 0, 20, "openings", false);
     }
 
     private void defineEventRewards(FileConfiguration config) {
@@ -2863,14 +2837,7 @@ final class GameVariableStore {
                 tier,
                 integer(base + "minimum-hours"),
                 integer(base + "bonus-keys"),
-                integer(base + "emerald-amount"),
-                integer(base + "emerald-one-in"),
-                integer(base + "diamond-amount"),
-                integer(base + "diamond-one-in"),
-                integer(base + "netherite-amount"),
-                integer(base + "netherite-one-in"),
-                integer(base + "shard-amount"),
-                integer(base + "shard-one-in")
+                integer(base + "afk-openings")
         );
     }
 
@@ -2910,7 +2877,7 @@ final class GameVariableStore {
                 && random.nextInt(integer("dragon-crate.secret-one-in")) == 0) {
             return CrateCatalog.cosmetic(CosmeticCatalog.hiddenDragonRewards().getFirst());
         }
-        if (kind != CrateKind.DEFAULT
+        if ((kind == CrateKind.AMETHYST || kind == CrateKind.SHARD || kind == CrateKind.DRAGON)
                 && random.nextInt(integer("crate.hidden-amethyst-one-in")) == 0) {
             return CrateCatalog.hiddenAmethystAt(0).orElseThrow();
         }

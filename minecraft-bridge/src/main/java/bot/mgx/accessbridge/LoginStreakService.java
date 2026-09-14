@@ -27,7 +27,9 @@ import static bot.mgx.accessbridge.MenuItems.ORANGE;
 
 /**
  * Daily login streaks: play a few active minutes each UTC day to claim that day's
- * reward, and keep coming back to climb the seven-day cycle.
+ * Daily Crate openings, and keep coming back to climb the seven-day cycle. The Daily
+ * Crate needs no key; its openings, and the luck a long streak adds to it, are the
+ * whole reward.
  *
  * <p>The claim needs real play rather than a login, so an account that joins and leaves
  * earns nothing, and one claim per day is shared by every account on a Discord link.
@@ -141,7 +143,15 @@ final class LoginStreakService implements Listener, CommandExecutor {
         player.playSound(player, Sound.UI_TOAST_CHALLENGE_COMPLETE, 0.8f, 1.2f);
         player.sendMessage(Component.empty());
         player.sendMessage(Component.text("DAILY STREAK — DAY " + streak, ORANGE, TextDecoration.BOLD));
-        player.sendMessage(Component.text("Reward: " + reward.describe(), NamedTextColor.WHITE));
+        player.sendMessage(Component.text("Reward: " + reward.describe() + "  •  open them with /crate",
+                NamedTextColor.WHITE));
+        if (plugin.crateService() != null) {
+            int luck = plugin.crateService().streakLuck(player);
+            if (luck > 0) {
+                player.sendMessage(Component.text("Streak luck: +" + luck + "% rare Daily Crate rewards.",
+                        NamedTextColor.GOLD));
+            }
+        }
         if (claim.freezesUsed() > 0) {
             player.sendMessage(Component.text(claim.freezesUsed() + " streak freeze"
                     + (claim.freezesUsed() == 1 ? " covered the day" : "s covered the days")
@@ -177,38 +187,26 @@ final class LoginStreakService implements Listener, CommandExecutor {
     // ------------------------------------------------------------------ rewards
 
     /** One day's reward, read from settings so the owner can retune the cycle live. */
-    record Reward(int keys, int shards, String crateReward, int bonusShards) {
+    record Reward(int openings) {
         String describe() {
-            List<String> parts = new ArrayList<>();
-            if (keys > 0) parts.add(keys + (keys == 1 ? " Key" : " Keys"));
-            int allShards = shards + bonusShards;
-            if (allShards > 0) parts.add(allShards + (allShards == 1 ? " Shard" : " Shards"));
-            CrateCatalog.find(crateReward).ifPresent(reward -> parts.add(reward.displayName()));
-            return parts.isEmpty() ? "Streak progress" : String.join(" + ", parts);
+            return openings <= 0 ? "Streak progress"
+                    : openings + " Daily Crate " + (openings == 1 ? "opening" : "openings");
         }
     }
 
     Reward reward(int cycleDay, int streak) {
-        String base = "streaks.day-" + cycleDay + ".";
-        int milestoneEvery = variables.integer("streaks.milestone-every-days");
-        int bonus = milestoneEvery > 0 && streak % milestoneEvery == 0
-                ? variables.integer("streaks.milestone-shards") : 0;
-        return new Reward(variables.integer(base + "keys"), variables.integer(base + "shards"),
-                variables.string(base + "reward"), bonus);
+        return new Reward(variables.integer("streaks.day-" + cycleDay + ".openings"));
     }
 
     private void pay(Player player, Reward reward) {
-        if (reward.keys() > 0 && plugin.crateService() != null) {
-            plugin.crateService().grantKeys(player, reward.keys());
+        CratePassStore passes = plugin.crateService() == null ? null : plugin.crateService().passes();
+        if (reward.openings() <= 0 || passes == null) return;
+        int cap = variables.integer("crate.daily.bank-cap");
+        int added = passes.add(player.getUniqueId(), CratePassStore.Pass.DAILY, reward.openings(), cap);
+        if (added < reward.openings()) {
+            error(player, "You already hold " + cap + " Daily Crate openings, so "
+                    + (reward.openings() - added) + " could not be banked. Open some with /crate.");
         }
-        int shards = reward.shards() + reward.bonusShards();
-        for (int left = shards; left > 0; left -= 64) {
-            player.getInventory().addItem(items.shard(Math.min(64, left))).values()
-                    .forEach(spill -> player.getWorld().dropItemNaturally(player.getLocation(), spill));
-        }
-        CrateCatalog.find(reward.crateReward()).filter(found -> !found.cosmetic()).ifPresent(found ->
-                player.getInventory().addItem(items.reward(found)).values()
-                        .forEach(spill -> player.getWorld().dropItemNaturally(player.getLocation(), spill)));
     }
 
     // ------------------------------------------------------------------ join and page
@@ -273,6 +271,7 @@ final class LoginStreakService implements Listener, CommandExecutor {
                 DialogBody.plainMessage(MenuText.stat("Streak freezes",
                         state.freezes() + " / " + variables.integer("streaks.maximum-freezes")), 400),
                 DialogBody.plainMessage(MenuText.stat("Today", todayLine), 400),
+                DialogBody.plainMessage(MenuText.stat("Daily Crate", "item/firework_star", dailyLine(player)), 400),
                 DialogBody.plainMessage(Component.empty(), 400)));
         StringBuilder plain = new StringBuilder("Current streak: " + live + " days. Today: "
                 + todayLine + ".\n\n");
@@ -288,9 +287,9 @@ final class LoginStreakService implements Listener, CommandExecutor {
             plain.append("Day ").append(day).append(": ").append(rewardText).append(status).append('\n');
         }
         page.add(DialogBody.plainMessage(Component.empty(), 400));
-        page.add(DialogBody.plainMessage(MenuText.muted("Play " + required + " active minutes a day."
-                + " Every 7th day earns a streak freeze that covers one missed day."
-                + " Days reset at 00:00 UTC."), 400));
+        page.add(DialogBody.plainMessage(MenuText.muted("Play " + required + " active minutes a day for"
+                + " Daily Crate openings; a longer streak makes the crate luckier. Every 7th day earns"
+                + " a streak freeze. Days reset at 00:00 UTC."), 400));
         if (!clientSupport.supportsDialogs(player)) {
             if (!forms.menu(player, "Daily Streak", plain.toString(), List.of())) {
                 player.sendMessage(Component.text(plain.toString(), NamedTextColor.GRAY));
@@ -298,6 +297,14 @@ final class LoginStreakService implements Listener, CommandExecutor {
             return;
         }
         Screens.showStandalone(player, "Daily Streak", page, List.of(), 1);
+    }
+
+    private String dailyLine(Player player) {
+        if (plugin.crateService() == null || plugin.crateService().passes() == null) return "Unavailable";
+        int held = plugin.crateService().passes().count(player.getUniqueId(), CratePassStore.Pass.DAILY);
+        int luck = plugin.crateService().streakLuck(player);
+        return held + " / " + variables.integer("crate.daily.bank-cap") + " openings"
+                + (luck > 0 ? "  •  +" + luck + "% luck" : "");
     }
 
     private void save() {

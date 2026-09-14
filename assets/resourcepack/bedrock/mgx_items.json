@@ -337,6 +337,15 @@
         "bedrock_options": {
           "icon": "mgx:cosmetic_ender_trail"
         }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/dreamdrift_kill",
+        "bedrock_identifier": "mgx:cosmetic_dreamdrift_kill",
+        "display_name": "Dreamdrift Shockwave",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_dreamdrift_kill"
+        }
       }
     ],
     "minecraft:prismarine_crystals": [
@@ -431,6 +440,15 @@
         "display_name": "Abyssal Seraph",
         "bedrock_options": {
           "icon": "mgx:cosmetic_abyssal_seraph"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/dreamdrift_aura",
+        "bedrock_identifier": "mgx:cosmetic_dreamdrift_aura",
+        "display_name": "Dreamdrift Orbit",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_dreamdrift_aura"
         }
       }
     ],
@@ -558,6 +576,15 @@
         "bedrock_options": {
           "icon": "mgx:cosmetic_dragon_podium_3"
         }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/dawnbreak_kill",
+        "bedrock_identifier": "mgx:cosmetic_dawnbreak_kill",
+        "display_name": "Dawnbreak Shockwave",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_dawnbreak_kill"
+        }
       }
     ],
     "minecraft:copper_block": [
@@ -600,6 +627,15 @@
         "bedrock_options": {
           "icon": "mgx:eternal_amethyst_pickaxe"
         }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:veinseeker_pickaxe",
+        "bedrock_identifier": "mgx:veinseeker_pickaxe",
+        "display_name": "Veinseeker Pickaxe",
+        "bedrock_options": {
+          "icon": "mgx:veinseeker_pickaxe"
+        }
       }
     ],
     "minecraft:diamond_shovel": [
@@ -619,6 +655,15 @@
         "display_name": "Eternal Amethyst Shovel",
         "bedrock_options": {
           "icon": "mgx:eternal_amethyst_shovel"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:magnetite_shovel",
+        "bedrock_identifier": "mgx:magnetite_shovel",
+        "display_name": "Magnetite Shovel",
+        "bedrock_options": {
+          "icon": "mgx:magnetite_shovel"
         }
       }
     ],
@@ -818,6 +863,15 @@
         "bedrock_options": {
           "icon": "mgx:cosmetic_season_2_kill"
         }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:bloodthirst_blade",
+        "bedrock_identifier": "mgx:bloodthirst_blade",
+        "display_name": "Bloodthirst Blade",
+        "bedrock_options": {
+          "icon": "mgx:bloodthirst_blade"
+        }
       }
     ],
     "minecraft:diamond_hoe": [
@@ -837,6 +891,15 @@
         "display_name": "Eternal Amethyst Hoe",
         "bedrock_options": {
           "icon": "mgx:eternal_amethyst_hoe"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:verdant_sickle",
+        "bedrock_identifier": "mgx:verdant_sickle",
+        "display_name": "Verdant Sickle",
+        "bedrock_options": {
+          "icon": "mgx:verdant_sickle"
         }
       }
     ],
@@ -858,6 +921,15 @@
         "bedrock_options": {
           "icon": "mgx:eternal_amethyst_bow"
         }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:frostbite_bow",
+        "bedrock_identifier": "mgx:frostbite_bow",
+        "display_name": "Frostbite Bow",
+        "bedrock_options": {
+          "icon": "mgx:frostbite_bow"
+        }
       }
     ],
     "minecraft:diamond_helmet": [
@@ -877,6 +949,15 @@
         "display_name": "Eternal Amethyst Helmet",
         "bedrock_options": {
           "icon": "mgx:eternal_amethyst_helmet"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:lantern_helm",
+        "bedrock_identifier": "mgx:lantern_helm",
+        "display_name": "Lantern Helm",
+        "bedrock_options": {
+          "icon": "mgx:lantern_helm"
         }
       }
     ],
@@ -937,6 +1018,15 @@
         "display_name": "Eternal Amethyst Boots",
         "bedrock_options": {
           "icon": "mgx:eternal_amethyst_boots"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:cloudstrider_boots",
+        "bedrock_identifier": "mgx:cloudstrider_boots",
+        "display_name": "Cloudstrider Boots",
+        "bedrock_options": {
+          "icon": "mgx:cloudstrider_boots"
         }
       }
     ],
@@ -1289,6 +1379,39 @@
         "display_name": "Eclipse Axe",
         "bedrock_options": {
           "icon": "mgx:season_4_axe"
+        }
+      }
+    ],
+    "minecraft:orange_tulip": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/dawnbreak_aura",
+        "bedrock_identifier": "mgx:cosmetic_dawnbreak_aura",
+        "display_name": "Dawnbreak Orbit",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_dawnbreak_aura"
+        }
+      }
+    ],
+    "minecraft:honeycomb": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/dawnbreak_trail",
+        "bedrock_identifier": "mgx:cosmetic_dawnbreak_trail",
+        "display_name": "Dawnbreak Helix",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_dawnbreak_trail"
+        }
+      }
+    ],
+    "minecraft:feather": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/dreamdrift_trail",
+        "bedrock_identifier": "mgx:cosmetic_dreamdrift_trail",
+        "display_name": "Dreamdrift Helix",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_dreamdrift_trail"
         }
       }
     ]

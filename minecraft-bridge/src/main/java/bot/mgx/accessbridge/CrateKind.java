@@ -34,12 +34,31 @@ enum CrateKind {
             "dragon", "Amethyst Dragon Crate", "Dragon Crate", Material.DRAGON_HEAD,
             TextColor.color(0xD98BFF),
             Currency.TOKEN, 1, Long.MAX_VALUE, CrateCatalog.dragon()
+    ),
+    /** Opened with openings a daily login streak pays. There is no key for it. */
+    DAILY(
+            "daily", "Daily Crate", "Daily Crate", Material.SUNFLOWER,
+            TextColor.color(0xFFB347),
+            Currency.DAILY, 1, Long.MAX_VALUE, CrateCatalog.daily()
+    ),
+    /** Opened with openings that time online pays. There is no key for it. */
+    AFK(
+            "afk", "AFK Crate", "AFK Crate", Material.CLOCK,
+            TextColor.color(0x9D8CFF),
+            Currency.AFK, 1, Long.MAX_VALUE, CrateCatalog.afk()
     );
 
     enum Currency {
         KEY("key", "keys", "Mysterious Crate Key", "Mysterious Crate Keys"),
         TOKEN("Token", "Tokens", "Amethyst Token", "Amethyst Tokens"),
-        SHARD("Shard", "Shards", "Shard", "Shards");
+        SHARD("Shard", "Shards", "Shard", "Shards"),
+        DAILY("opening", "openings", "Daily Crate opening", "Daily Crate openings"),
+        AFK("opening", "openings", "AFK Crate opening", "AFK Crate openings");
+
+        /** Openings are earned, not items: nothing to trade, store or duplicate. */
+        boolean pass() {
+            return this == DAILY || this == AFK;
+        }
 
         private final String singular;
         private final String plural;
