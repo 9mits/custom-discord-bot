@@ -35,13 +35,13 @@ enum CrateKind {
             TextColor.color(0xD98BFF),
             Currency.TOKEN, 1, Long.MAX_VALUE, CrateCatalog.dragon()
     ),
-    /** Opened with openings a daily login streak pays. There is no key for it. */
+    /** Free to open once per UTC day. */
     DAILY(
             "daily", "Daily Crate", "Daily Crate", Material.SUNFLOWER,
             TextColor.color(0xFFB347),
             Currency.DAILY, 1, Long.MAX_VALUE, CrateCatalog.daily()
     ),
-    /** Opened with openings that time online pays. There is no key for it. */
+    /** Rolled automatically by the online reward timer. */
     AFK(
             "afk", "AFK Crate", "AFK Crate", Material.CLOCK,
             TextColor.color(0x9D8CFF),

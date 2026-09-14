@@ -51,7 +51,11 @@ import java.util.concurrent.ThreadLocalRandom;
  * trick rather than raw power, so a lucky Daily Crate cannot out-gear a Season Scythe.
  */
 final class RelicItemService implements Listener {
-    private static final int VEIN_LIMIT = 16;
+    private static final int VEIN_LIMIT = 10;
+    /** Lifesteal: a share of damage dealt, smaller against players, and never much per hit. */
+    static final double MOB_LIFESTEAL = 0.10;
+    static final double PLAYER_LIFESTEAL = 0.05;
+    static final double LIFESTEAL_CAP = 2.0;
     private static final BlockFace[] NEIGHBOURS = {
             BlockFace.UP, BlockFace.DOWN, BlockFace.NORTH, BlockFace.SOUTH, BlockFace.EAST, BlockFace.WEST
     };
@@ -83,13 +87,13 @@ final class RelicItemService implements Listener {
         meta.addEnchant(Enchantment.UNBREAKING, 3, true);
         switch (relic) {
             case VEINSEEKER_PICKAXE, MAGNETITE_SHOVEL -> meta.addEnchant(Enchantment.EFFICIENCY, 5, true);
-            case BLOODTHIRST_BLADE -> meta.addEnchant(Enchantment.SHARPNESS, 5, true);
-            case FROSTBITE_BOW -> meta.addEnchant(Enchantment.POWER, 5, true);
+            case BLOODTHIRST_BLADE -> meta.addEnchant(Enchantment.SHARPNESS, 4, true);
+            case FROSTBITE_BOW -> meta.addEnchant(Enchantment.POWER, 4, true);
             case VERDANT_SICKLE -> meta.addEnchant(Enchantment.EFFICIENCY, 4, true);
             case LANTERN_HELM, CLOUDSTRIDER_BOOTS -> {
                 meta.addEnchant(Enchantment.PROTECTION, 4, true);
                 if (relic == RelicCatalog.Relic.CLOUDSTRIDER_BOOTS) {
-                    meta.addEnchant(Enchantment.FEATHER_FALLING, 4, true);
+                    meta.addEnchant(Enchantment.FEATHER_FALLING, 3, true);
                 }
                 org.bukkit.inventory.meta.components.EquippableComponent equippable = meta.getEquippable();
                 equippable.setSlot(relic == RelicCatalog.Relic.LANTERN_HELM ? EquipmentSlot.HEAD : EquipmentSlot.FEET);
@@ -179,7 +183,7 @@ final class RelicItemService implements Listener {
                 && event.getBlockState().getBlockData() instanceof Ageable crop
                 && crop.getAge() >= crop.getMaximumAge()) {
             replant(event.getBlock(), event.getBlockState().getType());
-            if (ThreadLocalRandom.current().nextInt(5) == 0) {
+            if (ThreadLocalRandom.current().nextInt(10) == 0) {
                 for (Item drop : event.getItems()) {
                     ItemStack stack = drop.getItemStack();
                     stack.setAmount(Math.min(stack.getMaxStackSize(), stack.getAmount() * 2));
@@ -223,7 +227,8 @@ final class RelicItemService implements Listener {
             return;
         }
         if (!(event.getEntity() instanceof LivingEntity)) return;
-        double heal = Math.min(3d, event.getFinalDamage() * 0.2d);
+        double share = event.getEntity() instanceof Player ? PLAYER_LIFESTEAL : MOB_LIFESTEAL;
+        double heal = Math.min(LIFESTEAL_CAP, event.getFinalDamage() * share);
         var maxHealth = player.getAttribute(org.bukkit.attribute.Attribute.MAX_HEALTH);
         if (heal <= 0d || maxHealth == null) return;
         player.setHealth(Math.min(maxHealth.getValue(), player.getHealth() + heal));
@@ -247,20 +252,25 @@ final class RelicItemService implements Listener {
                 || !(event.getEntity() instanceof LivingEntity target)) {
             return;
         }
-        target.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, 60, 1));
-        target.setFreezeTicks(Math.max(target.getFreezeTicks(), 100));
+        // Against a player it is a nudge, not a lock: kiting someone to death with a
+        // crate roll is not a fight anyone deserves to lose.
+        if (target instanceof Player) {
+            target.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, 30, 0));
+        } else {
+            target.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, 60, 1));
+        }
         target.getWorld().spawnParticle(Particle.SNOWFLAKE, target.getLocation().add(0, 1, 0), 14, 0.35, 0.5, 0.35, 0.02);
     }
 
     // ------------------------------------------------------------------ armour
 
-    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.NORMAL, ignoreCancelled = true)
     public void onFall(EntityDamageEvent event) {
         if (event.getCause() != EntityDamageEvent.DamageCause.FALL || !(event.getEntity() instanceof Player player)) {
             return;
         }
         if (relic(player.getInventory().getBoots()).filter(RelicCatalog.Relic.CLOUDSTRIDER_BOOTS::equals).isPresent()) {
-            event.setCancelled(true);
+            event.setDamage(event.getDamage() * 0.5d);
             player.getWorld().spawnParticle(Particle.CLOUD, player.getLocation(), 8, 0.3, 0.05, 0.3, 0.01);
         }
     }

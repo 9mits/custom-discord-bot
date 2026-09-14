@@ -1910,7 +1910,6 @@ final class PvpCompetitionService implements Listener {
             for (UUID playerId : match.players) {
                 Player fighter = Bukkit.getPlayer(playerId);
                 if (fighter == null) continue;
-                pass.progress(fighter, SeasonPassRules.QuestType.PLAY_PVP, 1L);
                 if (decided && winners.contains(playerId)) {
                     pass.progress(fighter, SeasonPassRules.QuestType.WIN_PVP, 1L);
                 }

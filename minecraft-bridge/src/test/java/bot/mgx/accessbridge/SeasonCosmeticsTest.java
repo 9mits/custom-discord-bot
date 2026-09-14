@@ -60,4 +60,33 @@ final class SeasonCosmeticsTest {
         assertEquals("Solstice Scythe", SeasonGear.displayName(SeasonCosmetics.THEMES.getFirst(),
                 SeasonGear.Piece.SCYTHE));
     }
+
+    /**
+     * Everyone who plays a season can earn this gear, so it must never out-muscle the
+     * rare Eternal set or give an edge in a fight. Checked against the source because
+     * building an item needs a running server.
+     */
+    @Test
+    void seasonGearStaysBelowEternalGearAndNeverHelpsInPvp() throws Exception {
+        String service = java.nio.file.Files.readString(java.nio.file.Path.of(
+                "src/main/java/bot/mgx/accessbridge/AmethystItemService.java"));
+        String factory = service.substring(service.indexOf("ItemStack createSeasonGear("),
+                service.indexOf("private Optional<SeasonGear.Piece> seasonPiece("));
+        assertFalse(factory.contains("createTimed(") || factory.contains("kindKey"),
+                "season gear must not inherit Amethyst abilities");
+        assertFalse(factory.contains("setUnbreakable(true)"), "season gear wears out like normal gear");
+        assertFalse(factory.contains("SHARPNESS, 6") || factory.contains("SHARPNESS, 7"),
+                "no enchantment above the vanilla maximum");
+        String scythe = service.substring(service.indexOf("public void onSeasonScythe("),
+                service.indexOf("public void onSeasonSmelt("));
+        assertTrue(scythe.contains("event.getEntity() instanceof Player"), "the mob bonus must skip players");
+        assertTrue(SeasonGear.Piece.MOB_DAMAGE_BONUS <= 0.25);
+        assertTrue(SeasonGear.Piece.TIMBER_LIMIT < 256, "smaller than the Amethyst Axe");
+    }
+
+    @Test
+    void relicCombatIsGentlerAgainstPlayers() {
+        assertTrue(RelicItemService.PLAYER_LIFESTEAL < RelicItemService.MOB_LIFESTEAL);
+        assertTrue(RelicItemService.LIFESTEAL_CAP <= 2.0, "never more than a heart per hit");
+    }
 }

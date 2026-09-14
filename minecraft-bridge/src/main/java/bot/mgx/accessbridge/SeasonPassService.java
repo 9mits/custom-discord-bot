@@ -43,8 +43,8 @@ import static bot.mgx.accessbridge.MenuItems.ORANGE;
 /**
  * The Season Pass and its quests.
  *
- * <p>XP comes mostly from quest ladders with no time limit, each level harder and worth
- * more than the last, plus a little for every active minute. Every tier pays automatically the
+ * <p>XP comes mostly from quest ladders, each level harder and worth more than the last,
+ * plus a little for every active minute. Every tier pays automatically the
  * moment it is reached, so nothing is ever left unclaimed; the last tiers pay chase
  * rewards: Season Hearts, Shards, permanent gear, and an aura, trail and kill effect that
  * only this season's pass ever pays. A season runs for a fixed number of days, then its top
@@ -518,13 +518,6 @@ final class SeasonPassService implements Listener, CommandExecutor {
         }
     }
 
-    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
-    public void onFish(PlayerFishEvent event) {
-        if (event.getState() == PlayerFishEvent.State.CAUGHT_FISH) {
-            progress(event.getPlayer(), SeasonPassRules.QuestType.CATCH_FISH, 1L);
-        }
-    }
-
     private boolean afk(Player player) {
         return plugin.afkService() != null && plugin.afkService().isAfk(player.getUniqueId());
     }
@@ -568,7 +561,7 @@ final class SeasonPassService implements Listener, CommandExecutor {
                 DialogBody.plainMessage(MenuText.stat("Your tier", tier + " / " + maximumTier()), RULE_WIDTH),
                 DialogBody.plainMessage(Component.empty(), RULE_WIDTH),
                 DialogBody.plainMessage(MenuText.rule("item/writable_book", "Quests",
-                        "Nine quest ladders with no time limit. Each level is harder and pays more."), RULE_WIDTH),
+                        "Complete quest goals. Each level is bigger and pays more XP."), RULE_WIDTH),
                 DialogBody.plainMessage(MenuText.rule("item/clock_00", "Playtime",
                         variables.integer("season.xp-per-active-minute") + " XP every active minute. AFK time earns none."), RULE_WIDTH),
                 DialogBody.plainMessage(MenuText.rule("item/firework_star", "Daily streak",
@@ -587,7 +580,7 @@ final class SeasonPassService implements Listener, CommandExecutor {
                 DialogBody.plainMessage(MenuText.muted("Every tier pays the moment you reach it."
                         + " Rewards wait while you are in PvP or screenshot mode."), RULE_WIDTH)));
         String plain = "Season " + store.season() + " ends " + endsIn() + ". Tier " + tier + "/" + maximumTier()
-                + ".\nQuest ladders with no time limit are most of your XP, plus " + variables.integer("season.xp-per-active-minute")
+                + ".\nQuests are most of your XP, plus " + variables.integer("season.xp-per-active-minute")
                 + " XP per active minute and " + variables.integer("season.streak-xp") + " per streak day."
                 + "\nSeason exclusives never come back. Season Hearts expire when the season ends.";
         show(player, "How The Pass Works", page, plain, List.of(
@@ -597,46 +590,39 @@ final class SeasonPassService implements Listener, CommandExecutor {
                         this::openTop)), this::openPass);
     }
 
-    /**
-     * Every quest line: its current level, the goal, a progress bar and the XP it pays.
-     * No timers anywhere: a line only ever gets harder, never resets mid-season.
-     */
+    /** Every quest line as two lines: the current goal and its XP, then the progress. */
     void openQuests(Player player, Consumer<Player> back) {
         SeasonStore.Row row = rowFor(player);
         List<DialogBody> page = new ArrayList<>();
-        page.add(DialogBody.plainMessage(MenuText.muted("No time limits. Finish a level and the next,"
-                + " harder one begins, worth more XP."), RULE_WIDTH));
+        page.add(DialogBody.plainMessage(MenuText.muted("Complete a goal to unlock the next one."), RULE_WIDTH));
         page.add(DialogBody.plainMessage(Component.empty(), RULE_WIDTH));
-        StringBuilder plain = new StringBuilder("No time limits. Every level is harder and worth more XP.\n\n");
+        StringBuilder plain = new StringBuilder();
         for (SeasonPassRules.QuestType type : SeasonPassRules.QuestType.values()) {
             long total = row.quests.getOrDefault(type.key(), 0L);
             int level = SeasonPassRules.levelFor(type, total);
             var quest = SeasonPassRules.quest(type, level);
-            Component heading = Component.text(type.title(), NamedTextColor.WHITE, TextDecoration.BOLD)
-                    .append(Component.text("  Level " + roman(Math.min(level + 1, type.levels()))
-                            + " of " + roman(type.levels()), MenuText.MUTED).decoration(TextDecoration.BOLD, false));
-            page.add(DialogBody.plainMessage(MenuText.upright(Component.empty()
-                    .append(MenuText.sprite(quest.isEmpty() ? "item/lime_dye" : type.sprite()))
-                    .append(Component.text(" "))
-                    .append(heading)), RULE_WIDTH));
             if (quest.isEmpty()) {
-                page.add(DialogBody.plainMessage(MenuText.upright(Component.text("Mastered  ✔", MenuText.VALUE)), RULE_WIDTH));
-                plain.append(type.title()).append(": mastered\n");
+                page.add(DialogBody.plainMessage(MenuText.upright(Component.empty()
+                        .append(MenuText.sprite("item/lime_dye")).append(Component.text(" "))
+                        .append(Component.text(type.title() + " complete  ✔", MenuText.VALUE))), RULE_WIDTH));
+                plain.append(type.title()).append(": complete\n");
             } else {
                 long previous = level == 0 ? 0L : SeasonPassRules.quest(type, level - 1).orElseThrow().target();
-                long span = Math.max(1L, quest.get().target() - previous);
                 long into = Math.max(0L, total - previous);
-                int filled = (int) Math.min(16L, into * 16L / span);
+                long span = Math.max(1L, quest.get().target() - previous);
+                int filled = (int) Math.min(12L, into * 12L / span);
                 String amount = type == SeasonPassRules.QuestType.SELL_MONEY
                         ? EconomyFormat.dollars(total) + " / " + EconomyFormat.dollars(quest.get().target())
                         : String.format(Locale.ROOT, "%,d / %,d", total, quest.get().target());
-                page.add(DialogBody.plainMessage(MenuText.upright(Component.text(quest.get().label(), MenuText.MUTED)
+                page.add(DialogBody.plainMessage(MenuText.upright(Component.empty()
+                        .append(MenuText.sprite(type.sprite())).append(Component.text(" "))
+                        .append(Component.text(quest.get().label(), NamedTextColor.WHITE))
                         .append(Component.text("   +" + quest.get().xp() + " XP", MenuText.GOLD))), RULE_WIDTH));
                 page.add(DialogBody.plainMessage(MenuText.upright(Component.text("█".repeat(filled), MenuText.VALUE)
-                        .append(Component.text("█".repeat(16 - filled), TextColor.color(0x3A3F4B)))
-                        .append(Component.text("  " + amount, MenuText.MUTED))), RULE_WIDTH));
-                plain.append(type.title()).append(" ").append(roman(level + 1)).append(": ")
-                        .append(quest.get().label()).append(" (").append(amount).append(") +")
+                        .append(Component.text("█".repeat(12 - filled), TextColor.color(0x3A3F4B)))
+                        .append(Component.text("  " + amount + "   ·   Level " + (level + 1) + " of " + type.levels(),
+                                MenuText.MUTED))), RULE_WIDTH));
+                plain.append(quest.get().label()).append(" (").append(amount).append(") +")
                         .append(quest.get().xp()).append(" XP\n");
             }
             page.add(DialogBody.plainMessage(Component.empty(), RULE_WIDTH));

@@ -159,7 +159,7 @@ final class SeasonPassRulesTest {
         }
         assertEquals(Set.of("AURA", "TRAIL", "KILL_EFFECT"), exclusives);
         assertEquals(Set.of("SCYTHE", "PICKAXE", "AXE", "WINGS"), gear);
-        assertEquals(3, hearts);
+        assertEquals(2, hearts, "Season Hearts affect PvP, so a full pass pays two");
         assertTrue(shards >= 5 && shards <= 12, "a full track pays " + shards + " Shards");
     }
 
