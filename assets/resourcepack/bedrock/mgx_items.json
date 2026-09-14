@@ -132,6 +132,15 @@
         "bedrock_options": {
           "icon": "mgx:cosmetic_ember_trail"
         }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/season_1_trail",
+        "bedrock_identifier": "mgx:cosmetic_season_1_trail",
+        "display_name": "Solstice Wake",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_season_1_trail"
+        }
       }
     ],
     "minecraft:redstone": [
@@ -143,6 +152,15 @@
         "bedrock_options": {
           "icon": "mgx:cosmetic_crimson_orbit"
         }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/season_4_trail",
+        "bedrock_identifier": "mgx:cosmetic_season_4_trail",
+        "display_name": "Eclipse Wake",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_season_4_trail"
+        }
       }
     ],
     "minecraft:emerald": [
@@ -153,6 +171,15 @@
         "display_name": "Emerald Orbit",
         "bedrock_options": {
           "icon": "mgx:cosmetic_emerald_orbit"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/season_3_aura",
+        "bedrock_identifier": "mgx:cosmetic_season_3_aura",
+        "display_name": "Verdant Crown",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_season_3_aura"
         }
       }
     ],
@@ -259,6 +286,15 @@
         "bedrock_options": {
           "icon": "mgx:cosmetic_frost_trail"
         }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/season_2_trail",
+        "bedrock_identifier": "mgx:cosmetic_season_2_trail",
+        "display_name": "Frostbound Wake",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_season_2_trail"
+        }
       }
     ],
     "minecraft:pink_petals": [
@@ -280,6 +316,15 @@
         "display_name": "Drool Trail",
         "bedrock_options": {
           "icon": "mgx:cosmetic_drool_trail"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/season_3_trail",
+        "bedrock_identifier": "mgx:cosmetic_season_3_trail",
+        "display_name": "Verdant Wake",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_season_3_trail"
         }
       }
     ],
@@ -420,6 +465,15 @@
         "bedrock_options": {
           "icon": "mgx:cosmetic_golden_finality"
         }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/season_1_kill",
+        "bedrock_identifier": "mgx:cosmetic_season_1_kill",
+        "display_name": "Solstice Verdict",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_season_1_kill"
+        }
       }
     ],
     "minecraft:golden_helmet": [
@@ -452,6 +506,15 @@
         "display_name": "Silver Reckoning",
         "bedrock_options": {
           "icon": "mgx:cosmetic_silver_reckoning"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/season_3_kill",
+        "bedrock_identifier": "mgx:cosmetic_season_3_kill",
+        "display_name": "Verdant Verdict",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_season_3_kill"
         }
       }
     ],
@@ -746,6 +809,15 @@
         "bedrock_options": {
           "icon": "mgx:eternal_amethyst_sword"
         }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/season_2_kill",
+        "bedrock_identifier": "mgx:cosmetic_season_2_kill",
+        "display_name": "Frostbound Verdict",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_season_2_kill"
+        }
       }
     ],
     "minecraft:diamond_hoe": [
@@ -1027,6 +1099,48 @@
         "display_name": "Shadow Scythe",
         "bedrock_options": {
           "icon": "mgx:pvp_scythe_3"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/season_4_kill",
+        "bedrock_identifier": "mgx:cosmetic_season_4_kill",
+        "display_name": "Eclipse Verdict",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_season_4_kill"
+        }
+      }
+    ],
+    "minecraft:sunflower": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/season_1_aura",
+        "bedrock_identifier": "mgx:cosmetic_season_1_aura",
+        "display_name": "Solstice Crown",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_season_1_aura"
+        }
+      }
+    ],
+    "minecraft:blue_ice": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/season_2_aura",
+        "bedrock_identifier": "mgx:cosmetic_season_2_aura",
+        "display_name": "Frostbound Crown",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_season_2_aura"
+        }
+      }
+    ],
+    "minecraft:crimson_fungus": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/season_4_aura",
+        "bedrock_identifier": "mgx:cosmetic_season_4_aura",
+        "display_name": "Eclipse Crown",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_season_4_aura"
         }
       }
     ]

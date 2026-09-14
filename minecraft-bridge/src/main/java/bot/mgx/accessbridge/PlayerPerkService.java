@@ -68,6 +68,10 @@ final class PlayerPerkService implements Listener {
     private static final NamespacedKey CLAN_DIG_KEY = Objects.requireNonNull(
             NamespacedKey.fromString("mgx:clan_level_dig")
     );
+    /** Permanent hearts earned from the Season Pass, stacking with every other heart perk. */
+    private static final NamespacedKey SEASON_HEART_KEY = Objects.requireNonNull(
+            NamespacedKey.fromString("mgx:season_hearts")
+    );
     private static final NamespacedKey PVP_SPEED_KEY = Objects.requireNonNull(
             NamespacedKey.fromString("mgx:pvp_rank_speed")
     );
@@ -78,6 +82,7 @@ final class PlayerPerkService implements Listener {
     private final Map<UUID, PlayerProfile> profiles = new HashMap<>();
     private final Map<UUID, ClanLevel.Perks> clanPerks = new HashMap<>();
     private final Map<UUID, PvpRankPerks> pvpPerks = new HashMap<>();
+    private final Map<UUID, Integer> seasonHearts = new HashMap<>();
     private MGXAccessBridge plugin;
     private PvpRecordStore pvpRecords;
     private GameVariableStore variables;
@@ -114,6 +119,12 @@ final class PlayerPerkService implements Listener {
         for (Player player : players) refreshPvpRank(player);
     }
 
+    void applySeasonHearts(Player player, int hearts) {
+        int applied = Math.max(0, hearts);
+        seasonHearts.put(player.getUniqueId(), applied);
+        applyHearts(player, SEASON_HEART_KEY, applied);
+    }
+
     void apply(Player player, PlayerProfile profile) {
         profiles.put(player.getUniqueId(), profile);
         applyHearts(player, HEART_MODIFIER_KEY, profile.totalExtraHearts());
@@ -135,6 +146,7 @@ final class PlayerPerkService implements Listener {
         for (Player player : players) {
             applyHearts(player, HEART_MODIFIER_KEY, 0);
             applyHearts(player, CLAN_HEART_KEY, 0);
+            applyHearts(player, SEASON_HEART_KEY, 0);
             applyScalar(player, Attribute.MOVEMENT_SPEED, CLAN_SPEED_KEY, 0);
             applyScalar(player, Attribute.BLOCK_BREAK_SPEED, CLAN_DIG_KEY, 0);
             applyScalar(player, Attribute.MOVEMENT_SPEED, PVP_SPEED_KEY, 0);
@@ -142,6 +154,7 @@ final class PlayerPerkService implements Listener {
         }
         profiles.clear();
         clanPerks.clear();
+        seasonHearts.clear();
         pvpPerks.clear();
     }
 
@@ -278,6 +291,10 @@ final class PlayerPerkService implements Listener {
             applyScalar(player, Attribute.MOVEMENT_SPEED, CLAN_SPEED_KEY, perks.speed());
             applyScalar(player, Attribute.BLOCK_BREAK_SPEED, CLAN_DIG_KEY, perks.diggingSpeed());
         }
+        Integer earnedHearts = seasonHearts.get(id);
+        if (earnedHearts != null) {
+            applyHearts(player, SEASON_HEART_KEY, earnedHearts);
+        }
         PvpRankPerks rankPerks = pvpPerks.get(id);
         if (rankPerks != null) {
             applyScalar(player, Attribute.MOVEMENT_SPEED, PVP_SPEED_KEY, rankPerks.speed());
@@ -296,5 +313,6 @@ final class PlayerPerkService implements Listener {
         profiles.remove(event.getPlayer().getUniqueId());
         clanPerks.remove(event.getPlayer().getUniqueId());
         pvpPerks.remove(event.getPlayer().getUniqueId());
+        seasonHearts.remove(event.getPlayer().getUniqueId());
     }
 }

@@ -59,9 +59,12 @@ final class MenuText {
 
     /** An icon named by its exact texture path, which also picks the atlas it lives in. */
     static Component sprite(String path) {
-        return Component.object(ObjectContents.sprite(
-                atlasFor(path), Key.key("minecraft", path)
-        ));
+        // A namespaced path such as mgx:item/shard names a resource-pack texture; the
+        // item atlas stitches item/ from every namespace, so it resolves the same way.
+        int colon = path.indexOf(':');
+        Key key = colon > 0 ? Key.key(path.substring(0, colon), path.substring(colon + 1))
+                : Key.key("minecraft", path);
+        return Component.object(ObjectContents.sprite(atlasFor(key.value()), key));
     }
 
     static Key atlasFor(String path) {

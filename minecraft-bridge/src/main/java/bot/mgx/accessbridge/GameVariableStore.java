@@ -1452,27 +1452,44 @@ final class GameVariableStore {
                 "Shards for second place when the season ends.", 6, 0, 640, "shards", false);
         integer("season.third-place-shards", "Third place Shards", "Season Pass",
                 "Shards for third place when the season ends.", 3, 0, 640, "shards", false);
-        // Never money: a fixed dollar amount is worth something different after every
-        // economy change, while keys, Shards, potions and cosmetics keep their value.
-        String rewardFormat = " Parts are separated by ; and read keys:N, shards:N,"
-                + " cosmetic:<id> or reward:<crate reward id>.";
+        integer("season.hearts.lifetime-cap", "Season Heart cap", "Season Pass",
+                "Most permanent Season Hearts one player can ever hold, across every season.",
+                3, 0, 20, "hearts", false);
+        integer("season.hearts.capped-shards", "Shards per capped heart", "Season Pass",
+                "Shards a heart tier pays instead once the player already holds the cap.",
+                2, 0, 64, "shards", false);
+        integer("season.exclusive-fallback-shards", "Exclusive fallback Shards", "Season Pass",
+                "Shards paid in place of a season exclusive when the season has no themed set.",
+                3, 0, 64, "shards", false);
+        // Never money or keys: both are minted in such volume that a tier paying them
+        // meant nothing. Every default here is scarce, permanent, or both.
+        String rewardFormat = " Parts are separated by ; and read hearts:N, shards:N,"
+                + " reward:<crate reward id>, cosmetic:<id> or cosmetic:season:<aura|trail|kill>.";
         text("season.reward.odd", "Odd tier reward", "Season Pass Rewards",
-                "What each odd tier pays." + rewardFormat, "keys:3", 200);
+                "What each odd tier pays." + rewardFormat, "reward:ancient_debris", 200);
         text("season.reward.even", "Even tier reward", "Season Pass Rewards",
-                "What each even tier pays." + rewardFormat, "keys:2", 200);
+                "What each even tier pays." + rewardFormat, "reward:fortune_potion_ii", 200);
         text("season.reward.every-5", "Every 5th tier reward", "Season Pass Rewards",
-                "What tiers 5, 15, 35 and so on pay." + rewardFormat, "keys:6;shards:1", 200);
+                "What tiers 5, 15, 35 and so on pay." + rewardFormat,
+                "reward:totem_of_undying;reward:fortune_potion_iii", 200);
         text("season.reward.every-10", "Every 10th tier reward", "Season Pass Rewards",
-                "What tiers 10, 20, 30 and so on pay." + rewardFormat,
-                "keys:12;shards:2;reward:crate_luck_iii", 200);
+                "What tiers 20 and every other unlisted tenth tier pay." + rewardFormat,
+                "shards:1;reward:enchanted_golden_apple", 200);
+        text("season.reward.tier-10", "Tier 10 reward", "Season Pass Rewards",
+                "The first exclusive: this season's trail." + rewardFormat,
+                "cosmetic:season:trail;shards:1", 200);
         text("season.reward.tier-25", "Tier 25 reward", "Season Pass Rewards",
-                "The halfway chase reward." + rewardFormat, "cosmetic:ender_trail;shards:3", 200);
+                "The halfway reward: a permanent heart." + rewardFormat,
+                "hearts:1;reward:netherite_ingot", 200);
+        text("season.reward.tier-30", "Tier 30 reward", "Season Pass Rewards",
+                "The second exclusive: this season's kill effect." + rewardFormat,
+                "cosmetic:season:kill;shards:1", 200);
         text("season.reward.tier-40", "Tier 40 reward", "Season Pass Rewards",
                 "The late-season chase reward." + rewardFormat,
-                "cosmetic:celestial_crown;shards:5", 200);
+                "shards:2;reward:mace", 200);
         text("season.reward.tier-50", "Tier 50 reward", "Season Pass Rewards",
-                "The final tier's reward." + rewardFormat,
-                "cosmetic:prismatic_trail;shards:10;reward:crate_luck_v", 200);
+                "The final tier: this season's crown and a second permanent heart." + rewardFormat,
+                "cosmetic:season:aura;hearts:1;shards:3;reward:crate_luck_v", 200);
 
         bool("streaks.enabled", "Daily login streaks", "Login Streaks",
                 "Reward players for playing a few active minutes every UTC day.", true);

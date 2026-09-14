@@ -135,6 +135,10 @@ final class CosmeticCatalog {
         }
 
         String rarityDisplay() {
+            if (seasonExclusive()) {
+                return "Season " + SeasonCosmetics.themeOf(id).map(SeasonCosmetics.Theme::season).orElse(0)
+                        + " Exclusive";
+            }
             if (clanBattleOnly()) {
                 return "Clan Battle Champion";
             }
@@ -165,6 +169,11 @@ final class CosmeticCatalog {
 
         boolean clanBattleOnly() {
             return CosmeticCatalog.isClanBattleReward(id);
+        }
+
+        /** Paid only by one season's pass; it has no odds because it is never rolled. */
+        boolean seasonExclusive() {
+            return SeasonCosmetics.isSeasonExclusive(id);
         }
 
         boolean hiddenAmethystJackpot() {
@@ -678,7 +687,8 @@ final class CosmeticCatalog {
                         HIDDEN_AMETHYST_REWARDS.stream(), AMETHYST_AIRDROP_REWARDS.stream(),
                         DRAGON_REWARDS.stream(), HIDDEN_DRAGON_REWARDS.stream(),
                         CLAN_BATTLE_REWARDS.stream(), DRAGON_CLAN_REWARDS.stream(),
-                        LEADERBOARD_REWARDS.stream(), DRAGON_LEADERBOARD_REWARDS.stream()
+                        LEADERBOARD_REWARDS.stream(), DRAGON_LEADERBOARD_REWARDS.stream(),
+                        SeasonCosmetics.definitions().stream()
                 )
                 .flatMap(stream -> stream)
                 .toList();

@@ -100,6 +100,18 @@
     {"java_item": "minecraft:diamond_helmet", "model": "mgx:eternal_amethyst_helmet", "bedrock_identifier": "mgx:eternal_amethyst_helmet", "display_name": "Eternal Amethyst Helmet"},
     {"java_item": "minecraft:diamond_chestplate", "model": "mgx:eternal_amethyst_chestplate", "bedrock_identifier": "mgx:eternal_amethyst_chestplate", "display_name": "Eternal Amethyst Chestplate"},
     {"java_item": "minecraft:diamond_leggings", "model": "mgx:eternal_amethyst_leggings", "bedrock_identifier": "mgx:eternal_amethyst_leggings", "display_name": "Eternal Amethyst Leggings"},
-    {"java_item": "minecraft:diamond_boots", "model": "mgx:eternal_amethyst_boots", "bedrock_identifier": "mgx:eternal_amethyst_boots", "display_name": "Eternal Amethyst Boots"}
+    {"java_item": "minecraft:diamond_boots", "model": "mgx:eternal_amethyst_boots", "bedrock_identifier": "mgx:eternal_amethyst_boots", "display_name": "Eternal Amethyst Boots"},
+    {"java_item": "minecraft:sunflower", "model": "mgx:cosmetic/season_1_aura", "bedrock_identifier": "mgx:cosmetic_season_1_aura", "display_name": "Solstice Crown"},
+    {"java_item": "minecraft:blaze_powder", "model": "mgx:cosmetic/season_1_trail", "bedrock_identifier": "mgx:cosmetic_season_1_trail", "display_name": "Solstice Wake"},
+    {"java_item": "minecraft:golden_sword", "model": "mgx:cosmetic/season_1_kill", "bedrock_identifier": "mgx:cosmetic_season_1_kill", "display_name": "Solstice Verdict"},
+    {"java_item": "minecraft:blue_ice", "model": "mgx:cosmetic/season_2_aura", "bedrock_identifier": "mgx:cosmetic_season_2_aura", "display_name": "Frostbound Crown"},
+    {"java_item": "minecraft:snowball", "model": "mgx:cosmetic/season_2_trail", "bedrock_identifier": "mgx:cosmetic_season_2_trail", "display_name": "Frostbound Wake"},
+    {"java_item": "minecraft:diamond_sword", "model": "mgx:cosmetic/season_2_kill", "bedrock_identifier": "mgx:cosmetic_season_2_kill", "display_name": "Frostbound Verdict"},
+    {"java_item": "minecraft:emerald", "model": "mgx:cosmetic/season_3_aura", "bedrock_identifier": "mgx:cosmetic_season_3_aura", "display_name": "Verdant Crown"},
+    {"java_item": "minecraft:slime_ball", "model": "mgx:cosmetic/season_3_trail", "bedrock_identifier": "mgx:cosmetic_season_3_trail", "display_name": "Verdant Wake"},
+    {"java_item": "minecraft:iron_sword", "model": "mgx:cosmetic/season_3_kill", "bedrock_identifier": "mgx:cosmetic_season_3_kill", "display_name": "Verdant Verdict"},
+    {"java_item": "minecraft:crimson_fungus", "model": "mgx:cosmetic/season_4_aura", "bedrock_identifier": "mgx:cosmetic_season_4_aura", "display_name": "Eclipse Crown"},
+    {"java_item": "minecraft:redstone", "model": "mgx:cosmetic/season_4_trail", "bedrock_identifier": "mgx:cosmetic_season_4_trail", "display_name": "Eclipse Wake"},
+    {"java_item": "minecraft:netherite_sword", "model": "mgx:cosmetic/season_4_kill", "bedrock_identifier": "mgx:cosmetic_season_4_kill", "display_name": "Eclipse Verdict"}
   ]
 }

@@ -139,8 +139,9 @@ class ResourcePackIconTests(unittest.TestCase):
         icons = self.icon_paths()
         # 94, plus the eleven Eternal twins of the timed Amethyst gear, plus the
         # Mysterious Crate Key, which became its own item when the Amethyst Token
-        # inherited the old key's identity.
-        self.assertEqual(106, len(icons))
+        # inherited the old key's identity, plus three exclusives for each of the
+        # four themed seasons.
+        self.assertEqual(118, len(icons))
 
         digests = set()
         for path in icons:
@@ -320,6 +321,36 @@ class ResourcePackIconTests(unittest.TestCase):
             self.assertIn(f"`{icon}`", direction)
         self.assertIn("built-in image-generation tool", expansion)
         self.assertIn("No script draws their", expansion)
+
+    def test_season_icon_palettes_match_the_plugin_themes(self):
+        import importlib.util
+        import re
+
+        spec = importlib.util.spec_from_file_location(
+            "build_season_icons", RESOURCE_PACK / "build_season_icons.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        java = (
+            REPO / "minecraft-bridge" / "src" / "main" / "java" / "bot" / "mgx"
+            / "accessbridge" / "SeasonCosmetics.java"
+        ).read_text(encoding="utf-8")
+        themes = re.findall(
+            r'new Theme\((\d+), "(\w+)", 0x([0-9A-F]{6}), 0x([0-9A-F]{6}), 0x([0-9A-F]{6}),\s*'
+            r'"(\w+)", "(\w+)", "(\w+)"',
+            java,
+        )
+        self.assertEqual(len(module.THEMES), len(themes))
+        for season, name, primary, shadow, highlight, aura, trail, kill in themes:
+            with self.subTest(season=season):
+                theme = module.THEMES[int(season)]
+                self.assertEqual(name, theme[0])
+                self.assertEqual((int(shadow, 16), int(primary, 16), int(highlight, 16)), theme[1:4])
+                self.assertEqual(
+                    {"aura": aura.lower(), "trail": trail.lower(), "kill": kill.lower()}, theme[4]
+                )
+                for slot in ("aura", "trail", "kill"):
+                    self.assertTrue((ITEM_TEXTURES / "cosmetic" / f"season_{season}_{slot}.png").is_file())
 
     def test_bedrock_pack_contains_the_canonical_java_icon_bytes(self):
         catalog = json.loads((RESOURCE_PACK / "bedrock" / "catalog.json").read_text(encoding="utf-8"))

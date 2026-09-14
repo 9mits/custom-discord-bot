@@ -45,8 +45,13 @@ import static bot.mgx.accessbridge.MenuItems.ORANGE;
  * <p>XP comes mostly from three daily and three weekly quests that are the same for
  * everyone, plus a little for every active minute. Every tier pays automatically the
  * moment it is reached, so nothing is ever left unclaimed; the last tiers pay chase
- * cosmetics. A season runs for a fixed number of days, then its top three are paid,
- * remembered, and everybody starts the next one from tier zero.
+ * rewards: permanent Season Hearts, Shards, and an aura, trail and kill effect that only
+ * this season's pass ever pays. A season runs for a fixed number of days, then its top
+ * three are paid, remembered, and everybody starts the next one from tier zero.
+ *
+ * <p>Keys and money are not rewards. Both are minted in such volume that a tier paying
+ * them meant nothing; what a tier pays now is scarce, permanent, or both. Season Hearts
+ * have a lifetime cap, and a tier reached at the cap pays Shards instead.
  *
  * <p>Progress that is cheap to fake does not count: AFK time, ore mined with Silk Touch
  * (which can be placed and mined again forever), and private duels (which two friends
@@ -95,6 +100,8 @@ final class SeasonPassService implements Listener, CommandExecutor {
         // date, every time the server did.
         if (ensureSeason(today())) save();
         plugin.getServer().getScheduler().runTaskTimer(plugin, this::pulse, PULSE_TICKS, PULSE_TICKS);
+        // A plugin reload leaves players online who would otherwise lose their hearts.
+        plugin.getServer().getOnlinePlayers().forEach(this::applyHearts);
     }
 
     private boolean enabled() {
@@ -111,6 +118,15 @@ final class SeasonPassService implements Listener, CommandExecutor {
 
     private int maximumTier() {
         return variables.integer("season.tiers");
+    }
+
+    int heartCap() {
+        return Math.max(0, variables.integer("season.hearts.lifetime-cap"));
+    }
+
+    /** Permanent hearts are a perk like any other: applied on join and after every death. */
+    void applyHearts(Player player) {
+        if (plugin.perks() != null) plugin.perks().applySeasonHearts(player, store.hearts(player.getUniqueId()));
     }
 
     /** The tier a player holds this season, for the sidebar. */
@@ -243,10 +259,15 @@ final class SeasonPassService implements Listener, CommandExecutor {
         return SeasonPassRules.parse(variables.string(key));
     }
 
-    static String describe(List<SeasonPassRules.Grant> grants) {
+    String describe(List<SeasonPassRules.Grant> grants) {
         List<String> parts = new ArrayList<>();
         for (SeasonPassRules.Grant grant : grants) {
             switch (grant.kind()) {
+                case "hearts" -> parts.add("+" + grant.amount() + " Permanent "
+                        + (grant.amount() == 1 ? "Heart" : "Hearts"));
+                case "season_cosmetic" -> parts.add(seasonCosmetic(grant)
+                        .map(definition -> definition.displayName() + " (Season " + store.season() + " Exclusive)")
+                        .orElse(exclusiveFallbackShards() + " Shards"));
                 case "keys" -> parts.add(grant.amount() + (grant.amount() == 1 ? " Key" : " Keys"));
                 case "shards" -> parts.add(grant.amount() + (grant.amount() == 1 ? " Shard" : " Shards"));
                 case "cosmetic" -> parts.add(CosmeticCatalog.find(grant.id())
@@ -259,10 +280,67 @@ final class SeasonPassService implements Listener, CommandExecutor {
         return parts.isEmpty() ? "Season progress" : String.join(" + ", parts);
     }
 
+    private java.util.Optional<CosmeticCatalog.Definition> seasonCosmetic(SeasonPassRules.Grant grant) {
+        try {
+            return SeasonCosmetics.forSeason(store.season(), CosmeticCatalog.Category.valueOf(grant.id()));
+        } catch (IllegalArgumentException unknown) {
+            return java.util.Optional.empty();
+        }
+    }
+
+    private int exclusiveFallbackShards() {
+        return Math.max(0, variables.integer("season.exclusive-fallback-shards"));
+    }
+
+    /** The icon a tier row shows: its most valuable reward. */
+    String iconFor(List<SeasonPassRules.Grant> grants) {
+        for (SeasonPassRules.Grant grant : grants) {
+            if (grant.kind().equals("season_cosmetic")) {
+                return seasonCosmetic(grant).map(definition -> "mgx:item/cosmetic/" + definition.id())
+                        .orElse("mgx:item/shard");
+            }
+        }
+        for (SeasonPassRules.Grant grant : grants) {
+            if (grant.kind().equals("hearts")) return "item/golden_apple";
+        }
+        for (SeasonPassRules.Grant grant : grants) {
+            if (grant.kind().equals("shards")) return "mgx:item/shard";
+        }
+        return "item/bundle";
+    }
+
     private void pay(Player player, List<SeasonPassRules.Grant> grants) {
         for (SeasonPassRules.Grant grant : grants) {
             try {
                 switch (grant.kind()) {
+                    case "hearts" -> {
+                        int wanted = (int) grant.amount();
+                        int added = store.addHearts(player.getUniqueId(), wanted, heartCap());
+                        if (added > 0) {
+                            applyHearts(player);
+                            dirty = true;
+                            player.playSound(player, Sound.ITEM_TOTEM_USE, 0.6f, 1.3f);
+                            info(player, "+" + added + " permanent " + (added == 1 ? "heart" : "hearts")
+                                    + ". You hold " + store.hearts(player.getUniqueId()) + " of "
+                                    + heartCap() + " Season Hearts, and they are yours for good.");
+                        }
+                        int substitute = (wanted - added) * Math.max(0, variables.integer("season.hearts.capped-shards"));
+                        if (substitute > 0) {
+                            giveShards(player, substitute);
+                            info(player, "You already hold every Season Heart, so this tier paid "
+                                    + substitute + " Shards instead.");
+                        }
+                    }
+                    case "season_cosmetic" -> {
+                        var definition = seasonCosmetic(grant);
+                        if (definition.isPresent()) {
+                            plugin.cosmetics().mint(player.getUniqueId(), definition.get().id(), UUID.randomUUID());
+                            info(player, definition.get().displayName() + " is in your /wardrobe. Only Season "
+                                    + store.season() + " ever pays it.");
+                        } else if (exclusiveFallbackShards() > 0) {
+                            giveShards(player, exclusiveFallbackShards());
+                        }
+                    }
                     case "keys" -> {
                         if (plugin.crateService() != null) {
                             plugin.crateService().grantKeys(player, (int) Math.min(256, grant.amount()));
@@ -358,6 +436,10 @@ final class SeasonPassService implements Listener, CommandExecutor {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
+        // Hearts are permanent, so they apply even while the pass itself is switched off.
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+            if (player.isOnline()) applyHearts(player);
+        }, 2L);
         plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
             if (!player.isOnline() || !enabled()) return;
             SeasonStore.Row row = store.row(player.getUniqueId());
@@ -438,18 +520,21 @@ final class SeasonPassService implements Listener, CommandExecutor {
                         + "  •  ends " + endsIn()), RULE_WIDTH),
                 DialogBody.plainMessage(MenuText.stat("Tier", tier + " / " + maximumTier()), RULE_WIDTH),
                 DialogBody.plainMessage(MenuText.stat("Progress", progress), RULE_WIDTH),
+                DialogBody.plainMessage(MenuText.stat("Season Hearts", "item/golden_apple",
+                        store.hearts(player.getUniqueId()) + " / " + heartCap() + "  •  permanent"), RULE_WIDTH),
                 DialogBody.plainMessage(Component.empty(), RULE_WIDTH)));
         StringBuilder plain = new StringBuilder("Season " + store.season() + " • Tier " + tier + "/"
-                + maximumTier() + " • " + progress + "\n\nNext rewards:\n");
+                + maximumTier() + " • " + progress + " • Season Hearts " + store.hearts(player.getUniqueId())
+                + "/" + heartCap() + "\n\nNext rewards:\n");
         for (int next = tier + 1; next <= Math.min(maximumTier(), tier + 5); next++) {
-            String reward = describe(grants(next));
-            page.add(DialogBody.plainMessage(MenuText.stat("Tier " + next,
-                    next % 10 == 0 ? "item/nether_star" : "item/bundle", reward), RULE_WIDTH));
+            List<SeasonPassRules.Grant> nextGrants = grants(next);
+            String reward = describe(nextGrants);
+            page.add(DialogBody.plainMessage(MenuText.stat("Tier " + next, iconFor(nextGrants), reward), RULE_WIDTH));
             plain.append("Tier ").append(next).append(": ").append(reward).append('\n');
         }
         page.add(DialogBody.plainMessage(Component.empty(), RULE_WIDTH));
         page.add(DialogBody.plainMessage(MenuText.muted("Every tier pays the moment you reach it."
-                + " Earn XP from daily and weekly quests and every active minute."), RULE_WIDTH));
+                + " Season exclusives never return, and Season Hearts are yours for good."), RULE_WIDTH));
         List<Action> actions = List.of(
                 new Action("item/writable_book", "Quests", "Today's and this week's quests.",
                         viewer -> openQuests(viewer, this::openPass)),
@@ -498,10 +583,11 @@ final class SeasonPassService implements Listener, CommandExecutor {
         List<DialogBody> page = new ArrayList<>();
         StringBuilder plain = new StringBuilder();
         for (int tier = (current - 1) * perPage + 1; tier <= Math.min(maximumTier(), current * perPage); tier++) {
-            String reward = describe(grants(tier));
+            List<SeasonPassRules.Grant> tierGrants = grants(tier);
+            String reward = describe(tierGrants);
             boolean earned = tier <= reached;
             page.add(DialogBody.plainMessage(MenuText.stat("Tier " + tier,
-                    earned ? "item/lime_dye" : tier % 10 == 0 ? "item/nether_star" : "item/gray_dye",
+                    earned ? "item/lime_dye" : iconFor(tierGrants),
                     reward + (earned ? "  ✔" : "")), RULE_WIDTH));
             plain.append("Tier ").append(tier).append(": ").append(reward).append(earned ? " ✔" : "").append('\n');
         }
