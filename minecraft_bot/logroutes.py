@@ -39,6 +39,8 @@ class Topic:
     #: no route falls back to it, so upgrading changes nothing until somebody
     #: routes something.
     fallback: str = ""
+    #: The heading the routing panel lists this topic under.
+    group: str = "Gameplay"
 
     @property
     def choice_name(self) -> str:
@@ -52,39 +54,52 @@ class Topic:
 #: them in, so it runs from "what the bot did" to "what happened in the world".
 TOPICS: tuple[Topic, ...] = (
     Topic(
+        "security",
+        "Security",
+        "Sentinel incidents: duplication, hacking and abuse of power. Cannot be muted.",
+        "critical_log_channel_id",
+        "Security & Staff",
+    ),
+    Topic(
         "important",
         "Important",
         "Denied or failed actions and access-changing staff commands.",
         "critical_log_channel_id",
+        "Security & Staff",
     ),
     Topic(
         "command",
         "Commands",
         "Every /minecraft, /mgxstaff and /mgxadmin invocation.",
         "command_log_channel_id",
+        "Security & Staff",
     ),
     Topic(
         "access",
         "Access",
         "Verification starts, access grants, revocations, and account changes.",
         "access_log_channel_id",
+        "Access",
     ),
     Topic(
         "verification",
         "Verification",
         "Account link requests, approvals and refusals.",
         "verification_log_channel_id",
+        "Access",
     ),
     Topic(
         "session",
         "Joins & Leaves",
         "Players connecting to and leaving the server.",
         "player_log_channel_id",
+        "Access",
     ),
     Topic(
         "announcement",
         "Update DMs",
         "Every delivered update DM and every member opt-out or opt-in.",
+        group="Access",
     ),
     Topic("chat", "In-game Chat", "Chat relayed out of Minecraft."),
     Topic("combat", "Combat", "Player kills, deaths and boss fights."),
@@ -95,9 +110,16 @@ TOPICS: tuple[Topic, ...] = (
     Topic("cosmetic", "Cosmetics", "Cosmetics equipped, unequipped and stolen."),
     Topic("clan", "Clans", "Clan membership, ranks, treasury and upgrades."),
     Topic("world", "World", "Notable building, containers and destruction."),
-    Topic("staff", "Staff", "In-game staff actions."),
-    Topic("admin", "Admin", "Administrator commands run on the server."),
+    Topic("staff", "Staff", "In-game staff actions.", group="Security & Staff"),
+    Topic("admin", "Admin", "Administrator commands run on the server.", group="Security & Staff"),
 )
+
+#: Panel headings, in display order.
+GROUPS: tuple[str, ...] = ("Security & Staff", "Access", "Gameplay")
+
+#: Topics a route can move but never silence. Sentinel reports abuse by people who
+#: can reach the routing panel, so "mute security" must not be one of their options.
+UNMUTABLE = frozenset({"security"})
 
 BY_KEY: Mapping[str, Topic] = {topic.key: topic for topic in TOPICS}
 
@@ -128,6 +150,12 @@ def topic_for_category(category: str) -> str:
     return CATEGORY_ALIASES.get(key, "world")
 
 
+def categories_for(topic: str) -> list[str]:
+    """Every server-reported category that lands in one topic, for filtering history."""
+    key = str(topic or "").strip().casefold()
+    return [key] + sorted(alias for alias, target in CATEGORY_ALIASES.items() if target == key)
+
+
 def normalize(raw: Any) -> dict[str, int]:
     """Reads a stored routing table back, dropping anything unrecognisable.
 
@@ -148,7 +176,7 @@ def normalize(raw: Any) -> dict[str, int]:
             channel_id = int(value)
         except (TypeError, ValueError):
             continue
-        if channel_id < 0:
+        if channel_id < 0 or (channel_id == MUTED and topic in UNMUTABLE):
             continue
         routes[topic] = channel_id
     return routes
@@ -223,6 +251,8 @@ def with_route(settings: Any, topic: str, channel_id: Optional[int]) -> dict[str
     value = int(channel_id)
     if value < 0:
         raise ValueError("A log route must be a channel or 0 to mute it")
+    if value == MUTED and key in UNMUTABLE:
+        raise ValueError(f"The {BY_KEY[key].label} stream cannot be muted. Route it to a channel instead.")
     routes[key] = value
     return routes
 

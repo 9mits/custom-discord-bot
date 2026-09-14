@@ -18,38 +18,49 @@ import discord
 
 from . import logroutes
 from .presentation import branded_send, info_embed
+from .sentinel import CONFIG_ALERT_ROLE
 
 
-def routing_embed(settings, *, selected: Optional[str] = None) -> discord.Embed:
-    """Every stream and its destination, in the order the panel lists them."""
-    lines = []
-    for topic in logroutes.TOPICS:
-        marker = "▸ " if topic.key == selected else ""
-        lines.append(
-            f"{marker}**{topic.label}** — {logroutes.destination_label(settings, topic.key)}"
-        )
+def routing_embed(
+    settings, *, selected: Optional[str] = None, alert_role_id: int = 0
+) -> discord.Embed:
+    """Every stream and its destination, grouped the way the panel lists them."""
     embed = info_embed(
         "Minecraft Log Routing",
-        "> Choose a stream, then choose the channel it should be written to.\n\n"
-        + "\n".join(lines),
+        "> Choose a stream, then the channel it is written to. Routine lines arrive as "
+        "compact digests; important and security lines are always sent on their own.",
     )
+    for group in logroutes.GROUPS:
+        lines = []
+        for topic in logroutes.TOPICS:
+            if topic.group != group:
+                continue
+            marker = "**›** " if topic.key == selected else ""
+            lines.append(f"{marker}{topic.label} — {logroutes.destination_label(settings, topic.key)}")
+        if lines:
+            embed.add_field(name=group, value="\n".join(lines)[:1024], inline=False)
     embed.add_field(
-        name="Inherited",
+        name="Security alerts",
         value=(
-            "A stream with no channel of its own follows the log it used to share, "
-            "and then the Activity log. Nothing moves until you move it."
+            f"High and critical incidents ping <@&{alert_role_id}>."
+            if alert_role_id
+            else "No alert role. Critical incidents ping the server owner; high ones post silently."
         ),
-        inline=False,
-    )
-    embed.add_field(
-        name="Muted",
-        value="A muted stream is written nowhere. Muting **Important** is the one "
-        "exception: those lines go back to their own stream rather than being lost.",
         inline=False,
     )
     if selected:
         topic = logroutes.BY_KEY[selected]
         embed.add_field(name=f"Selected: {topic.label}", value=topic.description, inline=False)
+    else:
+        embed.add_field(
+            name="How routes work",
+            value=(
+                "A stream with no channel of its own follows the log it used to share, then the "
+                "Commands log. Muted streams are still kept in `/mgxstaff commandlog`. "
+                "Security cannot be muted."
+            ),
+            inline=False,
+        )
     return embed
 
 
@@ -105,7 +116,7 @@ class _MuteButton(discord.ui.Button):
         super().__init__(
             label="Mute this stream",
             style=discord.ButtonStyle.danger,
-            disabled=view_state.selected is None,
+            disabled=view_state.selected is None or view_state.selected in logroutes.UNMUTABLE,
             row=2,
         )
 
@@ -128,9 +139,31 @@ class _ClearButton(discord.ui.Button):
         await view.apply(interaction, None)
 
 
+class _AlertRoleSelect(discord.ui.RoleSelect):
+    def __init__(self) -> None:
+        super().__init__(
+            placeholder="Role to ping for high and critical security incidents",
+            min_values=0,
+            max_values=1,
+            row=3,
+        )
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        view: LogRoutingView = self.view  # type: ignore[assignment]
+        if not await view.owned_by(interaction):
+            return
+        await interaction.response.defer()
+        role_id = int(self.values[0].id) if self.values else 0
+        await view.bot.data.set_configs(
+            {CONFIG_ALERT_ROLE: role_id or None}, actor_id=interaction.user.id
+        )
+        view.alert_role_id = role_id
+        await view.redraw(interaction, responded=True)
+
+
 class _ResetButton(discord.ui.Button):
     def __init__(self) -> None:
-        super().__init__(label="Clear every route", style=discord.ButtonStyle.secondary, row=3)
+        super().__init__(label="Clear every route", style=discord.ButtonStyle.secondary, row=2)
 
     async def callback(self, interaction: discord.Interaction) -> None:
         view: LogRoutingView = self.view  # type: ignore[assignment]
@@ -144,11 +177,14 @@ class _ResetButton(discord.ui.Button):
 class LogRoutingView(discord.ui.View):
     """The panel. Ephemeral and single-user, so it carries no persistent custom ids."""
 
-    def __init__(self, bot, requester_id: int, selected: Optional[str] = None) -> None:
-        super().__init__(timeout=300)
+    def __init__(
+        self, bot, requester_id: int, selected: Optional[str] = None, *, alert_role_id: int = 0
+    ) -> None:
+        super().__init__(timeout=600)
         self.bot = bot
         self.requester_id = int(requester_id)
         self.selected = selected
+        self.alert_role_id = int(alert_role_id or 0)
         self._build()
 
     def _build(self) -> None:
@@ -158,6 +194,7 @@ class LogRoutingView(discord.ui.View):
         self.add_item(_MuteButton(self))
         self.add_item(_ClearButton(self))
         self.add_item(_ResetButton())
+        self.add_item(_AlertRoleSelect())
 
     async def owned_by(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id == self.requester_id:
@@ -196,6 +233,8 @@ class LogRoutingView(discord.ui.View):
             await interaction.response.defer()
         self._build()
         await interaction.edit_original_response(
-            embed=routing_embed(self.bot.settings, selected=self.selected),
+            embed=routing_embed(
+                self.bot.settings, selected=self.selected, alert_role_id=self.alert_role_id
+            ),
             view=self,
         )

@@ -558,12 +558,49 @@ async def deliver_server_event(
     if not channel_id:
         return
 
+    digest = getattr(client, "log_digest", None)
+    if digest is not None and not record.important:
+        topic = logroutes.BY_KEY.get(logroutes.topic_for_category(record.correlation_id or "server"))
+        await digest.add(
+            channel_id,
+            topic.label if topic else "Server Activity",
+            server_event_line(record, minecraft_username=minecraft_username, summary=summary),
+            key=f"{record.command}|{minecraft_uuid or record.user_label}",
+            at=record.created_at,
+        )
+        return
+
     embed = build_server_event_embed(
         record, minecraft_username=minecraft_username, summary=summary
     )
     if minecraft_uuid:
         embed.set_thumbnail(url=head_url(minecraft_uuid, minecraft_username))
     await _send(client, channel_id, embed)
+
+
+def server_event_line(record: CommandAuditRecord, *, minecraft_username: str, summary: str) -> str:
+    """One digest line for a routine in-game action."""
+    actor = minecraft_username or record.user_label or "Unknown player"
+    text = " ".join(str(summary or "").split())
+    if not text:
+        title = server_event_title(record.command).removeprefix("Minecraft ")
+        details = " · ".join(f"{name.replace('_', ' ')} {value}" for name, value in record.options[:3])
+        text = f"{title}" + (f" · {details}" if details else "")
+    if text.casefold().startswith(actor.casefold()):
+        text = text[len(actor):].lstrip(" :-")
+    return f"**{truncate(actor, 40)}** {truncate(text, 240)}"
+
+
+def command_line(record: CommandAuditRecord) -> str:
+    """One digest line for a routine Discord command or panel action."""
+    action = f"/{record.command}" if record.source == SOURCE_COMMAND else record.command
+    line = f"`{_OUTCOME_CODES.get(record.outcome, record.outcome.upper())}` **{truncate(action, 80)}** by <@{record.user_id}>"
+    if record.target_id:
+        line += f" on <@{record.target_id}>"
+    options = record.option_summary()
+    if options:
+        line += f" · {truncate(options, 120)}"
+    return line
 
 
 def format_record(record: CommandAuditRecord) -> str:
@@ -642,6 +679,12 @@ async def deliver(client: Any, record: CommandAuditRecord) -> None:
         return
 
     targets = [logroutes.resolve(settings, "command", important=record.important)]
+
+    digest = getattr(client, "log_digest", None)
+    if digest is not None and not record.important:
+        for channel_id in (channel_id for channel_id in targets if channel_id):
+            await digest.add(channel_id, "Commands", command_line(record), at=record.created_at)
+        return
 
     embed = build_action_embed(record)
     await _set_player_thumbnail(client, embed, record.target_id or record.user_id)
@@ -866,6 +909,8 @@ __all__: Iterable[str] = (
     "build_command_log_embed",
     "build_important_embed",
     "build_record",
+    "command_line",
+    "server_event_line",
     "component_label",
     "component_risk",
     "deliver",
