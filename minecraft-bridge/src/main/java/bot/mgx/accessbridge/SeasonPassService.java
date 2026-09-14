@@ -91,7 +91,9 @@ final class SeasonPassService implements Listener, CommandExecutor {
     }
 
     void start() {
-        ensureSeason(today());
+        // Saved at once: a season held only in memory would restart, with a new end
+        // date, every time the server did.
+        if (ensureSeason(today())) save();
         plugin.getServer().getScheduler().runTaskTimer(plugin, this::pulse, PULSE_TICKS, PULSE_TICKS);
     }
 

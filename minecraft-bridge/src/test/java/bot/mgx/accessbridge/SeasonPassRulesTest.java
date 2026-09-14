@@ -65,6 +65,16 @@ final class SeasonPassRulesTest {
     }
 
     @Test
+    void aNewSeasonIsSavedTheMomentItStarts() throws Exception {
+        String service = java.nio.file.Files.readString(java.nio.file.Path.of(
+                "src/main/java/bot/mgx/accessbridge/SeasonPassService.java"));
+        String start = service.substring(service.indexOf("void start()"),
+                service.indexOf("private boolean enabled()"));
+        assertTrue(start.contains("if (ensureSeason(today())) save();"),
+                "an unsaved season restarts with a new end date on every server restart");
+    }
+
+    @Test
     void theDefaultChaseCosmeticsAreRealCatalogueEntries() {
         for (String id : List.of("ender_trail", "celestial_crown", "prismatic_trail")) {
             assertTrue(CosmeticCatalog.find(id).isPresent(), id + " is not a registered cosmetic");
