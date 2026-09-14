@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Derive each season's exclusive icons from existing cosmetic artwork.
+"""Derive each season's exclusive icons and gear from existing artwork.
 
 Season exclusives share their shapes and differ by palette, and their icons follow the
 same rule. Nothing here draws geometry, which the icon art direction forbids: like the
@@ -26,7 +26,12 @@ from PIL import Image
 
 PACK = Path(__file__).resolve().parent
 MGX = PACK / "src" / "assets" / "mgx"
-TEXTURES = MGX / "textures" / "item" / "cosmetic"
+ITEM_TEXTURES = MGX / "textures" / "item"
+TEXTURES = ITEM_TEXTURES / "cosmetic"
+WORN_WINGS = MGX / "textures" / "entity" / "equipment" / "wings"
+EQUIPMENT = MGX / "equipment"
+GEAR_MODELS = MGX / "models" / "item"
+GEAR_ITEMS = MGX / "items"
 MODELS = MGX / "models" / "item" / "cosmetic"
 ITEMS = MGX / "items" / "cosmetic"
 CATALOG = PACK / "bedrock" / "catalog.json"
@@ -48,6 +53,27 @@ THEMES = {
 SLOT_NAMES = {"aura": "Crown", "trail": "Wake", "kill": "Verdict"}
 
 
+def is_blade(hue: float, saturation: float) -> bool:
+    return 0.40 < hue < 0.62 and saturation > 0.25
+
+
+def is_not_handle(hue: float, saturation: float) -> bool:
+    return not (0.05 < hue < 0.14 and saturation > 0.5)
+
+
+def everything(_hue: float, _saturation: float) -> bool:
+    return True
+
+
+#: piece: (source texture, which pixels are "material", java item, model parent source, display)
+GEAR = {
+    "scythe": ("pvp_scythe_1", is_blade, "netherite_sword", "pvp_scythe_1", "Scythe", (0.22, 1.0)),
+    "pickaxe": ("amethyst_pickaxe", is_not_handle, "netherite_pickaxe", "amethyst_pickaxe", "Pickaxe", None),
+    "axe": ("amethyst_axe", is_not_handle, "netherite_axe", "amethyst_axe", "Axe", None),
+    "wings": ("amethyst_elytra", everything, "elytra", "amethyst_elytra", "Wings", None),
+}
+
+
 def rgb(value: int) -> tuple[float, float, float]:
     return ((value >> 16) & 255) / 255, ((value >> 8) & 255) / 255, (value & 255) / 255
 
@@ -56,16 +82,29 @@ def mix(a, b, t):
     return tuple(x + (y - x) * t for x, y in zip(a, b))
 
 
-def recolour(image: Image.Image, shadow: int, primary: int, highlight: int) -> Image.Image:
+def recolour(
+    image: Image.Image, shadow: int, primary: int, highlight: int, select=everything, lift=None
+) -> Image.Image:
+    """Moves the hue of every selected pixel into the palette.
+
+    Brightness never changes unless ``lift`` gives a (darkest, brightest) range to
+    stretch the selection into: the leaderboard scythe blade is nearly black, and a
+    season colour cannot read at that value. The order of every shade is kept either way.
+    """
     image = image.convert("RGBA")
-    values = [max(p[:3]) / 255 for p in image.getdata() if p[3]]
+
+    def selected(pixel) -> bool:
+        hue, saturation, _ = colorsys.rgb_to_hsv(*(channel / 255 for channel in pixel[:3]))
+        return select(hue, saturation)
+
+    values = [max(p[:3]) / 255 for p in image.getdata() if p[3] and selected(p)] or [0.0, 1.0]
     low, high = min(values), max(values)
     span = max(1e-6, high - low)
     stops = (rgb(shadow), rgb(primary), rgb(highlight))
     cache: dict[tuple[int, int, int, int], tuple[int, int, int, int]] = {}
     out = []
     for pixel in image.getdata():
-        if not pixel[3]:
+        if not pixel[3] or not selected(pixel):
             out.append(pixel)
             continue
         if pixel not in cache:
@@ -76,6 +115,8 @@ def recolour(image: Image.Image, shadow: int, primary: int, highlight: int) -> I
             # Dark pixels of a light tint read as grey-brown; a firmer saturation keeps
             # the whole sprite in the season colour rather than only its highlights.
             saturation = min(1.0, saturation * 1.3)
+            if lift is not None:
+                value = lift[0] + t * (lift[1] - lift[0])
             r, g, b = colorsys.hsv_to_rgb(hue, saturation, value)
             cache[pixel] = (round(r * 255), round(g * 255), round(b * 255), pixel[3])
         out.append(cache[pixel])
@@ -111,6 +152,30 @@ def main() -> int:
                 "model": f"mgx:cosmetic/{name}",
                 "bedrock_identifier": f"mgx:cosmetic_{name}",
                 "display_name": f"{theme} {SLOT_NAMES[slot]}",
+            })
+            print(f"  {name}")
+    items = [item for item in items if not item["model"].startswith("mgx:season_")]
+    for season, (theme, shadow, primary, highlight, _materials) in THEMES.items():
+        for piece, (source, select, java_item, model_source, label, lift) in GEAR.items():
+            name = f"season_{season}_{piece}"
+            with Image.open(ITEM_TEXTURES / f"{source}.png") as original:
+                recolour(original, shadow, primary, highlight, select, lift).save(
+                    ITEM_TEXTURES / f"{name}.png", optimize=True)
+            model = json.loads((GEAR_MODELS / f"{model_source}.json").read_text(encoding="utf-8"))
+            model["textures"] = {"layer0": f"mgx:item/{name}"}
+            write_json(GEAR_MODELS / f"{name}.json", model)
+            write_json(GEAR_ITEMS / f"{name}.json",
+                       {"model": {"type": "minecraft:model", "model": f"mgx:item/{name}"}})
+            if piece == "wings":
+                with Image.open(WORN_WINGS / "amethyst_elytra.png") as worn:
+                    recolour(worn, shadow, primary, highlight).save(WORN_WINGS / f"{name}.png", optimize=True)
+                write_json(EQUIPMENT / f"{name}.json",
+                           {"layers": {"wings": [{"texture": f"mgx:{name}"}]}})
+            items.append({
+                "java_item": f"minecraft:{java_item}",
+                "model": f"mgx:{name}",
+                "bedrock_identifier": f"mgx:{name}",
+                "display_name": f"{theme} {label}",
             })
             print(f"  {name}")
     catalog["items"] = items

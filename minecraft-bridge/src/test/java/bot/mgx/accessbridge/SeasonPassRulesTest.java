@@ -85,6 +85,14 @@ final class SeasonPassRulesTest {
         assertEquals(new SeasonPassRules.Grant("season_cosmetic", 1, "AURA"), grants.get(2));
         assertEquals("KILL_EFFECT", grants.get(3).id());
         assertEquals(4, grants.size(), "an unknown exclusive category is skipped");
+
+        List<SeasonPassRules.Grant> gear = SeasonPassRules.parse(
+                "gear:Scythe;gear:elytra;gear:sword;reward:ancient_debris:3;reward:mace:999;reward:totem:x");
+        assertEquals(new SeasonPassRules.Grant("season_gear", 1, "SCYTHE"), gear.get(0));
+        assertEquals("WINGS", gear.get(1).id());
+        assertEquals(new SeasonPassRules.Grant("reward", 3, "ancient_debris"), gear.get(2));
+        assertEquals(SeasonPassRules.MAX_REWARD_COUNT, gear.get(3).amount());
+        assertEquals(4, gear.size(), "unknown gear and a bad count are skipped");
     }
 
     /**
@@ -103,6 +111,7 @@ final class SeasonPassRulesTest {
         long shards = 0;
         long hearts = 0;
         Set<String> exclusives = new HashSet<>();
+        Set<String> gear = new HashSet<>();
         for (int tier = 1; tier <= 50; tier++) {
             String spec = specs.get(SeasonPassRules.rewardKey(tier, specs::containsKey));
             List<SeasonPassRules.Grant> grants = SeasonPassRules.parse(spec);
@@ -112,6 +121,7 @@ final class SeasonPassRulesTest {
                     case "shards" -> shards += grant.amount();
                     case "hearts" -> hearts += grant.amount();
                     case "season_cosmetic" -> assertTrue(exclusives.add(grant.id()), "exclusive paid twice");
+                    case "season_gear" -> assertTrue(gear.add(grant.id()), "gear paid twice");
                     case "reward" -> assertTrue(CrateCatalog.find(grant.id()).isPresent(),
                             grant.id() + " is not a registered crate reward");
                     case "cosmetic" -> assertTrue(CosmeticCatalog.find(grant.id()).isPresent(), grant.id());
@@ -121,7 +131,8 @@ final class SeasonPassRulesTest {
             }
         }
         assertEquals(Set.of("AURA", "TRAIL", "KILL_EFFECT"), exclusives);
-        assertEquals(2, hearts);
+        assertEquals(Set.of("SCYTHE", "PICKAXE", "AXE", "WINGS"), gear);
+        assertEquals(3, hearts);
         assertTrue(shards >= 5 && shards <= 12, "a full track pays " + shards + " Shards");
     }
 

@@ -48,6 +48,10 @@ LINKED_ICON_SIZES = {
     "pvp_scythe_1": (64, 64),
     "pvp_scythe_2": (64, 64),
     "pvp_scythe_3": (64, 64),
+    # Season gear is re-coloured from the leaderboard Scythe and the imported Amethyst
+    # gear, so each piece keeps its source's grid exactly.
+    **{f"season_{season}_scythe": (64, 64) for season in range(1, 5)},
+    **{f"season_{season}_{piece}": (16, 16) for season in range(1, 5) for piece in ("pickaxe", "axe", "wings")},
 }
 IMPORTED_MOD_HASHES = {
     "amethyst_pickaxe": "65630e43cdb2634ae0fa77d9ac1d9bc2a2b657a59fb4ea32932d057f5afdb2d9",
@@ -140,8 +144,8 @@ class ResourcePackIconTests(unittest.TestCase):
         # 94, plus the eleven Eternal twins of the timed Amethyst gear, plus the
         # Mysterious Crate Key, which became its own item when the Amethyst Token
         # inherited the old key's identity, plus three exclusives for each of the
-        # four themed seasons.
-        self.assertEqual(118, len(icons))
+        # four themed seasons, plus each season's Scythe, Pickaxe, Axe and Wings.
+        self.assertEqual(134, len(icons))
 
         digests = set()
         for path in icons:
@@ -351,6 +355,10 @@ class ResourcePackIconTests(unittest.TestCase):
                 )
                 for slot in ("aura", "trail", "kill"):
                     self.assertTrue((ITEM_TEXTURES / "cosmetic" / f"season_{season}_{slot}.png").is_file())
+                for piece in ("scythe", "pickaxe", "axe", "wings"):
+                    self.assertTrue((ITEM_TEXTURES / f"season_{season}_{piece}.png").is_file())
+                worn = RESOURCE_PACK / "src" / "assets" / "mgx" / "textures" / "entity" / "equipment" / "wings"
+                self.assertTrue((worn / f"season_{season}_wings.png").is_file())
 
     def test_bedrock_pack_contains_the_canonical_java_icon_bytes(self):
         catalog = json.loads((RESOURCE_PACK / "bedrock" / "catalog.json").read_text(encoding="utf-8"))

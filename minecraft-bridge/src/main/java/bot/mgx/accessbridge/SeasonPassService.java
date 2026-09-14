@@ -265,6 +265,11 @@ final class SeasonPassService implements Listener, CommandExecutor {
             switch (grant.kind()) {
                 case "hearts" -> parts.add("+" + grant.amount() + " Permanent "
                         + (grant.amount() == 1 ? "Heart" : "Hearts"));
+                case "season_gear" -> parts.add(seasonGear(grant)
+                        .map(piece -> SeasonCosmetics.theme(store.season())
+                                .map(theme -> SeasonGear.displayName(theme, piece)).orElse(piece.label)
+                                + " (Season " + store.season() + " Exclusive)")
+                        .orElse(exclusiveFallbackShards() + " Shards"));
                 case "season_cosmetic" -> parts.add(seasonCosmetic(grant)
                         .map(definition -> definition.displayName() + " (Season " + store.season() + " Exclusive)")
                         .orElse(exclusiveFallbackShards() + " Shards"));
@@ -272,8 +277,8 @@ final class SeasonPassService implements Listener, CommandExecutor {
                 case "shards" -> parts.add(grant.amount() + (grant.amount() == 1 ? " Shard" : " Shards"));
                 case "cosmetic" -> parts.add(CosmeticCatalog.find(grant.id())
                         .map(CosmeticCatalog.Definition::displayName).orElse(grant.id()));
-                case "reward" -> parts.add(CrateCatalog.find(grant.id())
-                        .map(CrateCatalog.Reward::displayName).orElse(grant.id()));
+                case "reward" -> parts.add((grant.amount() > 1 ? grant.amount() + "x " : "")
+                        + CrateCatalog.find(grant.id()).map(CrateCatalog.Reward::displayName).orElse(grant.id()));
                 default -> { }
             }
         }
@@ -288,12 +293,28 @@ final class SeasonPassService implements Listener, CommandExecutor {
         }
     }
 
+    /** A gear grant for this season, empty when the season has no theme to paint it in. */
+    private java.util.Optional<SeasonGear.Piece> seasonGear(SeasonPassRules.Grant grant) {
+        if (SeasonCosmetics.theme(store.season()).isEmpty()) return java.util.Optional.empty();
+        try {
+            return java.util.Optional.of(SeasonGear.Piece.valueOf(grant.id()));
+        } catch (IllegalArgumentException unknown) {
+            return java.util.Optional.empty();
+        }
+    }
+
     private int exclusiveFallbackShards() {
         return Math.max(0, variables.integer("season.exclusive-fallback-shards"));
     }
 
     /** The icon a tier row shows: its most valuable reward. */
     String iconFor(List<SeasonPassRules.Grant> grants) {
+        for (SeasonPassRules.Grant grant : grants) {
+            if (grant.kind().equals("season_gear") && seasonGear(grant).isPresent()) {
+                return "mgx:item/" + SeasonGear.modelKey(store.season(), seasonGear(grant).get())
+                        .substring("mgx:".length());
+            }
+        }
         for (SeasonPassRules.Grant grant : grants) {
             if (grant.kind().equals("season_cosmetic")) {
                 return seasonCosmetic(grant).map(definition -> "mgx:item/cosmetic/" + definition.id())
@@ -331,6 +352,17 @@ final class SeasonPassService implements Listener, CommandExecutor {
                                     + substitute + " Shards instead.");
                         }
                     }
+                    case "season_gear" -> {
+                        var piece = seasonGear(grant);
+                        var theme = SeasonCosmetics.theme(store.season());
+                        if (piece.isPresent() && theme.isPresent() && plugin.amethystItems() != null) {
+                            give(player, plugin.amethystItems().createSeasonGear(theme.get(), piece.get()));
+                            info(player, SeasonGear.displayName(theme.get(), piece.get())
+                                    + " is yours for good. Only Season " + store.season() + " ever pays it.");
+                        } else if (exclusiveFallbackShards() > 0) {
+                            giveShards(player, exclusiveFallbackShards());
+                        }
+                    }
                     case "season_cosmetic" -> {
                         var definition = seasonCosmetic(grant);
                         if (definition.isPresent()) {
@@ -355,7 +387,7 @@ final class SeasonPassService implements Listener, CommandExecutor {
                         if (reward.cosmetic()) {
                             plugin.cosmetics().mint(player.getUniqueId(), reward.cosmeticId(), UUID.randomUUID());
                         } else {
-                            give(player, items.reward(reward));
+                            for (long copy = 0; copy < grant.amount(); copy++) give(player, items.reward(reward));
                         }
                     });
                     default -> { }

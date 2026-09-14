@@ -67,6 +67,9 @@ class ResourcePackCatalogTest {
         for (int placement = 1; placement <= 3; placement++) {
             assertModelResolves("mgx:pvp_scythe_" + placement);
         }
+        for (String seasonGear : SeasonGear.modelKeys()) {
+            assertModelResolves(seasonGear);
+        }
         assertNotEquals(
                 resolvedTexture("mgx:fortune_potion"),
                 resolvedTexture("mgx:crate_luck_potion"),
@@ -406,6 +409,12 @@ class ResourcePackCatalogTest {
         }
         for (int placement = 1; placement <= 3; placement++) {
             expectedBases.put("mgx:pvp_scythe_" + placement, "minecraft:netherite_sword");
+        }
+        for (SeasonCosmetics.Theme theme : SeasonCosmetics.THEMES) {
+            for (SeasonGear.Piece piece : SeasonGear.Piece.values()) {
+                expectedBases.put(SeasonGear.modelKey(theme.season(), piece),
+                        "minecraft:" + piece.material.toLowerCase(Locale.ROOT));
+            }
         }
 
         Map<String, String> actualBases = new HashMap<>();

@@ -50,4 +50,14 @@ final class SeasonCosmeticsTest {
             assertTrue(names.add(theme.name()), theme.name());
         }
     }
+
+    @Test
+    void everySeasonHasEveryGearPieceWithADistinctModel() {
+        assertEquals(SeasonCosmetics.THEMES.size() * SeasonGear.Piece.values().length,
+                new HashSet<>(SeasonGear.modelKeys()).size());
+        assertEquals(SeasonGear.Piece.WINGS, SeasonGear.Piece.parse("elytra").orElseThrow());
+        assertEquals("sword", SeasonGear.Piece.SCYTHE.kind, "the scythe carries the sword abilities");
+        assertEquals("Solstice Scythe", SeasonGear.displayName(SeasonCosmetics.THEMES.getFirst(),
+                SeasonGear.Piece.SCYTHE));
+    }
 }

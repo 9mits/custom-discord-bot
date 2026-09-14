@@ -967,6 +967,42 @@
         "bedrock_options": {
           "icon": "mgx:eternal_amethyst_elytra"
         }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:season_1_wings",
+        "bedrock_identifier": "mgx:season_1_wings",
+        "display_name": "Solstice Wings",
+        "bedrock_options": {
+          "icon": "mgx:season_1_wings"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:season_2_wings",
+        "bedrock_identifier": "mgx:season_2_wings",
+        "display_name": "Frostbound Wings",
+        "bedrock_options": {
+          "icon": "mgx:season_2_wings"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:season_3_wings",
+        "bedrock_identifier": "mgx:season_3_wings",
+        "display_name": "Verdant Wings",
+        "bedrock_options": {
+          "icon": "mgx:season_3_wings"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:season_4_wings",
+        "bedrock_identifier": "mgx:season_4_wings",
+        "display_name": "Eclipse Wings",
+        "bedrock_options": {
+          "icon": "mgx:season_4_wings"
+        }
       }
     ],
     "minecraft:tipped_arrow": [
@@ -1109,6 +1145,42 @@
         "bedrock_options": {
           "icon": "mgx:cosmetic_season_4_kill"
         }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:season_1_scythe",
+        "bedrock_identifier": "mgx:season_1_scythe",
+        "display_name": "Solstice Scythe",
+        "bedrock_options": {
+          "icon": "mgx:season_1_scythe"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:season_2_scythe",
+        "bedrock_identifier": "mgx:season_2_scythe",
+        "display_name": "Frostbound Scythe",
+        "bedrock_options": {
+          "icon": "mgx:season_2_scythe"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:season_3_scythe",
+        "bedrock_identifier": "mgx:season_3_scythe",
+        "display_name": "Verdant Scythe",
+        "bedrock_options": {
+          "icon": "mgx:season_3_scythe"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:season_4_scythe",
+        "bedrock_identifier": "mgx:season_4_scythe",
+        "display_name": "Eclipse Scythe",
+        "bedrock_options": {
+          "icon": "mgx:season_4_scythe"
+        }
       }
     ],
     "minecraft:sunflower": [
@@ -1141,6 +1213,82 @@
         "display_name": "Eclipse Crown",
         "bedrock_options": {
           "icon": "mgx:cosmetic_season_4_aura"
+        }
+      }
+    ],
+    "minecraft:netherite_pickaxe": [
+      {
+        "type": "definition",
+        "model": "mgx:season_1_pickaxe",
+        "bedrock_identifier": "mgx:season_1_pickaxe",
+        "display_name": "Solstice Pickaxe",
+        "bedrock_options": {
+          "icon": "mgx:season_1_pickaxe"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:season_2_pickaxe",
+        "bedrock_identifier": "mgx:season_2_pickaxe",
+        "display_name": "Frostbound Pickaxe",
+        "bedrock_options": {
+          "icon": "mgx:season_2_pickaxe"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:season_3_pickaxe",
+        "bedrock_identifier": "mgx:season_3_pickaxe",
+        "display_name": "Verdant Pickaxe",
+        "bedrock_options": {
+          "icon": "mgx:season_3_pickaxe"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:season_4_pickaxe",
+        "bedrock_identifier": "mgx:season_4_pickaxe",
+        "display_name": "Eclipse Pickaxe",
+        "bedrock_options": {
+          "icon": "mgx:season_4_pickaxe"
+        }
+      }
+    ],
+    "minecraft:netherite_axe": [
+      {
+        "type": "definition",
+        "model": "mgx:season_1_axe",
+        "bedrock_identifier": "mgx:season_1_axe",
+        "display_name": "Solstice Axe",
+        "bedrock_options": {
+          "icon": "mgx:season_1_axe"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:season_2_axe",
+        "bedrock_identifier": "mgx:season_2_axe",
+        "display_name": "Frostbound Axe",
+        "bedrock_options": {
+          "icon": "mgx:season_2_axe"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:season_3_axe",
+        "bedrock_identifier": "mgx:season_3_axe",
+        "display_name": "Verdant Axe",
+        "bedrock_options": {
+          "icon": "mgx:season_3_axe"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:season_4_axe",
+        "bedrock_identifier": "mgx:season_4_axe",
+        "display_name": "Eclipse Axe",
+        "bedrock_options": {
+          "icon": "mgx:season_4_axe"
         }
       }
     ]
