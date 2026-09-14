@@ -1263,9 +1263,9 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                                 + " is put back with everything else."},
                 new String[] {"item/diamond_sword", "Damage",
                         "Only your opponent can hurt you — and your own explosives."},
-                new String[] {"item/ender_pearl", "No Exit",
-                        "Pearls and chorus fruit are refused. Nothing you set off"
-                                + " reaches past the border."},
+                new String[] {"item/ender_pearl", "Pearls",
+                        "Ender pearls work anywhere inside the ring. A pearl that would land"
+                                + " past the border, and chorus fruit, are refused."},
                 new String[] {"item/rotten_flesh", "No Mobs",
                         "Nothing else is alive in there."},
                 new String[] {"item/clock_00", "The Clock",
@@ -3849,10 +3849,35 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onTeleport(PlayerTeleportEvent event) {
         if (isParticipant(event.getPlayer().getUniqueId())
-                && !internalTeleports.contains(event.getPlayer().getUniqueId())) {
+                && !internalTeleports.contains(event.getPlayer().getUniqueId())
+                && !pearlInsideRing(event)) {
             event.setCancelled(true);
-            error(event.getPlayer(), "Leave or finish the fight before teleporting.");
+            error(event.getPlayer(),
+                    event.getCause() == PlayerTeleportEvent.TeleportCause.ENDER_PEARL
+                            ? "That pearl would have landed outside the ring."
+                            : "Leave or finish the fight before teleporting.");
+        } else if (pearlInsideRing(event)) {
+            // CombatLog and similar plugins refuse teleports while tagged, and every
+            // fighter is tagged. A pearl inside the ring is part of the fight.
+            event.setCancelled(false);
         }
+    }
+
+    /**
+     * An ender pearl thrown by a living fighter that lands inside their own ring.
+     *
+     * <p>Pearls are movement, not an exit: the only pearl that is refused is one that
+     * would carry somebody past the border they are fighting inside.
+     */
+    private boolean pearlInsideRing(PlayerTeleportEvent event) {
+        if (event.getCause() != PlayerTeleportEvent.TeleportCause.ENDER_PEARL) return false;
+        Fight fight = fighting.get(event.getPlayer().getUniqueId());
+        Location to = event.getTo();
+        return fight != null && fight.phase == Phase.FIGHTING && to != null
+                && to.getWorld() != null && to.getWorld().equals(fight.arena.center().getWorld())
+                && PvpDuelRules.inside(to.getX(), to.getZ(),
+                        fight.arena.center().getX(), fight.arena.center().getZ(),
+                        fight.arena.diameter());
     }
 
     /**
@@ -3866,7 +3891,8 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = false)
     public void onTeleportMonitor(PlayerTeleportEvent event) {
         if (!event.isCancelled() && isParticipant(event.getPlayer().getUniqueId())
-                && !internalTeleports.contains(event.getPlayer().getUniqueId())) {
+                && !internalTeleports.contains(event.getPlayer().getUniqueId())
+                && !pearlInsideRing(event)) {
             event.setCancelled(true);
         }
     }
@@ -3896,11 +3922,11 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     }
 
     /**
-     * An ender pearl is a teleport, and a teleport is how a fight gets abandoned.
+     * Pearls are allowed to a living fighter once the fight has begun.
      *
-     * <p>{@code onTeleport} already refuses the landing, but that spends the pearl to
-     * go nowhere. Refusing the throw keeps the pearl and says why, which is the same
-     * answer given for every other way out of the ring.
+     * <p>Spectators and a countdown still refuse the throw, which keeps the pearl rather
+     * than spending it on a landing {@code onTeleport} would refuse anyway. Where it
+     * lands is checked there, because only the landing can be outside the ring.
      */
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onProjectileLaunch(ProjectileLaunchEvent event) {
@@ -3909,8 +3935,11 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 || !isParticipant(shooter.getUniqueId())) {
             return;
         }
+        Fight fight = fighting.get(shooter.getUniqueId());
+        if (fight != null && fight.phase == Phase.FIGHTING) return;
         event.setCancelled(true);
-        maybeNotice(shooter, "Ender pearls do not work in a fight.");
+        maybeNotice(shooter, fight == null ? "Spectators cannot throw ender pearls."
+                : "Wait for the fight to begin before throwing a pearl.");
     }
 
     /** Chorus fruit is the other teleport, and it is eaten rather than thrown. */
