@@ -1589,6 +1589,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
                 player.getUniqueId(), menu.subject(), money, System.currentTimeMillis()
         );
         plugin.metricCounters().increment(ServerMetrics.AUCTION_SALES);
+        SentinelHub.expect(player.getUniqueId(), List.of(item), "an auction purchase from " + offered.sellerName());
         give(player, item);
         // A cosmetic is owned in the wardrobe, not carried in the inventory. Listing one
         // clears its custody so the token can travel, and give() puts it straight into
@@ -1857,6 +1858,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
             ItemStack item = decodeItem(mail.itemData());
             if (item != null) {
                 amethystItems.upgradeLegacyItem(item);
+                SentinelHub.expect(player.getUniqueId(), List.of(item), "the auction mailbox");
                 give(player, item);
                 given++;
             }

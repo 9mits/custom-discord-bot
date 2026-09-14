@@ -4811,6 +4811,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
             return;
         }
         ItemStack[] saved = decodeItems(recovery.encodedInventory());
+        SentinelHub.expect(player.getUniqueId(), java.util.Arrays.asList(saved), "a PvP inventory restore");
         player.getInventory().clear();
         player.getInventory().setContents(sized(
                 saved, player.getInventory().getContents().length));
@@ -4892,7 +4893,9 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         if (player == null || state == null || state.recovery().encodedStake().isEmpty()) {
             return;
         }
-        for (ItemStack item : decodeStakeItems(state.recovery().encodedStake())) {
+        List<ItemStack> stakes = decodeStakeItems(state.recovery().encodedStake());
+        SentinelHub.expect(player.getUniqueId(), stakes, "a PvP duel stake");
+        for (ItemStack item : stakes) {
             giveSafely(player, item);
         }
         vaultLater(player);

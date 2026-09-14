@@ -55,6 +55,7 @@ final class CrateItems {
 
     ItemStack shard(int amount) {
         ItemStack item = new ItemStack(Material.AMETHYST_SHARD, Math.max(1, Math.min(64, amount)));
+        SentinelHub.minted(SentinelEngine.Kind.SHARD, item.getAmount());
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
             meta.displayName(Component.text("Shard", TextColor.color(0x53E5FF), TextDecoration.BOLD)
@@ -101,6 +102,7 @@ final class CrateItems {
             throw new IllegalArgumentException("One key stack cannot exceed " + keyStackSize() + ".");
         }
         ItemStack item = new ItemStack(Material.TRIAL_KEY, (int) amount);
+        SentinelHub.minted(SentinelEngine.Kind.MYSTERY_KEY, amount);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
             meta.setMaxStackSize(MAX_REAL_STACK);
@@ -197,6 +199,7 @@ final class CrateItems {
             throw new IllegalArgumentException("One key stack cannot exceed " + keyStackSize() + ".");
         }
         ItemStack item = new ItemStack(Material.TRIAL_KEY, (int) amount);
+        SentinelHub.minted(SentinelEngine.Kind.AMETHYST_TOKEN, amount);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
             applyTokenSkin(meta);

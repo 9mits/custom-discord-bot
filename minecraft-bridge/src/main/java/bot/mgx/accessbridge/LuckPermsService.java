@@ -77,6 +77,26 @@ final class LuckPermsService {
         }
     }
 
+    /**
+     * Streams LuckPerms' own action log: every change made by a command, the web editor
+     * or the API, with the name of whoever made it.
+     */
+    void onAction(TriAction listener) {
+        luckPerms.getEventBus().subscribe(plugin, net.luckperms.api.event.log.LogPublishEvent.class, event -> {
+            net.luckperms.api.actionlog.Action action = event.getEntry();
+            String source = action.getSource().getName();
+            String target = action.getTarget().getName();
+            String description = action.getDescription();
+            plugin.getServer().getScheduler().runTask(plugin,
+                    () -> listener.accept(source, target, description));
+        });
+    }
+
+    @FunctionalInterface
+    interface TriAction {
+        void accept(String source, String target, String description);
+    }
+
     /** Whether the LuckPerms service is present at all, so callers can degrade cleanly. */
     boolean available() {
         return true;

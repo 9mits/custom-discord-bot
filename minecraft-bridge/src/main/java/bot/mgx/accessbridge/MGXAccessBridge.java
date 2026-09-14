@@ -99,6 +99,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private CrateService crates;
     private LoginStreakService loginStreaks;
     private SeasonPassService seasonPass;
+    private SentinelService sentinel;
+    private CosmeticItems cosmeticItemsForSentinel;
     private AmethystItemService amethystItems;
     private AmethystDragonService amethystDragon;
     private CrateDisplayService crateDisplays;
@@ -568,6 +570,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getCommand("menu").setExecutor(mainMenu);
         getServer().getPluginManager().registerEvents(mainMenu, this);
         CosmeticItems cosmeticItems = new CosmeticItems(this);
+        cosmeticItemsForSentinel = cosmeticItems;
         try {
             pvpDuels = new PvpDuelService(
                     this, economyStore, playerSettings, clientSupport, bedrockForms,
@@ -921,6 +924,16 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             getLogger().severe("Daily login streaks are disabled: " + exception.getMessage());
         }
         try {
+            sentinel = new SentinelService(this,
+                    new SentinelStore(getDataFolder().toPath().resolve("sentinel.json")),
+                    gameVariables, crateItems, cosmeticItemsForSentinel);
+            getServer().getPluginManager().registerEvents(sentinel, this);
+            if (luckPermsService != null) luckPermsService.onAction(sentinel::luckPermsAction);
+            sentinel.start();
+        } catch (IOException exception) {
+            getLogger().severe("Sentinel is disabled: " + exception.getMessage());
+        }
+        try {
             seasonPass = new SeasonPassService(this,
                     new SeasonStore(getDataFolder().toPath().resolve("season-pass.json")),
                     gameVariables, crateItems, clientSupport, bedrockForms);
@@ -1077,6 +1090,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
 
     @Override
     public void onDisable() {
+        if (sentinel != null) {
+            sentinel.stop();
+        }
         // Before anything else: an operator event must never survive a reload.
         if (chaosService != null) {
             chaosService.stopAll();
@@ -1737,6 +1753,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         // Admin log must never disable the command that resets verification.
         if (activityLog != null
                 && !activityLog.reports(event.category())
+                && !ServerEvent.CATEGORY_SECURITY.equals(event.category())
                 && !"test_unverify".equals(event.event())) {
             return;
         }

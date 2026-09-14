@@ -78,6 +78,7 @@ final class GameVariableStore {
     private final Map<String, Definition> definitions = new LinkedHashMap<>();
     private final Map<String, Object> overrides = new LinkedHashMap<>();
     private final List<Consumer<String>> changeObservers = new ArrayList<>();
+    private final List<java.util.function.BiConsumer<String, List<Change>>> changeSetObservers = new ArrayList<>();
     private final ConfigHistory history;
     private final CustomCatalogStore custom;
     /**
@@ -1389,6 +1390,48 @@ final class GameVariableStore {
                         + " Stacks with potions and events inside the normal luck ceiling.",
                 15, 0, 50, "percent", false);
 
+        bool("sentinel.enabled", "Sentinel", "Sentinel",
+                "Watch every player, staff member and the console for duplication, hacking and"
+                        + " abuse of power. Turning this off is itself reported.", true);
+        integer("sentinel.census-seconds", "Holdings check interval", "Sentinel",
+                "Seconds between checks of what every online player is holding.", 30, 5, 600, "seconds", false);
+        integer("sentinel.window-minutes", "Holdings memory", "Sentinel",
+                "Minutes a player's recent peak is remembered. Items taken away and handed back"
+                        + " inside this window never need explaining.", 60, 5, 1_440, "minutes", false);
+        integer("sentinel.threshold.shard", "Unexplained Shards", "Sentinel",
+                "Shards gained above the recent peak, with no source, that raise an incident.",
+                16, 1, 10_000, "shards", false);
+        integer("sentinel.threshold.mystery-key", "Unexplained Mystery Keys", "Sentinel",
+                "Mystery Crate Keys gained with no source that raise an incident.", 128, 1, 100_000, "keys", false);
+        integer("sentinel.threshold.amethyst-token", "Unexplained Amethyst Tokens", "Sentinel",
+                "Amethyst Tokens gained with no source that raise an incident.", 500, 1, 1_000_000, "tokens", false);
+        integer("sentinel.threshold.cosmetic", "Unexplained cosmetics", "Sentinel",
+                "Cosmetic tokens gained with no source that raise an incident.", 3, 1, 1_000, "cosmetics", false);
+        integer("sentinel.threshold.netherite", "Unexplained netherite", "Sentinel",
+                "Netherite gained with no source, in quarter ingots (4 = 1 ingot).", 128, 4, 100_000, "quarters", false);
+        integer("sentinel.threshold.diamond", "Unexplained diamonds", "Sentinel",
+                "Diamonds gained with no source (blocks count 9).", 512, 9, 1_000_000, "diamonds", false);
+        integer("sentinel.money-large-deposit", "Large deposit", "Sentinel",
+                "Millions of dollars in one deposit that raise an incident.", 50, 1, 100_000, "millions", false);
+        integer("sentinel.money-window-limit", "Money created per 10 minutes", "Sentinel",
+                "Millions of dollars one player may gain in 10 minutes before an incident.",
+                250, 1, 1_000_000, "millions", false);
+        integer("sentinel.grim-combat-flags", "Combat anticheat burst", "Sentinel",
+                "GrimAC combat-check flags in 5 minutes that raise an incident.", 10, 1, 1_000, "flags", false);
+        integer("sentinel.grim-other-flags", "Movement anticheat burst", "Sentinel",
+                "GrimAC movement and packet flags in 5 minutes that raise an incident.", 30, 1, 5_000, "flags", false);
+        integer("sentinel.xray-minimum-finds", "X-ray minimum finds", "Sentinel",
+                "Diamond ore found in 30 minutes before the rock-to-ore ratio is judged.", 20, 4, 1_000, "ores", false);
+        integer("sentinel.repeat-cooldown-minutes", "Repeat cooldown", "Sentinel",
+                "Minutes the same incident for the same player is counted instead of re-sent.",
+                10, 1, 1_440, "minutes", false);
+        integer("sentinel.escalate-risk", "Escalation risk score", "Sentinel",
+                "A player's decaying risk score at which new incidents are raised one severity.",
+                60, 5, 10_000, "risk", false);
+        bool("sentinel.in-game-alerts", "In-game alerts", "Sentinel",
+                "Also show HIGH and CRITICAL incidents in chat to players explicitly granted"
+                        + " mgxaccessbridge.sentinel.alerts. Discord always receives them.", false);
+
         bool("season.enabled", "Season Pass", "Season Pass",
                 "Run the Season Pass: daily and weekly quests, Season XP and tier rewards.", true);
         integer("season.length-days", "Season length", "Season Pass",
@@ -2277,6 +2320,11 @@ final class GameVariableStore {
         ));
     }
 
+    /** Every applied change set with who applied it, for auditing. */
+    synchronized void onChangeSet(java.util.function.BiConsumer<String, List<Change>> observer) {
+        if (observer != null) changeSetObservers.add(observer);
+    }
+
     synchronized void onChange(Runnable observer) {
         if (observer != null) changeObservers.add(_key -> observer.run());
     }
@@ -2444,7 +2492,9 @@ final class GameVariableStore {
             history.record(actor, changes);
         }
         changes.forEach(change -> changeObservers.forEach(observer -> observer.accept(change.key())));
-        return List.copyOf(changes);
+        List<Change> applied = List.copyOf(changes);
+        changeSetObservers.forEach(observer -> observer.accept(actor, applied));
+        return applied;
     }
 
     /**

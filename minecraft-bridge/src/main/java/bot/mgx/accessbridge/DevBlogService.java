@@ -187,10 +187,12 @@ final class DevBlogService {
         // aside and handed back rather than being overwritten by the stash.
         ItemStack[] acquired = inventory.getStorageContents().clone();
 
-        inventory.setStorageContents(bytesToItems(
+        ItemStack[] stash = bytesToItems(
                 DevBlogStore.decode(session.encodedContents()),
                 inventory.getStorageContents().length
-        ));
+        );
+        SentinelHub.expect(player.getUniqueId(), java.util.Arrays.asList(stash), "a screenshot-mode restore");
+        inventory.setStorageContents(stash);
         if (!session.keptArmour() && !session.encodedArmour().isEmpty()) {
             inventory.setArmorContents(bytesToItems(
                     DevBlogStore.decode(session.encodedArmour()),

@@ -2041,9 +2041,11 @@ final class PvpCompetitionService implements Listener {
                 || !saved.encodedInventory().isEmpty()) {
             clearEffects(player);
             player.getInventory().clear();
+            ItemStack[] restoredItems = PvpStateCodec.decodeItems(saved.encodedInventory());
+            SentinelHub.expect(player.getUniqueId(), java.util.Arrays.asList(restoredItems),
+                    "a PvP inventory restore");
             player.getInventory().setContents(PvpStateCodec.sized(
-                    PvpStateCodec.decodeItems(saved.encodedInventory()),
-                    player.getInventory().getContents().length));
+                    restoredItems, player.getInventory().getContents().length));
             for (PotionEffect effect : PvpStateCodec.decodeEffects(saved.encodedEffects())) {
                 player.addPotionEffect(effect);
             }
