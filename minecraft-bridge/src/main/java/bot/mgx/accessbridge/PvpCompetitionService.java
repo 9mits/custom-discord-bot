@@ -24,7 +24,6 @@ import org.bukkit.block.data.Orientable;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.ArmorStand;
 import org.bukkit.entity.Display;
-import org.bukkit.entity.EnderPearl;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.TextDisplay;
@@ -4240,18 +4239,35 @@ final class PvpCompetitionService implements Listener {
     public void onTeleport(PlayerTeleportEvent event) {
         UUID playerId = event.getPlayer().getUniqueId();
         if (internalTeleports.contains(playerId)) return;
+        if (pearlInsideArena(event)) {
+            // Every fighter is combat-tagged, and tag plugins refuse teleports.
+            event.setCancelled(false);
+            return;
+        }
         if (isParticipant(playerId)) {
             event.setCancelled(true);
             event.getPlayer().sendActionBar(Component.text(
-                    "Teleporting is disabled during competitive PvP.", NamedTextColor.RED));
+                    event.getCause() == PlayerTeleportEvent.TeleportCause.ENDER_PEARL
+                            ? "That pearl would have landed outside the arena."
+                            : "Teleporting is disabled during competitive PvP.",
+                    NamedTextColor.RED));
         }
+    }
+
+    /** A living fighter's ender pearl that lands inside the current border. */
+    private boolean pearlInsideArena(PlayerTeleportEvent event) {
+        if (event.getCause() != PlayerTeleportEvent.TeleportCause.ENDER_PEARL) return false;
+        UUID playerId = event.getPlayer().getUniqueId();
+        Match match = matchByPlayer.get(playerId);
+        return match != null && match.phase == Phase.FIGHTING && match.alive.contains(playerId)
+                && insideArena(match, event.getTo());
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = false)
     public void onTeleportMonitor(PlayerTeleportEvent event) {
         UUID playerId = event.getPlayer().getUniqueId();
         if (!event.isCancelled() && isParticipant(playerId)
-                && !internalTeleports.contains(playerId)) {
+                && !internalTeleports.contains(playerId) && !pearlInsideArena(event)) {
             event.setCancelled(true);
         }
     }
@@ -4363,11 +4379,6 @@ final class PvpCompetitionService implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onProjectile(ProjectileLaunchEvent event) {
         if (event.getEntity().getShooter() instanceof Player player) {
-            if (event.getEntity() instanceof EnderPearl && isParticipant(player.getUniqueId())) {
-                event.setCancelled(true);
-                error(player, "Ender pearls do not work in a fight.");
-                return;
-            }
             Match match = matchByPlayer.get(player.getUniqueId());
             if (viewing.containsKey(player.getUniqueId()) || match == null
                     || match.phase != Phase.FIGHTING || !match.alive.contains(player.getUniqueId())) {
