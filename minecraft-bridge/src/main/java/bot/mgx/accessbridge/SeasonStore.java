@@ -46,7 +46,7 @@ final class SeasonStore {
         long endsDay = -1L;
         Map<String, Row> players = new LinkedHashMap<>();
         List<Podium> history = new ArrayList<>();
-        /** Permanent Season Hearts. Lifetime, so a new season never clears them. */
+        /** Season Hearts earned this season. A new season clears them. */
         Map<String, Integer> hearts = new LinkedHashMap<>();
     }
 
@@ -97,6 +97,8 @@ final class SeasonStore {
             row.xp = 0L;
             row.grantedTier = 0;
         }
+        // Hearts belong to the season that paid them, so everybody starts the next one level.
+        data.hearts.clear();
     }
 
     synchronized int hearts(UUID playerId) {

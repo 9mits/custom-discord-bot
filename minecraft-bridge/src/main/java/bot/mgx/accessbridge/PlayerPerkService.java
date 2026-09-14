@@ -68,7 +68,7 @@ final class PlayerPerkService implements Listener {
     private static final NamespacedKey CLAN_DIG_KEY = Objects.requireNonNull(
             NamespacedKey.fromString("mgx:clan_level_dig")
     );
-    /** Permanent hearts earned from the Season Pass, stacking with every other heart perk. */
+    /** Hearts earned from this season's pass, stacking with every other heart perk. */
     private static final NamespacedKey SEASON_HEART_KEY = Objects.requireNonNull(
             NamespacedKey.fromString("mgx:season_hearts")
     );

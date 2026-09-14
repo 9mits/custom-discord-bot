@@ -45,13 +45,14 @@ import static bot.mgx.accessbridge.MenuItems.ORANGE;
  * <p>XP comes mostly from three daily and three weekly quests that are the same for
  * everyone, plus a little for every active minute. Every tier pays automatically the
  * moment it is reached, so nothing is ever left unclaimed; the last tiers pay chase
- * rewards: permanent Season Hearts, Shards, and an aura, trail and kill effect that only
- * this season's pass ever pays. A season runs for a fixed number of days, then its top
+ * rewards: Season Hearts, Shards, permanent gear, and an aura, trail and kill effect that
+ * only this season's pass ever pays. A season runs for a fixed number of days, then its top
  * three are paid, remembered, and everybody starts the next one from tier zero.
  *
  * <p>Keys and money are not rewards. Both are minted in such volume that a tier paying
  * them meant nothing; what a tier pays now is scarce, permanent, or both. Season Hearts
- * have a lifetime cap, and a tier reached at the cap pays Shards instead.
+ * are the exception to permanent: they last until the season ends, so a veteran cannot
+ * stack a lead that a new player can never close. A tier reached at the cap pays Shards.
  *
  * <p>Progress that is cheap to fake does not count: AFK time, ore mined with Silk Touch
  * (which can be placed and mined again forever), and private duels (which two friends
@@ -121,10 +122,10 @@ final class SeasonPassService implements Listener, CommandExecutor {
     }
 
     int heartCap() {
-        return Math.max(0, variables.integer("season.hearts.lifetime-cap"));
+        return Math.max(0, variables.integer("season.hearts.cap"));
     }
 
-    /** Permanent hearts are a perk like any other: applied on join and after every death. */
+    /** Season Hearts are a perk like any other: applied on join and after every death. */
     void applyHearts(Player player) {
         if (plugin.perks() != null) plugin.perks().applySeasonHearts(player, store.hearts(player.getUniqueId()));
     }
@@ -263,7 +264,7 @@ final class SeasonPassService implements Listener, CommandExecutor {
         List<String> parts = new ArrayList<>();
         for (SeasonPassRules.Grant grant : grants) {
             switch (grant.kind()) {
-                case "hearts" -> parts.add("+" + grant.amount() + " Permanent "
+                case "hearts" -> parts.add("+" + grant.amount() + " Season "
                         + (grant.amount() == 1 ? "Heart" : "Hearts"));
                 case "season_gear" -> parts.add(seasonGear(grant)
                         .map(piece -> SeasonCosmetics.theme(store.season())
@@ -341,14 +342,14 @@ final class SeasonPassService implements Listener, CommandExecutor {
                             applyHearts(player);
                             dirty = true;
                             player.playSound(player, Sound.ITEM_TOTEM_USE, 0.6f, 1.3f);
-                            info(player, "+" + added + " permanent " + (added == 1 ? "heart" : "hearts")
+                            info(player, "+" + added + " Season " + (added == 1 ? "Heart" : "Hearts")
                                     + ". You hold " + store.hearts(player.getUniqueId()) + " of "
-                                    + heartCap() + " Season Hearts, and they are yours for good.");
+                                    + heartCap() + " until Season " + store.season() + " ends " + endsIn() + ".");
                         }
                         int substitute = (wanted - added) * Math.max(0, variables.integer("season.hearts.capped-shards"));
                         if (substitute > 0) {
                             giveShards(player, substitute);
-                            info(player, "You already hold every Season Heart, so this tier paid "
+                            info(player, "You already hold every Season Heart this season, so this tier paid "
                                     + substitute + " Shards instead.");
                         }
                     }
@@ -420,6 +421,9 @@ final class SeasonPassService implements Listener, CommandExecutor {
         if (today < store.endsDay()) return false;
         endSeason(today);
         store.startSeason(store.season() + 1, today, today + length);
+        // The store has already forgotten last season's hearts; take the modifier off
+        // everybody online now rather than at their next join or death.
+        plugin.getServer().getOnlinePlayers().forEach(this::applyHearts);
         Component line = Component.text("SEASON " + store.season() + " HAS STARTED", ORANGE, TextDecoration.BOLD)
                 .append(Component.text("  •  Every tier is back on the table. /pass", NamedTextColor.WHITE));
         plugin.getServer().getOnlinePlayers().forEach(player -> player.sendMessage(line));
@@ -452,7 +456,8 @@ final class SeasonPassService implements Listener, CommandExecutor {
             }
         }
         store.archive(podium);
-        Component header = Component.text("SEASON " + podium.season + " IS OVER", ORANGE, TextDecoration.BOLD);
+        Component header = Component.text("SEASON " + podium.season + " IS OVER", ORANGE, TextDecoration.BOLD)
+                .append(Component.text("  •  Season Hearts have expired", NamedTextColor.WHITE));
         plugin.getServer().getOnlinePlayers().forEach(player -> {
             player.sendMessage(Component.empty());
             player.sendMessage(header);
@@ -468,7 +473,7 @@ final class SeasonPassService implements Listener, CommandExecutor {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
-        // Hearts are permanent, so they apply even while the pass itself is switched off.
+        // Hearts already earned this season apply even while the pass itself is switched off.
         plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
             if (player.isOnline()) applyHearts(player);
         }, 2L);
@@ -553,7 +558,7 @@ final class SeasonPassService implements Listener, CommandExecutor {
                 DialogBody.plainMessage(MenuText.stat("Tier", tier + " / " + maximumTier()), RULE_WIDTH),
                 DialogBody.plainMessage(MenuText.stat("Progress", progress), RULE_WIDTH),
                 DialogBody.plainMessage(MenuText.stat("Season Hearts", "item/golden_apple",
-                        store.hearts(player.getUniqueId()) + " / " + heartCap() + "  •  permanent"), RULE_WIDTH),
+                        store.hearts(player.getUniqueId()) + " / " + heartCap() + "  •  expire " + endsIn()), RULE_WIDTH),
                 DialogBody.plainMessage(Component.empty(), RULE_WIDTH)));
         StringBuilder plain = new StringBuilder("Season " + store.season() + " • Tier " + tier + "/"
                 + maximumTier() + " • " + progress + " • Season Hearts " + store.hearts(player.getUniqueId())
@@ -566,7 +571,7 @@ final class SeasonPassService implements Listener, CommandExecutor {
         }
         page.add(DialogBody.plainMessage(Component.empty(), RULE_WIDTH));
         page.add(DialogBody.plainMessage(MenuText.muted("Every tier pays the moment you reach it."
-                + " Season exclusives never return, and Season Hearts are yours for good."), RULE_WIDTH));
+                + " Season exclusives never return. Season Hearts expire when the season ends."), RULE_WIDTH));
         List<Action> actions = List.of(
                 new Action("item/writable_book", "Quests", "Today's and this week's quests.",
                         viewer -> openQuests(viewer, this::openPass)),
