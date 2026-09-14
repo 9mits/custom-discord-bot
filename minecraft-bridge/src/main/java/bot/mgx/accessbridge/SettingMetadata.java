@@ -263,7 +263,7 @@ record SettingMetadata(
                 || key.startsWith("pvp-combat.")) {
             return Group.PVP_COMPETITIVE;
         }
-        if (key.startsWith("afk.") || key.startsWith("rtp.") || key.startsWith("referrals.")
+        if (key.startsWith("afk.") || key.startsWith("rtp.") || key.startsWith("referrals.") || key.startsWith("streaks.")
                 || key.startsWith("verification.") || key.startsWith("combat.")) {
             return Group.PLAYERS;
         }

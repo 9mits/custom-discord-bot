@@ -218,7 +218,11 @@ final class GameVariableStoreTest {
                 Duration.ofHours(72).toSeconds()
         );
         assertEquals(6, rare.number());
-        assertEquals(10, rare.bonusKeys());
+        // Rebalanced so an AFK session is no longer the best income on the server.
+        assertEquals(3, rare.bonusKeys());
+        assertEquals(96, rare.netheriteOneIn());
+        assertEquals(25, variables.integer("online-rewards.afk-key-percent"));
+        assertEquals(false, variables.bool("online-rewards.afk-item-rolls"));
         assertEquals(1, rare.shards());
         assertEquals(5_000, rare.shardOneIn());
         assertTrue(variables.nextOnlineRewardTier(Duration.ofHours(72).toSeconds()).isEmpty());

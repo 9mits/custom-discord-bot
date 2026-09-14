@@ -97,6 +97,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private CosmeticStore cosmeticStore;
     private TrophyHeadStore trophyHeadStore;
     private CrateService crates;
+    private LoginStreakService loginStreaks;
     private AmethystItemService amethystItems;
     private AmethystDragonService amethystDragon;
     private CrateDisplayService crateDisplays;
@@ -531,6 +532,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 || getCommand("pvp") == null
                 || getCommand("verify") == null
                 || getCommand("referredby") == null
+                || getCommand("streak") == null
                 || getCommand("referrals") == null
                 || getCommand("crate") == null
                 || getCommand("echest") == null
@@ -904,6 +906,16 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         } catch (IOException exception) {
             // Referral Shards are a bonus; a damaged file must not take the server down.
             getLogger().severe("Referral rewards are disabled: " + exception.getMessage());
+        }
+        try {
+            loginStreaks = new LoginStreakService(this,
+                    new LoginStreakStore(getDataFolder().toPath().resolve("login-streaks.json")),
+                    gameVariables, crateItems, identityService, clientSupport, bedrockForms);
+            getServer().getPluginManager().registerEvents(loginStreaks, this);
+            getCommand("streak").setExecutor(loginStreaks);
+            loginStreaks.start();
+        } catch (IOException exception) {
+            getLogger().severe("Daily login streaks are disabled: " + exception.getMessage());
         }
         getServer().getPluginManager().registerEvents(economyMenus, this);
         getServer().getScheduler().runTaskTimer(
@@ -1570,6 +1582,14 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
 
     AmethystEventCoordinator amethystEvents() {
         return amethystEvents;
+    }
+
+    CrateService crateService() {
+        return crates;
+    }
+
+    LoginStreakService loginStreaks() {
+        return loginStreaks;
     }
 
     PvpCompetitionService pvpCompetition() {

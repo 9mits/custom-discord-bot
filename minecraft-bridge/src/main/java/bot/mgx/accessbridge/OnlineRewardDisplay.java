@@ -13,8 +13,16 @@ final class OnlineRewardDisplay {
             int onlinePlayers,
             int onlineBonusKeys,
             int intervalMinutes,
-            long rewardRemainingMillis
-    ) { }
+            long rewardRemainingMillis,
+            boolean afk,
+            int afkPercent
+    ) {
+        Status(int tier, int keys, int onlinePlayers, int onlineBonusKeys,
+                int intervalMinutes, long rewardRemainingMillis) {
+            this(tier, keys, onlinePlayers, onlineBonusKeys, intervalMinutes,
+                    rewardRemainingMillis, false, 100);
+        }
+    }
 
     private OnlineRewardDisplay() {
     }
@@ -28,6 +36,11 @@ final class OnlineRewardDisplay {
                     NamedTextColor.GREEN,
                     TextDecoration.BOLD
             );
+        }
+        // Said on the bar itself, where the player is already looking at the timer.
+        if (status.afk() && Math.floorMod(nowMillis / 5_000L, 2L) == 0L) {
+            return Component.text("AFK • REWARDS AT " + status.afkPercent() + "% UNTIL YOU MOVE",
+                    NamedTextColor.YELLOW, TextDecoration.BOLD);
         }
         boolean showBoost = status.onlineBonusKeys() > 0
                 && Math.floorMod(nowMillis / 5_000L, 2L) == 0L;

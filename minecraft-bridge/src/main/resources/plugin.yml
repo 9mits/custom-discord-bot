@@ -29,6 +29,10 @@ commands:
   verify:
     description: Link the Minecraft account currently in the verification lobby to Discord.
     usage: /verify <discord_username>
+  streak:
+    description: See your daily login streak, streak freezes and the 7-day reward cycle.
+    usage: /streak
+    aliases: [daily, dailies, loginstreak]
   referredby:
     description: Name the player who invited you or brought you back, so you both earn Shards.
     usage: /referredby <player>

@@ -1389,6 +1389,39 @@ final class GameVariableStore {
                         + " Stacks with potions and events inside the normal luck ceiling.",
                 15, 0, 50, "percent", false);
 
+        bool("streaks.enabled", "Daily login streaks", "Login Streaks",
+                "Reward players for playing a few active minutes every UTC day.", true);
+        integer("streaks.required-minutes", "Daily streak playtime", "Login Streaks",
+                "Non-AFK minutes outside the verification lobby needed to claim a day.",
+                10, 1, 240, "minutes", false);
+        integer("streaks.maximum-freezes", "Streak freezes held", "Login Streaks",
+                "Most streak freezes a player can hold. One is earned every 7th day and"
+                        + " covers one missed day. Zero turns freezes off.",
+                2, 0, 7, "freezes", false);
+        integer("streaks.milestone-every-days", "Streak milestone", "Login Streaks",
+                "Every this many streak days pays the milestone Shards on top. Zero turns it off.",
+                30, 0, 365, "days", false);
+        integer("streaks.milestone-shards", "Milestone Shards", "Login Streaks",
+                "Extra Shards paid on each streak milestone day.", 5, 0, 64, "shards", false);
+        int[][] streakDays = {
+                // keys, shards, money
+                {2, 0, 0}, {3, 0, 0}, {4, 0, 2_500}, {5, 0, 0},
+                {6, 1, 0}, {7, 0, 5_000}, {10, 3, 10_000}
+        };
+        for (int day = 1; day <= streakDays.length; day++) {
+            String base = "streaks.day-" + day + ".";
+            String category = "Login Streak Day " + day;
+            integer(base + "keys", "Keys", category,
+                    "Mysterious Crate Keys for claiming day " + day + " of the 7-day cycle.",
+                    streakDays[day - 1][0], 0, 256, "keys", false);
+            integer(base + "shards", "Shards", category,
+                    "Shards for claiming day " + day + " of the 7-day cycle.",
+                    streakDays[day - 1][1], 0, 64, "shards", false);
+            integer(base + "money", "Money", category,
+                    "Money for claiming day " + day + " of the 7-day cycle.",
+                    streakDays[day - 1][2], 0, 10_000_000, "dollars", false);
+        }
+
         bool("referrals.enabled", "Referral rewards", "Referrals",
                 "Pay Shards to returning players, new players who were invited, and the"
                         + " established players who brought them.", true);
@@ -1946,15 +1979,24 @@ final class GameVariableStore {
                 true);
         bool("online-rewards.key-events-multiply-bonus", "Key events multiply stay rewards", "Online Rewards",
                 "Whether 2x/4x key events also multiply stay-ladder and population bonus keys.", false);
+        integer("online-rewards.afk-key-percent", "Keys earned while AFK", "Online Rewards",
+                "Share of hourly keys and stay-ladder bonus keys that AFK time earns. Active"
+                        + " time always earns the full amount.",
+                25, 0, 100, "percent", false);
+        bool("online-rewards.afk-item-rolls", "AFK hours roll items", "Online Rewards",
+                "Whether an interval spent mostly AFK may still roll emeralds, diamonds,"
+                        + " netherite and Shards.", false);
 
-        defineOnlineRewardTier(1, 1, 1, 0, 1, 0, 1, 0, 1, 0, 1);
-        defineOnlineRewardTier(2, 3, 2, 1, 2, 0, 1, 0, 1, 0, 1);
-        defineOnlineRewardTier(3, 6, 3, 1, 1, 1, 4, 0, 1, 0, 1);
-        defineOnlineRewardTier(4, 12, 4, 2, 1, 1, 2, 0, 1, 0, 1);
-        defineOnlineRewardTier(5, 24, 6, 3, 1, 1, 1, 1, 24, 0, 1);
+        // Rebalanced so leaving the game running is no longer the best income on the
+        // server: fewer bonus keys, and ores that are a treat rather than a salary.
+        defineOnlineRewardTier(1, 1, 0, 0, 1, 0, 1, 0, 1, 0, 1);
+        defineOnlineRewardTier(2, 3, 1, 1, 3, 0, 1, 0, 1, 0, 1);
+        defineOnlineRewardTier(3, 6, 1, 1, 2, 1, 8, 0, 1, 0, 1);
+        defineOnlineRewardTier(4, 12, 2, 1, 2, 1, 4, 0, 1, 0, 1);
+        defineOnlineRewardTier(5, 24, 2, 2, 2, 1, 3, 1, 72, 0, 1);
         // Passive Shards must remain far rarer than active event rewards. They start
         // only after 72 lifetime online hours, then average one per 5,000 hourly rolls.
-        defineOnlineRewardTier(6, 72, 10, 4, 1, 2, 1, 1, 24, 1, 5_000);
+        defineOnlineRewardTier(6, 72, 3, 2, 2, 1, 2, 1, 96, 1, 5_000);
     }
 
     private void defineOnlineRewardTier(
