@@ -82,6 +82,7 @@ final class EconomyStore {
             throw failure;
         }
         changed();
+        SentinelHub.money(playerId, before, after, "deposit");
     }
 
     synchronized boolean tryWithdraw(UUID playerId, long amount) {
@@ -134,6 +135,7 @@ final class EconomyStore {
             throw failure;
         }
         changed();
+        SentinelHub.money(to, toBefore, toAfter, "payment");
         return true;
     }
 
@@ -162,6 +164,7 @@ final class EconomyStore {
             throw failure;
         }
         changed();
+        SentinelHub.money(playerId, before, amount, "set");
     }
 
     synchronized int clearAll() {

@@ -5,7 +5,7 @@ api-version: "1.21.11"
 description: Mysterious SMP X access, economy, events, crates, cosmetics, UI, and clans.
 authors: [9mits]
 depend: [floodgate]
-softdepend: [LuckPerms, ViaVersion, Essentials]
+softdepend: [LuckPerms, ViaVersion, Essentials, GrimAC]
 commands:
   clans:
     description: Create and manage Minecraft clans.
@@ -171,6 +171,9 @@ commands:
     aliases: [mcadmin]
     permission: mgxaccessbridge.admin
 permissions:
+  mgxaccessbridge.sentinel.alerts:
+    description: Receive Sentinel HIGH and CRITICAL incidents in chat when in-game alerts are enabled.
+    default: false
   mgx.clans:
     description: Allows players to use the clan system.
     default: true

@@ -43,6 +43,8 @@ record ServerEvent(
     static final String CATEGORY_CRATE = "crate";
     static final String CATEGORY_PROGRESSION = "progression";
     static final String CATEGORY_COSMETIC = "cosmetic";
+    /** Sentinel incidents. Never silenced, so an abuser cannot mute the report about themselves. */
+    static final String CATEGORY_SECURITY = "security";
 
     private static final int SUMMARY_LIMIT = 300;
     private static final int DETAIL_LIMIT = 200;
@@ -74,10 +76,12 @@ record ServerEvent(
         JsonObject detail = new JsonObject();
         int written = 0;
         for (Map.Entry<String, String> entry : details.entrySet()) {
-            if (written++ >= DETAIL_COUNT_LIMIT) {
+            boolean security = CATEGORY_SECURITY.equals(category);
+            if (written++ >= (security ? 16 : DETAIL_COUNT_LIMIT)) {
                 break;
             }
-            detail.addProperty(trim(entry.getKey(), 32), trim(entry.getValue(), DETAIL_LIMIT));
+            detail.addProperty(trim(entry.getKey(), 32),
+                    trim(entry.getValue(), security ? 400 : DETAIL_LIMIT));
         }
         payload.add("details", detail);
         return payload;

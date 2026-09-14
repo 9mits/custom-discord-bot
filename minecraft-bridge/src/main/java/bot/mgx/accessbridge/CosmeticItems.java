@@ -49,6 +49,7 @@ final class CosmeticItems {
     }
 
     ItemStack token(CosmeticCatalog.Definition definition, CosmeticStore.Token token) {
+        SentinelHub.minted(SentinelEngine.Kind.COSMETIC, 1L);
         ItemStack item = preview(definition, false);
         ItemMeta meta = item.getItemMeta();
         if (meta == null) {

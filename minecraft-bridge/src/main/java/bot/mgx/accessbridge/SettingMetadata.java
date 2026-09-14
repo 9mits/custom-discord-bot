@@ -94,6 +94,7 @@ record SettingMetadata(
         COSMETICS("Cosmetics"),
         CRATE_BALANCE("Crate Balance"),
         SEASONS("Seasons & Streaks"),
+        SECURITY("Security"),
         /**
          * A value whose prefix nothing here recognises.
          *
@@ -232,6 +233,9 @@ record SettingMetadata(
         }
         if (key.startsWith("online-rewards.")) {
             return Group.ONLINE_REWARDS;
+        }
+        if (key.startsWith("sentinel.")) {
+            return Group.SECURITY;
         }
         if (key.startsWith("season.") || key.startsWith("streaks.")) {
             return Group.SEASONS;
