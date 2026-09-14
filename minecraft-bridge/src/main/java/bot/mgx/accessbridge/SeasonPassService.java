@@ -98,6 +98,9 @@ final class SeasonPassService implements Listener, CommandExecutor {
     }
 
     void start() {
+        SeasonPassRules.ladderSource(
+                type -> variables.string("season.quest." + type.key() + ".targets"),
+                () -> variables.string("season.quest.level-xp"));
         // Saved at once: a season held only in memory would restart, with a new end
         // date, every time the server did.
         if (ensureSeason(today())) save();
@@ -180,8 +183,11 @@ final class SeasonPassService implements Listener, CommandExecutor {
         long after = before + amount;
         row.quests.put(type.key(), after);
         dirty = true;
-        int from = SeasonPassRules.levelFor(type, before);
+        // Paid levels are remembered rather than re-derived, so an owner lowering a target
+        // pays the levels it newly clears, and raising one never pays a level twice.
+        int from = row.questPaid.getOrDefault(type.key(), SeasonPassRules.levelFor(type, before));
         int to = SeasonPassRules.levelFor(type, after);
+        if (to > from) row.questPaid.put(type.key(), to);
         for (int level = from; level < to; level++) {
             SeasonPassRules.Quest quest = SeasonPassRules.quest(type, level).orElseThrow();
             player.showTitle(Title.title(

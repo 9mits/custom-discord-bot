@@ -40,6 +40,25 @@ final class GameVariableStoreTest {
     }
 
     @Test
+    void questLaddersAreSettingsAndRejectABrokenList() throws Exception {
+        GameVariableStore variables = store();
+        for (SeasonPassRules.QuestType type : SeasonPassRules.QuestType.values()) {
+            String key = "season.quest." + type.key() + ".targets";
+            assertEquals(SeasonPassRules.ladderText(type.defaultTargets()), variables.string(key));
+        }
+        variables.set("season.quest.kill_mobs.targets", "50, 500, 5000");
+        assertEquals("50, 500, 5000", variables.string("season.quest.kill_mobs.targets"));
+        // The undo trail used to cast every value to a number and threw on any text edit.
+        GameVariableStore reopened = store();
+        assertEquals("50, 500, 5000", reopened.string("season.quest.kill_mobs.targets"));
+        assertEquals("50, 500, 5000", reopened.history().recent(1).getFirst().changes().getFirst().after());
+        assertThrows(IllegalArgumentException.class,
+                () -> variables.set("season.quest.kill_mobs.targets", "500, 50"));
+        assertThrows(IllegalArgumentException.class,
+                () -> variables.set("season.quest.level-xp", "lots"));
+    }
+
+    @Test
     void dragonCountdownAndSummoningSafetyAreConfigurable() throws Exception {
         GameVariableStore variables = store();
         assertEquals(45, variables.integer("dragon-event.summoning-timeout-seconds"));

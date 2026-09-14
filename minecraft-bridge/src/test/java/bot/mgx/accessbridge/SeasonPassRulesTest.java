@@ -25,7 +25,7 @@ final class SeasonPassRulesTest {
     void questLaddersClimbWithoutTimeLimits() {
         for (SeasonPassRules.QuestType type : SeasonPassRules.QuestType.values()) {
             long previousTarget = 0;
-            int previousXp = 0;
+            long previousXp = 0;
             for (int level = 0; level < type.levels(); level++) {
                 SeasonPassRules.Quest quest = SeasonPassRules.quest(type, level).orElseThrow();
                 assertTrue(quest.target() > previousTarget, type + " level " + level + " must be harder");
@@ -39,6 +39,27 @@ final class SeasonPassRulesTest {
         assertEquals(0, SeasonPassRules.levelFor(SeasonPassRules.QuestType.KILL_MOBS, 99));
         assertEquals(2, SeasonPassRules.levelFor(SeasonPassRules.QuestType.KILL_MOBS, 300));
         assertEquals(8, SeasonPassRules.levelFor(SeasonPassRules.QuestType.KILL_MOBS, 1_000_000));
+    }
+
+    @Test
+    void laddersAreEditableAndABadListNeverBreaksTheQuests() {
+        try {
+            SeasonPassRules.ladderSource(
+                    type -> type == SeasonPassRules.QuestType.KILL_MOBS ? "10, 20, 1_000" : "not a ladder",
+                    () -> "5, 10");
+            assertEquals(3, SeasonPassRules.QuestType.KILL_MOBS.levels());
+            assertEquals(1_000, SeasonPassRules.quest(SeasonPassRules.QuestType.KILL_MOBS, 2).orElseThrow().target());
+            assertEquals(10, SeasonPassRules.quest(SeasonPassRules.QuestType.KILL_MOBS, 2).orElseThrow().xp(),
+                    "a ladder longer than the XP list reuses its last value");
+            assertEquals(SeasonPassRules.QuestType.MINE_ORES.defaultTargets().length,
+                    SeasonPassRules.QuestType.MINE_ORES.levels(), "an invalid list falls back to the default");
+        } finally {
+            SeasonPassRules.ladderSource(null, null);
+        }
+        assertTrue(SeasonPassRules.parseLadder("100 300 750").isPresent());
+        assertTrue(SeasonPassRules.parseLadder("300, 100").isEmpty(), "each level must be harder");
+        assertTrue(SeasonPassRules.parseLadder("0, 5").isEmpty());
+        assertTrue(SeasonPassRules.parseLadder("1,000,000").isEmpty(), "thousands separators are refused");
     }
 
     @Test
