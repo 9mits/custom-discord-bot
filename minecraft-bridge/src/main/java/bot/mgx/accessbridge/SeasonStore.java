@@ -26,6 +26,8 @@ final class SeasonStore {
         int grantedTier;
         /** Quest line key to this season's running total; levels are read from it. */
         Map<String, Long> quests = new LinkedHashMap<>();
+        /** Quest line key to how many of its levels have been paid, so a retuned ladder pays exactly once. */
+        Map<String, Integer> questPaid = new LinkedHashMap<>();
         int owedShards;
     }
 
@@ -66,6 +68,7 @@ final class SeasonStore {
         if (data.hearts == null) data.hearts = new LinkedHashMap<>();
         for (Row row : data.players.values()) {
             if (row.quests == null) row.quests = new LinkedHashMap<>();
+            if (row.questPaid == null) row.questPaid = new LinkedHashMap<>();
             if (row.name == null) row.name = "";
         }
     }
@@ -90,6 +93,7 @@ final class SeasonStore {
             row.xp = 0L;
             row.grantedTier = 0;
             row.quests.clear();
+            row.questPaid.clear();
         }
         // Hearts belong to the season that paid them, so everybody starts the next one level.
         data.hearts.clear();

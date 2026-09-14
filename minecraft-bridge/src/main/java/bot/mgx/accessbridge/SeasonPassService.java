@@ -183,8 +183,11 @@ final class SeasonPassService implements Listener, CommandExecutor {
         long after = before + amount;
         row.quests.put(type.key(), after);
         dirty = true;
-        int from = SeasonPassRules.levelFor(type, before);
+        // Paid levels are remembered rather than re-derived, so an owner lowering a target
+        // pays the levels it newly clears, and raising one never pays a level twice.
+        int from = row.questPaid.getOrDefault(type.key(), SeasonPassRules.levelFor(type, before));
         int to = SeasonPassRules.levelFor(type, after);
+        if (to > from) row.questPaid.put(type.key(), to);
         for (int level = from; level < to; level++) {
             SeasonPassRules.Quest quest = SeasonPassRules.quest(type, level).orElseThrow();
             player.showTitle(Title.title(
