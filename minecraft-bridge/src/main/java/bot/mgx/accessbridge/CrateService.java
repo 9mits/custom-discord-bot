@@ -1033,7 +1033,11 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             items.finishOrphanedRewards(player);
             return false;
         }
-        CrateCatalog.Reward reward = CrateCatalog.find(pending.rewardId()).orElse(null);
+        List<CrateCatalog.Reward> current = new ArrayList<>();
+        for (CrateKind kind : CrateKind.values()) {
+            current.addAll(variables.rewards(kind));
+        }
+        CrateCatalog.Reward reward = CrateCatalog.findSaved(pending.rewardId(), current).orElse(null);
         if (reward == null) {
             plugin.getLogger().severe("Unknown pending crate reward " + pending.rewardId());
             PlayerMenuService.error(player, "Your saved reward needs an administrator to repair it.");

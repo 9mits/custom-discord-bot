@@ -277,6 +277,27 @@ final class CrateCatalog {
         return Optional.ofNullable(BY_ID.get(id.strip().toLowerCase(Locale.ROOT)));
     }
 
+    /**
+     * A saved reward by ID, wherever it came from.
+     *
+     * <p>{@link #find} indexes only the fixed tables. The hidden Dragon Secret is rolled
+     * outside every table and owner-added rewards live in the custom catalogue, so a
+     * saved win of either used to be unreadable: the reservation stayed, delivery
+     * refused it on every open, and the player was told to find an administrator.
+     *
+     * @param current the live tables, including owner additions
+     */
+    static Optional<Reward> findSaved(String id, java.util.Collection<Reward> current) {
+        Optional<Reward> fixed = find(id);
+        if (fixed.isPresent() || id == null || id.isBlank()) {
+            return fixed;
+        }
+        String wanted = id.strip().toLowerCase(Locale.ROOT);
+        return java.util.stream.Stream.concat(everyReward().stream(), current.stream())
+                .filter(reward -> reward.id().equalsIgnoreCase(wanted))
+                .findFirst();
+    }
+
     static List<Reward> all() {
         return REWARDS;
     }
