@@ -1452,9 +1452,9 @@ final class GameVariableStore {
                 "Shards for second place when the season ends.", 6, 0, 640, "shards", false);
         integer("season.third-place-shards", "Third place Shards", "Season Pass",
                 "Shards for third place when the season ends.", 3, 0, 640, "shards", false);
-        integer("season.hearts.lifetime-cap", "Season Heart cap", "Season Pass",
-                "Most permanent Season Hearts one player can ever hold, across every season.",
-                5, 0, 20, "hearts", false);
+        integer("season.hearts.cap", "Season Heart cap", "Season Pass",
+                "Most Season Hearts one player can hold in a season. They expire when the season ends.",
+                3, 0, 20, "hearts", false);
         integer("season.hearts.capped-shards", "Shards per capped heart", "Season Pass",
                 "Shards a heart tier pays instead once the player already holds the cap.",
                 2, 0, 64, "shards", false);
@@ -1490,7 +1490,7 @@ final class GameVariableStore {
                 "This season's Wings." + rewardFormat,
                 "gear:wings;shards:1;reward:enchanted_golden_apple:2", 200);
         text("season.reward.tier-25", "Tier 25 reward", "Season Pass Rewards",
-                "The halfway reward: a permanent heart." + rewardFormat,
+                "The halfway reward: a Season Heart, held until the season ends." + rewardFormat,
                 "hearts:1;reward:netherite_ingot:2;reward:totem_of_undying:2", 200);
         text("season.reward.tier-30", "Tier 30 reward", "Season Pass Rewards",
                 "The second exclusive: this season's kill effect." + rewardFormat,
@@ -1505,7 +1505,7 @@ final class GameVariableStore {
                 "The last push before the crown." + rewardFormat,
                 "hearts:1;shards:2;reward:netherite_ingot:4", 200);
         text("season.reward.tier-50", "Tier 50 reward", "Season Pass Rewards",
-                "The final tier: this season's crown and another permanent heart." + rewardFormat,
+                "The final tier: this season's crown and another Season Heart." + rewardFormat,
                 "cosmetic:season:aura;hearts:1;shards:3;reward:crate_luck_v;reward:fortune_potion_v", 200);
 
         bool("streaks.enabled", "Daily login streaks", "Login Streaks",

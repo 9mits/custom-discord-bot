@@ -115,7 +115,7 @@ final class SeasonPassRules {
         return List.copyOf(chosen);
     }
 
-    /** Most permanent hearts one tier can grant, whatever a setting says. */
+    /** Most Season Hearts one tier can grant, whatever a setting says. */
     static final int MAX_HEARTS_PER_TIER = 5;
     /** Most copies of one crate reward a tier can pay. */
     static final long MAX_REWARD_COUNT = 16L;
