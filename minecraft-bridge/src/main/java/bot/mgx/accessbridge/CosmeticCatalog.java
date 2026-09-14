@@ -229,6 +229,7 @@ final class CosmeticCatalog {
     private static final Map<String, OddsFamily> ODDS_FAMILIES = Map.ofEntries(
             Map.entry("void_collapse", OddsFamily.VOID),
             Map.entry("ender_trail", OddsFamily.VOID),
+            Map.entry("dreamdrift_aura", OddsFamily.VOID),
             Map.entry("event_horizon", OddsFamily.VOID),
             Map.entry("reality_fracture", OddsFamily.VOID),
             Map.entry("soul_requiem", OddsFamily.SOUL),

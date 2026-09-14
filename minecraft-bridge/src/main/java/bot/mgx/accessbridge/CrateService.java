@@ -232,6 +232,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
      * the effect would end the run it interrupted.
      */
     private final Set<UUID> watchingReveal = new java.util.HashSet<>();
+    /** Players watching an AFK Crate that opened itself; its result closes itself too. */
+    private final Set<UUID> afkAutoRolls = new java.util.HashSet<>();
     private Predicate<Player> dragonAccess = ignored -> false;
     private final Map<UUID, CrateKind> selectedKinds = new HashMap<>();
     private final Map<UUID, Long> onlineCreditStarted = new HashMap<>();
@@ -289,8 +291,18 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         return passes;
     }
 
-    private static CratePassStore.Pass pass(CrateKind kind) {
-        return kind.currency() == CrateKind.Currency.DAILY ? CratePassStore.Pass.DAILY : CratePassStore.Pass.AFK;
+    /** "5h 12m 30s", ticking every second on the crate screen. */
+    static String countdown(long millis) {
+        long seconds = Math.max(0L, (millis + 999L) / 1_000L);
+        long hours = seconds / 3_600L;
+        long minutes = (seconds % 3_600L) / 60L;
+        return (hours > 0 ? hours + "h " : "") + (hours > 0 || minutes > 0 ? minutes + "m " : "") + (seconds % 60L) + "s";
+    }
+
+    /** Time until the Daily Crate opens again: the next 00:00 UTC. */
+    static long millisUntilDailyReset(long now) {
+        long day = 86_400_000L;
+        return day - Math.floorMod(now, day);
     }
 
     @Override
@@ -444,7 +456,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         inventory.setItem(HUB_KEYS_SLOT, hubKeys(player, kind, System.currentTimeMillis()));
         inventory.setItem(HUB_OPEN_SLOT, kindButton(
                 kind, "Open " + kind.menuName(), List.of(
-                        Component.text("Spends " + keyCost(kind) + " "
+                        Component.text(kind == CrateKind.DAILY ? "Free, once a day."
+                                : "Spends " + keyCost(kind) + " "
                                 + kind.currency().shortName(keyCost(kind)) + ".", NamedTextColor.GRAY)
                 )
         ));
@@ -452,24 +465,6 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                 Material.BOOK,
                 "View Exact Odds",
                 "Every percentage shown is exact."
-        ));
-        inventory.setItem(HUB_AUTO_SLOT, MenuItems.button(
-                Material.HOPPER,
-                "Auto Open",
-                "Opens a crate with every key you hold.",
-                "You confirm the number before anything is spent."
-        ));
-        int pull = pullSize(player);
-        inventory.setItem(HUB_TRIPLE_SLOT, MenuItems.button(
-                pull == 1 ? Material.LEVER : Material.REDSTONE_TORCH,
-                "Open Three At A Time: " + (pull == 1 ? "OFF" : "ON"),
-                pull == 1
-                        ? "Every opening spins one reel."
-                        : "Every opening spins three reels at once.",
-                "Costs " + (keyCost(kind) * TRIPLE_PULL_SIZE) + " "
-                        + kind.currency().shortName(keyCost(kind) * TRIPLE_PULL_SIZE)
-                        + " per opening when on.",
-                "Auto Open uses it too."
         ));
         int trashed = filters.count(player.getUniqueId());
         inventory.setItem(HUB_FILTER_SLOT, MenuItems.button(
@@ -480,6 +475,29 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                         : trashed + (trashed == 1 ? " reward is" : " rewards are") + " thrown away.",
                 "Pick the rewards you never want to receive.",
                 "They are still rolled and still counted."
+        ));
+        if (kind.currency().pass()) {
+            // One opening at a time and nothing to multiply: the key tools only clutter.
+            MenuItems.show(plugin, player, inventory);
+            return;
+        }
+        inventory.setItem(HUB_AUTO_SLOT, MenuItems.button(
+                Material.HOPPER,
+                "Auto Open",
+                "Opens a crate with every key you hold.",
+                "You confirm the number before anything is spent."
+        ));
+        int pull = pullSize(player, kind);
+        inventory.setItem(HUB_TRIPLE_SLOT, MenuItems.button(
+                pull == 1 ? Material.LEVER : Material.REDSTONE_TORCH,
+                "Open Three At A Time: " + (pull == 1 ? "OFF" : "ON"),
+                pull == 1
+                        ? "Every opening spins one reel."
+                        : "Every opening spins three reels at once.",
+                "Costs " + (keyCost(kind) * TRIPLE_PULL_SIZE) + " "
+                        + kind.currency().shortName(keyCost(kind) * TRIPLE_PULL_SIZE)
+                        + " per opening when on.",
+                "Auto Open uses it too."
         ));
         MenuItems.show(plugin, player, inventory);
     }
@@ -679,7 +697,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             return;
         }
         selectedKinds.put(playerId, kind);
-        int pull = pullSize(player);
+        int pull = pullSize(player, kind);
         int cost = keyCost(kind) * pull;
         if (currencyCount(player, kind) < cost) {
             PlayerMenuService.error(player, "You need " + cost
@@ -764,7 +782,10 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     }
 
     /** Three reels at a time when the player has asked for it, otherwise one. */
-    private int pullSize(Player player) {
+    private int pullSize(Player player, CrateKind kind) {
+        // The key-free crates are one reel at a time: one Daily opening a day, and AFK
+        // openings that arrive one or two an interval.
+        if (kind.currency().pass()) return 1;
         return settings.isEnabled(player.getUniqueId(), PlayerSettingsStore.Setting.CRATE_TRIPLE)
                 ? TRIPLE_PULL_SIZE : 1;
     }
@@ -865,6 +886,60 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         afterReward(player, List.copyOf(session.delivered), session.kind);
     }
 
+    /**
+     * Rolls every AFK Crate opening a player holds.
+     *
+     * <p>On screen, as an ordinary auto run, when the player wants that and is free to see
+     * it. Otherwise each opening is rolled and delivered straight to the inventory through
+     * the same reserve-then-deliver path a reel uses, so a crash still cannot lose a prize.
+     */
+    private String rollAfkCrates(Player player) {
+        UUID playerId = player.getUniqueId();
+        int held = (int) currencyCount(player, CrateKind.AFK);
+        if (held <= 0) return "";
+        if (settings.isEnabled(playerId, PlayerSettingsStore.Setting.AFK_CRATE_AUTO_ROLL) && freeToWatch(player)) {
+            afkAutoRolls.add(playerId);
+            autoRuns.put(playerId, (long) held);
+            autoTrashed.remove(playerId);
+            start(player, CrateKind.AFK);
+            return sessions.containsKey(playerId) ? " (rolling now)" : "";
+        }
+        int given = 0;
+        for (int opening = 0; opening < held; opening++) {
+            if (store.pending(playerId).isPresent() && !deliverPending(player, false)) break;
+            if (removeCurrency(player, CrateKind.AFK, 1) != 1) break;
+            int luck = specialItems.crateLuckPercent(player);
+            int rollPercent = CrateOddsBalance.compose(luck, balancePercent(CrateKind.AFK));
+            CrateCatalog.Reward reward = variables.randomReward(CrateKind.AFK, rollPercent, ThreadLocalRandom.current());
+            odds.record(CrateKind.AFK, playerId, reward.rare(),
+                    CrateOddsBalance.expectedRareRate(variables.advertisedRareRate(CrateKind.AFK), rollPercent));
+            try {
+                store.reserve(playerId, UUID.randomUUID(), reward.id(), CrateKind.AFK, System.currentTimeMillis());
+            } catch (IllegalStateException | UncheckedIOException exception) {
+                returnCurrency(player, CrateKind.AFK, 1);
+                break;
+            }
+            auditOpen(player, CrateKind.AFK, 1, 1, luck);
+            if (!deliverPending(player, false)) {
+                PlayerMenuService.error(player, "Your AFK Crate reward is waiting. Make room, then use /crate claim.");
+                break;
+            }
+            given++;
+        }
+        return given > 0 ? " (added to your inventory)" : " (saved: open them from /crate)";
+    }
+
+    /** Nothing else on screen, and nothing the reel would interrupt. */
+    private boolean freeToWatch(Player player) {
+        UUID playerId = player.getUniqueId();
+        return player.isOnline() && !player.isDead()
+                && player.getOpenInventory().getType() == org.bukkit.event.inventory.InventoryType.CRAFTING
+                && !sessions.containsKey(playerId) && !watchingReveal.contains(playerId)
+                && !VerificationLobbyService.isLobbyWorld(player.getWorld())
+                && !plugin.inPvpDuel(player) && !plugin.inScreenshotMode(player)
+                && (plugin.pvpCompetition() == null || !plugin.pvpCompetition().isParticipant(playerId));
+    }
+
     /** Shown once a reward lands, so opening another crate never needs the hub. */
     private void openResult(Player player, List<Payout> payouts, CrateKind kind) {
         CrateMenu holder = new CrateMenu(Screen.RESULT, 1, kind);
@@ -885,9 +960,21 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                     : items.revealedPreview(payout.reward(), cosmeticItems));
         }
         long keys = currencyCount(player, kind);
-        int pull = pullSize(player);
+        int pull = pullSize(player, kind);
         int cost = keyCost(kind) * pull;
         boolean canOpen = keys >= cost;
+        if (kind.currency().pass()) {
+            inventory.setItem(RESULT_AGAIN_SLOT, canOpen
+                    ? MenuItems.button(Material.CHEST, "Open Again",
+                    kind == CrateKind.DAILY ? "Your Daily Crate is ready." : "Uses 1 of your " + keys + " saved openings.")
+                    : MenuItems.button(Material.CLOCK, kind == CrateKind.DAILY ? "See You Tomorrow" : "All Opened",
+                    kind == CrateKind.DAILY
+                            ? "Next Daily Crate in " + countdown(millisUntilDailyReset(System.currentTimeMillis()))
+                            : "The next AFK Crate rolls at your next online reward."));
+            inventory.setItem(RESULT_BACK_SLOT, MenuItems.button(Material.BARRIER, "Close"));
+            MenuItems.show(plugin, player, inventory);
+            return;
+        }
         inventory.setItem(RESULT_AGAIN_SLOT, MenuItems.button(
                 canOpen ? Material.CHEST : Material.BARRIER,
                 canOpen ? (pull == 1 ? "Open Again" : "Open " + pull + " Again")
@@ -936,7 +1023,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             return;
         }
         long keys = currencyCount(player, kind);
-        int pull = pullSize(player);
+        int pull = pullSize(player, kind);
         int cost = keyCost(kind) * pull;
         long opens = keys / cost;
         if (opens <= 0) {
@@ -980,7 +1067,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
      */
     private void beginAutoOpen(Player player, CrateKind kind) {
         long keys = currencyCount(player, kind);
-        int cost = keyCost(kind) * pullSize(player);
+        int cost = keyCost(kind) * pullSize(player, kind);
         long opens = keys / cost;
         if (opens <= 0) {
             PlayerMenuService.error(player, "You need " + cost + " "
@@ -1029,8 +1116,20 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             return;
         }
         long left = remaining - 1;
-        if (left <= 0 || currencyCount(player, kind) < keyCost(kind) * pullSize(player)) {
+        if (left <= 0 || currencyCount(player, kind) < keyCost(kind) * pullSize(player, kind)) {
             autoRuns.remove(player.getUniqueId());
+            if (afkAutoRolls.remove(player.getUniqueId())) {
+                autoTrashed.remove(player.getUniqueId());
+                openResult(player, payouts, kind);
+                // Nobody asked for this screen, so it does not stay in the way.
+                plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+                    if (player.isOnline() && player.getOpenInventory().getTopInventory().getHolder()
+                            instanceof CrateMenu menu && menu.screen == Screen.RESULT) {
+                        player.closeInventory();
+                    }
+                }, 80L);
+                return;
+            }
             Integer counted = autoTrashed.remove(player.getUniqueId());
             int trashed = counted == null ? 0 : counted;
             player.sendMessage(PlayerMenuService.prefix().append(Component.text(
@@ -1294,7 +1393,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         // Once an opening is over nothing remembers it happened, so "crates opened this
         // week" has to be counted as it occurs rather than derived afterwards.
         plugin.metricCounters().increment(ServerMetrics.CRATES_OPENED, pull);
-        if (plugin.seasonPass() != null) {
+        // Only crates a player chose to open count: the AFK Crate rolls itself every hour.
+        if (plugin.seasonPass() != null && !kind.currency().pass()) {
             plugin.seasonPass().progress(player, SeasonPassRules.QuestType.OPEN_CRATES, pull);
         }
         plugin.metricCounters().increment(ServerMetrics.KEYS_SPENT, cost);
@@ -1415,17 +1515,17 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                 start(player, menu.kind);
             } else if (event.getSlot() == HUB_ODDS_SLOT) {
                 openOdds(player, menu.kind, 1);
-            } else if (event.getSlot() == HUB_AUTO_SLOT) {
+            } else if (event.getSlot() == HUB_AUTO_SLOT && !menu.kind.currency().pass()) {
                 confirmAutoOpen(player, menu.kind);
             } else if (event.getSlot() == HUB_FILTER_SLOT) {
                 openFilters(player, menu.kind, 1);
-            } else if (event.getSlot() == HUB_TRIPLE_SLOT) {
+            } else if (event.getSlot() == HUB_TRIPLE_SLOT && !menu.kind.currency().pass()) {
                 toggleTriplePull(player, menu.kind);
             }
         } else if (menu.screen == Screen.RESULT) {
             if (event.getSlot() == RESULT_AGAIN_SLOT) {
                 start(player, menu.kind);
-            } else if (event.getSlot() == RESULT_AUTO_SLOT) {
+            } else if (event.getSlot() == RESULT_AUTO_SLOT && !menu.kind.currency().pass()) {
                 confirmAutoOpen(player, menu.kind);
             } else if (event.getSlot() == RESULT_BACK_SLOT) {
                 player.closeInventory();
@@ -1944,17 +2044,12 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             delivered.add(keys + " bonus " + (keys == 1 ? "key" : "keys")
                     + (accepted < keys ? " (banked if inventory is full)" : ""));
         }
-        // The AFK Crate is the AFK reward, so time spent AFK earns its openings in full.
+        // The AFK Crate is the AFK reward, so time spent AFK earns its rolls in full.
         int openings = tier.afkOpenings();
         if (openings > 0 && passes != null) {
-            int cap = variables.integer("crate.afk.bank-cap");
-            int added = passes.add(player.getUniqueId(), CratePassStore.Pass.AFK, openings, cap);
-            if (added > 0) {
-                delivered.add(added + " AFK Crate " + (added == 1 ? "opening" : "openings"));
-            }
-            if (added < openings) {
-                delivered.add("AFK Crate openings full (" + cap + "), open some with /crate");
-            }
+            passes.add(player.getUniqueId(), CratePassStore.Pass.AFK, openings,
+                    variables.integer("crate.afk.bank-cap"));
+            delivered.add(openings + " AFK Crate " + (openings == 1 ? "roll" : "rolls") + rollAfkCrates(player));
         }
         if (delivered.isEmpty()) {
             delivered.add("progress toward the next tier");
@@ -2054,9 +2149,9 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     /** The Daily Crate's rare-weight bonus, in percent, for the streak a player holds. */
     int streakLuck(Player player) {
         if (plugin.loginStreaks() == null) return 0;
-        int streak = plugin.loginStreaks().liveStreak(player.getUniqueId());
-        return Math.min(variables.integer("crate.daily.streak-luck-maximum"),
-                streak * variables.integer("crate.daily.streak-luck-per-day"));
+        return LoginStreakService.luckFor(plugin.loginStreaks().liveStreak(player.getUniqueId()),
+                variables.integer("crate.daily.streak-luck-per-day"),
+                variables.integer("crate.daily.streak-luck-maximum"));
     }
 
     private long currencyCount(Player player, CrateKind kind) {
@@ -2064,7 +2159,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             case SHARD -> items.countShards(player);
             case KEY -> items.countMysteryKeys(player);
             case TOKEN -> items.count(player);
-            case DAILY, AFK -> passes == null ? 0 : passes.count(player.getUniqueId(), pass(kind));
+            case DAILY -> passes != null && passes.dailyReady(player.getUniqueId(), LoginStreakService.today()) ? 1 : 0;
+            case AFK -> passes == null ? 0 : passes.count(player.getUniqueId(), CratePassStore.Pass.AFK);
         };
     }
 
@@ -2073,7 +2169,9 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             case SHARD -> items.removeShards(player, count);
             case KEY -> items.removeMysteryKeys(player, count);
             case TOKEN -> items.remove(player, count);
-            case DAILY, AFK -> passes == null ? 0 : passes.take(player.getUniqueId(), pass(kind), count);
+            case DAILY -> passes != null && count == 1
+                    && passes.claimDaily(player.getUniqueId(), LoginStreakService.today()) ? 1 : 0;
+            case AFK -> passes == null ? 0 : passes.take(player.getUniqueId(), CratePassStore.Pass.AFK, count);
         };
     }
 
@@ -2092,7 +2190,9 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             return;
         }
         if (kind.currency().pass()) {
-            if (passes != null) passes.refund(player.getUniqueId(), pass(kind), count);
+            if (passes == null) return;
+            if (kind == CrateKind.DAILY) passes.undoDaily(player.getUniqueId(), LoginStreakService.today());
+            else passes.refund(player.getUniqueId(), CratePassStore.Pass.AFK, count);
             return;
         }
         if (kind.currency() == CrateKind.Currency.TOKEN && items.giveKeys(player, count)) return;
@@ -2162,6 +2262,16 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         String action = oddsOnly
                 ? "View exact odds."
                 : keyCost(kind) + " " + kind.currency().shortName(keyCost(kind)) + " required.";
+        if (kind == CrateKind.DAILY && !oddsOnly) {
+            return kindButton(kind, kind.menuName(), List.of(
+                    Component.text("Free once a day. No key needed.", NamedTextColor.GRAY),
+                    Component.text("Join every day for streak luck.", NamedTextColor.GRAY)));
+        }
+        if (kind == CrateKind.AFK && !oddsOnly) {
+            return kindButton(kind, kind.menuName(), List.of(
+                    Component.text("Rolls itself every online reward.", NamedTextColor.GRAY),
+                    Component.text("See its rewards and odds here.", NamedTextColor.GRAY)));
+        }
         if (!kind.limited()) {
             return kindButton(kind, kind.menuName(), List.of(
                     Component.text("Permanent rewards.", NamedTextColor.GRAY),
@@ -2186,18 +2296,26 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     private ItemStack hubKeys(Player player, CrateKind kind, long now) {
         String held = "In inventory: " + currencyCount(player, kind);
         if (kind == CrateKind.DAILY) {
+            boolean ready = currencyCount(player, kind) > 0;
             int luck = streakLuck(player);
-            return named(currencyItem(kind, 1), "Your Daily Openings",
-                    "Openings: " + currencyCount(player, kind) + " / " + variables.integer("crate.daily.bank-cap"),
-                    "Earned by claiming your daily login streak.",
-                    luck > 0 ? "Streak luck: +" + luck + "% rare rewards" : "Build a streak for bonus luck.",
-                    "No keys needed.");
+            List<Component> lore = new ArrayList<>();
+            lore.add(ready
+                    ? Component.text("READY TO OPEN", NamedTextColor.GREEN, TextDecoration.BOLD)
+                    : Component.text("Come back in " + countdown(millisUntilDailyReset(now)),
+                    NamedTextColor.YELLOW, TextDecoration.BOLD));
+            lore.add(Component.text("Opens once a day. No key needed.", NamedTextColor.GRAY));
+            lore.add(Component.text(luck > 0
+                    ? "Streak luck: +" + luck + "% rare rewards"
+                    : "Join every day to build streak luck.", luck > 0 ? NamedTextColor.GOLD : NamedTextColor.GRAY));
+            return MenuItems.detailed(currencyItem(kind, 1), ready ? "Daily Crate Ready" : "Daily Crate Opened", lore);
         }
         if (kind == CrateKind.AFK) {
-            return named(currencyItem(kind, 1), "Your AFK Openings",
-                    "Openings: " + currencyCount(player, kind) + " / " + variables.integer("crate.afk.bank-cap"),
-                    "Earned every online reward interval, AFK or not.",
-                    "No keys needed.");
+            long saved = currencyCount(player, kind);
+            return named(currencyItem(kind, 1), "AFK Crate",
+                    "Rolls itself every online reward.",
+                    saved > 0 ? "Saved openings: " + saved : "No saved openings.",
+                    "Turn auto roll off in /settings to receive",
+                    "the reward straight into your inventory.");
         }
         if (!kind.limited()) {
             return named(
@@ -2240,7 +2358,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                 menu.inventory.setItem(SELECT_AMETHYST_SLOT, selectButton(
                         CrateKind.AMETHYST, menu.screen == Screen.ODDS_SELECT, now
                 ));
-            } else if (menu.screen == Screen.HUB && menu.kind != null && menu.kind.limited()) {
+            } else if (menu.screen == Screen.HUB && menu.kind != null
+                    && (menu.kind.limited() || menu.kind == CrateKind.DAILY)) {
                 menu.inventory.setItem(HUB_KEYS_SLOT, hubKeys(player, menu.kind, now));
             } else {
                 continue;

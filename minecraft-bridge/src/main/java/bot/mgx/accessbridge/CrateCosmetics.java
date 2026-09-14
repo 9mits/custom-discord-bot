@@ -64,12 +64,15 @@ final class CrateCosmetics {
         List<CosmeticCatalog.Definition> definitions = new ArrayList<>();
         for (Theme theme : THEMES) {
             String source = theme == DAWNBREAK ? "Only from the Daily Crate. " : "Only from the AFK Crate. ";
+            // The Daily Crate rolls once a day and the AFK Crate every hour, so the same set
+            // would be forty times commoner in the AFK Crate at equal weights.
+            boolean daily = theme == DAWNBREAK;
             definitions.add(definition(theme, CosmeticCatalog.Category.AURA, theme.name() + " Orbit",
-                    theme.auraMaterial(), 250, source + "Twin gems circle you through " + theme.mood() + "."));
+                    theme.auraMaterial(), daily ? 500 : 60, source + "Twin gems circle you through " + theme.mood() + "."));
             definitions.add(definition(theme, CosmeticCatalog.Category.TRAIL, theme.name() + " Helix",
-                    theme.trailMaterial(), 400, source + "A double helix of " + theme.mood() + " follows you."));
+                    theme.trailMaterial(), daily ? 800 : 100, source + "A double helix of " + theme.mood() + " follows you."));
             definitions.add(definition(theme, CosmeticCatalog.Category.KILL_EFFECT, theme.name() + " Shockwave",
-                    theme.killMaterial(), 400, source + "A ring of " + theme.mood() + " bursts from the kill."));
+                    theme.killMaterial(), daily ? 800 : 100, source + "A ring of " + theme.mood() + " bursts from the kill."));
         }
         return List.copyOf(definitions);
     }

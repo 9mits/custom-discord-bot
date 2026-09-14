@@ -1043,99 +1043,96 @@ final class CrateCatalog {
      * 0.24%, and Iridescent Imperium gets its separate unchanged 1-in-500,000 roll.
      */
     /**
-     * The Daily Crate: opened with the openings a login streak pays, never with keys.
-     * Richer than the AFK Crate because it asks more of the player — coming back every
-     * day — and it is the Dawnbreak cosmetics' only source.
+     * The Daily Crate: one free roll a day, so every roll is worth coming back for.
+     * Sized against the live economy, where money and keys are inflated past meaning:
+     * no keys, no money, and materials in the amounts an established player still uses.
+     * About one roll in ten is rare, before a login streak adds up to +30% to that.
      */
     private static List<Reward> buildDailyRewards() {
         List<Reward> rewards = new ArrayList<>();
         String p = "daily_";
-        rewards.add(item(p + "experience_bottles", "16 Bottles o' Enchanting", Category.RESOURCE, 12_000,
-                "EXPERIENCE_BOTTLE", 16, "Sixteen bottles of experience."));
-        rewards.add(item(p + "golden_apples", "3 Golden Apples", Category.TREASURE, 9_000,
-                "GOLDEN_APPLE", 3, "Three normal golden apples."));
-        rewards.add(item(p + "diamonds", "5 Diamonds", Category.RESOURCE, 9_000,
-                "DIAMOND", 5, "Five diamonds."));
-        rewards.add(item(p + "emeralds", "16 Emeralds", Category.RESOURCE, 8_000,
-                "EMERALD", 16, "Sixteen emeralds for trading."));
-        rewards.add(item(p + "iron_blocks", "3 Iron Blocks", Category.RESOURCE, 8_000,
-                "IRON_BLOCK", 3, "Twenty-seven ingots, already packed."));
-        rewards.add(item(p + "gold_blocks", "2 Gold Blocks", Category.RESOURCE, 6_000,
-                "GOLD_BLOCK", 2, "Eighteen ingots, already packed."));
-        rewards.add(item(p + "ancient_debris", "2 Ancient Debris", Category.RESOURCE, 6_000,
-                "ANCIENT_DEBRIS", 2, "Half a netherite ingot's worth of debris."));
-        rewards.add(copy(p, "fortune_potion_ii", 5_500));
-        rewards.add(copy(p, "crate_luck_ii", 5_000));
-        rewards.add(item(p + "mystery_keys", "10 Mysterious Crate Keys", Category.TRIAL, 4_900,
-                "TRIAL_KEY", 10, "Ten keys for the Default Crate."));
+        rewards.add(item(p + "diamonds", "8 Diamonds", Category.RESOURCE, 11_000,
+                "DIAMOND", 8, "Eight diamonds."));
+        rewards.add(item(p + "experience_bottles", "32 Bottles o' Enchanting", Category.RESOURCE, 8_900,
+                "EXPERIENCE_BOTTLE", 32, "Enough experience for a round of enchanting."));
+        rewards.add(item(p + "emeralds", "32 Emeralds", Category.RESOURCE, 7_000,
+                "EMERALD", 32, "Thirty-two emeralds for trading."));
+        rewards.add(item(p + "iron_blocks", "4 Iron Blocks", Category.RESOURCE, 7_000,
+                "IRON_BLOCK", 4, "Thirty-six ingots, already packed."));
+        rewards.add(item(p + "ancient_debris", "3 Ancient Debris", Category.RESOURCE, 7_000,
+                "ANCIENT_DEBRIS", 3, "Most of a netherite ingot."));
+        rewards.add(item(p + "gold_blocks", "4 Gold Blocks", Category.RESOURCE, 6_000,
+                "GOLD_BLOCK", 4, "Thirty-six gold ingots, already packed."));
+        rewards.add(item(p + "golden_apples", "4 Golden Apples", Category.TREASURE, 6_000,
+                "GOLDEN_APPLE", 4, "Four golden apples."));
+        rewards.add(item(p + "diamond_blocks", "2 Diamond Blocks", Category.RESOURCE, 5_000,
+                "DIAMOND_BLOCK", 2, "Eighteen diamonds, already packed."));
+        rewards.add(copy(p, "fortune_potion_ii", 5_000));
+        rewards.add(copy(p, "crate_luck_iii", 4_000));
         rewards.add(item(p + "totem_of_undying", "Totem of Undying", Category.TREASURE, 4_000,
                 "TOTEM_OF_UNDYING", 1, "A rare single-use survival item."));
-        rewards.add(item(p + "shulker_shells", "2 Shulker Shells", Category.TREASURE, 3_500,
-                "SHULKER_SHELL", 2, "Exactly enough shells for one shulker box."));
-        rewards.add(item(p + "netherite_scrap", "2 Netherite Scrap", Category.RESOURCE, 3_000,
-                "NETHERITE_SCRAP", 2, "Half of a netherite ingot."));
-        rewards.add(copy(p, "amethyst_enchant_mending_i", 2_500));
-        rewards.add(item(p + "enchanted_golden_apple", "Enchanted Golden Apple", Category.TREASURE, 2_000,
-                "ENCHANTED_GOLDEN_APPLE", 1, "One exceptionally rare enchanted apple."));
-        rewards.add(item(p + "netherite_ingot", "Netherite Ingot", Category.RESOURCE, 1_800,
+        rewards.add(item(p + "shulker_shells", "4 Shulker Shells", Category.TREASURE, 4_000,
+                "SHULKER_SHELL", 4, "Enough shells for two shulker boxes."));
+        rewards.add(item(p + "netherite_ingot", "Netherite Ingot", Category.RESOURCE, 4_000,
                 "NETHERITE_INGOT", 1, "One complete netherite ingot."));
-        rewards.add(copy(p, "fortune_potion_iii", 1_500));
-        rewards.add(copy(p, "crate_luck_iii", 1_200));
-        rewards.add(item(p + "heart_of_the_sea", "Heart of the Sea", Category.TREASURE, 1_000,
+        rewards.add(item(p + "enchanted_golden_apples", "2 Enchanted Golden Apples", Category.TREASURE, 3_500,
+                "ENCHANTED_GOLDEN_APPLE", 2, "Two exceptionally rare enchanted apples."));
+        rewards.add(copy(p, "amethyst_enchant_mending_i", 3_000));
+        rewards.add(copy(p, "fortune_potion_iii", 2_500));
+        rewards.add(item(p + "heart_of_the_sea", "Heart of the Sea", Category.TREASURE, 1_500,
                 "HEART_OF_THE_SEA", 1, "One conduit component."));
-        for (RelicCatalog.Relic relic : RelicCatalog.all()) rewards.add(relic(p, relic, 600));
-        rewards.add(oneShard(p, 350));
-        rewards.add(item(p + "heavy_core", "Heavy Core", Category.TRIAL, 350,
+        for (RelicCatalog.Relic relic : RelicCatalog.all()) rewards.add(relic(p, relic, 900));
+        rewards.add(oneShard(p, 800));
+        rewards.add(item(p + "heavy_core", "Heavy Core", Category.TRIAL, 700,
                 "HEAVY_CORE", 1, "The rare crafting core for a mace."));
-        rewards.add(item(p + "mace", "Mace", Category.TRIAL, 150,
+        rewards.add(copy(p, "crate_luck_v", 400));
+        rewards.add(item(p + "mace", "Mace", Category.TRIAL, 300,
                 "MACE", 1, "A complete heavy weapon built for smash attacks."));
         CrateCosmetics.of(CrateCosmetics.DAWNBREAK).forEach(definition -> rewards.add(cosmetic(definition)));
         return List.copyOf(rewards);
     }
 
     /**
-     * The AFK Crate: opened with the openings time online pays. Everyday materials first,
-     * because staying connected is the easiest thing on the server to do, with relics,
-     * a Shard and the Dreamdrift cosmetics as the long-tail surprise.
+     * The AFK Crate: it rolls itself every online reward, one or two a time, so a busy
+     * player sees hundreds a season. Each roll is small but always useful, and about one
+     * in thirty is rare. No keys: players already hold them by the hundred thousand.
      */
     private static List<Reward> buildAfkRewards() {
         List<Reward> rewards = new ArrayList<>();
         String p = "afk_";
-        rewards.add(item(p + "mystery_keys", "5 Mysterious Crate Keys", Category.TRIAL, 15_000,
-                "TRIAL_KEY", 5, "Five keys for the Default Crate."));
-        rewards.add(item(p + "experience_bottles", "8 Bottles o' Enchanting", Category.RESOURCE, 12_000,
-                "EXPERIENCE_BOTTLE", 8, "Eight bottles of experience."));
-        rewards.add(item(p + "iron_ingots", "12 Iron Ingots", Category.RESOURCE, 11_000,
+        rewards.add(item(p + "experience_bottles", "16 Bottles o' Enchanting", Category.RESOURCE, 16_180,
+                "EXPERIENCE_BOTTLE", 16, "Sixteen bottles of experience."));
+        rewards.add(item(p + "iron_ingots", "12 Iron Ingots", Category.RESOURCE, 14_000,
                 "IRON_INGOT", 12, "A dozen iron ingots."));
-        rewards.add(item(p + "gold_ingots", "8 Gold Ingots", Category.RESOURCE, 8_000,
+        rewards.add(item(p + "diamonds", "3 Diamonds", Category.RESOURCE, 12_000,
+                "DIAMOND", 3, "Three diamonds."));
+        rewards.add(item(p + "gold_ingots", "8 Gold Ingots", Category.RESOURCE, 10_000,
                 "GOLD_INGOT", 8, "Eight gold ingots."));
-        rewards.add(item(p + "emeralds", "6 Emeralds", Category.RESOURCE, 8_000,
-                "EMERALD", 6, "Six emeralds for trading."));
-        rewards.add(item(p + "diamonds", "2 Diamonds", Category.RESOURCE, 8_000,
-                "DIAMOND", 2, "Two diamonds."));
-        rewards.add(item(p + "golden_apple", "Golden Apple", Category.TREASURE, 7_650,
-                "GOLDEN_APPLE", 1, "One normal golden apple."));
-        rewards.add(item(p + "redstone_blocks", "4 Redstone Blocks", Category.RESOURCE, 5_000,
-                "REDSTONE_BLOCK", 4, "Thirty-six redstone dust, already packed."));
+        rewards.add(item(p + "emeralds", "8 Emeralds", Category.RESOURCE, 9_000,
+                "EMERALD", 8, "Eight emeralds for trading."));
+        rewards.add(item(p + "golden_carrots", "16 Golden Carrots", Category.RESOURCE, 8_000,
+                "GOLDEN_CARROT", 16, "The best everyday food."));
+        rewards.add(item(p + "golden_apples", "2 Golden Apples", Category.TREASURE, 7_000,
+                "GOLDEN_APPLE", 2, "Two golden apples."));
         rewards.add(copy(p, "fortune_potion_i", 5_000));
-        rewards.add(item(p + "ancient_debris", "Ancient Debris", Category.RESOURCE, 4_000,
+        rewards.add(item(p + "ancient_debris", "Ancient Debris", Category.RESOURCE, 4_500,
                 "ANCIENT_DEBRIS", 1, "One piece of ancient debris."));
-        rewards.add(copy(p, "crate_luck_ii", 3_500));
-        rewards.add(item(p + "netherite_scrap", "Netherite Scrap", Category.RESOURCE, 2_500,
-                "NETHERITE_SCRAP", 1, "One quarter of the scrap for an ingot."));
+        rewards.add(copy(p, "crate_luck_ii", 3_000));
+        rewards.add(item(p + "netherite_scrap", "Netherite Scrap", Category.RESOURCE, 2_600,
+                "NETHERITE_SCRAP", 1, "One quarter of a netherite ingot."));
         rewards.add(item(p + "totem_of_undying", "Totem of Undying", Category.TREASURE, 2_000,
                 "TOTEM_OF_UNDYING", 1, "A rare single-use survival item."));
         rewards.add(item(p + "shulker_shells", "2 Shulker Shells", Category.TREASURE, 2_000,
                 "SHULKER_SHELL", 2, "Exactly enough shells for one shulker box."));
-        rewards.add(copy(p, "amethyst_enchant_mending_i", 1_200));
-        rewards.add(item(p + "enchanted_golden_apple", "Enchanted Golden Apple", Category.TREASURE, 1_000,
+        rewards.add(copy(p, "amethyst_enchant_mending_i", 1_500));
+        rewards.add(item(p + "enchanted_golden_apple", "Enchanted Golden Apple", Category.TREASURE, 900,
                 "ENCHANTED_GOLDEN_APPLE", 1, "One exceptionally rare enchanted apple."));
-        rewards.add(item(p + "netherite_ingot", "Netherite Ingot", Category.RESOURCE, 800,
+        rewards.add(item(p + "netherite_ingot", "Netherite Ingot", Category.RESOURCE, 700,
                 "NETHERITE_INGOT", 1, "One complete netherite ingot."));
-        for (RelicCatalog.Relic relic : RelicCatalog.all()) rewards.add(relic(p, relic, 300));
-        rewards.add(oneShard(p, 120));
-        rewards.add(item(p + "heavy_core", "Heavy Core", Category.TRIAL, 80,
+        for (RelicCatalog.Relic relic : RelicCatalog.all()) rewards.add(relic(p, relic, 180));
+        rewards.add(item(p + "heavy_core", "Heavy Core", Category.TRIAL, 60,
                 "HEAVY_CORE", 1, "The rare crafting core for a mace."));
+        rewards.add(oneShard(p, 40));
         CrateCosmetics.of(CrateCosmetics.DREAMDRIFT).forEach(definition -> rewards.add(cosmetic(definition)));
         return List.copyOf(rewards);
     }

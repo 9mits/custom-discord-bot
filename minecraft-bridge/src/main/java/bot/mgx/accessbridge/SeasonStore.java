@@ -24,12 +24,8 @@ final class SeasonStore {
         String name = "";
         long xp;
         int grantedTier;
-        long dailyPeriod = -1L;
-        Map<String, Long> daily = new LinkedHashMap<>();
-        Set<String> dailyDone = new LinkedHashSet<>();
-        long weeklyPeriod = -1L;
-        Map<String, Long> weekly = new LinkedHashMap<>();
-        Set<String> weeklyDone = new LinkedHashSet<>();
+        /** Quest line key to this season's running total; levels are read from it. */
+        Map<String, Long> quests = new LinkedHashMap<>();
         int owedShards;
     }
 
@@ -69,10 +65,7 @@ final class SeasonStore {
         if (data.history == null) data.history = new ArrayList<>();
         if (data.hearts == null) data.hearts = new LinkedHashMap<>();
         for (Row row : data.players.values()) {
-            if (row.daily == null) row.daily = new LinkedHashMap<>();
-            if (row.dailyDone == null) row.dailyDone = new LinkedHashSet<>();
-            if (row.weekly == null) row.weekly = new LinkedHashMap<>();
-            if (row.weeklyDone == null) row.weeklyDone = new LinkedHashSet<>();
+            if (row.quests == null) row.quests = new LinkedHashMap<>();
             if (row.name == null) row.name = "";
         }
     }
@@ -96,6 +89,7 @@ final class SeasonStore {
         for (Row row : data.players.values()) {
             row.xp = 0L;
             row.grantedTier = 0;
+            row.quests.clear();
         }
         // Hearts belong to the season that paid them, so everybody starts the next one level.
         data.hearts.clear();

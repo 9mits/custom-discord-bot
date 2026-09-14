@@ -111,8 +111,8 @@ final class SettingMetadataTest {
         expected.put("crate.default", 64);
         expected.put("crate.amethyst", 60);
         expected.put("crate.shard", 66);
-        expected.put("crate.daily", 32);
-        expected.put("crate.afk", 29);
+        expected.put("crate.daily", 31);
+        expected.put("crate.afk", 28);
         expected.put("crate.dragon", 54);
         expected.put("amethyst-block.tier", 3);
         expected.put("airdrop.rarity", 4);
@@ -159,8 +159,8 @@ final class SettingMetadataTest {
         expected.put("crate.default", 64);
         expected.put("crate.amethyst", 60);
         expected.put("crate.shard", 66);
-        expected.put("crate.daily", 32);
-        expected.put("crate.afk", 29);
+        expected.put("crate.daily", 31);
+        expected.put("crate.afk", 28);
         expected.put("crate.dragon", 54);
         expected.put("amethyst-block.tier", 3);
         expected.put("airdrop.rarity", 4);
@@ -272,7 +272,7 @@ final class SettingMetadataTest {
         }
         assertEquals(
                 Map.ofEntries(
-                        Map.entry("crates", 325),
+                        Map.entry("crates", 321),
                         Map.entry("airdrops", 119),
                         Map.entry("online_rewards", 27),
                         Map.entry("amethyst_blocks", 49),
@@ -287,7 +287,7 @@ final class SettingMetadataTest {
                         Map.entry("event_multipliers", 10),
                         Map.entry("pvp_duels", 25),
                         Map.entry("pvp_competitive", 58),
-                        Map.entry("seasons", 36),
+                        Map.entry("seasons", 27),
                         Map.entry("security", 17),
                         Map.entry("crate_balance", 8),
                         Map.entry("amethyst_shop", 27),
@@ -307,7 +307,7 @@ final class SettingMetadataTest {
                 perGroup,
                 "the catalogue moved between panel pages"
         );
-        assertEquals(1123, perGroup.values().stream().mapToInt(Integer::intValue).sum(),
+        assertEquals(1110, perGroup.values().stream().mapToInt(Integer::intValue).sum(),
                 "group counts no longer add up to the catalogue");
     }
 

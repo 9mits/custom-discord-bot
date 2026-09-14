@@ -3,48 +3,66 @@ package bot.mgx.accessbridge;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.Random;
 
 /**
- * The Season Pass: XP into tiers, rewards per tier, and the daily and weekly quests that
- * earn most of the XP.
+ * The Season Pass: XP into tiers, rewards per tier, and the quest ladders that earn most
+ * of the XP.
  *
- * <p>Free of Bukkit so every boundary is unit tested. Quests are the same for everybody
- * on a given UTC day or week, picked deterministically from the day, so players can talk
- * about "today's quests" the way they would on a large network.
+ * <p>Free of Bukkit so every boundary is unit tested.
  */
 final class SeasonPassRules {
-    /** What a quest counts. */
+    /**
+     * What a quest counts, and its ladder.
+     *
+     * <p>Quests have no time limit. Each line is a season-long ladder of cumulative
+     * targets: reach one and the next, harder level begins, paying more XP. Targets are
+     * sized from the live server's own numbers (September 2026): a typical engaged
+     * player kills about 50 hostile mobs and mines about 12 ores an hour, the top tenth
+     * have 12,000+ kills and 3,000+ ores, and the richest balances run to hundreds of
+     * millions. The first rungs are an evening; the last are a whole season of effort.
+     */
     enum QuestType {
-        PLAY_MINUTES("Play %s active minutes", "item/clock_00", 30, 150, 300, 800),
-        KILL_MOBS("Defeat %s hostile mobs", "item/iron_sword", 40, 200, 400, 1_000),
-        MINE_ORES("Mine %s ores", "item/iron_pickaxe", 60, 200, 600, 1_000),
-        HARVEST_CROPS("Harvest %s fully grown crops", "item/wheat", 100, 150, 1_000, 800),
-        CATCH_FISH("Catch %s fish", "item/cod", 15, 150, 120, 800),
-        OPEN_CRATES("Open %s crates", "item/trial_key", 10, 200, 80, 1_000),
-        SELL_MONEY("Earn %s from /sell", "item/gold_ingot", 10_000, 200, 100_000, 1_000),
-        PLAY_PVP("Play %s competitive PvP matches", "item/diamond_sword", 3, 200, 15, 1_000),
-        WIN_PVP("Win %s competitive PvP matches", "item/netherite_sword", 2, 300, 10, 1_200);
+        KILL_MOBS("Mob Hunter", "Defeat %s hostile mobs", "item/iron_sword",
+                100, 300, 750, 1_500, 3_000, 6_000, 12_000, 25_000),
+        MINE_ORES("Deep Miner", "Mine %s ores", "item/iron_pickaxe",
+                50, 150, 400, 800, 1_500, 3_000, 6_000),
+        HARVEST_CROPS("Harvester", "Harvest %s fully grown crops", "item/wheat",
+                100, 300, 750, 1_500, 3_000, 6_000, 12_000),
+        CATCH_FISH("Angler", "Catch %s fish", "item/cod",
+                10, 30, 75, 150, 300, 600),
+        OPEN_CRATES("Crate Hunter", "Open %s crates", "item/trial_key",
+                50, 200, 500, 1_000, 2_500, 5_000),
+        SELL_MONEY("Merchant", "Earn %s from /sell", "item/gold_ingot",
+                100_000, 500_000, 1_000_000, 2_500_000, 5_000_000, 10_000_000, 25_000_000),
+        PLAY_MINUTES("Dedicated", "Play %s active minutes", "item/clock_00",
+                120, 480, 1_200, 2_400, 4_800, 9_600),
+        PLAY_PVP("Competitor", "Play %s competitive PvP matches", "item/diamond_sword",
+                5, 15, 40, 80, 150),
+        WIN_PVP("Champion", "Win %s competitive PvP matches", "item/netherite_sword",
+                3, 10, 25, 50, 100);
 
+        private final String title;
         private final String template;
         private final String sprite;
-        private final int dailyTarget;
-        private final int dailyXp;
-        private final int weeklyTarget;
-        private final int weeklyXp;
+        private final long[] targets;
 
-        QuestType(String template, String sprite, int dailyTarget, int dailyXp,
-                int weeklyTarget, int weeklyXp) {
+        QuestType(String title, String template, String sprite, long... targets) {
+            this.title = title;
             this.template = template;
             this.sprite = sprite;
-            this.dailyTarget = dailyTarget;
-            this.dailyXp = dailyXp;
-            this.weeklyTarget = weeklyTarget;
-            this.weeklyXp = weeklyXp;
+            this.targets = targets;
+        }
+
+        String title() {
+            return title;
         }
 
         String sprite() {
             return sprite;
+        }
+
+        int levels() {
+            return targets.length;
         }
 
         boolean pvp() {
@@ -56,12 +74,11 @@ final class SeasonPassRules {
         }
     }
 
-    /** One quest on today's or this week's board. */
-    record Quest(QuestType type, int target, int xp, boolean weekly) {
-        String id() {
-            return (weekly ? "weekly:" : "daily:") + type.key();
-        }
+    /** XP for completing each level of any ladder: later levels are worth far more. */
+    static final int[] LEVEL_XP = {250, 500, 900, 1_400, 2_000, 2_800, 3_600, 4_500};
 
+    /** One rung of a quest ladder. {@code level} counts from zero. */
+    record Quest(QuestType type, int level, long target, int xp) {
         String label() {
             String amount = type == QuestType.SELL_MONEY
                     ? EconomyFormat.dollars(target) : String.format(Locale.ROOT, "%,d", target);
@@ -69,11 +86,22 @@ final class SeasonPassRules {
         }
     }
 
+    /** The rung a player is on, or empty once the whole ladder is done. */
+    static java.util.Optional<Quest> quest(QuestType type, int level) {
+        if (level < 0 || level >= type.targets.length) return java.util.Optional.empty();
+        return java.util.Optional.of(new Quest(type, level, type.targets[level],
+                LEVEL_XP[Math.min(level, LEVEL_XP.length - 1)]));
+    }
+
+    /** How many rungs a season total has already cleared. */
+    static int levelFor(QuestType type, long total) {
+        int level = 0;
+        while (level < type.targets.length && total >= type.targets[level]) level++;
+        return level;
+    }
+
     /** One thing a tier pays. */
     record Grant(String kind, long amount, String id) { }
-
-    static final int DAILY_QUESTS = 3;
-    static final int WEEKLY_QUESTS = 3;
 
     private SeasonPassRules() {
     }
@@ -88,31 +116,6 @@ final class SeasonPassRules {
     static long xpIntoTier(long xp, int xpPerTier, int maximumTier) {
         if (tier(xp, xpPerTier, maximumTier) >= maximumTier) return xpPerTier;
         return Math.max(0L, xp) % Math.max(1, xpPerTier);
-    }
-
-    /** The UTC epoch day a week starts on: Monday. */
-    static long weekStart(long epochDay) {
-        // 1970-01-01 was a Thursday, so Monday is three days behind day zero's offset.
-        return epochDay - Math.floorMod(epochDay + 3L, 7L);
-    }
-
-    /**
-     * Today's or this week's quests. At most one PvP quest per board, because on a quiet
-     * server a board that can only be finished with two opponents cannot be finished.
-     */
-    static List<Quest> quests(long period, boolean weekly, int count) {
-        List<QuestType> pool = new ArrayList<>(List.of(QuestType.values()));
-        java.util.Collections.shuffle(pool, new Random(period * (weekly ? 7_919L : 104_729L) + 17L));
-        List<Quest> chosen = new ArrayList<>();
-        boolean pvp = false;
-        for (QuestType type : pool) {
-            if (chosen.size() >= count) break;
-            if (type.pvp() && pvp) continue;
-            pvp |= type.pvp();
-            chosen.add(new Quest(type, weekly ? type.weeklyTarget : type.dailyTarget,
-                    weekly ? type.weeklyXp : type.dailyXp, weekly));
-        }
-        return List.copyOf(chosen);
     }
 
     /** Most Season Hearts one tier can grant, whatever a setting says. */

@@ -623,7 +623,12 @@ final class CrateItems {
                     .orElseGet(() -> new ItemStack(Material.BARRIER));
         }
         Material material = Material.matchMaterial(reward.materialName());
-        Optional<ItemStack> special = specialItems.create(reward);
+        // The server currencies preview as themselves, not their vanilla lookalikes, and a
+        // preview is never handed out, so it must not look like a mint to Sentinel.
+        Optional<ItemStack> special = reward.sourceId().equals("one_shard")
+                || reward.sourceId().equals("mystery_keys")
+                ? Optional.of(SentinelHub.quietly(() -> reward(reward)))
+                : specialItems.create(reward);
         ItemStack item = special.orElseGet(
                 () -> new ItemStack(material == null ? Material.BARRIER : material, reward.amount())
         );
