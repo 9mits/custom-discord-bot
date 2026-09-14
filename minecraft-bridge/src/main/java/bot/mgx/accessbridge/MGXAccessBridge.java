@@ -1691,6 +1691,22 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
      * {@code config.yml} is never queued at all; muting it in Discord instead is the
      * other half of the same control, and either alone is enough.
      */
+    /**
+     * Asks the Discord bot to ping the members who opted in to hear about this.
+     *
+     * <p>Sent straight to the bridge rather than through {@link #recordServerEvent}: a
+     * ping is a notification, not something a player did, so it belongs in neither the
+     * activity feed nor the log routing an owner may have muted. The bot drops one that
+     * arrives stale, so a ping queued while it was offline never fires late.
+     */
+    void pingDiscord(String event, String summary, java.util.Map<String, String> details) {
+        if (bridgeClient == null) return;
+        ServerEvent.Builder builder = ServerEvent.of(event, "live_ping", null, "Server", ignored -> { })
+                .summary(summary);
+        details.forEach(builder::detail);
+        bridgeClient.queueServerEvent(builder.build());
+    }
+
     void recordServerEvent(ServerEvent event) {
         // Kept before the routing checks, not after: an event the operator has muted in
         // Discord is still something that happened, and the panel is where you go to

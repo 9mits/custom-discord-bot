@@ -207,6 +207,9 @@ class MinecraftAccessBot(commands.Bot):
             afk_event_handler=self.handle_player_afk,
         )
         self.dashboard = DashboardServer(self)
+        from .livepings import LivePings
+
+        self.live_pings = LivePings(self)
         self.apply_rate_limit = RateLimiter(5)
         self.status_rate_limit = RateLimiter(10)
         self.chat_rate_limit = RateLimiter(2)
@@ -247,8 +250,10 @@ class MinecraftAccessBot(commands.Bot):
         # that the bot did not respond in time.
         from .information import InformationButton, LinkEditionButton, SectionButton
         from .leaderboard import BoardSelect
+        from .livepings import PingToggleButton
 
         self.add_dynamic_items(
+            PingToggleButton,
             BoardSelect,
             InformationButton,
             LinkEditionButton,
@@ -260,6 +265,7 @@ class MinecraftAccessBot(commands.Bot):
         self.application_maintenance.start()
         self.scheduled_actions.start()
         self.leaderboard_refresh.start()
+        self.live_status_refresh.start()
         self.stat_sampler.start()
 
     async def close(self) -> None:
@@ -1023,6 +1029,10 @@ class MinecraftAccessBot(commands.Bot):
                 online_count=online_count,
                 occurred_at=occurred_at,
             )
+        try:
+            await self.live_pings.observe_online(online_count)
+        except Exception:
+            logger.exception("Live active-player ping failed")
         record_seen = getattr(self.data, "record_player_seen", None)
         if record_seen is not None:
             discord_user_id = await record_seen(edition, minecraft_uuid, current_username, xuid)
@@ -1138,6 +1148,10 @@ class MinecraftAccessBot(commands.Bot):
         """
         claimed = await self.data.claim_bridge_event(event_idempotency_key, "SERVER_EVENT")
         if not claimed or not event:
+            return
+        # A live ping is a notification for opted-in members, not a player action, so
+        # it never reaches the activity log.
+        if await self.live_pings.handle_plugin_event(event, details, occurred_at):
             return
         if event == "test_unverify":
             if self.config.server_id != "mgx-local-test":
@@ -2266,8 +2280,29 @@ class MinecraftAccessBot(commands.Bot):
                 logger.info(
                     "Scheduled %s: %s", entry.action, message or ("ok" if ok else "failed")
                 )
+            await self.live_pings.ping_schedule(self.schedule.entries)
         except Exception:
             logger.exception("The scheduled-action loop failed")
+
+    @tasks.loop(seconds=60)
+    async def live_status_refresh(self) -> None:
+        """Keeps the live status panel current: up or down, who is on, what is next."""
+        from .livepings import CONFIG_CHANNEL, upcoming_schedule
+
+        try:
+            if not await self.data.get_config(CONFIG_CHANNEL):
+                return
+            await self.schedule.load()
+            await self.live_pings.refresh_status(
+                online=await self.data.latest_online_count(),
+                upcoming=upcoming_schedule(self.schedule.entries, int(time.time())),
+            )
+        except Exception:
+            logger.exception("Live status refresh failed")
+
+    @live_status_refresh.before_loop
+    async def _before_live_status_refresh(self) -> None:
+        await self.wait_until_ready()
 
     @scheduled_actions.before_loop
     async def _before_scheduled_actions(self) -> None:
@@ -2654,6 +2689,80 @@ class MinecraftAccessBot(commands.Bot):
                 content=(
                     f"The {label} is now in {channel.mention} and refreshes every 5 minutes. "
                     "Standings fill in once the Minecraft server reports them."
+                )
+            )
+
+        @admin_group.command(
+            name="pings",
+            description="Set up live Discord pings and the live server status panel.",
+        )
+        @app_commands.describe(
+            channel="Where pings are sent and the live status panel lives.",
+            active_threshold="Players online that trigger the Server Active ping.",
+        )
+        async def live_pings(
+            interaction: discord.Interaction,
+            channel: discord.TextChannel,
+            active_threshold: app_commands.Range[int, 2, 200] = 5,
+        ) -> None:
+            if not await self.require_administrator(interaction):
+                return
+            from .livepings import CONFIG_CHANNEL, CONFIG_MESSAGE, CONFIG_THRESHOLD, TOPICS
+
+            await interaction.response.defer(ephemeral=True, thinking=True)
+            guild = interaction.guild
+            created: list[str] = []
+            roles: list[str] = []
+            for topic in TOPICS:
+                role_id = await self.data.get_config(topic.config_key)
+                role = guild.get_role(int(role_id)) if guild and role_id else None
+                if role is None and guild is not None:
+                    role = discord.utils.get(guild.roles, name=topic.role_name)
+                if role is None and guild is not None:
+                    try:
+                        role = await guild.create_role(
+                            name=topic.role_name,
+                            mentionable=False,
+                            reason="Live ping opt-in role",
+                        )
+                        created.append(topic.role_name)
+                    except discord.HTTPException:
+                        role = None
+                if role is not None:
+                    await self.data.set_config(topic.config_key, role.id)
+                    roles.append(f"> **{topic.label}** → {role.mention}")
+                else:
+                    roles.append(f"> **{topic.label}** → could not create the role")
+            await self.data.set_configs({
+                CONFIG_CHANNEL: channel.id,
+                CONFIG_MESSAGE: None,
+                CONFIG_THRESHOLD: int(active_threshold),
+            })
+            problem = await self.live_pings.refresh_status(
+                online=await self.data.latest_online_count(), upcoming=[]
+            )
+            me = guild.me if guild else None
+            notes = []
+            if me is not None and not channel.permissions_for(me).mention_everyone:
+                notes.append(
+                    "> I need **Mention @everyone, @here and All Roles** in that channel"
+                    " to ping these roles."
+                )
+            if created:
+                notes.append("> Created: " + ", ".join(created))
+            if problem:
+                notes.append(f"> {problem}")
+            await interaction.edit_original_response(
+                **branded_edit(
+                    info_embed(
+                        "Live Pings Ready" if not problem else "Live Pings Need Attention",
+                        f"> Pings and the live status panel are in {channel.mention}.\n"
+                        f"> Server Active fires at **{int(active_threshold)}** players.\n"
+                        + "\n".join(roles)
+                        + ("\n" + "\n".join(notes) if notes else ""),
+                        success=not problem,
+                        error=bool(problem),
+                    )
                 )
             )
 
