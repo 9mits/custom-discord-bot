@@ -26,7 +26,10 @@ from .audit import (
 )
 from . import clans
 from . import logroutes
+from .logdigest import LogDigest
+from .logexplorer import LogExplorerView
 from .logpanel import LogRoutingView, routing_embed
+from .sentinel import CONFIG_ALERT_ROLE, Incident, SecurityDashboardView, SentinelFeed
 from .bridge import MinecraftBridgeServer
 from .config import MinecraftConfig
 from .command_names import ADMIN_GROUP, MEMBER_GROUP, STAFF_GROUP
@@ -210,6 +213,9 @@ class MinecraftAccessBot(commands.Bot):
         from .livepings import LivePings
 
         self.live_pings = LivePings(self)
+        # Routine log lines are batched into digests; important ones bypass it.
+        self.log_digest = LogDigest(self._send_configured_log)
+        self.sentinel_feed = SentinelFeed(self)
         self.apply_rate_limit = RateLimiter(5)
         self.status_rate_limit = RateLimiter(10)
         self.chat_rate_limit = RateLimiter(2)
@@ -251,15 +257,18 @@ class MinecraftAccessBot(commands.Bot):
         from .information import InformationButton, LinkEditionButton, SectionButton
         from .leaderboard import BoardSelect
         from .livepings import PingToggleButton
+        from .sentinel import SentinelButton
 
         self.add_dynamic_items(
             PingToggleButton,
+            SentinelButton,
             BoardSelect,
             InformationButton,
             LinkEditionButton,
             SectionButton,
             ReverseLinkButton,
         )
+        self.log_digest.start()
         await self.bridge.start()
         await self.dashboard.start()
         self.application_maintenance.start()
@@ -274,6 +283,8 @@ class MinecraftAccessBot(commands.Bot):
         self.leaderboard_refresh.cancel()
         await self.dashboard.close()
         await self.bridge.close()
+        with suppress(Exception):
+            await self.log_digest.close()
         if self._background_tasks:
             _done, pending = await asyncio.wait(self._background_tasks, timeout=5)
             for task in pending:
@@ -1192,8 +1203,25 @@ class MinecraftAccessBot(commands.Bot):
             ),
             risk=server_event_risk(event),
             correlation_id=str(category or "server"),
+            detail=truncate_audit_value(summary, OPTION_VALUE_LIMIT) or None,
             created_at=int(occurred_at),
         )
+        incident = Incident.from_event(
+            str(event),
+            actor_uuid=str(actor_uuid or ""),
+            actor_name=str(actor_name or ""),
+            summary=str(summary or ""),
+            details=details,
+            occurred_at=int(occurred_at),
+            discord_id=discord_user_id,
+            fallback_id=event_idempotency_key[-12:],
+        )
+        if incident is not None:
+            # Sentinel incidents have their own table and card; the command log keeps a
+            # line too so the explorer shows them in context with everything else.
+            await self.data.record_command_log(record)
+            await self.sentinel_feed.handle(incident)
+            return
         await deliver_server_event(
             self,
             record,
@@ -3604,9 +3632,13 @@ class MinecraftAccessBot(commands.Bot):
         async def logs_panel(interaction: discord.Interaction) -> None:
             if not await self.require_administrator(interaction):
                 return
-            view = LogRoutingView(self, interaction.user.id)
+            try:
+                alert_role_id = int(await self.data.get_config(CONFIG_ALERT_ROLE) or 0)
+            except (TypeError, ValueError):
+                alert_role_id = 0
+            view = LogRoutingView(self, interaction.user.id, alert_role_id=alert_role_id)
             await interaction.response.send_message(
-                **branded_send(routing_embed(self.settings)),
+                **branded_send(routing_embed(self.settings, alert_role_id=alert_role_id)),
                 view=view,
                 ephemeral=True,
             )
@@ -4092,32 +4124,48 @@ class MinecraftAccessBot(commands.Bot):
                 view=self.control_view(interaction),
             )
 
-        @staff_group.command(name="commandlog", description="Review who ran which Minecraft command.")
+        @staff_group.command(name="commandlog", description="Explore every Minecraft log: commands, in-game actions and security.")
         @app_commands.describe(
             user="Only show commands run by this member",
             command="Filter by command name",
-            limit="How many records to show (1-50)",
         )
         async def commandlog(
             interaction: discord.Interaction,
             user: Optional[discord.User] = None,
             command: Optional[str] = None,
-            limit: Optional[app_commands.Range[int, 1, 50]] = None,
         ) -> None:
             if not await self.require_moderator(interaction):
                 await record_denial(self, interaction, "mgxstaff commandlog", "Not a moderator")
                 return
             await interaction.response.defer(ephemeral=True, thinking=True)
-            await interaction.edit_original_response(
-                **branded_edit(
-                    await self.build_command_log_embed(
-                        user_id=user.id if user else None,
-                        command=command,
-                        limit=int(limit or 20),
-                    )
-                ),
-                view=self.control_view(interaction),
+            explorer = LogExplorerView(
+                self,
+                interaction.user.id,
+                actor_id=user.id if user else None,
+                command=command,
             )
+            await interaction.edit_original_response(embed=await explorer.render(), view=explorer)
+
+        @staff_group.command(
+            name="security",
+            description="Open the Sentinel dashboard: duplication, hacking and abuse incidents.",
+        )
+        @app_commands.describe(player="Only show incidents for this Minecraft username")
+        async def security_dashboard(
+            interaction: discord.Interaction,
+            player: Optional[str] = None,
+        ) -> None:
+            if not await self.require_moderator(interaction):
+                await record_denial(self, interaction, "mgxstaff security", "Not a moderator")
+                return
+            await interaction.response.defer(ephemeral=True, thinking=True)
+            dashboard = SecurityDashboardView(
+                self,
+                interaction.user.id,
+                player=(player or "").strip() or None,
+                guild_id=interaction.guild_id or 0,
+            )
+            await interaction.edit_original_response(embed=await dashboard.render(), view=dashboard)
 
         return group, staff_group, admin_group
 

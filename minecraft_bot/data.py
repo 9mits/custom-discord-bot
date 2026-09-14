@@ -35,7 +35,7 @@ from .models import (
 
 JAVA_USERNAME = re.compile(r"^[A-Za-z0-9_]{3,16}$")
 BEDROCK_USERNAME = re.compile(r"^[\w -]{1,16}$", re.UNICODE)
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 COMMAND_LOG_RETENTION_DAYS = 30
 COMMAND_LOG_RETENTION_ROWS = 20_000
 
@@ -252,6 +252,31 @@ CREATE INDEX IF NOT EXISTS idx_minecraft_command_log_actor
     ON minecraft_command_log(actor_discord_id, id DESC);
 CREATE INDEX IF NOT EXISTS idx_minecraft_command_log_age
     ON minecraft_command_log(created_at);
+
+-- Sentinel incidents reported by the plugin. Deliberately absent from the data wipe:
+-- a reset must never be a way to erase the evidence of the abuse it follows.
+CREATE TABLE IF NOT EXISTS minecraft_security_incidents (
+    incident_id TEXT PRIMARY KEY,
+    rule TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    player_uuid TEXT NOT NULL DEFAULT '',
+    player_name TEXT NOT NULL DEFAULT '',
+    discord_id TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL,
+    evidence TEXT NOT NULL,
+    risk REAL NOT NULL DEFAULT 0,
+    repeats INTEGER NOT NULL DEFAULT 0,
+    occurred_at INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'OPEN',
+    handled_by TEXT,
+    handled_at INTEGER,
+    channel_id TEXT,
+    message_id TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_minecraft_security_recent
+    ON minecraft_security_incidents(occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_minecraft_security_player
+    ON minecraft_security_incidents(player_uuid, occurred_at DESC);
 
 CREATE TABLE IF NOT EXISTS minecraft_delivery_outbox (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2512,13 +2537,17 @@ class MinecraftDataManager:
                 raise
         return int(row_id)
 
-    async def list_command_log(
-        self,
+    @staticmethod
+    def _command_log_filter(
         *,
         actor_id: Optional[int | str] = None,
         command: Optional[str] = None,
-        limit: int = 20,
-    ) -> list[dict[str, Any]]:
+        source: Optional[str] = None,
+        categories: Optional[Iterable[str]] = None,
+        important_only: bool = False,
+        failed_only: bool = False,
+        player: Optional[str] = None,
+    ) -> tuple[str, list[Any]]:
         clauses: list[str] = []
         params: list[Any] = []
         if actor_id:
@@ -2527,10 +2556,40 @@ class MinecraftDataManager:
         if command:
             clauses.append("command LIKE ? ESCAPE '\\'")
             params.append(_like_contains(str(command)))
-        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-        params.append(max(1, min(50, int(limit))))
+        if source == "discord":
+            clauses.append("source IN ('command', 'component', 'modal')")
+        elif source:
+            clauses.append("source=?")
+            params.append(str(source))
+        if categories is not None:
+            chosen = [str(category) for category in categories]
+            if not chosen:
+                clauses.append("0")
+            else:
+                clauses.append(f"correlation_id IN ({','.join('?' for _ in chosen)})")
+                params.extend(chosen)
+        if important_only:
+            clauses.append("(risk='destructive' OR LOWER(outcome) IN ('failed', 'denied'))")
+        if failed_only:
+            clauses.append("LOWER(outcome) IN ('failed', 'denied')")
+        if player:
+            clauses.append("actor_label LIKE ? ESCAPE '\\'")
+            params.append(_like_contains(str(player)))
+        return (f"WHERE {' AND '.join(clauses)}" if clauses else ""), params
+
+    async def list_command_log(
+        self,
+        *,
+        actor_id: Optional[int | str] = None,
+        command: Optional[str] = None,
+        limit: int = 20,
+        offset: int = 0,
+        **filters: Any,
+    ) -> list[dict[str, Any]]:
+        where, params = self._command_log_filter(actor_id=actor_id, command=command, **filters)
+        params.extend((max(1, min(50, int(limit))), max(0, int(offset))))
         rows = await self._connection().execute_fetchall(
-            f"SELECT * FROM minecraft_command_log {where} ORDER BY id DESC LIMIT ?",
+            f"SELECT * FROM minecraft_command_log {where} ORDER BY id DESC LIMIT ? OFFSET ?",
             tuple(params),
         )
         return [dict(row) for row in rows]
@@ -2540,20 +2599,142 @@ class MinecraftDataManager:
         *,
         actor_id: Optional[int | str] = None,
         command: Optional[str] = None,
+        **filters: Any,
     ) -> int:
-        clauses: list[str] = []
-        params: list[Any] = []
-        if actor_id:
-            clauses.append("actor_discord_id=?")
-            params.append(str(actor_id))
-        if command:
-            clauses.append("command LIKE ? ESCAPE '\\'")
-            params.append(_like_contains(str(command)))
-        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        where, params = self._command_log_filter(actor_id=actor_id, command=command, **filters)
         rows = await self._connection().execute_fetchall(
             f"SELECT COUNT(*) AS count FROM minecraft_command_log {where}", tuple(params)
         )
         return int(rows[0]["count"]) if rows else 0
+
+    # ------------------------------------------------------------------ security
+
+    async def record_security_incident(self, incident: dict[str, Any]) -> bool:
+        """Stores one Sentinel incident. False when that incident id was already stored."""
+        async with self._write_transaction() as db:
+            cursor = await db.execute(
+                "INSERT OR IGNORE INTO minecraft_security_incidents ("
+                "incident_id, rule, severity, player_uuid, player_name, discord_id, title, "
+                "evidence, risk, repeats, occurred_at"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    str(incident["incident_id"]),
+                    str(incident.get("rule") or ""),
+                    str(incident.get("severity") or "LOW"),
+                    str(incident.get("player_uuid") or ""),
+                    str(incident.get("player_name") or ""),
+                    str(incident.get("discord_id") or ""),
+                    str(incident.get("title") or ""),
+                    json.dumps(list(incident.get("evidence") or [])),
+                    float(incident.get("risk") or 0),
+                    int(incident.get("repeats") or 0),
+                    int(incident.get("occurred_at") or _now()),
+                ),
+            )
+            return cursor.rowcount > 0
+
+    async def set_security_message(self, incident_id: str, channel_id: int, message_id: int) -> None:
+        async with self._write_transaction() as db:
+            await db.execute(
+                "UPDATE minecraft_security_incidents SET channel_id=?, message_id=? WHERE incident_id=?",
+                (str(channel_id), str(message_id), str(incident_id)),
+            )
+
+    async def set_security_status(
+        self, incident_id: str, status: str, actor_id: int | str, *, now: Optional[int] = None
+    ) -> Optional[dict[str, Any]]:
+        async with self._write_transaction() as db:
+            await db.execute(
+                "UPDATE minecraft_security_incidents SET status=?, handled_by=?, handled_at=? "
+                "WHERE incident_id=?",
+                (str(status), str(actor_id), _now() if now is None else int(now), str(incident_id)),
+            )
+        return await self.get_security_incident(incident_id)
+
+    async def get_security_incident(self, incident_id: str) -> Optional[dict[str, Any]]:
+        rows = await self._connection().execute_fetchall(
+            "SELECT * FROM minecraft_security_incidents WHERE incident_id=?", (str(incident_id),)
+        )
+        return self._security_row(rows[0]) if rows else None
+
+    @staticmethod
+    def _security_row(row: Any) -> dict[str, Any]:
+        record = dict(row)
+        try:
+            record["evidence"] = [str(line) for line in json.loads(record.get("evidence") or "[]")]
+        except (TypeError, ValueError):
+            record["evidence"] = []
+        return record
+
+    @staticmethod
+    def _security_filter(
+        *,
+        since: int = 0,
+        severities: Optional[Iterable[str]] = None,
+        status: Optional[str] = None,
+        player_uuid: Optional[str] = None,
+        player: Optional[str] = None,
+    ) -> tuple[str, list[Any]]:
+        clauses = ["occurred_at>=?"]
+        params: list[Any] = [int(since)]
+        if severities is not None:
+            chosen = [str(value).upper() for value in severities]
+            clauses.append(f"severity IN ({','.join('?' for _ in chosen) or 'NULL'})")
+            params.extend(chosen)
+        if status:
+            clauses.append("status=?")
+            params.append(str(status).upper())
+        if player_uuid:
+            clauses.append("player_uuid=?")
+            params.append(str(player_uuid))
+        if player:
+            clauses.append("player_name LIKE ? ESCAPE '\\'")
+            params.append(_like_contains(str(player)))
+        return "WHERE " + " AND ".join(clauses), params
+
+    async def list_security_incidents(
+        self, *, limit: int = 10, offset: int = 0, **filters: Any
+    ) -> list[dict[str, Any]]:
+        where, params = self._security_filter(**filters)
+        params.extend((max(1, min(50, int(limit))), max(0, int(offset))))
+        rows = await self._connection().execute_fetchall(
+            f"SELECT * FROM minecraft_security_incidents {where} "
+            "ORDER BY occurred_at DESC, rowid DESC LIMIT ? OFFSET ?",
+            tuple(params),
+        )
+        return [self._security_row(row) for row in rows]
+
+    async def count_security_incidents(self, **filters: Any) -> int:
+        where, params = self._security_filter(**filters)
+        rows = await self._connection().execute_fetchall(
+            f"SELECT COUNT(*) AS count FROM minecraft_security_incidents {where}", tuple(params)
+        )
+        return int(rows[0]["count"]) if rows else 0
+
+    async def security_severity_counts(self, *, since: int) -> dict[str, dict[str, int]]:
+        """Severity -> {"total", "open"} since a timestamp."""
+        rows = await self._connection().execute_fetchall(
+            "SELECT severity, COUNT(*) AS total, SUM(status='OPEN') AS open "
+            "FROM minecraft_security_incidents WHERE occurred_at>=? GROUP BY severity",
+            (int(since),),
+        )
+        return {
+            str(row["severity"]): {"total": int(row["total"] or 0), "open": int(row["open"] or 0)}
+            for row in rows
+        }
+
+    async def security_top_players(self, *, since: int, limit: int = 5) -> list[dict[str, Any]]:
+        """The players with the most serious unresolved history, highest peak risk first."""
+        rows = await self._connection().execute_fetchall(
+            "SELECT player_uuid, MAX(player_name) AS player_name, MAX(discord_id) AS discord_id, "
+            "COUNT(*) AS incidents, MAX(risk) AS peak_risk, "
+            "SUM(severity='CRITICAL') AS critical, SUM(severity='HIGH') AS high "
+            "FROM minecraft_security_incidents "
+            "WHERE occurred_at>=? AND player_uuid<>'' AND status<>'FALSE_POSITIVE' "
+            "GROUP BY player_uuid ORDER BY peak_risk DESC, incidents DESC LIMIT ?",
+            (int(since), max(1, min(10, int(limit)))),
+        )
+        return [dict(row) for row in rows]
 
     async def prune_command_log(self, *, now: Optional[int] = None) -> int:
         """Age out old rows and cap total size so the trail cannot grow unbounded."""
