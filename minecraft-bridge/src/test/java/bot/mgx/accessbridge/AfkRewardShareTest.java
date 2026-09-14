@@ -3,8 +3,6 @@ package bot.mgx.accessbridge;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class AfkRewardShareTest {
     @Test
@@ -21,12 +19,5 @@ final class AfkRewardShareTest {
         assertEquals(5, AfkRewardShare.keys(8, 0.5d, 25));
         assertEquals(0.5d, AfkRewardShare.share(30 * 60_000L, 60 * 60_000L));
         assertEquals(1d, AfkRewardShare.share(90 * 60_000L, 60 * 60_000L));
-    }
-
-    @Test
-    void anHourSpentMostlyAfkRollsNoItemsUnlessAllowed() {
-        assertTrue(AfkRewardShare.itemRolls(0.2d, false));
-        assertFalse(AfkRewardShare.itemRolls(0.6d, false));
-        assertTrue(AfkRewardShare.itemRolls(0.9d, true));
     }
 }

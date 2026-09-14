@@ -1358,6 +1358,11 @@ final class CosmeticEffectService implements Listener {
             drawSeasonCrown(owner, centre, phase, step, seasonTheme, moving);
             return;
         }
+        CrateCosmetics.Theme crateTheme = CrateCosmetics.themeOf(definition.id()).orElse(null);
+        if (crateTheme != null) {
+            drawCrateOrbit(owner, centre, phase, crateTheme, moving);
+            return;
+        }
         if (definition.id().equals(DRAGON_MUSIC_AURA_ID)) {
             drawAmethystDragonAscendant(owner, centre, moving);
             return;
@@ -2783,6 +2788,76 @@ final class CosmeticEffectService implements Listener {
         });
     }
 
+    // ------------------------------------------------------------------ key-free crate cosmetics
+
+    /** Two gems chase each other round a tilted ring; the ring tightens while running. */
+    private void drawCrateOrbit(
+            Player owner, Location centre, double phase, CrateCosmetics.Theme theme, boolean moving
+    ) {
+        Color shadow = Color.fromRGB(theme.shadow());
+        Color primary = Color.fromRGB(theme.primary());
+        Color highlight = Color.fromRGB(theme.highlight());
+        double radius = moving ? 0.55d : 0.9d;
+        for (int point = 0; point < 16; point++) {
+            double angle = phase * 0.25d + point * Math.PI / 8d;
+            Location at = centre.clone().add(Math.cos(angle) * radius,
+                    Math.sin(angle) * 0.22d + 0.1d, Math.sin(angle) * radius);
+            dust(owner, at, point % 2 == 0 ? shadow : primary, 0.62f, PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        }
+        for (int gem = 0; gem < 2; gem++) {
+            double angle = phase * 0.9d + gem * Math.PI;
+            Location at = centre.clone().add(Math.cos(angle) * radius,
+                    Math.sin(angle) * 0.22d + 0.1d, Math.sin(angle) * radius);
+            dust(owner, at, highlight, 1.25f, PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            dust(owner, at.clone().add(0d, 0.14d, 0d), primary, 0.8f, PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        }
+    }
+
+    /** Two strands wind around the path behind the wearer. */
+    private void drawCrateHelix(Player owner, List<Location> history, CrateCosmetics.Theme theme) {
+        Color primary = Color.fromRGB(theme.primary());
+        Color highlight = Color.fromRGB(theme.highlight());
+        Vector side = trailSide(history);
+        int length = Math.min(history.size(), 10);
+        for (int index = 0; index < length; index++) {
+            for (int strand = 0; strand < 2; strand++) {
+                double angle = frame * 0.35d + index * 0.8d + strand * Math.PI;
+                Location at = trailPoint(history, index, 0.55d + Math.sin(angle) * 0.32d)
+                        .add(side.clone().multiply(Math.cos(angle) * 0.32d));
+                dust(owner, at, strand == 0 ? primary : highlight, index == 0 ? 1f : 0.7f,
+                        PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+            }
+        }
+    }
+
+    /** Three rings burst outward in turn, then sparks climb out of the centre. */
+    private void animateCrateShockwave(Player owner, Location centre, CrateCosmetics.Theme theme) {
+        Color[] colours = {
+                Color.fromRGB(theme.highlight()), Color.fromRGB(theme.primary()), Color.fromRGB(theme.shadow())
+        };
+        animate(owner, centre, 24, 2L, step -> {
+            for (int ring = 0; ring < 3; ring++) {
+                double progress = (step - ring * 4d) / 12d;
+                if (progress < 0d || progress > 1d) continue;
+                double eased = CosmeticAnimation.smooth(progress);
+                drawRing(owner, centre.clone().add(0d, 0.2d + ring * 0.35d, 0d), 0.2d + eased * 2.2d,
+                        18, step * 0.1d, colours[ring], 1.05f, PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+            }
+            if (step >= 10) {
+                double rise = (step - 10d) / 14d;
+                for (int spark = 0; spark < 4; spark++) {
+                    double angle = spark * Math.PI / 2d + step * 0.3d;
+                    Location at = centre.clone().add(Math.cos(angle) * 0.4d, 0.3d + rise * 2.4d, Math.sin(angle) * 0.4d);
+                    dust(owner, at, colours[spark % 2], 0.9f, PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                }
+            }
+            if (step == 1) {
+                sound(owner, centre, Sound.BLOCK_AMETHYST_BLOCK_RESONATE, 1f, 1.4f,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+            }
+        });
+    }
+
     /** A faceted ruby/medallion that visibly turns instead of reading as loose dust. */
     private void drawVerticalGem(
             Player owner, Location centre, Vector side, double scale,
@@ -2859,6 +2934,11 @@ final class CosmeticEffectService implements Listener {
         SeasonCosmetics.Theme seasonTheme = SeasonCosmetics.themeOf(definition.id()).orElse(null);
         if (seasonTheme != null) {
             drawSeasonWake(owner, history, seasonTheme);
+            return;
+        }
+        CrateCosmetics.Theme crateTheme = CrateCosmetics.themeOf(definition.id()).orElse(null);
+        if (crateTheme != null) {
+            drawCrateHelix(owner, history, crateTheme);
             return;
         }
         if (definition.secret()) {
@@ -3256,6 +3336,11 @@ final class CosmeticEffectService implements Listener {
             animateSeasonVerdict(owner, centre, seasonTheme);
             return;
         }
+        CrateCosmetics.Theme crateTheme = CrateCosmetics.themeOf(definition.id()).orElse(null);
+        if (crateTheme != null) {
+            animateCrateShockwave(owner, centre, crateTheme);
+            return;
+        }
         if (definition.secret()) {
             drawSecretKill(owner, definition, centre);
             return;
@@ -3527,6 +3612,10 @@ final class CosmeticEffectService implements Listener {
         var seasonTheme = SeasonCosmetics.themeOf(definition.id());
         if (seasonTheme.isPresent()) {
             return new KillAccent(Color.fromRGB(seasonTheme.get().primary()), 20, 30);
+        }
+        var crateTheme = CrateCosmetics.themeOf(definition.id());
+        if (crateTheme.isPresent()) {
+            return new KillAccent(Color.fromRGB(crateTheme.get().primary()), 12, 24);
         }
         return switch (CosmeticCatalog.effectId(definition)) {
             case "blood_burst" -> new KillAccent(Color.fromRGB(225, 12, 38), 10, 24);

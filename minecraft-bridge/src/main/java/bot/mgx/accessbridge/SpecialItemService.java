@@ -77,7 +77,12 @@ final class SpecialItemService implements Listener {
     private final NamespacedKey crateLuckKey;
     private final NamespacedKey crateLuckUntilKey;
     private final AmethystItemService amethystItems;
+    private RelicItemService relics;
     private final Set<UUID> excavating = new HashSet<>();
+
+    void useRelics(RelicItemService relics) {
+        this.relics = relics;
+    }
 
     SpecialItemService(MGXAccessBridge plugin, AmethystItemService amethystItems) {
         this.plugin = plugin;
@@ -97,6 +102,10 @@ final class SpecialItemService implements Listener {
         Optional<ItemStack> amethyst = amethystItems.create(reward);
         if (amethyst.isPresent()) {
             return amethyst;
+        }
+        Optional<RelicCatalog.Relic> relic = RelicCatalog.find(id);
+        if (relic.isPresent() && relics != null) {
+            return Optional.of(relics.create(relic.get()));
         }
         if (id.equals("amethyst_excavation_i")) {
             return Optional.of(enchantmentBook("enchant_excavation_i"));

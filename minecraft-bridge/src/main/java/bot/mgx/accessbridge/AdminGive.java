@@ -28,7 +28,7 @@ final class AdminGive {
 
 
     static final List<String> TYPES = List.of(
-            "money", "key", "shard", "cosmetic", "cosmetics", "reward", "amethyst"
+            "money", "key", "shard", "cosmetic", "cosmetics", "reward", "amethyst", "daily", "afk"
     );
 
     /** Every cosmetic an administrator can preview or grant through command completion. */
@@ -45,7 +45,9 @@ final class AdminGive {
         COSMETIC,
         LEADERBOARD_COSMETICS,
         REWARD,
-        AMETHYST_REWARDS
+        AMETHYST_REWARDS,
+        DAILY_OPENINGS,
+        AFK_OPENINGS
     }
 
     record Request(Type type, long amount, String cosmeticId) {
@@ -111,6 +113,13 @@ final class AdminGive {
                 }
                 return new Request(Type.REWARD, 1, value.trim().toLowerCase(Locale.ROOT));
             }
+            case "daily", "afk" -> {
+                int amount = value == null ? 1 : parseCount(value);
+                if (amount < 1 || amount > 100) {
+                    throw new IllegalArgumentException("Give between 1 and 100 crate openings at a time.");
+                }
+                return new Request(type.equals("daily") ? Type.DAILY_OPENINGS : Type.AFK_OPENINGS, amount, null);
+            }
             case "amethyst", "amethyst_crate", "amethyst_rewards" -> {
                 return new Request(Type.AMETHYST_REWARDS, 1, null);
             }
@@ -128,6 +137,6 @@ final class AdminGive {
 
     static String usage() {
         return "Usage: /mgxadmin give <player|everyone> "
-                + "<money|key|shard|cosmetic <id>|cosmetics|reward <id>|amethyst>";
+                + "<money|key|shard|cosmetic <id>|cosmetics|reward <id>|amethyst|daily <n>|afk <n>>";
     }
 }

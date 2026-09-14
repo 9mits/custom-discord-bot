@@ -132,6 +132,10 @@ final class CrateCatalog {
                 base = base.substring("shard_".length());
             } else if (base.startsWith("dragon_")) {
                 base = base.substring("dragon_".length());
+            } else if (base.startsWith("daily_")) {
+                base = base.substring("daily_".length());
+            } else if (base.startsWith("afk_")) {
+                base = base.substring("afk_".length());
             }
             return base;
         }
@@ -256,6 +260,8 @@ final class CrateCatalog {
     private static final List<Reward> AMETHYST_REWARDS = buildAmethystRewards();
     private static final List<Reward> DRAGON_REWARDS = buildDragonRewards();
     private static final List<Reward> SHARD_REWARDS = buildShardRewards();
+    private static final List<Reward> DAILY_REWARDS = buildDailyRewards();
+    private static final List<Reward> AFK_REWARDS = buildAfkRewards();
     private static final List<Reward> HIDDEN_AMETHYST_REWARDS =
             CosmeticCatalog.hiddenAmethystRewards().stream().map(CrateCatalog::cosmetic).toList();
     private static final Set<String> AMETHYST_EXCLUSIVE_IDS = Set.of(
@@ -314,6 +320,14 @@ final class CrateCatalog {
         return DRAGON_REWARDS;
     }
 
+    static List<Reward> daily() {
+        return DAILY_REWARDS;
+    }
+
+    static List<Reward> afk() {
+        return AFK_REWARDS;
+    }
+
     static List<Reward> hiddenAmethyst() {
         return HIDDEN_AMETHYST_REWARDS;
     }
@@ -332,6 +346,8 @@ final class CrateCatalog {
             case AMETHYST -> AMETHYST_REWARDS;
             case SHARD -> SHARD_REWARDS;
             case DRAGON -> DRAGON_REWARDS;
+            case DAILY -> DAILY_REWARDS;
+            case AFK -> AFK_REWARDS;
         };
     }
 
@@ -395,6 +411,7 @@ final class CrateCatalog {
                         REWARDS.stream(), AMETHYST_REWARDS.stream(),
                         SOURCE_ONLY_REWARDS.stream(), ETERNAL_REWARDS.stream(),
                         HIDDEN_AMETHYST_REWARDS.stream(), SHARD_REWARDS.stream(),
+                        DAILY_REWARDS.stream(), AFK_REWARDS.stream(),
                         DRAGON_REWARDS.stream(), CosmeticCatalog.hiddenDragonRewards().stream()
                                 .map(CrateCatalog::cosmetic)
                 )
@@ -1025,6 +1042,122 @@ final class CrateCatalog {
      * only its weight in this pool changes. Exotic cosmetics remain a combined
      * 0.24%, and Iridescent Imperium gets its separate unchanged 1-in-500,000 roll.
      */
+    /**
+     * The Daily Crate: opened with the openings a login streak pays, never with keys.
+     * Richer than the AFK Crate because it asks more of the player — coming back every
+     * day — and it is the Dawnbreak cosmetics' only source.
+     */
+    private static List<Reward> buildDailyRewards() {
+        List<Reward> rewards = new ArrayList<>();
+        String p = "daily_";
+        rewards.add(item(p + "experience_bottles", "16 Bottles o' Enchanting", Category.RESOURCE, 12_000,
+                "EXPERIENCE_BOTTLE", 16, "Sixteen bottles of experience."));
+        rewards.add(item(p + "golden_apples", "3 Golden Apples", Category.TREASURE, 9_000,
+                "GOLDEN_APPLE", 3, "Three normal golden apples."));
+        rewards.add(item(p + "diamonds", "5 Diamonds", Category.RESOURCE, 9_000,
+                "DIAMOND", 5, "Five diamonds."));
+        rewards.add(item(p + "emeralds", "16 Emeralds", Category.RESOURCE, 8_000,
+                "EMERALD", 16, "Sixteen emeralds for trading."));
+        rewards.add(item(p + "iron_blocks", "3 Iron Blocks", Category.RESOURCE, 8_000,
+                "IRON_BLOCK", 3, "Twenty-seven ingots, already packed."));
+        rewards.add(item(p + "gold_blocks", "2 Gold Blocks", Category.RESOURCE, 6_000,
+                "GOLD_BLOCK", 2, "Eighteen ingots, already packed."));
+        rewards.add(item(p + "ancient_debris", "2 Ancient Debris", Category.RESOURCE, 6_000,
+                "ANCIENT_DEBRIS", 2, "Half a netherite ingot's worth of debris."));
+        rewards.add(copy(p, "fortune_potion_ii", 5_500));
+        rewards.add(copy(p, "crate_luck_ii", 5_000));
+        rewards.add(item(p + "mystery_keys", "10 Mysterious Crate Keys", Category.TRIAL, 4_900,
+                "TRIAL_KEY", 10, "Ten keys for the Default Crate."));
+        rewards.add(item(p + "totem_of_undying", "Totem of Undying", Category.TREASURE, 4_000,
+                "TOTEM_OF_UNDYING", 1, "A rare single-use survival item."));
+        rewards.add(item(p + "shulker_shells", "2 Shulker Shells", Category.TREASURE, 3_500,
+                "SHULKER_SHELL", 2, "Exactly enough shells for one shulker box."));
+        rewards.add(item(p + "netherite_scrap", "2 Netherite Scrap", Category.RESOURCE, 3_000,
+                "NETHERITE_SCRAP", 2, "Half of a netherite ingot."));
+        rewards.add(copy(p, "amethyst_enchant_mending_i", 2_500));
+        rewards.add(item(p + "enchanted_golden_apple", "Enchanted Golden Apple", Category.TREASURE, 2_000,
+                "ENCHANTED_GOLDEN_APPLE", 1, "One exceptionally rare enchanted apple."));
+        rewards.add(item(p + "netherite_ingot", "Netherite Ingot", Category.RESOURCE, 1_800,
+                "NETHERITE_INGOT", 1, "One complete netherite ingot."));
+        rewards.add(copy(p, "fortune_potion_iii", 1_500));
+        rewards.add(copy(p, "crate_luck_iii", 1_200));
+        rewards.add(item(p + "heart_of_the_sea", "Heart of the Sea", Category.TREASURE, 1_000,
+                "HEART_OF_THE_SEA", 1, "One conduit component."));
+        for (RelicCatalog.Relic relic : RelicCatalog.all()) rewards.add(relic(p, relic, 600));
+        rewards.add(oneShard(p, 350));
+        rewards.add(item(p + "heavy_core", "Heavy Core", Category.TRIAL, 350,
+                "HEAVY_CORE", 1, "The rare crafting core for a mace."));
+        rewards.add(item(p + "mace", "Mace", Category.TRIAL, 150,
+                "MACE", 1, "A complete heavy weapon built for smash attacks."));
+        CrateCosmetics.of(CrateCosmetics.DAWNBREAK).forEach(definition -> rewards.add(cosmetic(definition)));
+        return List.copyOf(rewards);
+    }
+
+    /**
+     * The AFK Crate: opened with the openings time online pays. Everyday materials first,
+     * because staying connected is the easiest thing on the server to do, with relics,
+     * a Shard and the Dreamdrift cosmetics as the long-tail surprise.
+     */
+    private static List<Reward> buildAfkRewards() {
+        List<Reward> rewards = new ArrayList<>();
+        String p = "afk_";
+        rewards.add(item(p + "mystery_keys", "5 Mysterious Crate Keys", Category.TRIAL, 15_000,
+                "TRIAL_KEY", 5, "Five keys for the Default Crate."));
+        rewards.add(item(p + "experience_bottles", "8 Bottles o' Enchanting", Category.RESOURCE, 12_000,
+                "EXPERIENCE_BOTTLE", 8, "Eight bottles of experience."));
+        rewards.add(item(p + "iron_ingots", "12 Iron Ingots", Category.RESOURCE, 11_000,
+                "IRON_INGOT", 12, "A dozen iron ingots."));
+        rewards.add(item(p + "gold_ingots", "8 Gold Ingots", Category.RESOURCE, 8_000,
+                "GOLD_INGOT", 8, "Eight gold ingots."));
+        rewards.add(item(p + "emeralds", "6 Emeralds", Category.RESOURCE, 8_000,
+                "EMERALD", 6, "Six emeralds for trading."));
+        rewards.add(item(p + "diamonds", "2 Diamonds", Category.RESOURCE, 8_000,
+                "DIAMOND", 2, "Two diamonds."));
+        rewards.add(item(p + "golden_apple", "Golden Apple", Category.TREASURE, 7_650,
+                "GOLDEN_APPLE", 1, "One normal golden apple."));
+        rewards.add(item(p + "redstone_blocks", "4 Redstone Blocks", Category.RESOURCE, 5_000,
+                "REDSTONE_BLOCK", 4, "Thirty-six redstone dust, already packed."));
+        rewards.add(copy(p, "fortune_potion_i", 5_000));
+        rewards.add(item(p + "ancient_debris", "Ancient Debris", Category.RESOURCE, 4_000,
+                "ANCIENT_DEBRIS", 1, "One piece of ancient debris."));
+        rewards.add(copy(p, "crate_luck_ii", 3_500));
+        rewards.add(item(p + "netherite_scrap", "Netherite Scrap", Category.RESOURCE, 2_500,
+                "NETHERITE_SCRAP", 1, "One quarter of the scrap for an ingot."));
+        rewards.add(item(p + "totem_of_undying", "Totem of Undying", Category.TREASURE, 2_000,
+                "TOTEM_OF_UNDYING", 1, "A rare single-use survival item."));
+        rewards.add(item(p + "shulker_shells", "2 Shulker Shells", Category.TREASURE, 2_000,
+                "SHULKER_SHELL", 2, "Exactly enough shells for one shulker box."));
+        rewards.add(copy(p, "amethyst_enchant_mending_i", 1_200));
+        rewards.add(item(p + "enchanted_golden_apple", "Enchanted Golden Apple", Category.TREASURE, 1_000,
+                "ENCHANTED_GOLDEN_APPLE", 1, "One exceptionally rare enchanted apple."));
+        rewards.add(item(p + "netherite_ingot", "Netherite Ingot", Category.RESOURCE, 800,
+                "NETHERITE_INGOT", 1, "One complete netherite ingot."));
+        for (RelicCatalog.Relic relic : RelicCatalog.all()) rewards.add(relic(p, relic, 300));
+        rewards.add(oneShard(p, 120));
+        rewards.add(item(p + "heavy_core", "Heavy Core", Category.TRIAL, 80,
+                "HEAVY_CORE", 1, "The rare crafting core for a mace."));
+        CrateCosmetics.of(CrateCosmetics.DREAMDRIFT).forEach(definition -> rewards.add(cosmetic(definition)));
+        return List.copyOf(rewards);
+    }
+
+    /** An existing prize under a key-free crate's own id, so its weight is tuned separately. */
+    private static Reward copy(String prefix, String sourceId, int weight) {
+        Reward source = originalReward(sourceId);
+        return new Reward(prefix + source.id(), source.displayName(), source.category(), weight,
+                source.materialName(), source.amount(), source.modelKey(), source.cosmeticId(),
+                source.description());
+    }
+
+    private static Reward relic(String prefix, RelicCatalog.Relic relic, int weight) {
+        return new Reward(prefix + relic.id, relic.displayName, Category.TREASURE, weight,
+                relic.material, 1, relic.modelKey(), null, relic.ability + ": " + relic.detail + ".");
+    }
+
+    private static Reward oneShard(String prefix, int weight) {
+        return new Reward(prefix + "one_shard", "1 Shard", Category.TREASURE, weight,
+                "AMETHYST_SHARD", 1, "mgx:shard", null, "One Shard for the Shard Crate.");
+    }
+
     private static List<Reward> buildShardRewards() {
         List<Reward> rewards = new ArrayList<>();
         rewards.add(shardCopy("enchant_excavation_i", 2_500));
@@ -1214,7 +1347,7 @@ final class CrateCatalog {
                         REWARDS.stream(), AMETHYST_REWARDS.stream(),
                         SOURCE_ONLY_REWARDS.stream(), ETERNAL_REWARDS.stream(),
                         HIDDEN_AMETHYST_REWARDS.stream(), DRAGON_REWARDS.stream(),
-                        SHARD_REWARDS.stream()
+                        SHARD_REWARDS.stream(), DAILY_REWARDS.stream(), AFK_REWARDS.stream()
                 ).flatMap(stream -> stream).toList()) {
             if (indexed.putIfAbsent(reward.id(), reward) != null) {
                 throw new IllegalStateException("Duplicate crate reward ID " + reward.id());

@@ -70,6 +70,9 @@ class ResourcePackCatalogTest {
         for (String seasonGear : SeasonGear.modelKeys()) {
             assertModelResolves(seasonGear);
         }
+        for (RelicCatalog.Relic relic : RelicCatalog.all()) {
+            assertModelResolves(relic.modelKey());
+        }
         assertNotEquals(
                 resolvedTexture("mgx:fortune_potion"),
                 resolvedTexture("mgx:crate_luck_potion"),
@@ -409,6 +412,9 @@ class ResourcePackCatalogTest {
         }
         for (int placement = 1; placement <= 3; placement++) {
             expectedBases.put("mgx:pvp_scythe_" + placement, "minecraft:netherite_sword");
+        }
+        for (RelicCatalog.Relic relic : RelicCatalog.all()) {
+            expectedBases.put(relic.modelKey(), "minecraft:" + relic.material.toLowerCase(Locale.ROOT));
         }
         for (SeasonCosmetics.Theme theme : SeasonCosmetics.THEMES) {
             for (SeasonGear.Piece piece : SeasonGear.Piece.values()) {

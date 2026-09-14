@@ -668,6 +668,9 @@ final class CrateItems {
         if (material == null) {
             throw new IllegalStateException("Unknown crate material " + reward.materialName());
         }
+        // The key-free crates pay the real server currencies, not their vanilla lookalikes.
+        if (reward.sourceId().equals("one_shard")) return shard(reward.amount());
+        if (reward.sourceId().equals("mystery_keys")) return mysteryKey(reward.amount());
         ItemStack item = specialItems.create(reward)
                 .orElseGet(() -> new ItemStack(material, reward.amount()));
         ItemMeta meta = item.getItemMeta();
