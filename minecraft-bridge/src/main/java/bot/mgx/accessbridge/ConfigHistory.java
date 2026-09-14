@@ -96,11 +96,20 @@ final class ConfigHistory {
         return entries;
     }
 
+    /**
+     * Every setting type round-trips: flags, whole numbers, decimals and text. Text and
+     * decimals used to be forced through a whole-number cast, which threw on the first
+     * text edit and silently rounded every decimal in the undo trail.
+     */
     private static void addValue(JsonObject object, String name, Object value) {
         if (value instanceof Boolean flag) {
             object.addProperty(name, flag);
+        } else if (value instanceof Double || value instanceof Float) {
+            object.addProperty(name, ((Number) value).doubleValue());
+        } else if (value instanceof Number number) {
+            object.addProperty(name, number.longValue());
         } else {
-            object.addProperty(name, ((Number) value).longValue());
+            object.addProperty(name, String.valueOf(value));
         }
     }
 
@@ -136,9 +145,12 @@ final class ConfigHistory {
     }
 
     private static Object readValue(JsonElement element) {
-        return element.getAsJsonPrimitive().isBoolean()
-                ? element.getAsBoolean()
-                : element.getAsLong();
+        var primitive = element.getAsJsonPrimitive();
+        if (primitive.isBoolean()) return primitive.getAsBoolean();
+        if (primitive.isString()) return primitive.getAsString();
+        String number = primitive.getAsString();
+        return number.contains(".") || number.contains("e") || number.contains("E")
+                ? primitive.getAsDouble() : primitive.getAsLong();
     }
 
     private void save() {

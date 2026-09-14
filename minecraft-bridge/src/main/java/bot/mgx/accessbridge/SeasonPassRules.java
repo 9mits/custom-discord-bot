@@ -62,7 +62,12 @@ final class SeasonPassRules {
         }
 
         int levels() {
-            return targets.length;
+            return targets(this).length;
+        }
+
+        /** The shipped ladder, used whenever the owner's setting is missing or invalid. */
+        long[] defaultTargets() {
+            return targets.clone();
         }
 
         boolean pvp() {
@@ -76,9 +81,60 @@ final class SeasonPassRules {
 
     /** XP for completing each level of any ladder: later levels are worth far more. */
     static final int[] LEVEL_XP = {250, 500, 900, 1_400, 2_000, 2_800, 3_600, 4_500};
+    /** The most levels one ladder may have, so a typo cannot create a thousand rungs. */
+    static final int MAX_LEVELS = 20;
+
+    /** Live tuning: the owner's ladder text for a line, and the level XP text. */
+    private static volatile java.util.function.Function<QuestType, String> ladderText = type -> null;
+    private static volatile java.util.function.Supplier<String> levelXpText = () -> null;
+
+    static void ladderSource(java.util.function.Function<QuestType, String> targets,
+            java.util.function.Supplier<String> levelXp) {
+        ladderText = targets == null ? type -> null : targets;
+        levelXpText = levelXp == null ? () -> null : levelXp;
+    }
+
+    /** A line's ladder as configured, or its shipped default when the setting is unusable. */
+    static long[] targets(QuestType type) {
+        return parseLadder(ladderText.apply(type)).orElseGet(type::defaultTargets);
+    }
+
+    /** XP per level as configured; a ladder longer than this list reuses its last value. */
+    static long[] levelXp() {
+        return parseLadder(levelXpText.get()).orElseGet(() -> java.util.Arrays.stream(LEVEL_XP).asLongStream().toArray());
+    }
+
+    /**
+     * Reads a ladder written as {@code 100, 300, 750}. Every value must be positive and
+     * each larger than the last, because a level has to be harder than the one before it.
+     * Commas inside numbers ({@code 1,000,000}) are not accepted; separate values with
+     * commas or spaces and write numbers plainly or with underscores.
+     */
+    static java.util.Optional<long[]> parseLadder(String raw) {
+        if (raw == null || raw.isBlank()) return java.util.Optional.empty();
+        String[] parts = raw.strip().split("[,\\s]+");
+        if (parts.length == 0 || parts.length > MAX_LEVELS) return java.util.Optional.empty();
+        long[] values = new long[parts.length];
+        for (int index = 0; index < parts.length; index++) {
+            try {
+                values[index] = Long.parseLong(parts[index].replace("_", ""));
+            } catch (NumberFormatException invalid) {
+                return java.util.Optional.empty();
+            }
+            if (values[index] <= 0 || (index > 0 && values[index] <= values[index - 1])) {
+                return java.util.Optional.empty();
+            }
+        }
+        return java.util.Optional.of(values);
+    }
+
+    static String ladderText(long[] values) {
+        return java.util.Arrays.stream(values).mapToObj(Long::toString)
+                .collect(java.util.stream.Collectors.joining(", "));
+    }
 
     /** One rung of a quest ladder. {@code level} counts from zero. */
-    record Quest(QuestType type, int level, long target, int xp) {
+    record Quest(QuestType type, int level, long target, long xp) {
         String label() {
             String amount = type == QuestType.SELL_MONEY
                     ? EconomyFormat.dollars(target) : String.format(Locale.ROOT, "%,d", target);
@@ -88,15 +144,17 @@ final class SeasonPassRules {
 
     /** The rung a player is on, or empty once the whole ladder is done. */
     static java.util.Optional<Quest> quest(QuestType type, int level) {
-        if (level < 0 || level >= type.targets.length) return java.util.Optional.empty();
-        return java.util.Optional.of(new Quest(type, level, type.targets[level],
-                LEVEL_XP[Math.min(level, LEVEL_XP.length - 1)]));
+        long[] ladder = targets(type);
+        if (level < 0 || level >= ladder.length) return java.util.Optional.empty();
+        long[] xp = levelXp();
+        return java.util.Optional.of(new Quest(type, level, ladder[level], xp[Math.min(level, xp.length - 1)]));
     }
 
     /** How many rungs a season total has already cleared. */
     static int levelFor(QuestType type, long total) {
         int level = 0;
-        while (level < type.targets.length && total >= type.targets[level]) level++;
+        long[] ladder = targets(type);
+        while (level < ladder.length && total >= ladder[level]) level++;
         return level;
     }
 

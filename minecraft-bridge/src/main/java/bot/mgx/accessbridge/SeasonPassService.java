@@ -98,6 +98,9 @@ final class SeasonPassService implements Listener, CommandExecutor {
     }
 
     void start() {
+        SeasonPassRules.ladderSource(
+                type -> variables.string("season.quest." + type.key() + ".targets"),
+                () -> variables.string("season.quest.level-xp"));
         // Saved at once: a season held only in memory would restart, with a new end
         // date, every time the server did.
         if (ensureSeason(today())) save();

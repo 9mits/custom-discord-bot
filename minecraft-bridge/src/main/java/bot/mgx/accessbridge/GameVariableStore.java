@@ -1512,6 +1512,19 @@ final class GameVariableStore {
                 "The final tier: this season's crown and another Season Heart." + rewardFormat,
                 "cosmetic:season:aura;hearts:1;shards:3;reward:crate_luck_v;reward:fortune_potion_v", 200);
 
+        // Quest ladders: cumulative season totals, one list per line, each value harder.
+        for (SeasonPassRules.QuestType type : SeasonPassRules.QuestType.values()) {
+            text("season.quest." + type.key() + ".targets", type.title() + " levels", "Season Quests",
+                    "Season totals needed for each " + type.title() + " level, easiest first, separated by"
+                            + " commas. Each must be larger than the last. Invalid lists fall back to the default.",
+                    SeasonPassRules.ladderText(type.defaultTargets()), 240);
+        }
+        text("season.quest.level-xp", "XP per quest level", "Season Quests",
+                "Season XP paid for completing level 1, 2, 3 and so on of any quest line, separated by"
+                        + " commas. A ladder longer than this list reuses the last value.",
+                SeasonPassRules.ladderText(java.util.Arrays.stream(SeasonPassRules.LEVEL_XP).asLongStream().toArray()),
+                240);
+
         bool("streaks.enabled", "Daily login streaks", "Login Streaks",
                 "Reward players for playing a few active minutes every UTC day.", true);
 
@@ -2983,6 +2996,12 @@ final class GameVariableStore {
                         definition.label() + " must be at most " + definition.maximum()
                                 + " characters."
                 );
+            }
+            if (definition.key().startsWith("season.quest.")
+                    && SeasonPassRules.parseLadder(value).isEmpty()) {
+                throw new IllegalArgumentException(definition.label() + " must be up to "
+                        + SeasonPassRules.MAX_LEVELS + " whole numbers, each larger than the last,"
+                        + " such as 100, 300, 750.");
             }
             return value;
         }
