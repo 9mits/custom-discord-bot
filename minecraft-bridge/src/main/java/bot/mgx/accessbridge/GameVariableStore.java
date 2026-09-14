@@ -1022,21 +1022,16 @@ final class GameVariableStore {
                 "Shards consumed by one Shard Crate opening.", CrateKind.SHARD.keyCost(), 1, 64, "shards", false);
         integer("crate.dragon.key-cost", "Dragon crate key cost", "Crates",
                 "Keys consumed by one Dragon Crate opening.", CrateKind.DRAGON.keyCost(), 1, 64, "keys", false);
-        integer("crate.daily.key-cost", "Daily crate opening cost", "Crates",
-                "Daily openings consumed by one Daily Crate opening.", CrateKind.DAILY.keyCost(), 1, 64, "openings", false);
         integer("crate.afk.key-cost", "AFK crate opening cost", "Crates",
                 "AFK openings consumed by one AFK Crate opening.", CrateKind.AFK.keyCost(), 1, 64, "openings", false);
-        integer("crate.daily.bank-cap", "Daily openings held", "Crates",
-                "Most Daily Crate openings a player can bank. Openings past it are lost, so a"
-                        + " streak has to be spent rather than hoarded.", 7, 1, 365, "openings", false);
         integer("crate.afk.bank-cap", "AFK openings held", "Crates",
                 "Most AFK Crate openings a player can bank.", 24, 1, 1_000, "openings", false);
         integer("crate.daily.streak-luck-per-day", "Streak luck per day", "Crates",
-                "Extra rare-reward weight in the Daily Crate for each day of a live login streak.",
+                "Extra rare-reward weight in the Daily Crate for each day of a login streak.",
                 5, 0, 100, "percent", false);
         integer("crate.daily.streak-luck-maximum", "Streak luck ceiling", "Crates",
-                "Most extra rare-reward weight a login streak can add to the Daily Crate.",
-                50, 0, 200, "percent", false);
+                "Most extra rare-reward weight a login streak can add. Missing a day resets it.",
+                30, 0, 200, "percent", false);
         integer("crate.keys-per-hour", "Keys per online hour", "Crates",
                 "Ordinary keys earned for each completed online hour.", CrateService.KEYS_PER_HOUR, 1, 256, "keys", false);
         integer("crate.key-stack-size", "Keys per stack", "Crates",
@@ -1519,21 +1514,6 @@ final class GameVariableStore {
 
         bool("streaks.enabled", "Daily login streaks", "Login Streaks",
                 "Reward players for playing a few active minutes every UTC day.", true);
-        integer("streaks.required-minutes", "Daily streak playtime", "Login Streaks",
-                "Non-AFK minutes outside the verification lobby needed to claim a day.",
-                10, 1, 240, "minutes", false);
-        integer("streaks.maximum-freezes", "Streak freezes held", "Login Streaks",
-                "Most streak freezes a player can hold. One is earned every 7th day and"
-                        + " covers one missed day. Zero turns freezes off.",
-                2, 0, 7, "freezes", false);
-        // Every streak day pays Daily Crate openings. The crate is the reward: no keys to
-        // inflate, and the openings only exist for somebody who keeps coming back.
-        int[] streakOpenings = {1, 1, 1, 2, 1, 2, 3};
-        for (int day = 1; day <= streakOpenings.length; day++) {
-            integer("streaks.day-" + day + ".openings", "Daily Crate openings", "Login Streak Day " + day,
-                    "Daily Crate openings for claiming day " + day + " of the 7-day cycle.",
-                    streakOpenings[day - 1], 0, 20, "openings", false);
-        }
 
         bool("referrals.enabled", "Referral rewards", "Referrals",
                 "Pay Shards to returning players, new players who were invited, and the"
@@ -2806,6 +2786,8 @@ final class GameVariableStore {
     }
 
     int keyCost(CrateKind kind) {
+        // The Daily Crate is one opening a day by definition, so it has no cost to tune.
+        if (kind == CrateKind.DAILY) return 1;
         return integer("crate." + kind.key() + ".key-cost");
     }
 

@@ -1,5 +1,7 @@
 package bot.mgx.accessbridge;
 
+import io.papermc.paper.registry.data.dialog.ActionButton;
+import io.papermc.paper.registry.data.dialog.body.DialogBody;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextColor;
@@ -25,37 +27,30 @@ import java.util.Locale;
 import java.util.Optional;
 import java.util.function.Consumer;
 
-import static bot.mgx.accessbridge.MenuItems.ORANGE;
-
 /**
- * The Season Pass track, as a chest.
+ * The Season Pass, drawn in the two places each part reads best.
  *
- * <p>Laid out the way a battle pass reads in the games players already know: the season
- * and XP bar across the top, a numbered strip of tiers, and under each tier the rewards
- * it pays as the real items. Hovering a tile shows exactly what arrives — the Season
- * Scythe's enchantments, a cosmetic's description, how many Shards — with its rarity and
- * whether it is unlocked, next up, or still locked. Seven tiers a page, opening on the
- * page with the player's next reward.
+ * <p>The overview is a dialog: season, tier and XP at a glance, then a short list of the
+ * tiers coming up, one clean row each — the headline reward, its icon, and a quiet note
+ * of anything else it pays. Every row says it can be clicked.
  *
- * <p>What is read rather than looked at stays in dialogs: the quest list with progress,
- * the Season Top leaderboard and the rules. The bottom row opens each of them, and each
- * of them comes back here.
+ * <p>Clicking a tier opens that tier as a small chest: nothing but its rewards, as the
+ * real items, so hovering shows exactly what arrives — enchantments, descriptions,
+ * stack sizes — with a rarity and whether it is unlocked. Arrows step to the tiers
+ * either side, and Back returns to the overview. One job per screen.
  */
 final class SeasonPassMenu implements Listener {
-    static final int TIERS_PER_PAGE = 7;
-    private static final int SIZE = 54;
-    private static final int FIRST_TIER_COLUMN = 1;
-    private static final int REWARD_ROWS = 3;
-    private static final int PREVIOUS_SLOT = 45;
-    private static final int QUESTS_SLOT = 47;
-    private static final int TOP_SLOT = 48;
-    private static final int PAGE_SLOT = 49;
-    private static final int GUIDE_SLOT = 50;
-    private static final int NEXT_SLOT = 53;
-
+    static final int UP_NEXT = 4;
+    static final int TIERS_PER_LIST_PAGE = 10;
+    private static final int WIDTH = 400;
+    private static final int TIER_SIZE = 27;
+    private static final int STATUS_SLOT = 4;
+    private static final int PREVIOUS_SLOT = 18;
+    private static final int BACK_SLOT = 22;
+    private static final int NEXT_SLOT = 26;
     private static final TextColor CLAIMED = TextColor.color(0x55FF55);
     private static final TextColor NEXT = TextColor.color(0xFFD35A);
-    private static final TextColor LOCKED = TextColor.color(0x9AA3B0);
+    private static final TextColor QUIET = TextColor.color(0x9AA3B0);
 
     /** Rarity names and colours, by what a reward is rather than what a crate rolls. */
     enum Rarity {
@@ -89,9 +84,9 @@ final class SeasonPassMenu implements Listener {
         this.cosmeticItems = cosmeticItems;
     }
 
-    private static final class Holder implements InventoryHolder {
+    private static final class TierHolder implements InventoryHolder {
         private Inventory inventory;
-        private int page;
+        private int tier;
 
         @Override
         public Inventory getInventory() {
@@ -99,21 +94,8 @@ final class SeasonPassMenu implements Listener {
         }
     }
 
-    /** The page holding a tier, counting from zero. */
-    static int pageOf(int tier) {
-        return Math.max(0, tier - 1) / TIERS_PER_PAGE;
-    }
+    // ------------------------------------------------------------------ ranking and naming
 
-    static int pageCount(int maximumTier) {
-        return Math.max(1, (maximumTier + TIERS_PER_PAGE - 1) / TIERS_PER_PAGE);
-    }
-
-    /** The page with the player's next reward, or the last page once the pass is done. */
-    static int homePage(int tier, int maximumTier) {
-        return pageOf(Math.min(maximumTier, tier + 1));
-    }
-
-    /** How a reward is ranked on its tier: what the player will care about most comes first. */
     static Rarity rarity(SeasonPassRules.Grant grant, Optional<CrateCatalog.Reward> reward) {
         return switch (grant.kind()) {
             case "season_cosmetic", "season_gear" -> Rarity.EXCLUSIVE;
@@ -128,117 +110,214 @@ final class SeasonPassMenu implements Listener {
         };
     }
 
-    void open(Player player) {
-        Holder holder = new Holder();
-        holder.inventory = Bukkit.createInventory(holder, SIZE,
-                Component.text("Season " + pass.season() + " Pass", ORANGE, TextDecoration.BOLD));
-        int tier = pass.tier(player.getUniqueId());
-        holder.page = homePage(tier, pass.maximumTier());
-        draw(player, holder);
-        MenuItems.show(plugin, player, holder.inventory);
+    private List<SeasonPassRules.Grant> ranked(int tier) {
+        List<SeasonPassRules.Grant> grants = new ArrayList<>(pass.grants(tier));
+        grants.sort(Comparator.comparingInt(grant -> rarity(grant, rewardOf(grant)).order));
+        return grants;
     }
 
-    private void draw(Player player, Holder holder) {
-        Inventory inventory = holder.inventory;
+    /** The dialog icon for a grant: its own texture where it has one. */
+    String sprite(SeasonPassRules.Grant grant) {
+        return switch (grant.kind()) {
+            case "hearts" -> "item/red_dye";
+            case "shards" -> "mgx:item/shard";
+            case "keys" -> "mgx:item/mystery_key";
+            case "season_gear" -> pass.seasonGearModel(grant).map(SeasonPassMenu::textureOf).orElse("mgx:item/shard");
+            case "season_cosmetic" -> pass.seasonCosmeticDefinition(grant)
+                    .map(definition -> textureOf(definition.modelKey())).orElse("mgx:item/shard");
+            case "cosmetic" -> CosmeticCatalog.find(grant.id())
+                    .map(definition -> textureOf(definition.modelKey())).orElse("item/bundle");
+            default -> rewardOf(grant).map(SeasonPassMenu::spriteOf).orElse("item/bundle");
+        };
+    }
+
+    /** {@code mgx:cosmetic/x} is drawn from {@code mgx:item/cosmetic/x}. */
+    static String textureOf(String modelKey) {
+        int colon = modelKey.indexOf(':');
+        return colon < 0 ? "item/bundle" : modelKey.substring(0, colon) + ":item/" + modelKey.substring(colon + 1);
+    }
+
+    private static String spriteOf(CrateCatalog.Reward reward) {
+        if (reward.modelKey().startsWith("mgx:")) return textureOf(reward.modelKey());
+        return switch (reward.materialName()) {
+            case "DIAMOND" -> "item/diamond";
+            case "GOLDEN_APPLE", "ENCHANTED_GOLDEN_APPLE" -> "item/golden_apple";
+            case "EXPERIENCE_BOTTLE" -> "item/experience_bottle";
+            case "TOTEM_OF_UNDYING" -> "item/totem_of_undying";
+            case "NETHERITE_INGOT" -> "item/netherite_ingot";
+            case "NETHERITE_SCRAP" -> "item/netherite_scrap";
+            case "ANCIENT_DEBRIS" -> "block/ancient_debris_side";
+            case "MACE" -> "item/mace";
+            case "HEART_OF_THE_SEA" -> "item/heart_of_the_sea";
+            case "EMERALD" -> "item/emerald";
+            default -> "item/bundle";
+        };
+    }
+
+    private Optional<CrateCatalog.Reward> rewardOf(SeasonPassRules.Grant grant) {
+        return grant.kind().equals("reward") ? CrateCatalog.find(grant.id()) : Optional.empty();
+    }
+
+    // ------------------------------------------------------------------ overview dialog
+
+    void openHome(Player player) {
         int maximum = pass.maximumTier();
-        int pages = pageCount(maximum);
-        holder.page = Math.max(0, Math.min(pages - 1, holder.page));
         long xp = pass.xp(player.getUniqueId());
         int tier = SeasonPassRules.tier(xp, pass.xpPerTier(), maximum);
         long into = SeasonPassRules.xpIntoTier(xp, pass.xpPerTier(), maximum);
+        TextColor accent = SeasonCosmetics.theme(pass.season())
+                .map(theme -> TextColor.color(theme.primary())).orElse(MenuText.ORANGE);
+        String themeName = SeasonCosmetics.theme(pass.season()).map(SeasonCosmetics.Theme::name).orElse("");
 
-        ItemStack frame = pane(Material.BLACK_STAINED_GLASS_PANE);
-        for (int slot = 0; slot < SIZE; slot++) inventory.setItem(slot, frame);
+        List<DialogBody> body = new ArrayList<>();
+        body.add(line(Component.text("Tier " + tier, accent, TextDecoration.BOLD)
+                .append(Component.text("  of " + maximum, QUIET))));
+        body.add(line(progressBar(into, pass.xpPerTier(), tier >= maximum, accent)));
+        body.add(line(Component.text("Ends " + pass.endsIn(), QUIET)
+                .append(Component.text("   ·   ", QUIET))
+                .append(Component.text("Season Hearts " + pass.hearts(player.getUniqueId()) + " / " + pass.heartCap(), QUIET))));
+        body.add(DialogBody.plainMessage(Component.empty(), WIDTH));
+        body.add(line(Component.text(tier >= maximum ? "COMPLETE" : "UP NEXT", NamedTextColor.WHITE, TextDecoration.BOLD)
+                .append(Component.text("   Click a tier to see its rewards up close.", QUIET))));
 
-        inventory.setItem(0, MenuItems.detailed(Material.NETHER_STAR, "Season " + pass.season() + " Pass", List.of(
-                line("Tier " + tier + " of " + maximum, NamedTextColor.WHITE),
-                line(String.format(Locale.ROOT, "%,d Season XP", xp), NamedTextColor.GRAY),
-                line("Season ends " + pass.endsIn(), NamedTextColor.GRAY),
-                Component.empty(),
-                line("Every tier pays the moment you reach it.", LOCKED))));
-        drawXpBar(inventory, tier, into, maximum);
-        inventory.setItem(8, MenuItems.detailed(Material.RED_DYE, "Season Hearts", List.of(
-                line(pass.hearts(player.getUniqueId()) + " / " + pass.heartCap() + " extra hearts", NamedTextColor.WHITE),
-                line("Expire when the season ends " + pass.endsIn(), NamedTextColor.GRAY))));
+        List<ActionButton> buttons = new ArrayList<>();
+        int first = Math.min(maximum, tier + 1);
+        for (int next = first; next <= Math.min(maximum, first + UP_NEXT - 1); next++) {
+            buttons.add(tierRow(player, next, tier, xp));
+        }
+        buttons.add(Screens.row("item/bundle", Component.text("All " + maximum + " Tiers", NamedTextColor.WHITE)
+                .append(Component.text("   Browse every reward in the pass", QUIET)),
+                "Click to browse every tier.", viewer -> openAllTiers(viewer, SeasonPassMenu.listPageOf(first))));
+        buttons.add(Screens.row("item/writable_book", Component.text("Quests", NamedTextColor.WHITE)
+                .append(Component.text("   Your progress on every quest", QUIET)),
+                "Click to see your quests.", viewer -> pass.openQuests(viewer, this::openHome)));
+        buttons.add(Screens.row("item/gold_ingot", Component.text("Season Top", NamedTextColor.WHITE)
+                .append(Component.text("   The highest Season XP", QUIET)),
+                "Click to see the leaderboard.", pass::openTop));
+        buttons.add(Screens.row("item/knowledge_book", Component.text("How It Works", NamedTextColor.WHITE),
+                "Where XP comes from, hearts and prizes.", pass::openGuide));
+        String title = "Season " + pass.season() + (themeName.isEmpty() ? "" : " · " + themeName);
+        if (!pass.supportsDialogs(player)) {
+            openTier(player, first);
+            return;
+        }
+        Screens.show(player, title, body, buttons, 1, null);
+    }
 
-        int firstTier = holder.page * TIERS_PER_PAGE + 1;
-        for (int column = 0; column < TIERS_PER_PAGE; column++) {
-            int tierNumber = firstTier + column;
-            int slotColumn = FIRST_TIER_COLUMN + column;
-            if (tierNumber > maximum) continue;
-            inventory.setItem(9 + slotColumn, marker(tierNumber, tier, xp));
-            List<SeasonPassRules.Grant> grants = new ArrayList<>(pass.grants(tierNumber));
-            grants.sort(Comparator.comparingInt(grant -> rarity(grant, rewardOf(grant)).order));
-            for (int row = 0; row < REWARD_ROWS; row++) {
-                int slot = (2 + row) * 9 + slotColumn;
-                if (row >= grants.size()) {
-                    inventory.setItem(slot, pane(Material.GRAY_STAINED_GLASS_PANE));
-                } else if (row == REWARD_ROWS - 1 && grants.size() > REWARD_ROWS) {
-                    inventory.setItem(slot, bundle(grants.subList(row, grants.size()), tierNumber, tier, xp));
-                } else {
-                    inventory.setItem(slot, tile(grants.get(row), tierNumber, tier, xp));
-                }
+    static int listPageOf(int tier) {
+        return Math.max(0, tier - 1) / TIERS_PER_LIST_PAGE;
+    }
+
+    /** Every tier, ten rows a page, each one a way into that tier's chest. */
+    void openAllTiers(Player player, int page) {
+        int maximum = pass.maximumTier();
+        int pages = Math.max(1, (maximum + TIERS_PER_LIST_PAGE - 1) / TIERS_PER_LIST_PAGE);
+        int current = Math.max(0, Math.min(pages - 1, page));
+        long xp = pass.xp(player.getUniqueId());
+        int tier = SeasonPassRules.tier(xp, pass.xpPerTier(), maximum);
+        List<ActionButton> buttons = new ArrayList<>();
+        int from = current * TIERS_PER_LIST_PAGE + 1;
+        for (int row = from; row <= Math.min(maximum, from + TIERS_PER_LIST_PAGE - 1); row++) {
+            buttons.add(tierRow(player, row, tier, xp));
+        }
+        if (current > 0) {
+            buttons.add(Screens.row("item/arrow", Component.text("Tiers " + (from - TIERS_PER_LIST_PAGE) + "–" + (from - 1),
+                    NamedTextColor.WHITE), "Previous page.", viewer -> openAllTiers(viewer, current - 1)));
+        }
+        if (current < pages - 1) {
+            int nextFrom = from + TIERS_PER_LIST_PAGE;
+            buttons.add(Screens.row("item/arrow", Component.text("Tiers " + nextFrom + "–"
+                            + Math.min(maximum, nextFrom + TIERS_PER_LIST_PAGE - 1), NamedTextColor.WHITE),
+                    "Next page.", viewer -> openAllTiers(viewer, current + 1)));
+        }
+        List<DialogBody> body = List.of(line(Component.text("Click any tier to see its rewards up close.", QUIET)));
+        Screens.show(player, "All Tiers  " + (current + 1) + "/" + pages, body, buttons, 1, this::openHome);
+    }
+
+    private ActionButton tierRow(Player player, int number, int tier, long xp) {
+        List<SeasonPassRules.Grant> grants = ranked(number);
+        SeasonPassRules.Grant headline = grants.isEmpty() ? null : grants.get(0);
+        boolean unlocked = number <= tier;
+        boolean next = number == tier + 1;
+        TextColor state = unlocked ? CLAIMED : next ? NEXT : NamedTextColor.WHITE;
+        Component label = Component.text((unlocked ? "✔ " : "") + "Tier " + number, state, TextDecoration.BOLD);
+        if (headline != null) {
+            Rarity rarity = rarity(headline, rewardOf(headline));
+            label = label.append(Component.text("   " + pass.describe(List.of(headline)),
+                    TextColor.color(rarity.colour)).decoration(TextDecoration.BOLD, false));
+            if (grants.size() > 1) {
+                label = label.append(Component.text("  +" + (grants.size() - 1), QUIET)
+                        .decoration(TextDecoration.BOLD, false));
             }
         }
-
-        if (holder.page > 0) {
-            inventory.setItem(PREVIOUS_SLOT, MenuItems.button(Material.ARROW, "Previous Tiers",
-                    "Tiers " + ((holder.page - 1) * TIERS_PER_PAGE + 1) + "–" + (holder.page * TIERS_PER_PAGE)));
-        }
-        if (holder.page < pages - 1) {
-            int from = (holder.page + 1) * TIERS_PER_PAGE + 1;
-            inventory.setItem(NEXT_SLOT, MenuItems.button(Material.ARROW, "Next Tiers",
-                    "Tiers " + from + "–" + Math.min(maximum, from + TIERS_PER_PAGE - 1)));
-        }
-        inventory.setItem(QUESTS_SLOT, MenuItems.button(Material.WRITABLE_BOOK, "Quests",
-                "Today's and this week's quests,", "with your progress on each."));
-        inventory.setItem(TOP_SLOT, MenuItems.button(Material.GOLD_INGOT, "Season Top",
-                "The highest Season XP right now."));
-        inventory.setItem(PAGE_SLOT, MenuItems.button(Material.COMPASS,
-                "Page " + (holder.page + 1) + " / " + pages,
-                "Tiers " + firstTier + "–" + Math.min(maximum, firstTier + TIERS_PER_PAGE - 1),
-                "Click to jump to your next reward."));
-        inventory.setItem(GUIDE_SLOT, MenuItems.button(Material.KNOWLEDGE_BOOK, "How The Pass Works",
-                "Where Season XP comes from,", "hearts, exclusives and prizes."));
+        String hint = (unlocked ? "Unlocked. " : next
+                ? String.format(Locale.ROOT, "Next up: %,d XP to go. ", (long) number * pass.xpPerTier() - xp)
+                : "") + "Click to view " + (grants.size() == 1 ? "this reward." : "all " + grants.size() + " rewards.");
+        return Screens.row(headline == null ? "item/bundle" : sprite(headline), label, hint,
+                viewer -> openTier(viewer, number));
     }
 
-    /** Seven panes across the top that fill as the current tier's XP does. */
-    private void drawXpBar(Inventory inventory, int tier, long into, int maximum) {
-        boolean complete = tier >= maximum;
-        int filled = complete ? 7 : (int) Math.min(7L, into * 7L / Math.max(1, pass.xpPerTier()));
-        String label = complete ? "Pass complete"
-                : String.format(Locale.ROOT, "%,d / %,d XP to Tier %d", into, pass.xpPerTier(), tier + 1);
-        for (int index = 0; index < 7; index++) {
-            boolean lit = index < filled;
-            inventory.setItem(1 + index, MenuItems.detailed(
-                    lit ? Material.LIME_STAINED_GLASS_PANE : Material.WHITE_STAINED_GLASS_PANE,
-                    "Season XP", List.of(line(label, lit ? CLAIMED : NamedTextColor.GRAY))));
+    private static Component progressBar(long into, int perTier, boolean complete, TextColor accent) {
+        int cells = 20;
+        int filled = complete ? cells : (int) Math.min(cells, into * cells / Math.max(1, perTier));
+        Component bar = Component.text("█".repeat(filled), accent)
+                .append(Component.text("█".repeat(cells - filled), TextColor.color(0x3A3F4B)));
+        return bar.append(Component.text(complete ? "   Pass complete"
+                : String.format(Locale.ROOT, "   %,d / %,d XP", into, perTier), QUIET));
+    }
+
+    private static DialogBody line(Component component) {
+        return DialogBody.plainMessage(MenuText.upright(component), WIDTH);
+    }
+
+    // ------------------------------------------------------------------ tier chest
+
+    void openTier(Player player, int tierNumber) {
+        TierHolder holder = new TierHolder();
+        holder.tier = Math.max(1, Math.min(pass.maximumTier(), tierNumber));
+        holder.inventory = Bukkit.createInventory(holder, TIER_SIZE,
+                Component.text("Tier " + holder.tier + " Rewards", MenuText.ORANGE, TextDecoration.BOLD));
+        drawTier(player, holder);
+        MenuItems.show(plugin, player, holder.inventory);
+    }
+
+    private void drawTier(Player player, TierHolder holder) {
+        Inventory inventory = holder.inventory;
+        ItemStack frame = MenuItems.detailed(Material.GRAY_STAINED_GLASS_PANE, " ", List.of());
+        for (int slot = 0; slot < TIER_SIZE; slot++) inventory.setItem(slot, frame);
+        long xp = pass.xp(player.getUniqueId());
+        int tier = SeasonPassRules.tier(xp, pass.xpPerTier(), pass.maximumTier());
+        int number = holder.tier;
+        boolean unlocked = number <= tier;
+        boolean next = number == tier + 1;
+        inventory.setItem(STATUS_SLOT, MenuItems.detailed(
+                unlocked ? Material.LIME_DYE : next ? Material.YELLOW_DYE : Material.GRAY_DYE,
+                "Tier " + number, List.of(status(number, tier, xp))));
+
+        List<SeasonPassRules.Grant> grants = ranked(number);
+        int shown = Math.min(7, grants.size());
+        int first = 9 + (9 - shown) / 2;
+        for (int index = 0; index < shown; index++) {
+            inventory.setItem(first + index, tile(grants.get(index), number, tier, xp));
+        }
+        if (number > 1) {
+            inventory.setItem(PREVIOUS_SLOT, MenuItems.button(Material.ARROW, "Tier " + (number - 1)));
+        }
+        inventory.setItem(BACK_SLOT, MenuItems.button(Material.NETHER_STAR, "Back to Season Pass"));
+        if (number < pass.maximumTier()) {
+            inventory.setItem(NEXT_SLOT, MenuItems.button(Material.ARROW, "Tier " + (number + 1)));
         }
     }
 
-    /** The tier's number, shown as the stack count on a pane coloured by its state. */
-    private ItemStack marker(int tierNumber, int tier, long xp) {
-        boolean claimed = tierNumber <= tier;
-        boolean next = tierNumber == tier + 1;
-        Material material = claimed ? Material.LIME_STAINED_GLASS_PANE
-                : next ? Material.ORANGE_STAINED_GLASS_PANE : Material.GRAY_STAINED_GLASS_PANE;
-        ItemStack marker = MenuItems.detailed(material, "Tier " + tierNumber, List.of(
-                status(tierNumber, tier, xp)));
-        marker.setAmount(Math.max(1, Math.min(99, tierNumber)));
-        return marker;
+    private Component status(int number, int tier, long xp) {
+        if (number <= tier) return text("✔ Unlocked", CLAIMED, true);
+        long needed = (long) number * pass.xpPerTier() - xp;
+        return text(String.format(Locale.ROOT, number == tier + 1 ? "Next up  ·  %,d XP to go" : "Locked  ·  %,d XP to go",
+                needed), number == tier + 1 ? NEXT : QUIET, true);
     }
 
-    private Component status(int tierNumber, int tier, long xp) {
-        if (tierNumber <= tier) return line("✔ UNLOCKED", CLAIMED, true);
-        long needed = (long) tierNumber * pass.xpPerTier() - xp;
-        if (tierNumber == tier + 1) {
-            return line(String.format(Locale.ROOT, "★ NEXT UP  •  %,d XP to go", needed), NEXT, true);
-        }
-        return line(String.format(Locale.ROOT, "LOCKED  •  %,d XP to go", needed), LOCKED, true);
-    }
-
-    /** The real item a grant pays, with its rarity and unlock state underneath. */
-    private ItemStack tile(SeasonPassRules.Grant grant, int tierNumber, int tier, long xp) {
+    /** The real item a grant pays, with its rarity and state underneath. */
+    private ItemStack tile(SeasonPassRules.Grant grant, int number, int tier, long xp) {
         Optional<CrateCatalog.Reward> reward = rewardOf(grant);
         ItemStack item;
         try {
@@ -251,34 +330,12 @@ final class SeasonPassMenu implements Listener {
         Rarity rarity = rarity(grant, reward);
         List<Component> lore = new ArrayList<>(meta.lore() == null ? List.of() : meta.lore());
         if (!lore.isEmpty()) lore.add(Component.empty());
-        lore.add(line(rarity.label, TextColor.color(rarity.colour), true));
-        lore.add(line("Tier " + tierNumber + " reward", NamedTextColor.GRAY));
-        lore.add(status(tierNumber, tier, xp));
+        lore.add(text(rarity.label, TextColor.color(rarity.colour), true));
+        lore.add(status(number, tier, xp));
         meta.lore(lore.stream().map(component -> component.decoration(TextDecoration.ITALIC, false)).toList());
-        if (meta.hasDisplayName() && meta.displayName() != null) {
-            meta.displayName(meta.displayName().decoration(TextDecoration.ITALIC, false));
-        }
+        if (meta.displayName() != null) meta.displayName(meta.displayName().decoration(TextDecoration.ITALIC, false));
         item.setItemMeta(meta);
         return item;
-    }
-
-    /** Several leftovers on one tile, so a big tier never pushes its best reward off screen. */
-    private ItemStack bundle(List<SeasonPassRules.Grant> rest, int tierNumber, int tier, long xp) {
-        List<Component> lore = new ArrayList<>();
-        for (SeasonPassRules.Grant grant : rest) {
-            Rarity rarity = rarity(grant, rewardOf(grant));
-            lore.add(line("• " + pass.describe(List.of(grant)), TextColor.color(rarity.colour)));
-        }
-        lore.add(Component.empty());
-        lore.add(line("Tier " + tierNumber + " reward", NamedTextColor.GRAY));
-        lore.add(status(tierNumber, tier, xp));
-        ItemStack bundle = MenuItems.detailed(Material.BUNDLE, "+" + rest.size() + " More Rewards", lore);
-        bundle.setAmount(Math.min(99, rest.size()));
-        return bundle;
-    }
-
-    private Optional<CrateCatalog.Reward> rewardOf(SeasonPassRules.Grant grant) {
-        return grant.kind().equals("reward") ? CrateCatalog.find(grant.id()) : Optional.empty();
     }
 
     private ItemStack preview(SeasonPassRules.Grant grant, Optional<CrateCatalog.Reward> reward) {
@@ -286,8 +343,8 @@ final class SeasonPassMenu implements Listener {
             case "hearts" -> {
                 ItemStack heart = MenuItems.detailed(Material.RED_DYE,
                         "+" + grant.amount() + " Season " + (grant.amount() == 1 ? "Heart" : "Hearts"), List.of(
-                                line("Extra max health, applied instantly.", NamedTextColor.GRAY),
-                                line("Lasts until this season ends.", NamedTextColor.GRAY)));
+                                text("Extra max health, applied instantly.", NamedTextColor.GRAY, false),
+                                text("Lasts until this season ends.", NamedTextColor.GRAY, false)));
                 heart.setAmount((int) Math.min(99, grant.amount()));
                 yield heart;
             }
@@ -313,40 +370,26 @@ final class SeasonPassMenu implements Listener {
         };
     }
 
-    // ------------------------------------------------------------------ clicks
-
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onClick(InventoryClickEvent event) {
-        if (!(event.getInventory().getHolder() instanceof Holder holder)) return;
+        if (!(event.getInventory().getHolder() instanceof TierHolder holder)) return;
         event.setCancelled(true);
         if (!(event.getWhoClicked() instanceof Player player) || event.getClickedInventory() != event.getInventory()) {
             return;
         }
-        int slot = event.getSlot();
-        int pages = pageCount(pass.maximumTier());
-        switch (slot) {
-            case PREVIOUS_SLOT -> turn(player, holder, holder.page - 1, pages);
-            case NEXT_SLOT -> turn(player, holder, holder.page + 1, pages);
-            case PAGE_SLOT -> turn(player, holder,
-                    homePage(pass.tier(player.getUniqueId()), pass.maximumTier()), pages);
-            case QUESTS_SLOT -> handOff(player, viewer -> pass.openQuests(viewer, this::open));
-            case TOP_SLOT -> handOff(player, pass::openTop);
-            case GUIDE_SLOT -> handOff(player, pass::openGuide);
-            default -> {
-                if (slot >= 18 && slot < 45 && event.getCurrentItem() != null
-                        && event.getCurrentItem().getType() != Material.GRAY_STAINED_GLASS_PANE
-                        && event.getCurrentItem().getType() != Material.BLACK_STAINED_GLASS_PANE) {
-                    player.playSound(player, Sound.UI_BUTTON_CLICK, 0.4f, 1.6f);
-                }
-            }
+        switch (event.getSlot()) {
+            case PREVIOUS_SLOT -> step(player, holder, holder.tier - 1);
+            case NEXT_SLOT -> step(player, holder, holder.tier + 1);
+            case BACK_SLOT -> handOff(player, this::openHome);
+            default -> { }
         }
     }
 
-    private void turn(Player player, Holder holder, int page, int pages) {
-        if (page < 0 || page >= pages || page == holder.page) return;
-        holder.page = page;
-        draw(player, holder);
+    private void step(Player player, TierHolder holder, int tier) {
+        if (tier < 1 || tier > pass.maximumTier()) return;
+        // A new chest rather than a redraw, because the title names the tier.
         player.playSound(player, Sound.ITEM_BOOK_PAGE_TURN, 0.7f, 1.1f);
+        openTier(player, tier);
     }
 
     /** Dialogs open a tick after the chest closes; Bedrock drops anything opened inside a click. */
@@ -359,18 +402,10 @@ final class SeasonPassMenu implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onDrag(InventoryDragEvent event) {
-        if (event.getInventory().getHolder() instanceof Holder) event.setCancelled(true);
+        if (event.getInventory().getHolder() instanceof TierHolder) event.setCancelled(true);
     }
 
-    private static ItemStack pane(Material material) {
-        return MenuItems.detailed(material, " ", List.of());
-    }
-
-    private static Component line(String text, TextColor colour) {
-        return line(text, colour, false);
-    }
-
-    private static Component line(String text, TextColor colour, boolean bold) {
+    private static Component text(String text, TextColor colour, boolean bold) {
         Component component = Component.text(text, colour).decoration(TextDecoration.ITALIC, false);
         return bold ? component.decoration(TextDecoration.BOLD, true) : component;
     }

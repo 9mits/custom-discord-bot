@@ -22,26 +22,32 @@ final class SeasonPassRulesTest {
     }
 
     @Test
-    void weeksStartOnMondayInUtc() {
-        for (int offset = 0; offset < 14; offset++) {
-            long day = LocalDate.of(2026, 9, 1).toEpochDay() + offset;
-            assertEquals(DayOfWeek.MONDAY, LocalDate.ofEpochDay(SeasonPassRules.weekStart(day)).getDayOfWeek());
-            assertTrue(day - SeasonPassRules.weekStart(day) < 7);
+    void questLaddersClimbWithoutTimeLimits() {
+        for (SeasonPassRules.QuestType type : SeasonPassRules.QuestType.values()) {
+            long previousTarget = 0;
+            int previousXp = 0;
+            for (int level = 0; level < type.levels(); level++) {
+                SeasonPassRules.Quest quest = SeasonPassRules.quest(type, level).orElseThrow();
+                assertTrue(quest.target() > previousTarget, type + " level " + level + " must be harder");
+                assertTrue(quest.xp() > previousXp, type + " level " + level + " must pay more");
+                previousTarget = quest.target();
+                previousXp = quest.xp();
+            }
+            assertTrue(SeasonPassRules.quest(type, type.levels()).isEmpty(), "a finished ladder has no next rung");
+            assertTrue(type.levels() >= 5, type + " needs a real ladder");
         }
+        assertEquals(0, SeasonPassRules.levelFor(SeasonPassRules.QuestType.KILL_MOBS, 99));
+        assertEquals(2, SeasonPassRules.levelFor(SeasonPassRules.QuestType.KILL_MOBS, 300));
+        assertEquals(8, SeasonPassRules.levelFor(SeasonPassRules.QuestType.KILL_MOBS, 1_000_000));
     }
 
     @Test
-    void everyoneGetsTheSameBoardWithAtMostOnePvpQuest() {
-        for (long day = 20_000; day < 20_200; day++) {
-            List<SeasonPassRules.Quest> daily = SeasonPassRules.quests(day, false, 3);
-            assertEquals(daily, SeasonPassRules.quests(day, false, 3), "the board is deterministic");
-            assertEquals(3, daily.size());
-            assertTrue(daily.stream().filter(quest -> quest.type().pvp()).count() <= 1);
-            Set<SeasonPassRules.QuestType> types = new HashSet<>();
-            daily.forEach(quest -> assertTrue(types.add(quest.type()), "no repeated quest"));
-        }
-        SeasonPassRules.Quest weekly = SeasonPassRules.quests(20_000, true, 3).getFirst();
-        assertTrue(weekly.weekly() && weekly.id().startsWith("weekly:"));
+    void theHardestRungsMatchTheLiveServer() {
+        // September 2026: top-tenth players have 12,000+ mob kills and 3,000+ ores, and the
+        // richest balances run to hundreds of millions. The last rungs must be a stretch.
+        assertTrue(SeasonPassRules.quest(SeasonPassRules.QuestType.KILL_MOBS, 7).orElseThrow().target() >= 12_000);
+        assertTrue(SeasonPassRules.quest(SeasonPassRules.QuestType.MINE_ORES, 6).orElseThrow().target() >= 3_000);
+        assertTrue(SeasonPassRules.quest(SeasonPassRules.QuestType.SELL_MONEY, 6).orElseThrow().target() >= 10_000_000);
     }
 
     @Test

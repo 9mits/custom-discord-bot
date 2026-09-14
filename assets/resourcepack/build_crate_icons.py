@@ -23,6 +23,7 @@ from pathlib import Path
 from PIL import Image
 
 import build_season_icons as season
+import import_generated_icons as importer
 
 PACK = Path(__file__).resolve().parent
 MGX = PACK / "src" / "assets" / "mgx"
@@ -39,7 +40,7 @@ RELICS = {
                            "diamond_pickaxe", "Veinseeker Pickaxe", False),
     "magnetite_shovel": ("amethyst_shovel", season.is_not_handle, (0x3B4250, 0xC9CED6, 0xF4F7FB),
                          "diamond_shovel", "Magnetite Shovel", False),
-    "bloodthirst_blade": ("amethyst_sword", season.is_not_handle, (0x5C0A16, 0xE0303F, 0xFF9AA2),
+    "bloodthirst_blade": ("amethyst_sword", season.is_not_handle, (0x4A0710, 0xC81E2C, 0xFF6B5E),
                           "diamond_sword", "Bloodthirst Blade", False),
     "frostbite_bow": ("amethyst_bow", season.is_not_handle, (0x2A5DA8, 0x8FD8FF, 0xF2FBFF),
                       "bow", "Frostbite Bow", False),
@@ -58,6 +59,77 @@ THEMES = {
     "dreamdrift": ("Dreamdrift", (0x3B2A8C, 0x9D8CFF, 0xB8FFF4),
                    {"aura": "phantom_membrane", "trail": "feather", "kill": "ender_pearl"}),
 }
+def vivid(image: Image.Image, select=season.everything) -> Image.Image:
+    """Give a recolour the depth a straight hue swap loses.
+
+    A recolour keeps brightness exactly, but a gradient palette on low-contrast source
+    art reads as one flat colour. This widens the selected pixels' own value range around
+    their midpoint, saturates the body, lifts the brightest few towards a specular white
+    and deepens the darkest into a real shadow. It depends on colour alone, so a sprite
+    never gains colours, and it only moves pixels that already exist.
+    """
+    import colorsys
+
+    image = image.convert("RGBA")
+    pixels = list(image.getdata())
+
+    def chosen(pixel):
+        if not pixel[3]:
+            return False
+        hue, saturation, _ = colorsys.rgb_to_hsv(*(c / 255 for c in pixel[:3]))
+        return select(hue, saturation)
+
+    values = sorted(max(p[:3]) / 255 for p in pixels if chosen(p))
+    if len(values) < 4:
+        return image
+    low, high = values[int(len(values) * 0.12)], values[int(len(values) * 0.92)]
+    middle = values[len(values) // 2]
+    # A specular glint is an accent. When the brightest band is a whole face (a blade),
+    # desaturating it would turn the item pastel, so the face keeps its colour instead.
+    bright_share = sum(1 for value in values if value >= high) / len(values)
+    specular = bright_share <= 0.12
+    cache = {}
+    out = []
+    for pixel in pixels:
+        if not chosen(pixel):
+            out.append(pixel)
+            continue
+        if pixel not in cache:
+            hue, saturation, value = colorsys.rgb_to_hsv(*(c / 255 for c in pixel[:3]))
+            value = max(0.0, min(1.0, middle + (value - middle) * 1.3))
+            saturation = min(1.0, saturation * 1.2)
+            if value >= high and specular:
+                saturation *= 0.6
+                value = min(1.0, value * 1.1)
+            elif value >= high:
+                saturation = min(1.0, saturation * 1.25)
+                value *= 0.9
+            elif value <= low:
+                value *= 0.72
+                saturation = min(1.0, saturation * 1.15)
+            r, g, b = colorsys.hsv_to_rgb(hue, saturation, value)
+            cache[pixel] = (round(r * 255), round(g * 255), round(b * 255), pixel[3])
+        out.append(cache[pixel])
+    result = Image.new("RGBA", image.size)
+    result.putdata(out)
+    return result
+
+
+def lit_cosmetic(image: Image.Image) -> Image.Image:
+    """The house shading pass on the 18x18 logical grid, then back to crisp 4x4 blocks."""
+    size = image.width
+    step = size // 18
+    logical = image.resize((18, 18), Image.NEAREST)
+    shaded = vivid(importer.shade(logical, "crate_cosmetic"))
+    quantized = shaded.convert("RGBA")
+    colours = quantized.getcolors(maxcolors=4096) or []
+    if len(colours) > 32:
+        alpha = quantized.getchannel("A")
+        quantized = quantized.convert("RGB").quantize(colors=31, method=Image.Quantize.MEDIANCUT).convert("RGBA")
+        quantized.putalpha(alpha)
+    return quantized.resize((18 * step, 18 * step), Image.NEAREST)
+
+
 COSMETIC_SOURCES = {"aura": "amethyst_orbit", "trail": "frost_trail", "kill": "blood_burst"}
 COSMETIC_NAMES = {"aura": "Orbit", "trail": "Helix", "kill": "Shockwave"}
 
@@ -70,7 +142,8 @@ def main() -> int:
     items = [item for item in catalog["items"] if item["model"] not in ours]
     for relic, (source, select, palette, java_item, name, worn) in RELICS.items():
         with Image.open(ITEM_TEXTURES / f"{source}.png") as original:
-            season.recolour(original, *palette, select).save(ITEM_TEXTURES / f"{relic}.png", optimize=True)
+            vivid(season.recolour(original, *palette, select), select).save(
+                ITEM_TEXTURES / f"{relic}.png", optimize=True)
         model = json.loads((MODELS / f"{source}.json").read_text(encoding="utf-8"))
         model["textures"] = {"layer0": f"mgx:item/{relic}"}
         season.write_json(MODELS / f"{relic}.json", model)
@@ -78,7 +151,7 @@ def main() -> int:
                           {"model": {"type": "minecraft:model", "model": f"mgx:item/{relic}"}})
         if worn:
             with Image.open(WORN / "amethyst_armor.png") as armour:
-                season.recolour(armour, *palette).save(WORN / f"{relic}.png", optimize=True)
+                vivid(season.recolour(armour, *palette)).save(WORN / f"{relic}.png", optimize=True)
             season.write_json(EQUIPMENT / f"{relic}.json",
                               {"layers": {"humanoid": [{"texture": f"mgx:{relic}"}]}})
         items.append({"java_item": f"minecraft:{java_item}", "model": f"mgx:{relic}",
@@ -88,7 +161,8 @@ def main() -> int:
         for slot, source in COSMETIC_SOURCES.items():
             name = f"{theme}_{slot}"
             with Image.open(ITEM_TEXTURES / "cosmetic" / f"{source}.png") as original:
-                season.recolour(original, *palette).save(ITEM_TEXTURES / "cosmetic" / f"{name}.png", optimize=True)
+                lit_cosmetic(season.recolour(original, *palette)).save(
+                    ITEM_TEXTURES / "cosmetic" / f"{name}.png", optimize=True)
             season.write_json(MODELS / "cosmetic" / f"{name}.json",
                               {"parent": "minecraft:item/generated",
                                "textures": {"layer0": f"mgx:item/cosmetic/{name}"}})

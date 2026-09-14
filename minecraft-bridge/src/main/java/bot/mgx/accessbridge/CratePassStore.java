@@ -17,10 +17,10 @@ import java.util.UUID;
 /**
  * Openings for the crates nobody needs a key for: the Daily Crate and the AFK Crate.
  *
- * <p>An opening is a number on the player, never an item, so it cannot be traded, stored,
- * duplicated or sold. That is the point of both crates: the only way to open one is to
- * have logged in today or to have stayed on the server, yourself. Each kind has a banking
- * cap, so openings cannot be hoarded for a month and spent at once.
+ * <p>The Daily Crate opens once per UTC day, for anyone. The AFK Crate is opened with
+ * openings that time online pays; they normally roll straight away, and only bank when a
+ * player is busy or has turned auto roll off. Neither is ever an item, so neither can be
+ * traded, stored, duplicated or sold.
  */
 final class CratePassStore {
     enum Pass { DAILY, AFK }
@@ -28,6 +28,9 @@ final class CratePassStore {
     private static final class Row {
         int daily;
         int afk;
+        /** The UTC day the Daily Crate was last opened, or -1. */
+        long dailyDay = -1L;
+        long previousDailyDay = -1L;
     }
 
     private final Path file;
@@ -73,6 +76,29 @@ final class CratePassStore {
     /** Hands openings back after a failed spend; never limited by the cap. */
     synchronized void refund(UUID player, Pass pass, int amount) {
         if (amount > 0) set(player, pass, count(player, pass) + amount);
+    }
+
+    synchronized boolean dailyReady(UUID player, long today) {
+        Row row = rows.get(player.toString());
+        return row == null || row.dailyDay != today;
+    }
+
+    /** Spends today's Daily Crate opening; false when it is already spent. */
+    synchronized boolean claimDaily(UUID player, long today) {
+        Row row = rows.computeIfAbsent(player.toString(), ignored -> new Row());
+        if (row.dailyDay == today) return false;
+        row.previousDailyDay = row.dailyDay;
+        row.dailyDay = today;
+        persist();
+        return true;
+    }
+
+    /** Gives today's opening back after a failed spend. */
+    synchronized void undoDaily(UUID player, long today) {
+        Row row = rows.get(player.toString());
+        if (row == null || row.dailyDay != today) return;
+        row.dailyDay = row.previousDailyDay;
+        persist();
     }
 
     private void set(UUID player, Pass pass, int value) {

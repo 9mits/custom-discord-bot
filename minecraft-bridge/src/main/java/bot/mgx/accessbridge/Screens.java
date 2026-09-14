@@ -243,6 +243,21 @@ final class Screens {
     }
 
     /**
+     * A full-width row for a one-column list, carrying a label already styled by the
+     * caller, so a list entry can put its detail in a quieter colour beside the title.
+     */
+    static ActionButton row(String sprite, Component label, String tooltip, Consumer<Player> run) {
+        ActionButton.Builder builder = ActionButton.builder(sprite == null ? MenuText.upright(label)
+                        : Component.empty().append(MenuText.sprite(sprite)).append(Component.text(" "))
+                        .append(MenuText.upright(label)))
+                .width(310)
+                .action(callback((response, audience) -> run.accept(audience)));
+        return tooltip == null || tooltip.isBlank()
+                ? builder.build()
+                : builder.tooltip(MenuText.actionHint(tooltip)).build();
+    }
+
+    /**
      * The same button on a screen that also has fields.
      *
      * <p>A multi-action screen hands every button the whole response, so a button that

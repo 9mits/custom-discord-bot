@@ -100,6 +100,10 @@ final class PlayerSettingsStore {
         CHAT_NOTIFICATIONS("chat_notifications", "Online reward notices",
                 "Tell you in chat when your hourly online rewards arrive.", true,
                 Category.NOTIFICATIONS),
+        AFK_CRATE_AUTO_ROLL("afk_crate_auto_roll", "AFK Crate auto roll",
+                "Open the AFK Crate on screen when your online reward arrives. Turn off to get"
+                        + " the reward straight into your inventory instead.", true,
+                Category.NOTIFICATIONS),
         CRATE_ANNOUNCEMENTS("crate_announcements", "Rare crate wins",
                 "Announce it server-wide when somebody pulls a rare reward.", true,
                 Category.NOTIFICATIONS),

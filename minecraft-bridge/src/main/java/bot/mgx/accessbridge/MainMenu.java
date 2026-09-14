@@ -13,6 +13,7 @@ import java.util.List;
  * three from drifting apart, since only one of them is easy to test.
  */
 enum MainMenu {
+    SEASON_PASS("Season Pass", "pass", "Your tier, the rewards ahead and your quests.", Material.TOTEM_OF_UNDYING, "item/totem_of_undying"),
     CRATES("Crates", "crate", "Open crates and see every reward's odds.", Material.CHEST, "item/trial_key"),
     WARDROBE("Wardrobe", "wardrobe", "Equip auras, trails and kill effects.", Material.NETHER_STAR, "item/nether_star"),
     AUCTION("Auction House", "ah", "Buy and sell with other players.", Material.GOLD_INGOT, "item/gold_ingot"),

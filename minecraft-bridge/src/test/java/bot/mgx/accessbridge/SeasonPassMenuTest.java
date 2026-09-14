@@ -9,14 +9,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class SeasonPassMenuTest {
     @Test
-    void pagesHoldSevenTiersAndOpenOnTheNextReward() {
-        assertEquals(8, SeasonPassMenu.pageCount(50), "50 tiers across 8 pages");
-        assertEquals(0, SeasonPassMenu.pageOf(1));
-        assertEquals(0, SeasonPassMenu.pageOf(7));
-        assertEquals(1, SeasonPassMenu.pageOf(8));
-        assertEquals(0, SeasonPassMenu.homePage(0, 50), "a new player opens on tier 1");
-        assertEquals(1, SeasonPassMenu.homePage(7, 50), "tier 7 done shows tier 8 next");
-        assertEquals(7, SeasonPassMenu.homePage(50, 50), "a finished pass stays on the last page");
+    void theTierListPagesByTens() {
+        assertEquals(0, SeasonPassMenu.listPageOf(1));
+        assertEquals(0, SeasonPassMenu.listPageOf(10));
+        assertEquals(1, SeasonPassMenu.listPageOf(11));
+        assertEquals(4, SeasonPassMenu.listPageOf(50));
     }
 
     @Test
@@ -29,7 +26,13 @@ final class SeasonPassMenuTest {
         assertEquals(SeasonPassMenu.Rarity.LEGENDARY, SeasonPassMenu.rarity(hearts, Optional.empty()));
         assertTrue(SeasonPassMenu.rarity(mace, CrateCatalog.find("mace")).order
                 < SeasonPassMenu.rarity(apples, CrateCatalog.find("golden_apple")).order,
-                "a Mace is shown before golden apples");
+                "a Mace is listed before golden apples");
+    }
+
+    @Test
+    void modelKeysBecomeTheirItemTextures() {
+        assertEquals("mgx:item/season_1_scythe", SeasonPassMenu.textureOf("mgx:season_1_scythe"));
+        assertEquals("mgx:item/cosmetic/season_1_aura", SeasonPassMenu.textureOf("mgx:cosmetic/season_1_aura"));
     }
 
     @Test
