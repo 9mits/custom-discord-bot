@@ -1353,6 +1353,11 @@ final class CosmeticEffectService implements Listener {
             drawIridescentImperium(owner, centre, moving);
             return;
         }
+        SeasonCosmetics.Theme seasonTheme = SeasonCosmetics.themeOf(definition.id()).orElse(null);
+        if (seasonTheme != null) {
+            drawSeasonCrown(owner, centre, phase, step, seasonTheme, moving);
+            return;
+        }
         if (definition.id().equals(DRAGON_MUSIC_AURA_ID)) {
             drawAmethystDragonAscendant(owner, centre, moving);
             return;
@@ -2637,6 +2642,147 @@ final class CosmeticEffectService implements Listener {
         }
     }
 
+    // ------------------------------------------------------------------ season exclusives
+
+    /**
+     * A season's crown: a ten-point star crown that assembles, a turning star inside it,
+     * a comet loop and a closing halo, all in the season's palette. Shared geometry is
+     * what lets every season ship in one build; the palette is what makes each one its
+     * own. Tighter while the wearer runs, like every aura.
+     */
+    private void drawSeasonCrown(
+            Player owner, Location centre, double phase, int step, SeasonCosmetics.Theme theme, boolean moving
+    ) {
+        Color primary = Color.fromRGB(theme.primary());
+        Color shadow = Color.fromRGB(theme.secondary());
+        Color highlight = Color.fromRGB(theme.highlight());
+        double spread = moving ? 0.6d : 1d;
+        Location crown = centre.clone().add(0d, 0.92d, 0d);
+        double assemble = CosmeticAnimation.easeOutBack(CosmeticAnimation.phaseProgress(step, 0, 24));
+        double dissolve = CosmeticAnimation.smooth(CosmeticAnimation.phaseProgress(step, 66, 79));
+        for (int point = 0; point < 10; point++) {
+            double angle = phase * 0.35d + point * Math.PI * 2d / 10d;
+            double peak = point % 2 == 0 ? 0.3d : 0.02d;
+            double radius = (0.5d + dissolve * 0.65d) * spread;
+            Location at = crown.clone().add(
+                    Math.cos(angle) * radius,
+                    peak - (1d - assemble) * (0.8d + point * 0.08d) + dissolve * 0.45d,
+                    Math.sin(angle) * radius);
+            dust(owner, at, point % 2 == 0 ? highlight : primary, point % 2 == 0 ? 1.05f : 0.85f,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            if (point % 2 == 0) {
+                Location base = crown.clone().add(Math.cos(angle) * radius, -(1d - assemble) * 0.8d,
+                        Math.sin(angle) * radius);
+                drawLine(owner, base, at, 2, shadow, 0.7f, PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            }
+        }
+        drawVerticalStar(owner, crown.clone().add(0d, 0.16d, 0d), horizontalSide(owner),
+                0.34d * assemble, -phase * 0.58d, primary, highlight);
+        if (!moving && step >= 28 && step < 63) {
+            double flight = CosmeticAnimation.phaseProgress(step, 28, 63);
+            for (int comet = 0; comet < 2; comet++) {
+                double angle = phase * 1.9d + comet * Math.PI;
+                Location at = crown.clone().add(
+                        Math.cos(angle) * (0.55d + flight * 0.8d),
+                        -0.25d + Math.sin(flight * Math.PI) * 1.05d,
+                        Math.sin(angle) * (0.55d + flight * 0.8d));
+                dust(owner, at, comet == 0 ? highlight : primary, 1.1f,
+                        PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            }
+        }
+        if (step >= 58) {
+            double halo = CosmeticAnimation.smooth(CosmeticAnimation.phaseProgress(step, 58, 78));
+            drawRing(owner, crown, (0.2d + halo * 1.2d) * spread, 14, phase, shadow, 0.8f,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        }
+    }
+
+    /** Two turning rifts in the season's palette, with a bright spark leading the first. */
+    private void drawSeasonWake(Player owner, List<Location> history, SeasonCosmetics.Theme theme) {
+        Vector side = trailSide(history);
+        Color primary = Color.fromRGB(theme.primary());
+        Color shadow = Color.fromRGB(theme.secondary());
+        Color highlight = Color.fromRGB(theme.highlight());
+        for (int rift = 0; rift < 2; rift++) {
+            int index = CosmeticAnimation.trailIndex(frame / 3L, history.size(), rift * 6);
+            double open = 0.2d + CosmeticAnimation.pingPong(frame * 0.09d + rift * 0.43d) * 0.52d;
+            Location centre = trailPoint(history, index, 0.68d);
+            for (int point = 0; point < 12; point++) {
+                double angle = point * Math.PI / 6d + frame * 0.16d;
+                Location at = centre.clone()
+                        .add(side.clone().multiply(Math.cos(angle) * open * 0.62d))
+                        .add(0d, Math.sin(angle) * open, 0d);
+                Color colour = (point + frame) % 4L == 0L ? highlight : point % 2 == 0 ? primary : shadow;
+                dust(owner, at, colour, point % 2 == 0 ? 0.86f : 0.7f,
+                        PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+            }
+            if (rift == 0) {
+                dust(owner, centre, highlight, 1.15f, PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+            }
+        }
+    }
+
+    /** Rays fall in the season's palette, wings unfold, and a star rises from the kill. */
+    private void animateSeasonVerdict(Player owner, Location centre, SeasonCosmetics.Theme theme) {
+        Color primary = Color.fromRGB(theme.primary());
+        Color shadow = Color.fromRGB(theme.secondary());
+        Color highlight = Color.fromRGB(theme.highlight());
+        animate(owner, centre, 28, 2L, step -> {
+            if (step < 9) {
+                for (int ray = 0; ray < 6; ray++) {
+                    double delay = Math.max(0d, step - ray * 0.8d);
+                    double descent = CosmeticAnimation.smooth(delay / 5d);
+                    double angle = ray * Math.PI / 3d;
+                    Location top = centre.clone().add(Math.cos(angle) * 0.72d, 3d - descent * 2.8d,
+                            Math.sin(angle) * 0.72d);
+                    drawLine(owner, top, top.clone().add(0d, 0.45d, 0d), 3,
+                            ray % 2 == 0 ? highlight : primary, 0.95f,
+                            PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                }
+                return;
+            }
+            if (step < 19) {
+                double unfold = CosmeticAnimation.easeOutBack((step - 9d) / 9d);
+                for (double wing : new double[]{-1d, 1d}) {
+                    for (int feather = 0; feather < 8; feather++) {
+                        double progress = feather / 7d;
+                        Location at = centre.clone().add(
+                                wing * unfold * progress * 1.9d,
+                                0.15d + Math.sin(progress * Math.PI) * 1.3d,
+                                0.18d + progress * 0.22d);
+                        dust(owner, at, feather % 3 == 0 ? highlight : feather % 3 == 1 ? primary : shadow,
+                                0.98f, PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                    }
+                }
+                if (step == 15) {
+                    sound(owner, centre, Sound.BLOCK_BEACON_ACTIVATE, 1.15f, 1.35f,
+                            PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                }
+                return;
+            }
+            double ascend = CosmeticAnimation.smooth((step - 19d) / 8d);
+            Location star = centre.clone().add(0d, ascend * 3.2d, 0d);
+            Vector side = horizontalSide(owner);
+            double reach = 0.2d + ascend * 0.3d;
+            for (int ray = 0; ray < 8; ray++) {
+                double angle = step * 0.3d + ray * Math.PI / 4d;
+                double length = reach * (ray % 2 == 0 ? 1d : 0.58d);
+                Location tip = star.clone().add(side.clone().multiply(Math.cos(angle) * length))
+                        .add(0d, Math.sin(angle) * length, 0d);
+                drawLine(owner, star, tip, 3, ray % 2 == 0 ? highlight : primary, 0.85f,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+            }
+            drawRing(owner, centre, 0.25d + ascend * 2d, 20, step * 0.22d, primary, 0.9f,
+                    PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+            if (step == 27) {
+                spawn(owner, star, Particle.FLASH, 1, 0d, 0d, 0d, 0d, null,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                sound(owner, centre, Sound.UI_TOAST_CHALLENGE_COMPLETE, 1.1f, 1.25f,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+            }
+        });
+    }
+
     /** A faceted ruby/medallion that visibly turns instead of reading as loose dust. */
     private void drawVerticalGem(
             Player owner, Location centre, Vector side, double scale,
@@ -2708,6 +2854,11 @@ final class CosmeticEffectService implements Listener {
         }
         if (definition.leaderboardOnly()) {
             drawLeaderboardTrail(owner, definition, history);
+            return;
+        }
+        SeasonCosmetics.Theme seasonTheme = SeasonCosmetics.themeOf(definition.id()).orElse(null);
+        if (seasonTheme != null) {
+            drawSeasonWake(owner, history, seasonTheme);
             return;
         }
         if (definition.secret()) {
@@ -3100,6 +3251,11 @@ final class CosmeticEffectService implements Listener {
             drawLeaderboardKill(owner, definition, centre);
             return;
         }
+        SeasonCosmetics.Theme seasonTheme = SeasonCosmetics.themeOf(definition.id()).orElse(null);
+        if (seasonTheme != null) {
+            animateSeasonVerdict(owner, centre, seasonTheme);
+            return;
+        }
         if (definition.secret()) {
             drawSecretKill(owner, definition, centre);
             return;
@@ -3367,6 +3523,10 @@ final class CosmeticEffectService implements Listener {
     private static KillAccent killAccent(CosmeticCatalog.Definition definition) {
         if (definition.leaderboardOnly()) {
             return new KillAccent(podiumColour(definition.leaderboardRank()), 21, 34);
+        }
+        var seasonTheme = SeasonCosmetics.themeOf(definition.id());
+        if (seasonTheme.isPresent()) {
+            return new KillAccent(Color.fromRGB(seasonTheme.get().primary()), 20, 30);
         }
         return switch (CosmeticCatalog.effectId(definition)) {
             case "blood_burst" -> new KillAccent(Color.fromRGB(225, 12, 38), 10, 24);

@@ -46,6 +46,8 @@ final class SeasonStore {
         long endsDay = -1L;
         Map<String, Row> players = new LinkedHashMap<>();
         List<Podium> history = new ArrayList<>();
+        /** Permanent Season Hearts. Lifetime, so a new season never clears them. */
+        Map<String, Integer> hearts = new LinkedHashMap<>();
     }
 
     private final Path file;
@@ -65,6 +67,7 @@ final class SeasonStore {
         }
         if (data.players == null) data.players = new LinkedHashMap<>();
         if (data.history == null) data.history = new ArrayList<>();
+        if (data.hearts == null) data.hearts = new LinkedHashMap<>();
         for (Row row : data.players.values()) {
             if (row.daily == null) row.daily = new LinkedHashMap<>();
             if (row.dailyDone == null) row.dailyDone = new LinkedHashSet<>();
@@ -94,6 +97,23 @@ final class SeasonStore {
             row.xp = 0L;
             row.grantedTier = 0;
         }
+    }
+
+    synchronized int hearts(UUID playerId) {
+        return Math.max(0, data.hearts.getOrDefault(playerId.toString(), 0));
+    }
+
+    /** Adds up to {@code amount} hearts without passing {@code cap}; returns how many were added. */
+    synchronized int addHearts(UUID playerId, int amount, int cap) {
+        int current = hearts(playerId);
+        int added = Math.max(0, Math.min(amount, cap - current));
+        if (added > 0) data.hearts.put(playerId.toString(), current + added);
+        return added;
+    }
+
+    synchronized void setHearts(UUID playerId, int hearts) {
+        if (hearts <= 0) data.hearts.remove(playerId.toString());
+        else data.hearts.put(playerId.toString(), hearts);
     }
 
     synchronized Row row(UUID playerId) {

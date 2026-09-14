@@ -115,10 +115,16 @@ final class SeasonPassRules {
         return List.copyOf(chosen);
     }
 
+    /** Most permanent hearts one tier can grant, whatever a setting says. */
+    static final int MAX_HEARTS_PER_TIER = 5;
+
     /**
-     * Parses a tier reward such as {@code keys:3;shards:1;reward:crate_luck_ii;cosmetic:ender_trail}.
-     * Unknown or malformed parts are skipped rather than failing the whole tier. Money is
-     * deliberately not a reward kind: its value moves with every economy change.
+     * Parses a tier reward such as {@code hearts:1;shards:2;reward:totem_of_undying;cosmetic:season:aura}.
+     *
+     * <p>{@code cosmetic:season:<aura|trail|kill>} names this season's exclusive rather than
+     * a fixed id, so one setting pays Season 1's crown in Season 1 and Season 2's in
+     * Season 2. Unknown or malformed parts are skipped rather than failing the whole tier.
+     * Money is deliberately not a reward kind: its value moves with every economy change.
      */
     static List<Grant> parse(String spec) {
         List<Grant> grants = new ArrayList<>();
@@ -129,15 +135,25 @@ final class SeasonPassRules {
             String kind = pieces[0].strip().toLowerCase(Locale.ROOT);
             String value = pieces[1].strip();
             switch (kind) {
-                case "keys", "shards" -> {
+                case "keys", "shards", "hearts" -> {
                     try {
                         long amount = Long.parseLong(value.replace(",", "").replace("_", ""));
+                        if (kind.equals("hearts")) amount = Math.min(MAX_HEARTS_PER_TIER, amount);
                         if (amount > 0L) grants.add(new Grant(kind, amount, ""));
                     } catch (NumberFormatException ignored) {
                         // skipped
                     }
                 }
-                case "reward", "cosmetic" -> {
+                case "cosmetic" -> {
+                    String lower = value.toLowerCase(Locale.ROOT);
+                    if (lower.startsWith("season:")) {
+                        SeasonCosmetics.category(lower.substring("season:".length())).ifPresent(category ->
+                                grants.add(new Grant("season_cosmetic", 1L, category.name())));
+                    } else if (!value.isBlank()) {
+                        grants.add(new Grant(kind, 1L, lower));
+                    }
+                }
+                case "reward" -> {
                     if (!value.isBlank()) grants.add(new Grant(kind, 1L, value.toLowerCase(Locale.ROOT)));
                 }
                 default -> {

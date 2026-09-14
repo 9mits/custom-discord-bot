@@ -225,6 +225,25 @@ reference, the two item models must resolve to different texture files, Fortune
 must remain green, and Crate Luck must remain violet. A failing invariant means the
 asset is wrong; do not weaken the test to accept a redesigned bottle.
 
+## Season exclusives
+
+Every season pays one aura, trail and kill effect that no later season repeats. Their
+effects share shapes and differ by palette, and so do their icons:
+`build_season_icons.py` re-colours `celestial_crown`, `ender_trail` and
+`shining_light` into each season's palette. Like the Eternal twins it draws nothing —
+every opaque pixel keeps its position, alpha and exact brightness, so the shading pass
+survives, and the mapping depends on colour alone so no sprite gains colours.
+
+| Season | Theme | Shadow | Primary | Highlight |
+|---|---|---|---|---|
+| 1 | Solstice | `#D9480F` | `#FFB22E` | `#FFF1B8` |
+| 2 | Frostbound | `#1F4FB8` | `#5CC4FF` | `#DDF4FF` |
+| 3 | Verdant | `#167A47` | `#4FE08A` | `#E4FFB8` |
+| 4 | Eclipse | `#4A1640` | `#F03A5F` | `#FFB3C6` |
+
+The palettes must match `SeasonCosmetics.THEMES` in the plugin; a test compares them.
+Add a season by adding a row to both, then run the script and both pack builds.
+
 ## Competitive badge family
 
 The PvP, Clan Battle, and clan-level badges are generated as original MGX artwork.

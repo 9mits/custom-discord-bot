@@ -77,13 +77,52 @@ final class SeasonPassRulesTest {
     }
 
     @Test
-    void theDefaultChaseCosmeticsAreRealCatalogueEntries() {
-        for (String id : List.of("ender_trail", "celestial_crown", "prismatic_trail")) {
-            assertTrue(CosmeticCatalog.find(id).isPresent(), id + " is not a registered cosmetic");
+    void heartsAndSeasonExclusivesParse() {
+        List<SeasonPassRules.Grant> grants = SeasonPassRules.parse(
+                "hearts:1;hearts:99;cosmetic:season:aura;cosmetic:season:Kill;cosmetic:season:hat");
+        assertEquals(new SeasonPassRules.Grant("hearts", 1, ""), grants.get(0));
+        assertEquals(SeasonPassRules.MAX_HEARTS_PER_TIER, grants.get(1).amount(), "one tier cannot grant a pile");
+        assertEquals(new SeasonPassRules.Grant("season_cosmetic", 1, "AURA"), grants.get(2));
+        assertEquals("KILL_EFFECT", grants.get(3).id());
+        assertEquals(4, grants.size(), "an unknown exclusive category is skipped");
+    }
+
+    /**
+     * Every default tier must pay something real, nothing but the scarce kinds, and the
+     * whole track must stay inside the Shard and heart budget the economy can absorb.
+     */
+    @Test
+    void theDefaultTrackIsScarceRealAndOnBudget() throws Exception {
+        String store = java.nio.file.Files.readString(java.nio.file.Path.of(
+                "src/main/java/bot/mgx/accessbridge/GameVariableStore.java"));
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile(
+                "text\\(\"(season\\.reward\\.[a-z0-9-]+)\"[\\s\\S]*?,\\s*\"([^\"]*)\",\\s*200\\);").matcher(store);
+        java.util.Map<String, String> specs = new java.util.HashMap<>();
+        while (matcher.find()) specs.put(matcher.group(1), matcher.group(2));
+        assertTrue(specs.size() >= 9, "found " + specs.keySet());
+        long shards = 0;
+        long hearts = 0;
+        Set<String> exclusives = new HashSet<>();
+        for (int tier = 1; tier <= 50; tier++) {
+            String spec = specs.get(SeasonPassRules.rewardKey(tier, specs::containsKey));
+            List<SeasonPassRules.Grant> grants = SeasonPassRules.parse(spec);
+            assertTrue(!grants.isEmpty(), "tier " + tier + " pays nothing");
+            for (SeasonPassRules.Grant grant : grants) {
+                switch (grant.kind()) {
+                    case "shards" -> shards += grant.amount();
+                    case "hearts" -> hearts += grant.amount();
+                    case "season_cosmetic" -> assertTrue(exclusives.add(grant.id()), "exclusive paid twice");
+                    case "reward" -> assertTrue(CrateCatalog.find(grant.id()).isPresent(),
+                            grant.id() + " is not a registered crate reward");
+                    case "cosmetic" -> assertTrue(CosmeticCatalog.find(grant.id()).isPresent(), grant.id());
+                    default -> throw new AssertionError("tier " + tier + " pays " + grant.kind()
+                            + ", which is minted too freely to mean anything");
+                }
+            }
         }
-        for (String id : List.of("crate_luck_iii", "crate_luck_v", "fortune_potion_ii", "crate_luck_ii")) {
-            assertTrue(CrateCatalog.find(id).isPresent(), id + " is not a registered crate reward");
-        }
+        assertEquals(Set.of("AURA", "TRAIL", "KILL_EFFECT"), exclusives);
+        assertEquals(2, hearts);
+        assertTrue(shards >= 5 && shards <= 12, "a full track pays " + shards + " Shards");
     }
 
     @Test

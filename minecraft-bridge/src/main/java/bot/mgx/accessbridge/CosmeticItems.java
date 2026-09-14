@@ -146,7 +146,8 @@ final class CosmeticItems {
     static boolean showsReciprocalOdds(CosmeticCatalog.Definition definition) {
         return !definition.leaderboardOnly()
                 && !CosmeticCatalog.isAmethystAirdrop(definition.id())
-                && !definition.clanBattleOnly();
+                && !definition.clanBattleOnly()
+                && !definition.seasonExclusive();
     }
 
     static boolean showsExactChance(
@@ -154,7 +155,8 @@ final class CosmeticItems {
     ) {
         return oddsScreen
                 && !CosmeticCatalog.isAmethystAirdrop(definition.id())
-                && !definition.clanBattleOnly();
+                && !definition.clanBattleOnly()
+                && !definition.seasonExclusive();
     }
 
     static List<String> wrapDescription(String description) {
@@ -356,7 +358,7 @@ final class CosmeticItems {
     }
 
     private static ItemRarity rarity(CosmeticCatalog.Definition definition) {
-        if (definition.secret() || definition.weight() <= 100) {
+        if (definition.secret() || definition.weight() <= 100 || definition.seasonExclusive()) {
             return ItemRarity.EPIC;
         }
         if (definition.weight() <= 750) {
