@@ -177,13 +177,13 @@ final class LoginStreakService implements Listener, CommandExecutor {
     // ------------------------------------------------------------------ rewards
 
     /** One day's reward, read from settings so the owner can retune the cycle live. */
-    record Reward(int keys, int shards, long money, int bonusShards) {
+    record Reward(int keys, int shards, String crateReward, int bonusShards) {
         String describe() {
             List<String> parts = new ArrayList<>();
             if (keys > 0) parts.add(keys + (keys == 1 ? " Key" : " Keys"));
             int allShards = shards + bonusShards;
             if (allShards > 0) parts.add(allShards + (allShards == 1 ? " Shard" : " Shards"));
-            if (money > 0L) parts.add(EconomyFormat.dollars(money));
+            CrateCatalog.find(crateReward).ifPresent(reward -> parts.add(reward.displayName()));
             return parts.isEmpty() ? "Streak progress" : String.join(" + ", parts);
         }
     }
@@ -194,7 +194,7 @@ final class LoginStreakService implements Listener, CommandExecutor {
         int bonus = milestoneEvery > 0 && streak % milestoneEvery == 0
                 ? variables.integer("streaks.milestone-shards") : 0;
         return new Reward(variables.integer(base + "keys"), variables.integer(base + "shards"),
-                variables.integer(base + "money"), bonus);
+                variables.string(base + "reward"), bonus);
     }
 
     private void pay(Player player, Reward reward) {
@@ -206,14 +206,9 @@ final class LoginStreakService implements Listener, CommandExecutor {
             player.getInventory().addItem(items.shard(Math.min(64, left))).values()
                     .forEach(spill -> player.getWorld().dropItemNaturally(player.getLocation(), spill));
         }
-        if (reward.money() > 0L) {
-            EconomyStore economy = plugin.economy();
-            if (economy.canDeposit(player.getUniqueId(), reward.money())) {
-                economy.deposit(player.getUniqueId(), reward.money());
-            } else {
-                error(player, "Your wallet is at its limit, so today's money could not be added.");
-            }
-        }
+        CrateCatalog.find(reward.crateReward()).filter(found -> !found.cosmetic()).ifPresent(found ->
+                player.getInventory().addItem(items.reward(found)).values()
+                        .forEach(spill -> player.getWorld().dropItemNaturally(player.getLocation(), spill)));
     }
 
     // ------------------------------------------------------------------ join and page

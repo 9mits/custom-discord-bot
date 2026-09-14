@@ -116,8 +116,9 @@ final class SeasonPassRules {
     }
 
     /**
-     * Parses a tier reward such as {@code keys:3;shards:1;money:2500;cosmetic:ender_trail}.
-     * Unknown or malformed parts are skipped rather than failing the whole tier.
+     * Parses a tier reward such as {@code keys:3;shards:1;reward:crate_luck_ii;cosmetic:ender_trail}.
+     * Unknown or malformed parts are skipped rather than failing the whole tier. Money is
+     * deliberately not a reward kind: its value moves with every economy change.
      */
     static List<Grant> parse(String spec) {
         List<Grant> grants = new ArrayList<>();
@@ -128,7 +129,7 @@ final class SeasonPassRules {
             String kind = pieces[0].strip().toLowerCase(Locale.ROOT);
             String value = pieces[1].strip();
             switch (kind) {
-                case "keys", "shards", "money" -> {
+                case "keys", "shards" -> {
                     try {
                         long amount = Long.parseLong(value.replace(",", "").replace("_", ""));
                         if (amount > 0L) grants.add(new Grant(kind, amount, ""));

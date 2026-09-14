@@ -1409,17 +1409,19 @@ final class GameVariableStore {
                 "Shards for second place when the season ends.", 6, 0, 640, "shards", false);
         integer("season.third-place-shards", "Third place Shards", "Season Pass",
                 "Shards for third place when the season ends.", 3, 0, 640, "shards", false);
-        String rewardFormat = " Parts are separated by ; and read keys:N, shards:N, money:N,"
+        // Never money: a fixed dollar amount is worth something different after every
+        // economy change, while keys, Shards, potions and cosmetics keep their value.
+        String rewardFormat = " Parts are separated by ; and read keys:N, shards:N,"
                 + " cosmetic:<id> or reward:<crate reward id>.";
         text("season.reward.odd", "Odd tier reward", "Season Pass Rewards",
                 "What each odd tier pays." + rewardFormat, "keys:3", 200);
         text("season.reward.even", "Even tier reward", "Season Pass Rewards",
-                "What each even tier pays." + rewardFormat, "money:3000", 200);
+                "What each even tier pays." + rewardFormat, "keys:2", 200);
         text("season.reward.every-5", "Every 5th tier reward", "Season Pass Rewards",
                 "What tiers 5, 15, 35 and so on pay." + rewardFormat, "keys:6;shards:1", 200);
         text("season.reward.every-10", "Every 10th tier reward", "Season Pass Rewards",
                 "What tiers 10, 20, 30 and so on pay." + rewardFormat,
-                "keys:12;shards:2;money:20000", 200);
+                "keys:12;shards:2;reward:crate_luck_iii", 200);
         text("season.reward.tier-25", "Tier 25 reward", "Season Pass Rewards",
                 "The halfway chase reward." + rewardFormat, "cosmetic:ender_trail;shards:3", 200);
         text("season.reward.tier-40", "Tier 40 reward", "Season Pass Rewards",
@@ -1427,7 +1429,7 @@ final class GameVariableStore {
                 "cosmetic:celestial_crown;shards:5", 200);
         text("season.reward.tier-50", "Tier 50 reward", "Season Pass Rewards",
                 "The final tier's reward." + rewardFormat,
-                "cosmetic:prismatic_trail;shards:10;money:100000", 200);
+                "cosmetic:prismatic_trail;shards:10;reward:crate_luck_v", 200);
 
         bool("streaks.enabled", "Daily login streaks", "Login Streaks",
                 "Reward players for playing a few active minutes every UTC day.", true);
@@ -1443,11 +1445,9 @@ final class GameVariableStore {
                 30, 0, 365, "days", false);
         integer("streaks.milestone-shards", "Milestone Shards", "Login Streaks",
                 "Extra Shards paid on each streak milestone day.", 5, 0, 64, "shards", false);
-        int[][] streakDays = {
-                // keys, shards, money
-                {2, 0, 0}, {3, 0, 0}, {4, 0, 2_500}, {5, 0, 0},
-                {6, 1, 0}, {7, 0, 5_000}, {10, 3, 10_000}
-        };
+        // keys, shards, then a crate reward id. Never money: see the Season Pass rewards.
+        int[][] streakDays = {{2, 0}, {3, 0}, {4, 0}, {5, 0}, {6, 1}, {7, 0}, {10, 3}};
+        String[] streakPotions = {"", "", "fortune_potion_ii", "", "", "crate_luck_ii", "crate_luck_iii"};
         for (int day = 1; day <= streakDays.length; day++) {
             String base = "streaks.day-" + day + ".";
             String category = "Login Streak Day " + day;
@@ -1457,9 +1457,10 @@ final class GameVariableStore {
             integer(base + "shards", "Shards", category,
                     "Shards for claiming day " + day + " of the 7-day cycle.",
                     streakDays[day - 1][1], 0, 64, "shards", false);
-            integer(base + "money", "Money", category,
-                    "Money for claiming day " + day + " of the 7-day cycle.",
-                    streakDays[day - 1][2], 0, 10_000_000, "dollars", false);
+            text(base + "reward", "Crate reward", category,
+                    "A crate reward id, such as a potion, for claiming day " + day
+                            + " of the 7-day cycle. Blank for none.",
+                    streakPotions[day - 1], 64);
         }
 
         bool("referrals.enabled", "Referral rewards", "Referrals",

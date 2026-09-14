@@ -249,7 +249,6 @@ final class SeasonPassService implements Listener, CommandExecutor {
             switch (grant.kind()) {
                 case "keys" -> parts.add(grant.amount() + (grant.amount() == 1 ? " Key" : " Keys"));
                 case "shards" -> parts.add(grant.amount() + (grant.amount() == 1 ? " Shard" : " Shards"));
-                case "money" -> parts.add(EconomyFormat.dollars(grant.amount()));
                 case "cosmetic" -> parts.add(CosmeticCatalog.find(grant.id())
                         .map(CosmeticCatalog.Definition::displayName).orElse(grant.id()));
                 case "reward" -> parts.add(CrateCatalog.find(grant.id())
@@ -270,11 +269,6 @@ final class SeasonPassService implements Listener, CommandExecutor {
                         }
                     }
                     case "shards" -> giveShards(player, (int) Math.min(640, grant.amount()));
-                    case "money" -> {
-                        if (plugin.economy().canDeposit(player.getUniqueId(), grant.amount())) {
-                            plugin.economy().deposit(player.getUniqueId(), grant.amount());
-                        }
-                    }
                     case "cosmetic" -> CosmeticCatalog.find(grant.id()).ifPresent(definition -> {
                         plugin.cosmetics().mint(player.getUniqueId(), definition.id(), UUID.randomUUID());
                         info(player, definition.displayName() + " is in your /wardrobe.");
