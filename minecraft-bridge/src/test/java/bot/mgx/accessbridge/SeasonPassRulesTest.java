@@ -47,10 +47,12 @@ final class SeasonPassRulesTest {
     @Test
     void rewardSpecsParseAndSkipNonsense() {
         List<SeasonPassRules.Grant> grants = SeasonPassRules.parse(
-                "keys:3; shards:1 ;money:20,000;cosmetic:Prismatic_Trail;bogus:5;keys:-1;money:x");
+                "keys:3; shards:1 ;money:20,000;cosmetic:Prismatic_Trail;bogus:5;keys:-1;reward:crate_luck_v");
         assertEquals(4, grants.size());
-        assertEquals(new SeasonPassRules.Grant("money", 20_000, ""), grants.get(2));
-        assertEquals("prismatic_trail", grants.get(3).id());
+        assertEquals(new SeasonPassRules.Grant("shards", 1, ""), grants.get(1));
+        assertEquals("prismatic_trail", grants.get(2).id());
+        assertTrue(grants.stream().noneMatch(grant -> grant.kind().equals("money")),
+                "money is never a reward: its value moves with the economy");
     }
 
     @Test
@@ -79,5 +81,19 @@ final class SeasonPassRulesTest {
         for (String id : List.of("ender_trail", "celestial_crown", "prismatic_trail")) {
             assertTrue(CosmeticCatalog.find(id).isPresent(), id + " is not a registered cosmetic");
         }
+        for (String id : List.of("crate_luck_iii", "crate_luck_v", "fortune_potion_ii", "crate_luck_ii")) {
+            assertTrue(CrateCatalog.find(id).isPresent(), id + " is not a registered crate reward");
+        }
+    }
+
+    @Test
+    void noStreakOrSeasonDefaultPaysMoney() throws Exception {
+        String store = java.nio.file.Files.readString(java.nio.file.Path.of(
+                "src/main/java/bot/mgx/accessbridge/GameVariableStore.java"));
+        String block = store.substring(store.indexOf("bool(\"season.enabled\""),
+                store.indexOf("bool(\"referrals.enabled\""));
+        assertTrue(!java.util.regex.Pattern.compile("money:\\d").matcher(block).find()
+                        && !block.contains("\"money\""),
+                "streak and season rewards must never be dollars");
     }
 }
