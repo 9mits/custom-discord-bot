@@ -98,6 +98,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private TrophyHeadStore trophyHeadStore;
     private CrateService crates;
     private LoginStreakService loginStreaks;
+    private SeasonPassService seasonPass;
     private AmethystItemService amethystItems;
     private AmethystDragonService amethystDragon;
     private CrateDisplayService crateDisplays;
@@ -533,6 +534,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 || getCommand("verify") == null
                 || getCommand("referredby") == null
                 || getCommand("streak") == null
+                || getCommand("pass") == null
+                || getCommand("quests") == null
                 || getCommand("referrals") == null
                 || getCommand("crate") == null
                 || getCommand("echest") == null
@@ -916,6 +919,17 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             loginStreaks.start();
         } catch (IOException exception) {
             getLogger().severe("Daily login streaks are disabled: " + exception.getMessage());
+        }
+        try {
+            seasonPass = new SeasonPassService(this,
+                    new SeasonStore(getDataFolder().toPath().resolve("season-pass.json")),
+                    gameVariables, crateItems, clientSupport, bedrockForms);
+            getServer().getPluginManager().registerEvents(seasonPass, this);
+            getCommand("pass").setExecutor(seasonPass);
+            getCommand("quests").setExecutor(seasonPass);
+            seasonPass.start();
+        } catch (IOException exception) {
+            getLogger().severe("The Season Pass is disabled: " + exception.getMessage());
         }
         getServer().getPluginManager().registerEvents(economyMenus, this);
         getServer().getScheduler().runTaskTimer(
@@ -1586,6 +1600,10 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
 
     CrateService crateService() {
         return crates;
+    }
+
+    SeasonPassService seasonPass() {
+        return seasonPass;
     }
 
     LoginStreakService loginStreaks() {

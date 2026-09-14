@@ -253,6 +253,11 @@ final class SidebarService {
             if (streak > 0) {
                 rows.add(Row.important("Streak", streak + (streak == 1 ? " day" : " days"), ORANGE));
             }
+            SeasonPassService pass = plugin.seasonPass();
+            int seasonTier = pass == null ? 0 : pass.tier(playerId);
+            if (seasonTier > 0) {
+                rows.add(Row.important("Season Tier", String.valueOf(seasonTier), GOLD));
+            }
             // The total, not just the level half: level hearts and clan hearts are two
             // separate attribute modifiers that stack in game, so reporting one of them
             // understated what the player was actually carrying. The tab list breaks out

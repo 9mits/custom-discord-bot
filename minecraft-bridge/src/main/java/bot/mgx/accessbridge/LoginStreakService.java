@@ -129,6 +129,9 @@ final class LoginStreakService implements Listener, CommandExecutor {
         int cycleDay = LoginStreakRules.cycleDay(streak);
         Reward reward = reward(cycleDay, streak);
         pay(player, reward);
+        if (plugin.seasonPass() != null) {
+            plugin.seasonPass().bonusXp(player, variables.integer("season.streak-xp"));
+        }
 
         player.showTitle(Title.title(
                 Component.text("DAY " + streak + " STREAK", ORANGE, TextDecoration.BOLD),

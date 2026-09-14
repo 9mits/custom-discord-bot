@@ -29,10 +29,18 @@ commands:
   verify:
     description: Link the Minecraft account currently in the verification lobby to Discord.
     usage: /verify <discord_username>
+  pass:
+    description: Open the Season Pass, your tier, the rewards ahead and the season top.
+    usage: /pass
+    aliases: [season, battlepass, seasonpass]
+  quests:
+    description: See today's and this week's quests and your progress.
+    usage: /quests
+    aliases: [quest, missions, dailies]
   streak:
     description: See your daily login streak, streak freezes and the 7-day reward cycle.
     usage: /streak
-    aliases: [daily, dailies, loginstreak]
+    aliases: [daily, loginstreak]
   referredby:
     description: Name the player who invited you or brought you back, so you both earn Shards.
     usage: /referredby <player>

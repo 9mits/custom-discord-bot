@@ -1905,6 +1905,17 @@ final class PvpCompetitionService implements Listener {
             plugin.getLogger().warning("Could not save competitive PvP result: " + failure.getMessage());
         }
         recordOpponentRuns(match);
+        SeasonPassService pass = plugin.seasonPass();
+        if (pass != null) {
+            for (UUID playerId : match.players) {
+                Player fighter = Bukkit.getPlayer(playerId);
+                if (fighter == null) continue;
+                pass.progress(fighter, SeasonPassRules.QuestType.PLAY_PVP, 1L);
+                if (decided && winners.contains(playerId)) {
+                    pass.progress(fighter, SeasonPassRules.QuestType.WIN_PVP, 1L);
+                }
+            }
+        }
 
         for (UUID playerId : match.players) {
             Player player = Bukkit.getPlayer(playerId);

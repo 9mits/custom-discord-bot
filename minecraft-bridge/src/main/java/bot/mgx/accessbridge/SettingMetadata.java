@@ -93,6 +93,7 @@ record SettingMetadata(
         CLAN_BATTLES("Clan Battles"),
         COSMETICS("Cosmetics"),
         CRATE_BALANCE("Crate Balance"),
+        SEASONS("Seasons & Streaks"),
         /**
          * A value whose prefix nothing here recognises.
          *
@@ -232,6 +233,9 @@ record SettingMetadata(
         if (key.startsWith("online-rewards.")) {
             return Group.ONLINE_REWARDS;
         }
+        if (key.startsWith("season.") || key.startsWith("streaks.")) {
+            return Group.SEASONS;
+        }
         if (key.startsWith("huge-amethyst.") || key.startsWith("giant-amethyst.")
                 || key.startsWith("humongous-amethyst.") || key.startsWith("amethyst-blocks.")
                 || key.startsWith("low-activity-boost.")) {
@@ -263,7 +267,7 @@ record SettingMetadata(
                 || key.startsWith("pvp-combat.")) {
             return Group.PVP_COMPETITIVE;
         }
-        if (key.startsWith("afk.") || key.startsWith("rtp.") || key.startsWith("referrals.") || key.startsWith("streaks.")
+        if (key.startsWith("afk.") || key.startsWith("rtp.") || key.startsWith("referrals.")
                 || key.startsWith("verification.") || key.startsWith("combat.")) {
             return Group.PLAYERS;
         }
