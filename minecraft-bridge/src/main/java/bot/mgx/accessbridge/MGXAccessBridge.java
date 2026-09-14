@@ -947,6 +947,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                     new SeasonStore(getDataFolder().toPath().resolve("season-pass.json")),
                     gameVariables, crateItems, clientSupport, bedrockForms);
             getServer().getPluginManager().registerEvents(seasonPass, this);
+            SeasonPassMenu passMenu = new SeasonPassMenu(this, seasonPass, crateItems, cosmeticItemsForSentinel);
+            seasonPass.useMenu(passMenu);
+            getServer().getPluginManager().registerEvents(passMenu, this);
             getCommand("pass").setExecutor(seasonPass);
             getCommand("quests").setExecutor(seasonPass);
             seasonPass.start();

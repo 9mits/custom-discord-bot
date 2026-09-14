@@ -19,6 +19,8 @@ final class SentinelHub {
             EconomyStore.class.getName(), SentinelService.class.getName()
     );
     private static final StackWalker WALKER = StackWalker.getInstance();
+    /** Depth of {@link #quietly} on this thread; mints inside it are menu previews, not items. */
+    private static final ThreadLocal<int[]> QUIET = ThreadLocal.withInitial(() -> new int[1]);
 
     private SentinelHub() {
     }
@@ -27,10 +29,25 @@ final class SentinelHub {
         service = installed;
     }
 
+    /**
+     * Builds something with the reward factories that is only ever shown, never handed out,
+     * such as a Season Pass tile. Those builds must not credit the mint pool: a menu
+     * redrawn on every page turn would otherwise quietly explain away a real duplication.
+     */
+    static <T> T quietly(java.util.function.Supplier<T> build) {
+        int[] depth = QUIET.get();
+        depth[0]++;
+        try {
+            return build.get();
+        } finally {
+            depth[0]--;
+        }
+    }
+
     /** A valuable created by plugin code. The recipient is not known here, so it credits the pool. */
     static void minted(SentinelEngine.Kind kind, long amount) {
         SentinelService current = service;
-        if (current == null || amount <= 0L) return;
+        if (current == null || amount <= 0L || QUIET.get()[0] > 0) return;
         try {
             current.minted(kind, amount, caller());
         } catch (RuntimeException ignored) {

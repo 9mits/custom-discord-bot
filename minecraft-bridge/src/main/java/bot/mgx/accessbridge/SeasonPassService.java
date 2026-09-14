@@ -113,11 +113,11 @@ final class SeasonPassService implements Listener, CommandExecutor {
         return LocalDate.now(ZoneOffset.UTC).toEpochDay();
     }
 
-    private int xpPerTier() {
+    int xpPerTier() {
         return variables.integer("season.xp-per-tier");
     }
 
-    private int maximumTier() {
+    int maximumTier() {
         return variables.integer("season.tiers");
     }
 
@@ -128,6 +128,36 @@ final class SeasonPassService implements Listener, CommandExecutor {
     /** Season Hearts are a perk like any other: applied on join and after every death. */
     void applyHearts(Player player) {
         if (plugin.perks() != null) plugin.perks().applySeasonHearts(player, store.hearts(player.getUniqueId()));
+    }
+
+    private SeasonPassMenu menu;
+
+    void useMenu(SeasonPassMenu menu) {
+        this.menu = menu;
+    }
+
+    int season() {
+        return store.season();
+    }
+
+    long xp(UUID playerId) {
+        return store.row(playerId).xp;
+    }
+
+    int hearts(UUID playerId) {
+        return store.hearts(playerId);
+    }
+
+    java.util.Optional<CosmeticCatalog.Definition> seasonCosmeticDefinition(SeasonPassRules.Grant grant) {
+        return seasonCosmetic(grant);
+    }
+
+    /** The real gear a tier pays, built for a menu tile and never handed out. */
+    java.util.Optional<ItemStack> seasonGearPreview(SeasonPassRules.Grant grant) {
+        var piece = seasonGear(grant);
+        var theme = SeasonCosmetics.theme(store.season());
+        if (piece.isEmpty() || theme.isEmpty() || plugin.amethystItems() == null) return java.util.Optional.empty();
+        return java.util.Optional.of(plugin.amethystItems().createSeasonGear(theme.get(), piece.get()));
     }
 
     /** The tier a player holds this season, for the sidebar. */
@@ -306,29 +336,6 @@ final class SeasonPassService implements Listener, CommandExecutor {
 
     private int exclusiveFallbackShards() {
         return Math.max(0, variables.integer("season.exclusive-fallback-shards"));
-    }
-
-    /** The icon a tier row shows: its most valuable reward. */
-    String iconFor(List<SeasonPassRules.Grant> grants) {
-        for (SeasonPassRules.Grant grant : grants) {
-            if (grant.kind().equals("season_gear") && seasonGear(grant).isPresent()) {
-                return "mgx:item/" + SeasonGear.modelKey(store.season(), seasonGear(grant).get())
-                        .substring("mgx:".length());
-            }
-        }
-        for (SeasonPassRules.Grant grant : grants) {
-            if (grant.kind().equals("season_cosmetic")) {
-                return seasonCosmetic(grant).map(definition -> "mgx:item/cosmetic/" + definition.id())
-                        .orElse("mgx:item/shard");
-            }
-        }
-        for (SeasonPassRules.Grant grant : grants) {
-            if (grant.kind().equals("hearts")) return "item/golden_apple";
-        }
-        for (SeasonPassRules.Grant grant : grants) {
-            if (grant.kind().equals("shards")) return "mgx:item/shard";
-        }
-        return "item/bundle";
     }
 
     private void pay(Player player, List<SeasonPassRules.Grant> grants) {
@@ -545,41 +552,53 @@ final class SeasonPassService implements Listener, CommandExecutor {
         return true;
     }
 
+    /** The track itself is a chest: rewards are items to hover, not lines to read. */
     void openPass(Player player) {
+        if (menu != null) {
+            menu.open(player);
+        } else {
+            openGuide(player);
+        }
+    }
+
+    /** How the pass works: the reading that does not belong on a grid of reward tiles. */
+    void openGuide(Player player) {
         long today = today();
         SeasonStore.Row row = rowFor(player, today);
         int tier = SeasonPassRules.tier(row.xp, xpPerTier(), maximumTier());
-        long into = SeasonPassRules.xpIntoTier(row.xp, xpPerTier(), maximumTier());
-        String progress = tier >= maximumTier() ? "Pass complete"
-                : String.format(Locale.ROOT, "%,d / %,d XP to Tier %d", into, xpPerTier(), tier + 1);
         List<DialogBody> page = new ArrayList<>(List.of(
                 DialogBody.plainMessage(MenuText.stat("Season", "Season " + store.season()
                         + "  •  ends " + endsIn()), RULE_WIDTH),
-                DialogBody.plainMessage(MenuText.stat("Tier", tier + " / " + maximumTier()), RULE_WIDTH),
-                DialogBody.plainMessage(MenuText.stat("Progress", progress), RULE_WIDTH),
-                DialogBody.plainMessage(MenuText.stat("Season Hearts", "item/golden_apple",
-                        store.hearts(player.getUniqueId()) + " / " + heartCap() + "  •  expire " + endsIn()), RULE_WIDTH),
-                DialogBody.plainMessage(Component.empty(), RULE_WIDTH)));
-        StringBuilder plain = new StringBuilder("Season " + store.season() + " • Tier " + tier + "/"
-                + maximumTier() + " • " + progress + " • Season Hearts " + store.hearts(player.getUniqueId())
-                + "/" + heartCap() + "\n\nNext rewards:\n");
-        for (int next = tier + 1; next <= Math.min(maximumTier(), tier + 5); next++) {
-            List<SeasonPassRules.Grant> nextGrants = grants(next);
-            String reward = describe(nextGrants);
-            page.add(DialogBody.plainMessage(MenuText.stat("Tier " + next, iconFor(nextGrants), reward), RULE_WIDTH));
-            plain.append("Tier ").append(next).append(": ").append(reward).append('\n');
-        }
-        page.add(DialogBody.plainMessage(Component.empty(), RULE_WIDTH));
-        page.add(DialogBody.plainMessage(MenuText.muted("Every tier pays the moment you reach it."
-                + " Season exclusives never return. Season Hearts expire when the season ends."), RULE_WIDTH));
-        List<Action> actions = List.of(
+                DialogBody.plainMessage(MenuText.stat("Your tier", tier + " / " + maximumTier()), RULE_WIDTH),
+                DialogBody.plainMessage(Component.empty(), RULE_WIDTH),
+                DialogBody.plainMessage(MenuText.rule("item/writable_book", "Quests",
+                        "Three daily and three weekly quests are most of your XP."), RULE_WIDTH),
+                DialogBody.plainMessage(MenuText.rule("item/clock_00", "Playtime",
+                        variables.integer("season.xp-per-active-minute") + " XP every active minute. AFK time earns none."), RULE_WIDTH),
+                DialogBody.plainMessage(MenuText.rule("item/firework_star", "Daily streak",
+                        variables.integer("season.streak-xp") + " XP each time you claim a streak day."), RULE_WIDTH),
+                DialogBody.plainMessage(Component.empty(), RULE_WIDTH),
+                DialogBody.plainMessage(MenuText.rule("item/nether_star", "Season exclusives",
+                        "Gear and cosmetics only this season pays. They never come back."), RULE_WIDTH),
+                DialogBody.plainMessage(MenuText.rule("item/red_dye", "Season Hearts",
+                        "Up to " + heartCap() + " extra hearts that expire when the season ends."), RULE_WIDTH),
+                DialogBody.plainMessage(MenuText.rule("item/gold_ingot", "Season Top",
+                        "The top three when the season ends win "
+                                + variables.integer("season.first-place-shards") + ", "
+                                + variables.integer("season.second-place-shards") + " and "
+                                + variables.integer("season.third-place-shards") + " Shards."), RULE_WIDTH),
+                DialogBody.plainMessage(Component.empty(), RULE_WIDTH),
+                DialogBody.plainMessage(MenuText.muted("Every tier pays the moment you reach it."
+                        + " Rewards wait while you are in PvP or screenshot mode."), RULE_WIDTH)));
+        String plain = "Season " + store.season() + " ends " + endsIn() + ". Tier " + tier + "/" + maximumTier()
+                + ".\nQuests are most of your XP, plus " + variables.integer("season.xp-per-active-minute")
+                + " XP per active minute and " + variables.integer("season.streak-xp") + " per streak day."
+                + "\nSeason exclusives never come back. Season Hearts expire when the season ends.";
+        show(player, "How The Pass Works", page, plain, List.of(
                 new Action("item/writable_book", "Quests", "Today's and this week's quests.",
                         viewer -> openQuests(viewer, this::openPass)),
-                new Action("item/bundle", "Every Reward", "All " + maximumTier() + " tiers.",
-                        viewer -> openRewards(viewer, 1)),
                 new Action("item/gold_ingot", "Season Top", "The highest Season XP right now.",
-                        this::openTop));
-        show(player, "Season " + store.season() + " Pass", page, plain.toString(), actions, null);
+                        this::openTop)), this::openPass);
     }
 
     void openQuests(Player player, Consumer<Player> back) {
@@ -612,31 +631,7 @@ final class SeasonPassService implements Listener, CommandExecutor {
                         this::openPass)), back);
     }
 
-    private void openRewards(Player player, int pageNumber) {
-        int perPage = 10;
-        int pages = Math.max(1, (maximumTier() + perPage - 1) / perPage);
-        int current = Math.max(1, Math.min(pages, pageNumber));
-        int reached = tier(player.getUniqueId());
-        List<DialogBody> page = new ArrayList<>();
-        StringBuilder plain = new StringBuilder();
-        for (int tier = (current - 1) * perPage + 1; tier <= Math.min(maximumTier(), current * perPage); tier++) {
-            List<SeasonPassRules.Grant> tierGrants = grants(tier);
-            String reward = describe(tierGrants);
-            boolean earned = tier <= reached;
-            page.add(DialogBody.plainMessage(MenuText.stat("Tier " + tier,
-                    earned ? "item/lime_dye" : iconFor(tierGrants),
-                    reward + (earned ? "  ✔" : "")), RULE_WIDTH));
-            plain.append("Tier ").append(tier).append(": ").append(reward).append(earned ? " ✔" : "").append('\n');
-        }
-        List<Action> actions = new ArrayList<>();
-        if (current > 1) actions.add(new Action("item/arrow", "Previous", "Tiers before these.",
-                viewer -> openRewards(viewer, current - 1)));
-        if (current < pages) actions.add(new Action("item/arrow", "Next", "Tiers after these.",
-                viewer -> openRewards(viewer, current + 1)));
-        show(player, "Season Rewards " + current + "/" + pages, page, plain.toString(), actions, this::openPass);
-    }
-
-    private void openTop(Player player) {
+    void openTop(Player player) {
         List<DialogBody> page = new ArrayList<>();
         StringBuilder plain = new StringBuilder();
         List<Map.Entry<UUID, SeasonStore.Row>> top = store.ranking(10);
@@ -683,7 +678,7 @@ final class SeasonPassService implements Listener, CommandExecutor {
         else Screens.show(player, title, page, buttons, columns, back);
     }
 
-    private String endsIn() {
+    String endsIn() {
         long millis = LocalDate.ofEpochDay(store.endsDay()).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
                 - System.currentTimeMillis();
         return "in " + compact(millis);
