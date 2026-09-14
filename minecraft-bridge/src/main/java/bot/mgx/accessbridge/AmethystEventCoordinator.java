@@ -33,6 +33,9 @@ final class AmethystEventCoordinator {
     private final GameVariableStore variables;
     private Kind next;
     private BukkitTask task;
+    /** The Discord heads-up ten minutes before the next rotation event. */
+    private BukkitTask warning;
+    private static final long WARNING_MILLIS = Duration.ofMinutes(10).toMillis();
     private boolean reserved;
     private boolean stopped = true;
 
@@ -76,6 +79,7 @@ final class AmethystEventCoordinator {
             task.cancel();
             task = null;
         }
+        cancelWarning();
         airdrops.stop();
         blocks.stop();
     }
@@ -98,7 +102,32 @@ final class AmethystEventCoordinator {
         long delay = AirdropService.randomDelayMillis(
                 random, minimumDelayMillis, maximumDelayMillis
         );
-        schedule(hastened(delay), this::tryStart);
+        long hastenedDelay = hastened(delay);
+        schedule(hastenedDelay, this::tryStart);
+        scheduleWarning(hastenedDelay);
+    }
+
+    private void scheduleWarning(long delayMillis) {
+        cancelWarning();
+        if (stopped || delayMillis <= WARNING_MILLIS + 60_000L) return;
+        Kind upcoming = next;
+        warning = plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+            warning = null;
+            if (stopped || reserved || eventOver(System.currentTimeMillis())) return;
+            plugin.pingDiscord("ping_event_soon", label(upcoming) + " in 10 minutes",
+                    java.util.Map.of("event", label(upcoming), "minutes", "10"));
+        }, Math.max(1L, (delayMillis - WARNING_MILLIS) / 50L));
+    }
+
+    private void cancelWarning() {
+        if (warning != null) {
+            warning.cancel();
+            warning = null;
+        }
+    }
+
+    static String label(Kind kind) {
+        return kind == Kind.AIRDROP ? "Amethyst Airdrop" : "Huge Amethyst Block";
     }
 
     private void rescheduleCooldown() {
@@ -229,6 +258,8 @@ final class AmethystEventCoordinator {
 
     private void onSpawned(Kind spawned) {
         next = spawned.next();
+        plugin.pingDiscord("ping_event_live", label(spawned) + " is live",
+                java.util.Map.of("event", label(spawned)));
     }
 
     private void onFinished() {

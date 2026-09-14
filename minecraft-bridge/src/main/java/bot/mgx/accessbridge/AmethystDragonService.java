@@ -154,6 +154,8 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     private Portal portal;
     private Phase phase = Phase.WAITING;
     private Instant scheduledAt;
+    /** The run the Discord ten-minute heads-up was already sent for. */
+    private Instant pingedFor;
     private long phaseEndsAt;
     private World arena;
     private EnderDragon dragon;
@@ -380,6 +382,11 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                 }
                 long openAt = scheduledAt.toEpochMilli()
                         - variables.integer("dragon-event.portal-open-minutes") * 60_000L;
+                if (now >= openAt - 600_000L && now < openAt && !scheduledAt.equals(pingedFor)) {
+                    pingedFor = scheduledAt;
+                    plugin.pingDiscord("ping_event_soon", "The Amethyst Dragon portal opens in 10 minutes",
+                            java.util.Map.of("event", "Amethyst Dragon", "minutes", "10"));
+                }
                 if (now >= openAt && now < scheduledAt.toEpochMilli()) {
                     openPortal();
                 }
@@ -456,6 +463,8 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         lastPortalReminderSecond = -1L;
         openPortalBar();
         announcePortalOpen();
+        plugin.pingDiscord("ping_event_live", "The Amethyst Dragon portal is open",
+                java.util.Map.of("event", "Amethyst Dragon"));
         portalTransition(true);
     }
 

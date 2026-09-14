@@ -600,6 +600,14 @@ final class PvpCompetitionService implements Listener {
             }
         }
         announceQueueChange(setup, members, true);
+        if (queuedFor(setup) == members.size()) {
+            // The first entry into an empty setup is the moment somebody outside the
+            // server can make the match happen; later joins would only be noise.
+            plugin.pingDiscord("ping_pvp_queue", setup.matchLabel() + " queue opened",
+                    Map.of("mode", setup.matchLabel(),
+                            "waiting", String.valueOf(queuedFor(setup)),
+                            "required", String.valueOf(setup.requiredPlayers())));
+        }
         matchDrafts.remove(playerId);
         refreshQueueFeedback(System.currentTimeMillis(), true);
         tryMatch(mode, System.currentTimeMillis());
