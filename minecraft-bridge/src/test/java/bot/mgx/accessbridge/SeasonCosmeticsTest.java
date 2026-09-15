@@ -74,7 +74,10 @@ final class SeasonCosmeticsTest {
                 service.indexOf("private Optional<SeasonGear.Piece> seasonPiece("));
         assertFalse(factory.contains("createTimed(") || factory.contains("kindKey"),
                 "season gear must not inherit Amethyst abilities");
-        assertFalse(factory.contains("setUnbreakable(true)"), "season gear wears out like normal gear");
+        String withoutWings = factory.replace(
+                "if (piece == SeasonGear.Piece.WINGS) {\n            meta.setUnbreakable(true);", "");
+        assertFalse(withoutWings.contains("setUnbreakable(true)"),
+                "only the Wings never break; the tools wear out like normal gear");
         assertFalse(factory.contains("SHARPNESS, 6") || factory.contains("SHARPNESS, 7"),
                 "no enchantment above the vanilla maximum");
         String scythe = service.substring(service.indexOf("public void onSeasonScythe("),
