@@ -1,6 +1,7 @@
 {
   "items": [
-    {"java_item": "minecraft:bundle", "model": "mgx:mythic_giftbag", "bedrock_identifier": "mgx:mythic_giftbag", "display_name": "Season Giftbag"},
+    {"java_item": "minecraft:flower_banner_pattern", "model": "mgx:mythic_giftbag", "bedrock_identifier": "mgx:mythic_giftbag", "display_name": "Season Giftbag"},
+    {"java_item": "minecraft:red_dye", "model": "mgx:season_heart", "bedrock_identifier": "mgx:season_heart", "display_name": "Season Heart"},
     {"java_item": "minecraft:trial_key", "model": "mgx:crate_key", "bedrock_identifier": "mgx:crate_key", "display_name": "Amethyst Token"},
     {"java_item": "minecraft:trial_key", "model": "mgx:mystery_key", "bedrock_identifier": "mgx:mystery_key", "display_name": "Mysterious Crate Key"},
     {"java_item": "minecraft:potion", "model": "mgx:fortune_potion", "bedrock_identifier": "mgx:fortune_potion", "display_name": "Fortune Potion"},

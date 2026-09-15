@@ -390,7 +390,8 @@ class ResourcePackCatalogTest {
         // that only staying online earns is the item with the new identity.
         expectedBases.put("mgx:mystery_key", "minecraft:trial_key");
         expectedBases.put("mgx:shard", "minecraft:amethyst_shard");
-        expectedBases.put("mgx:mythic_giftbag", "minecraft:bundle");
+        expectedBases.put("mgx:mythic_giftbag", "minecraft:flower_banner_pattern");
+        expectedBases.put("mgx:season_heart", "minecraft:red_dye");
         expectedBases.put("mgx:fortune_potion", "minecraft:potion");
         expectedBases.put("mgx:crate_luck_potion", "minecraft:potion");
         expectedBases.put("mgx:amethyst_dragon_egg", "minecraft:dragon_egg");

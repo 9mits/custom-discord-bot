@@ -181,67 +181,81 @@ final class SeasonPassRulesTest {
     }
 
     /**
-     * The owner's rules for the track (September 2026): vanilla first, custom items only at
-     * milestones from tier 10, no copyable trim-template filler, nothing the shop sells or the
-     * End gives, and useful consumables may repeat only at a larger amount later in the pass.
+     * The owner's rules for the track (September 2026): every tier pays something a player
+     * spends or wears, never a collectable (discs, sponges, trims, skulls); consumables may
+     * return only at a larger amount; and every reward has a real icon in the dialog rows,
+     * never a flat block face or a missing sprite.
      */
     @Test
-    void theDefaultTrackIsVanillaFirstValuableRealAndOnBudget() throws Exception {
+    void theDefaultTrackPaysOnlyUsefulRewardsWithRealIcons() throws Exception {
         String store = java.nio.file.Files.readString(java.nio.file.Path.of(
                 "src/main/java/bot/mgx/accessbridge/GameVariableStore.java"));
         String block = store.substring(store.indexOf("text(\"season.reward.track\""),
                 store.indexOf("text(\"season.reward.fallback\""));
-        String track = block.substring(block.indexOf("vanilla:golden_apple:4"), block.lastIndexOf("\", 4000);"))
+        String track = block.substring(block.indexOf("reward:fortune_potion_i:2"), block.lastIndexOf("\", 4000);"))
                 .replaceAll("\"\\s*\\+\\s*\"", "");
         String shop = java.nio.file.Files.readString(java.nio.file.Path.of(
                 "src/main/java/bot/mgx/accessbridge/ShopCatalog.java"));
-        Set<String> end = Set.of("elytra", "shulker_shell", "shulker_box", "dragon_egg", "dragon_head",
-                "dragon_breath", "end_crystal", "chorus_fruit", "spire_armor_trim_smithing_template");
-        Set<String> gameBreaking = Set.of("spawner", "budding_amethyst", "trial_spawner", "vault", "mace");
+        java.nio.file.Path textures = java.nio.file.Path.of("../assets/resourcepack/src/assets/mgx/textures");
+        Set<String> usefulVanilla = Set.of("netherite_ingot", "totem_of_undying", "trident", "nether_star");
+        Set<String> usefulBooks = Set.of("mending");
         assertEquals(50, track.split("\\|", -1).length, "one entry per tier");
 
         long shards = 0;
         long hearts = 0;
-        long giftbags = 0;
-        Set<String> items = new HashSet<>();
-        Map<String, Integer> repeatedVanilla = new HashMap<>();
+        int giftbagTier = 0;
+        Set<String> books = new HashSet<>();
+        Map<String, Long> repeated = new HashMap<>();
         Set<String> exclusives = new HashSet<>();
         Set<String> gear = new HashSet<>();
+        Set<String> seasonItems = new HashSet<>();
         for (int tier = 1; tier <= 50; tier++) {
             String entry = SeasonPassRules.trackEntry(track, tier);
+            assertFalse(entry.contains("music_disc") || entry.contains("smithing_template") || entry.contains("sponge"),
+                    "tier " + tier + " pays a collectable nobody uses: " + entry);
             List<SeasonPassRules.Grant> grants = SeasonPassRules.parse(entry);
             assertEquals(entry.split(";").length, grants.size(), "tier " + tier + " has a part that does not parse");
             assertFalse(grants.isEmpty(), "tier " + tier + " pays nothing");
             for (SeasonPassRules.Grant grant : grants) {
-                boolean custom = !grant.kind().equals("vanilla") && !grant.kind().equals("book")
-                        && !grant.kind().equals("shards") && !grant.kind().equals("hearts");
-                assertFalse(custom && tier < 10, "tier " + tier + " pays a custom item before tier 10");
                 switch (grant.kind()) {
                     case "vanilla" -> {
-                        assertFalse(grant.id().endsWith("_smithing_template"),
-                                grant.id() + " is copyable filler, not a lasting tier reward");
-                        int previous = repeatedVanilla.getOrDefault(grant.id(), 0);
-                        if (previous > 0) {
-                            assertTrue(Set.of("netherite_ingot", "totem_of_undying",
-                                            "enchanted_golden_apple", "netherite_block").contains(grant.id()),
-                                    grant.id() + " repeats without being a deliberately escalating consumable");
-                            assertTrue(grant.amount() > previous,
-                                    grant.id() + " must pay more when it returns later in the pass");
-                        }
-                        repeatedVanilla.put(grant.id(), (int) grant.amount());
+                        assertTrue(usefulVanilla.contains(grant.id()), grant.id() + " is not a reward players use");
+                        escalates(repeated, "vanilla:" + grant.id(), grant.amount());
                         org.bukkit.Material material = org.bukkit.Material.matchMaterial(grant.id());
                         assertTrue(material != null, grant.id() + " is not a real item");
                         assertFalse(shop.contains("\"" + material.name() + "\""), grant.id() + " is sold in /shop");
-                        assertFalse(end.contains(grant.id()), grant.id() + " comes from the End");
-                        assertFalse(gameBreaking.contains(grant.id()), grant.id() + " breaks the game");
+                        assertTrue(SeasonPassMenu.FLAT_ITEM_TEXTURES.contains(grant.id()),
+                                grant.id() + " has no inventory texture for its dialog icon");
+                        assertEquals("item/" + grant.id(), SeasonPassMenu.vanillaSprite(grant.id()));
                     }
-                    case "book" -> assertTrue(items.add("book:" + grant.id()), grant.id() + " book is paid twice");
+                    case "book" -> {
+                        assertTrue(usefulBooks.contains(grant.id()), grant.id() + " is a niche book");
+                        assertTrue(books.add(grant.id()), grant.id() + " book is paid twice");
+                    }
+                    case "reward" -> {
+                        CrateCatalog.Reward reward = CrateCatalog.find(grant.id())
+                                .orElseThrow(() -> new AssertionError(grant.id() + " is not a crate reward"));
+                        assertFalse(reward.cosmetic(), grant.id() + " should be a season exclusive instead");
+                        assertTrue(SeasonPassMenu.knownRewardRarity(grant.id()).isPresent(),
+                                grant.id() + " has no pass rarity");
+                        escalates(repeated, "reward:" + grant.id(), grant.amount());
+                        String sprite = SeasonPassMenu.spriteOf(reward);
+                        if (sprite.startsWith("mgx:item/")) {
+                            assertTrue(java.nio.file.Files.isRegularFile(textures.resolve(
+                                    sprite.substring("mgx:".length()) + ".png")), sprite + " has no texture");
+                        } else {
+                            assertEquals("item/enchanted_book", sprite, grant.id() + " has no real icon");
+                        }
+                    }
                     case "shards" -> shards += grant.amount();
                     case "hearts" -> hearts += grant.amount();
-                    case "giftbag" -> giftbags += grant.amount();
+                    case "giftbag" -> {
+                        assertEquals(0, giftbagTier, "only one tier pays a Mythic Giftbag");
+                        giftbagTier = tier;
+                    }
                     case "season_cosmetic" -> assertTrue(exclusives.add(grant.id()), "exclusive paid twice");
                     case "season_gear" -> assertTrue(gear.add(grant.id()), "gear paid twice");
-                    case "season_item" -> assertTrue(items.add(grant.id()), grant.id() + " is paid twice");
+                    case "season_item" -> assertTrue(seasonItems.add(grant.id()), grant.id() + " is paid twice");
                     default -> throw new AssertionError("tier " + tier + " pays " + grant.kind());
                 }
             }
@@ -250,18 +264,18 @@ final class SeasonPassRulesTest {
         assertEquals(java.util.Arrays.stream(SeasonGear.Piece.values()).map(Enum::name)
                 .collect(java.util.stream.Collectors.toSet()), gear, "every gear piece is on the track once");
         assertEquals(2, hearts, "Season Hearts affect PvP, so a full pass pays two");
-        assertEquals(1, giftbags, "only the final tier pays the Mythic Giftbag");
+        assertEquals(50, giftbagTier, "the final tier pays the Mythic Giftbag");
         assertTrue(shards >= 24 && shards <= 36, "a full track pays " + shards + " Shards");
-        for (int tier = 41; tier <= 50; tier++) {
-            assertFalse(SeasonPassRules.parse(SeasonPassRules.trackEntry(track, tier)).isEmpty(),
-                    "late tier " + tier + " must stay rewarding");
-        }
-        for (String sprite : List.of("nether_star", "beacon", "conduit", "sniffer_egg", "heavy_core", "sponge")) {
-            assertTrue(SeasonPassMenu.vanillaSprite(sprite).startsWith("item/")
-                    || SeasonPassMenu.vanillaSprite(sprite).startsWith("block/"));
-        }
-        assertEquals(SeasonPassMenu.Rarity.LEGENDARY, SeasonPassMenu.vanillaRarity("nether_star"));
+        assertTrue(java.nio.file.Files.isRegularFile(textures.resolve(
+                SeasonPassMenu.HEART_SPRITE.substring("mgx:".length()) + ".png")), "the heart icon ships");
         assertEquals("item/golden_apple", SeasonPassMenu.vanillaSprite("enchanted_golden_apple"));
+        assertEquals("item/nether_star", SeasonPassMenu.vanillaSprite("beacon"),
+                "a block has no flat icon, so it gets a stand-in rather than its face texture");
+    }
+
+    private static void escalates(Map<String, Long> seen, String key, long amount) {
+        Long previous = seen.put(key, amount);
+        assertTrue(previous == null || amount > previous, key + " must pay more when it returns later in the pass");
     }
 
     @Test

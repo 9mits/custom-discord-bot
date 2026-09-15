@@ -150,8 +150,9 @@ class ResourcePackIconTests(unittest.TestCase):
         # Mysterious Crate Key, which became its own item when the Amethyst Token
         # inherited the old key's identity, plus three exclusives for each of the
         # four themed seasons, plus each season's Scythe, Pickaxe, Axe, Wings, Hoe and Helmet,
-        # plus the seven Relics, the Dawnbreak and Dreamdrift crate cosmetics, and the mythical Giftbag.
-        self.assertEqual(156, len(icons))
+        # plus the seven Relics, the Dawnbreak and Dreamdrift crate cosmetics, the mythical Giftbag,
+        # and the supplied Season Heart.
+        self.assertEqual(157, len(icons))
 
         digests = set()
         for path in icons:

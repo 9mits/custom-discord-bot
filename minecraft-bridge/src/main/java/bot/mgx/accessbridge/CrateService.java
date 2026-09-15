@@ -60,11 +60,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     private static final int RESULT_BACK_SLOT = 22;
     private static final int CONFIRM_YES_SLOT = 11;
     private static final int CONFIRM_NO_SLOT = 15;
-    /** Odds and Auto Trash pages hold rewards in a framed 7 x 4 grid. */
-    private static final int ODDS_PER_PAGE = 28;
-    private static final int FILTER_PER_PAGE = 28;
-    private static final int GRID_HEADER_SLOT = 4;
-    private static final int GRID_PAGE_SLOT = 49;
+    private static final int ODDS_PER_PAGE = 45;
+    private static final int FILTER_PER_PAGE = 45;
     /** The key-free crates' hubs and results use a single, centred row of controls. */
     private static final int HUB_PASS_FILTER_SLOT = 22;
     private static final int RESULT_PASS_AGAIN_SLOT = 13;
@@ -508,40 +505,6 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         MenuItems.show(plugin, player, inventory);
     }
 
-    /** The framed grid's slot for the index-th entry on a page: rows 1-4, columns 1-7. */
-    static int gridSlot(int index) {
-        return (1 + index / 7) * 9 + 1 + index % 7;
-    }
-
-    /** The entry index a clicked grid slot holds, or -1 for the frame. */
-    static int gridIndex(int slot) {
-        int row = slot / 9;
-        int column = slot % 9;
-        if (row < 1 || row > 4 || column < 1 || column > 7) return -1;
-        return (row - 1) * 7 + column - 1;
-    }
-
-    private static void frame(Inventory inventory) {
-        ItemStack pane = MenuItems.detailed(Material.GRAY_STAINED_GLASS_PANE, " ", List.of());
-        for (int slot = 0; slot < inventory.getSize(); slot++) inventory.setItem(slot, pane);
-    }
-
-    /** The tile at the top of an odds page: what the crate is and how often it pays out rare. */
-    private ItemStack oddsHeader(Player player, CrateKind kind, int rewardCount) {
-        List<Component> lore = new ArrayList<>();
-        lore.add(Component.text(rewardCount + " possible rewards", NamedTextColor.GRAY));
-        lore.add(Component.text(String.format(Locale.ROOT, "%.1f%% chance of a rare reward",
-                variables.advertisedRareRate(kind) * 100d), NamedTextColor.GRAY));
-        if (kind == CrateKind.DAILY) {
-            int luck = streakLuck(player);
-            lore.add(Component.text(luck > 0 ? "Your streak luck: +" + luck + "%" : "Join every day for streak luck.",
-                    luck > 0 ? NamedTextColor.GOLD : NamedTextColor.GRAY));
-        }
-        lore.add(Component.empty());
-        lore.add(Component.text("Hover a reward to see its exact chance.", NamedTextColor.DARK_GRAY));
-        return kindButton(kind, kind.menuName() + " Odds", lore);
-    }
-
     private void openOdds(Player player, CrateKind kind, int requestedPage) {
         openOdds(player, kind, requestedPage, false);
     }
@@ -558,14 +521,11 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                         kind.colour())
         );
         holder.inventory = inventory;
-        frame(inventory);
-        inventory.setItem(GRID_HEADER_SLOT, oddsHeader(player, kind, rewards.size()));
-        inventory.setItem(GRID_PAGE_SLOT, MenuItems.button(Material.PAPER, "Page " + page + " of " + pageCount));
         int first = (page - 1) * ODDS_PER_PAGE;
         int last = Math.min(rewards.size(), first + ODDS_PER_PAGE);
         for (int index = first; index < last; index++) {
             CrateCatalog.Reward reward = rewards.get(index);
-            inventory.setItem(gridSlot(index - first), kind == CrateKind.DRAGON && reward.secret()
+            inventory.setItem(index - first, kind == CrateKind.DRAGON && reward.secret()
                     ? items.oddsPreview(reward, cosmeticItems)
                     : items.oddsPreview(
                             reward, cosmeticItems, variables.displayedChance(kind, reward)
@@ -634,16 +594,13 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                 Component.text("Auto Trash " + page + "/" + pageCount, kind.colour())
         );
         holder.inventory = inventory;
-        frame(inventory);
-        inventory.setItem(GRID_HEADER_SLOT, MenuItems.button(Material.CAULDRON, "Auto Trash",
-                "Click a reward to throw it away on sight.", "Click it again to keep it."));
         Set<String> discarded = filters.all(player.getUniqueId());
         int first = (page - 1) * FILTER_PER_PAGE;
         int last = Math.min(rewards.size(), first + FILTER_PER_PAGE);
         for (int index = first; index < last; index++) {
             CrateCatalog.Reward reward = rewards.get(index);
             inventory.setItem(
-                    gridSlot(index - first),
+                    index - first,
                     filterEntry(reward, discarded.contains(reward.id()))
             );
         }
@@ -1597,8 +1554,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                             Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 0.7f, 1.2f);
                 }
                 openFilters(player, menu.kind, menu.page);
-            } else if (gridIndex(event.getSlot()) >= 0) {
-                toggleFilter(player, menu.kind, menu.page, gridIndex(event.getSlot()));
+            } else if (event.getSlot() < FILTER_PER_PAGE) {
+                toggleFilter(player, menu.kind, menu.page, event.getSlot());
             }
         } else if (menu.screen == Screen.ODDS) {
             if (event.getSlot() == PREVIOUS_SLOT) {
