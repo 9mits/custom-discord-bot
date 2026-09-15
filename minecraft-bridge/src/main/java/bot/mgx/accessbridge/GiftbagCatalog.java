@@ -6,7 +6,7 @@ import java.util.Optional;
 import java.util.random.RandomGenerator;
 import java.util.function.ToLongFunction;
 
-/** The public, season-bound prize table inside the mythical Giftbag. */
+/** The public, season-bound prize table inside the Mythic Giftbag. */
 final class GiftbagCatalog {
     static final long DEFAULT_TOTAL_WEIGHT = 1_000_000L;
 
@@ -15,10 +15,10 @@ final class GiftbagCatalog {
     }
 
     enum Rarity {
-        RARE("RARE", 0x55C8FF),
-        EXCLUSIVE("SEASON EXCLUSIVE", 0xFF55FF),
-        MYTHIC("MYTHIC", 0xB56CFF),
-        IMPOSSIBLE("幻 IMPOSSIBLE", 0x53E5FF);
+        RARE("Rare", 0x55C8FF),
+        EXCLUSIVE("Season Exclusive", 0xFF55FF),
+        MYTHIC("Mythic", 0xB56CFF),
+        MYTHIC_ITEM("Mythic Item", 0x53E5FF);
 
         final String label;
         final int colour;
@@ -64,11 +64,11 @@ final class GiftbagCatalog {
             new Entry("season_aura", Kind.SEASON_COSMETIC, "aura", 1, 6_000,
                     "Season Aura", Rarity.EXCLUSIVE),
             new Entry("riftcleaver", Kind.MYTHIC_ITEM, "riftcleaver", 1, 1_000,
-                    "Riftcleaver", Rarity.IMPOSSIBLE),
+                    "Riftcleaver", Rarity.MYTHIC_ITEM),
             new Entry("worldcarver", Kind.MYTHIC_ITEM, "worldcarver", 1, 600,
-                    "Worldcarver", Rarity.IMPOSSIBLE),
+                    "Worldcarver", Rarity.MYTHIC_ITEM),
             new Entry("fatebound_idol", Kind.MYTHIC_ITEM, "fatebound_idol", 1, 200,
-                    "Fatebound Idol", Rarity.IMPOSSIBLE)
+                    "Fatebound Idol", Rarity.MYTHIC_ITEM)
     );
 
     private GiftbagCatalog() {
@@ -88,6 +88,11 @@ final class GiftbagCatalog {
     static Optional<Entry> find(String id) {
         if (id == null) return Optional.empty();
         return ENTRIES.stream().filter(entry -> entry.id.equals(id)).findFirst();
+    }
+
+    static List<String> mythicItemIds() {
+        return ENTRIES.stream().filter(entry -> entry.kind == Kind.MYTHIC_ITEM)
+                .map(Entry::id).toList();
     }
 
     static Entry roll(int season, ToLongFunction<Entry> weights, RandomGenerator random) {

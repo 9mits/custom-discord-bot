@@ -52,7 +52,7 @@ import static bot.mgx.accessbridge.MenuItems.ORANGE;
  * minute, and all of it is raised during a Rally or for a player behind the season's pace.
  * Every tier pays automatically the
  * moment it is reached, so nothing is ever left unclaimed; the last tiers pay chase
- * rewards: Season Hearts, Shards, a mythical Giftbag, permanent gear, and an aura, trail and kill effect that
+ * rewards: Season Hearts, Shards, a Mythic Giftbag, permanent gear, and an aura, trail and kill effect that
  * only this season's pass ever pays. A season runs for a fixed number of days, then its top
  * three are paid, remembered, and everybody starts the next one from tier zero.
  *
@@ -545,6 +545,30 @@ final class SeasonPassService implements Listener, CommandExecutor {
         dirty = true;
     }
 
+    /** Local-test control: add XP through the real tier-payment and presentation path. */
+    void addTestXp(Player player, long xp) {
+        long maximum = Math.multiplyExact((long) maximumTier(), xpPerTier());
+        if (xp < 1L || xp > maximum) {
+            throw new IllegalArgumentException("XP must be between 1 and " + maximum + ".");
+        }
+        addXp(player, rowFor(player), xp);
+        dirty = true;
+        save();
+    }
+
+    /** Local-test control: move to an exact tier; moving down arms that tier-up to be tested again. */
+    void setTestTier(Player player, int tier) {
+        if (tier < 0 || tier > maximumTier()) {
+            throw new IllegalArgumentException("Tier must be between 0 and " + maximumTier() + ".");
+        }
+        SeasonStore.Row row = rowFor(player);
+        row.xp = Math.multiplyExact((long) tier, xpPerTier());
+        row.grantedTier = Math.min(row.grantedTier, tier);
+        grantReachedTiers(player, row);
+        dirty = true;
+        save();
+    }
+
     private SeasonStore.Row rowFor(Player player) {
         SeasonStore.Row row = store.row(player.getUniqueId());
         row.name = player.getName();
@@ -679,7 +703,7 @@ final class SeasonPassService implements Listener, CommandExecutor {
                 case "keys" -> parts.add(grant.amount() + (grant.amount() == 1 ? " Key" : " Keys"));
                 case "shards" -> parts.add(grant.amount() + (grant.amount() == 1 ? " Shard" : " Shards"));
                 case "giftbag" -> parts.add(grant.amount() + (grant.amount() == 1
-                        ? " 幻 Giftbag" : " 幻 Giftbags"));
+                        ? " Mythic Giftbag" : " Mythic Giftbags"));
                 case "cosmetic" -> parts.add(CosmeticCatalog.find(grant.id())
                         .map(CosmeticCatalog.Definition::displayName).orElse(grant.id()));
                 case "reward" -> parts.add((grant.amount() > 1 ? grant.amount() + "x " : "")
@@ -785,7 +809,7 @@ final class SeasonPassService implements Listener, CommandExecutor {
                                 give(player, plugin.giftbags().create(store.season()));
                             }
                             info(player, "You found a Season " + store.season()
-                                    + " 幻 Giftbag. Right-click it when you are ready.");
+                                    + " Mythic Giftbag. Right-click it when you are ready.");
                         }
                     }
                     case "cosmetic" -> CosmeticCatalog.find(grant.id()).ifPresent(definition -> {
@@ -870,7 +894,7 @@ final class SeasonPassService implements Listener, CommandExecutor {
                 info(online, "You finished #" + (place + 1) + " in Season " + podium.season
                         + " and earned " + prizes[place] + " Shards"
                         + (place == 0 && championGiftbags > 0
-                        ? " plus " + championGiftbags + " 幻 Giftbag" + (championGiftbags == 1 ? "" : "s") : "")
+                        ? " plus " + championGiftbags + " Mythic Giftbag" + (championGiftbags == 1 ? "" : "s") : "")
                         + ".");
             } else {
                 row.owedShards += prizes[place];
@@ -916,7 +940,7 @@ final class SeasonPassService implements Listener, CommandExecutor {
                 List<Integer> seasons = new ArrayList<>(row.owedGiftbagSeasons);
                 row.owedGiftbagSeasons.clear();
                 for (int giftbagSeason : seasons) give(player, plugin.giftbags().create(giftbagSeason));
-                info(player, "Your Season podium prize arrived: " + seasons.size() + " 幻 Giftbag"
+                info(player, "Your Season podium prize arrived: " + seasons.size() + " Mythic Giftbag"
                         + (seasons.size() == 1 ? "" : "s") + ".");
                 dirty = true;
             }
@@ -1072,9 +1096,9 @@ final class SeasonPassService implements Listener, CommandExecutor {
                 DialogBody.plainMessage(Component.empty(), RULE_WIDTH),
                 DialogBody.plainMessage(MenuText.rule("item/nether_star", "Season exclusives",
                         "Gear and cosmetics only this season pays. They never come back."), RULE_WIDTH),
-                DialogBody.plainMessage(MenuText.rule("mgx:item/mythic_giftbag", "幻 Giftbag",
-                        "The final tier's one-roll mythical relic. It can hatch this season's rarest rewards"
-                                + " or one of three impossible permanent items."), RULE_WIDTH),
+                DialogBody.plainMessage(MenuText.rule("mgx:item/mythic_giftbag", "Mythic Giftbag",
+                        "The final tier's one-roll reward. It can contain this season's rarest rewards"
+                                + " or one of three exceptionally rare mythic items."), RULE_WIDTH),
                 DialogBody.plainMessage(MenuText.rule("item/red_dye", "Season Hearts",
                         "Up to " + heartCap() + " extra hearts that expire when the season ends."), RULE_WIDTH),
                 DialogBody.plainMessage(MenuText.rule("item/gold_ingot", "Season Top",
@@ -1082,7 +1106,7 @@ final class SeasonPassService implements Listener, CommandExecutor {
                                 + variables.integer("season.first-place-shards") + ", "
                                 + variables.integer("season.second-place-shards") + " and "
                                 + variables.integer("season.third-place-shards") + " Shards. First also wins "
-                                + variables.integer("season.first-place-giftbags") + " 幻 Giftbag."), RULE_WIDTH),
+                                + variables.integer("season.first-place-giftbags") + " Mythic Giftbag."), RULE_WIDTH),
                 DialogBody.plainMessage(Component.empty(), RULE_WIDTH),
                 DialogBody.plainMessage(MenuText.muted("Every tier pays the moment you reach it."
                         + " Rewards wait while you are in PvP or screenshot mode."), RULE_WIDTH)));
@@ -1092,7 +1116,7 @@ final class SeasonPassService implements Listener, CommandExecutor {
                 + variables.integer("season.streak-xp") + " per streak day."
                 + "\nRallies (" + rallyThreshold + "+ active players) and catch-up boost your XP."
                 + "\nInvite a friend: " + variables.integer("season.referral-xp") + " XP when they qualify."
-                + "\nSeason exclusives never come back. The final tier pays one 幻 Giftbag."
+                + "\nSeason exclusives never come back. The final tier pays one Mythic Giftbag."
                 + " Season Hearts expire when the season ends.";
         show(player, "How The Pass Works", page, plain, List.of(
                 new Action("item/writable_book", "Quests", "Today's and this week's quests.",
@@ -1356,7 +1380,7 @@ final class SeasonPassService implements Listener, CommandExecutor {
                 + variables.integer("season.first-place-shards") + ", "
                 + variables.integer("season.second-place-shards") + " and "
                 + variables.integer("season.third-place-shards") + " Shards. First place also wins "
-                + variables.integer("season.first-place-giftbags") + " 幻 Giftbag."), RULE_WIDTH));
+                + variables.integer("season.first-place-giftbags") + " Mythic Giftbag."), RULE_WIDTH));
         show(player, "Season " + store.season() + " Top", page, plain.toString(), List.of(), this::openPass);
     }
 

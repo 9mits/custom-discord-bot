@@ -52,7 +52,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
      */
     private static final List<String> SUBCOMMANDS = List.of(
             "startserver", "teststart", "pvp", "give", "ranks", "eco", "bounty", "hologram",
-            "reset", "testverify", "testcrate", "testlatest", "testairdrop", "testamethystblock", "devblog", "update", "serials",
+            "reset", "testverify", "testcrate", "testseason", "testlatest", "testairdrop", "testamethystblock", "devblog", "update", "serials",
             "cosmetics", "clanbattle", "event", "variables", "perf", "help"
     );
     private static final List<String> CRATE_REVEAL_TIERS = List.of("legendary", "mythic", "exotic", "secret", "dragonsecret");
@@ -106,6 +106,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     private final AmethystItemService amethystItems;
     private final AmethystDragonService amethystDragon;
     private final GiftbagService giftbags;
+    private final MythicGiftItemService mythicItems;
 
     AdminCommandService(
             MGXAccessBridge plugin,
@@ -130,7 +131,8 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             GameVariableStore variables,
             AmethystItemService amethystItems,
             AmethystDragonService amethystDragon,
-            GiftbagService giftbags
+            GiftbagService giftbags,
+            MythicGiftItemService mythicItems
     ) {
         this.plugin = plugin;
         this.rankSync = rankSync;
@@ -155,6 +157,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         this.amethystItems = amethystItems;
         this.amethystDragon = amethystDragon;
         this.giftbags = giftbags;
+        this.mythicItems = mythicItems;
     }
 
     @Override
@@ -193,6 +196,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 }
                 case "pvp" -> pvp(sender, args);
                 case "give" -> give(sender, args);
+                case "testseason" -> testSeason(sender, args);
                 case "ranks" -> ranks(sender, args);
                 case "eco" -> eco(sender, args);
                 case "bounty" -> bounty(sender, args);
@@ -775,9 +779,21 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 int count = forEachTarget(targets, player -> {
                     for (int copy = 0; copy < amount; copy++) hand(player, giftbags.create(season));
                 });
-                String what = amount + " Season " + season + " 幻 Giftbag" + (amount == 1 ? "" : "s");
+                String what = amount + " Season " + season + " Mythic Giftbag" + (amount == 1 ? "" : "s");
                 success(sender, "Gave " + what + " to " + describeTargets(targets, count) + ".");
                 audit(sender, targets, what, count);
+            }
+            case MYTHIC_ITEM -> {
+                GiftbagCatalog.Entry reward = GiftbagCatalog.find(request.cosmeticId())
+                        .filter(entry -> entry.kind() == GiftbagCatalog.Kind.MYTHIC_ITEM)
+                        .orElseThrow(() -> new IllegalArgumentException(
+                                "No Giftbag mythic item called '" + request.cosmeticId() + "'."
+                        ));
+                int count = forEachTarget(targets,
+                        player -> hand(player, mythicItems.create(reward.value())));
+                success(sender, "Gave " + reward.displayName() + " to "
+                        + describeTargets(targets, count) + ".");
+                audit(sender, targets, reward.displayName(), count);
             }
             case COSMETIC -> {
                 CosmeticCatalog.Definition definition = CosmeticCatalog.find(request.cosmeticId())
@@ -1134,6 +1150,61 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 .record();
         success(sender, "Local verification reset. Disconnecting you into the verification lobby.");
         plugin.beginTestVerificationReset(player.getUniqueId());
+    }
+
+    /** Local-only controls for exercising the real Season XP, tier reward, and title path. */
+    private void testSeason(CommandSender sender, String[] args) {
+        if (!plugin.isLocalTestServer()) {
+            throw new IllegalArgumentException("Season tests are available only on the local test server.");
+        }
+        if (plugin.seasonPass() == null) {
+            throw new IllegalArgumentException("The Season Pass is unavailable.");
+        }
+        if (args.length < 3) {
+            throw new IllegalArgumentException(
+                    "Usage: /mgxadmin testseason <xp|tier> <amount> [player]"
+            );
+        }
+        Player target;
+        if (args.length >= 4) {
+            target = Bukkit.getPlayerExact(args[3]);
+            if (target == null) throw new IllegalArgumentException("That player is not online.");
+        } else if (sender instanceof Player player) {
+            target = player;
+        } else {
+            throw new IllegalArgumentException(
+                    "Console must name an online player: /mgxadmin testseason <xp|tier> <amount> <player>"
+            );
+        }
+        String mode = args[1].toLowerCase(Locale.ROOT);
+        long amount;
+        try {
+            amount = Long.parseLong(args[2]);
+        } catch (NumberFormatException exception) {
+            throw new IllegalArgumentException("The amount must be a whole number.");
+        }
+        SeasonPassService pass = plugin.seasonPass();
+        switch (mode) {
+            case "xp" -> pass.addTestXp(target, amount);
+            case "tier", "level" -> {
+                if (amount > Integer.MAX_VALUE || amount < Integer.MIN_VALUE) {
+                    throw new IllegalArgumentException("Tier must be a whole number in range.");
+                }
+                pass.setTestTier(target, (int) amount);
+            }
+            default -> throw new IllegalArgumentException(
+                    "Usage: /mgxadmin testseason <xp|tier> <amount> [player]"
+            );
+        }
+        String result = "Season tier " + pass.tier(target.getUniqueId())
+                + " with " + pass.xp(target.getUniqueId()) + " XP";
+        success(sender, "Set " + target.getName() + " to " + result + ".");
+        report(sender, "season_test", "Changed local Season Pass test progress")
+                .detail("player", target.getName())
+                .detail("mode", mode)
+                .detail("amount", Long.toString(amount))
+                .detail("result", result)
+                .record();
     }
 
     /** Gives one non-serial test copy of every item and cosmetic from the Amethyst expansion. */
@@ -1682,6 +1753,10 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 .append(Component.text("  hand over crate keys", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin give <player|everyone> shard [amount]", ORANGE)
                 .append(Component.text("  hand over rare Shard Crate currency", NamedTextColor.GRAY)));
+        sender.sendMessage(Component.text("  /mgxadmin give <player|everyone> giftbag [amount]", ORANGE)
+                .append(Component.text("  hand over Mythic Giftbags", NamedTextColor.GRAY)));
+        sender.sendMessage(Component.text("  /mgxadmin give <player|everyone> mythic <id>", ORANGE)
+                .append(Component.text("  hand over a specific Giftbag mythic item", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin give <player|everyone> cosmetic <id>", ORANGE)
                 .append(Component.text("  mint a cosmetic straight to them", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin give <player|everyone> reward <id>", ORANGE)
@@ -1721,6 +1796,12 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                             "  /mgxadmin testcrate <legendary|mythic|exotic|secret|dragonsecret> [player]", ORANGE
                     ).append(Component.text(
                             "  run the complete crate reveal without granting loot",
+                            NamedTextColor.GRAY
+                    )));
+            sender.sendMessage(Component.text(
+                            "  /mgxadmin testseason <xp|tier> <amount> [player]", ORANGE
+                    ).append(Component.text(
+                            "  add Season XP or move to an exact tier",
                             NamedTextColor.GRAY
                     )));
             sender.sendMessage(Component.text("  /mgxadmin testlatest", ORANGE)
@@ -1778,6 +1859,12 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         }
         if (action.equals("testverify")) {
             return args.length == 2 ? partial(args[1], List.of("reset")) : List.of();
+        }
+        if (action.equals("testseason")) {
+            if (args.length == 2) return partial(args[1], List.of("xp", "tier"));
+            if (args.length == 4) return partial(args[3], Bukkit.getOnlinePlayers().stream()
+                    .map(Player::getName).toList());
+            return List.of();
         }
         if (action.equals("testcrate") || action.equals("cratetest")
                 || action.equals("testreveal")) {
@@ -1991,6 +2078,9 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             if (args.length == 4 && args[2].equalsIgnoreCase("reward")) {
                 return partial(args[3], CrateCatalog.everyReward().stream()
                         .map(CrateCatalog.Reward::id).toList());
+            }
+            if (args.length == 4 && args[2].toLowerCase(Locale.ROOT).startsWith("mythic")) {
+                return partial(args[3], GiftbagCatalog.mythicItemIds());
             }
             return List.of();
         }

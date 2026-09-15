@@ -5,7 +5,9 @@ import org.junit.jupiter.api.Test;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.util.HashSet;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -179,17 +181,17 @@ final class SeasonPassRulesTest {
     }
 
     /**
-     * The owner's rules for the track (September 2026): no item twice, vanilla first and
-     * custom items only at milestones from tier 10, nothing the shop sells or the End gives,
-     * every id real, and the Shard and heart budget the economy can absorb.
+     * The owner's rules for the track (September 2026): vanilla first, custom items only at
+     * milestones from tier 10, no copyable trim-template filler, nothing the shop sells or the
+     * End gives, and useful consumables may repeat only at a larger amount later in the pass.
      */
     @Test
-    void theDefaultTrackIsVanillaFirstUniqueRealAndOnBudget() throws Exception {
+    void theDefaultTrackIsVanillaFirstValuableRealAndOnBudget() throws Exception {
         String store = java.nio.file.Files.readString(java.nio.file.Path.of(
                 "src/main/java/bot/mgx/accessbridge/GameVariableStore.java"));
         String block = store.substring(store.indexOf("text(\"season.reward.track\""),
                 store.indexOf("text(\"season.reward.fallback\""));
-        String track = block.substring(block.indexOf("vanilla:golden_apple:3"), block.lastIndexOf("\", 4000);"))
+        String track = block.substring(block.indexOf("vanilla:golden_apple:4"), block.lastIndexOf("\", 4000);"))
                 .replaceAll("\"\\s*\\+\\s*\"", "");
         String shop = java.nio.file.Files.readString(java.nio.file.Path.of(
                 "src/main/java/bot/mgx/accessbridge/ShopCatalog.java"));
@@ -202,6 +204,7 @@ final class SeasonPassRulesTest {
         long hearts = 0;
         long giftbags = 0;
         Set<String> items = new HashSet<>();
+        Map<String, Integer> repeatedVanilla = new HashMap<>();
         Set<String> exclusives = new HashSet<>();
         Set<String> gear = new HashSet<>();
         for (int tier = 1; tier <= 50; tier++) {
@@ -215,7 +218,17 @@ final class SeasonPassRulesTest {
                 assertFalse(custom && tier < 10, "tier " + tier + " pays a custom item before tier 10");
                 switch (grant.kind()) {
                     case "vanilla" -> {
-                        assertTrue(items.add(grant.id()), grant.id() + " is paid twice");
+                        assertFalse(grant.id().endsWith("_smithing_template"),
+                                grant.id() + " is copyable filler, not a lasting tier reward");
+                        int previous = repeatedVanilla.getOrDefault(grant.id(), 0);
+                        if (previous > 0) {
+                            assertTrue(Set.of("netherite_ingot", "totem_of_undying",
+                                            "enchanted_golden_apple", "netherite_block").contains(grant.id()),
+                                    grant.id() + " repeats without being a deliberately escalating consumable");
+                            assertTrue(grant.amount() > previous,
+                                    grant.id() + " must pay more when it returns later in the pass");
+                        }
+                        repeatedVanilla.put(grant.id(), (int) grant.amount());
                         org.bukkit.Material material = org.bukkit.Material.matchMaterial(grant.id());
                         assertTrue(material != null, grant.id() + " is not a real item");
                         assertFalse(shop.contains("\"" + material.name() + "\""), grant.id() + " is sold in /shop");
@@ -237,13 +250,18 @@ final class SeasonPassRulesTest {
         assertEquals(java.util.Arrays.stream(SeasonGear.Piece.values()).map(Enum::name)
                 .collect(java.util.stream.Collectors.toSet()), gear, "every gear piece is on the track once");
         assertEquals(2, hearts, "Season Hearts affect PvP, so a full pass pays two");
-        assertEquals(1, giftbags, "only the final tier pays the mythical Giftbag");
-        assertTrue(shards >= 18 && shards <= 28, "a full track pays " + shards + " Shards");
+        assertEquals(1, giftbags, "only the final tier pays the Mythic Giftbag");
+        assertTrue(shards >= 24 && shards <= 36, "a full track pays " + shards + " Shards");
+        for (int tier = 41; tier <= 50; tier++) {
+            assertFalse(SeasonPassRules.parse(SeasonPassRules.trackEntry(track, tier)).isEmpty(),
+                    "late tier " + tier + " must stay rewarding");
+        }
         for (String sprite : List.of("nether_star", "beacon", "conduit", "sniffer_egg", "heavy_core", "sponge")) {
             assertTrue(SeasonPassMenu.vanillaSprite(sprite).startsWith("item/")
                     || SeasonPassMenu.vanillaSprite(sprite).startsWith("block/"));
         }
         assertEquals(SeasonPassMenu.Rarity.LEGENDARY, SeasonPassMenu.vanillaRarity("nether_star"));
+        assertEquals("item/golden_apple", SeasonPassMenu.vanillaSprite("enchanted_golden_apple"));
     }
 
     @Test

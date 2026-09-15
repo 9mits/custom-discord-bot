@@ -1468,7 +1468,7 @@ final class GameVariableStore {
         integer("season.third-place-shards", "Third place Shards", "Season Pass",
                 "Shards for third place when the season ends.", 3, 0, 640, "shards", false);
         integer("season.first-place-giftbags", "First place Giftbags", "Season Pass",
-                "Season-bound mythical Giftbags awarded to the highest Season XP when the season ends.",
+                "Season-bound Mythic Giftbags awarded to the highest Season XP when the season ends.",
                 1, 0, 16, "giftbags", false);
         integer("season.hearts.cap", "Season Heart cap", "Season Pass",
                 "Most Season Hearts one player can hold in a season. They expire when the season ends.",
@@ -1479,35 +1479,34 @@ final class GameVariableStore {
         integer("season.exclusive-fallback-shards", "Exclusive fallback Shards", "Season Pass",
                 "Shards paid in place of a season exclusive when the season has no themed set.",
                 3, 0, 64, "shards", false);
-        // One entry per tier, and no item twice. Rare vanilla items carry the track, chosen from
-        // what players on the live server do not already hold (September 2026, 84 players:
-        // a Nether Star 2, a Beacon 1, a Conduit, Sniffer Egg or the trail-ruins trims 0) and
-        // never anything /shop sells or the End gives. Custom items appear only at milestones
-        // and never before tier 10, so the first tiers read as Minecraft, not as a crate.
+        // One meaningful reward per tier. Copyable smithing templates are deliberately absent:
+        // twelve differently named trims still felt like the same filler reward and players can
+        // duplicate them. Useful consumables may repeat later at a higher amount, while the scarce
+        // vanilla rewards, season equipment and cosmetics steadily take over the track.
         text("season.reward.track", "Reward track", "Season Pass Rewards",
                 "What every tier pays, tier 1 first, separated by |. Each entry's parts are separated"
                         + " by ; and read vanilla:<item id>[:count], book:<enchantment>[:level], hearts:N,"
                         + " shards:N, reward:<crate reward id>[:count], gear:<scythe|pickaxe|axe|hoe|wings|helmet>,"
                         + " item:rally_horn, giftbag:N, cosmetic:<id> or cosmetic:season:<aura|trail|kill>.",
-                "vanilla:golden_apple:3 | vanilla:diamond:6 | vanilla:netherite_scrap:2 | vanilla:wind_charge:16"
-                        + " | vanilla:dune_armor_trim_smithing_template;shards:1 | vanilla:nautilus_shell:3 | vanilla:ominous_trial_key | vanilla:sponge:4"
-                        + " | vanilla:echo_shard:4 | cosmetic:season:trail;shards:2 | vanilla:heart_of_the_sea | book:mending"
-                        + " | vanilla:music_disc_5 | vanilla:sentry_armor_trim_smithing_template | gear:pickaxe;shards:1 | vanilla:ancient_debris:3"
-                        + " | vanilla:totem_of_undying | vanilla:wild_armor_trim_smithing_template | vanilla:netherite_upgrade_smithing_template | gear:axe;shards:1"
-                        + " | vanilla:music_disc_pigstep | item:rally_horn | vanilla:snout_armor_trim_smithing_template | vanilla:trident"
-                        + " | hearts:1;shards:2 | vanilla:netherite_ingot | vanilla:tide_armor_trim_smithing_template | gear:hoe"
-                        + " | book:swift_sneak:3 | cosmetic:season:kill;shards:2 | vanilla:sniffer_egg | vanilla:vex_armor_trim_smithing_template"
-                        + " | vanilla:music_disc_otherside | vanilla:conduit | gear:scythe;shards:2 | vanilla:heavy_core"
-                        + " | vanilla:ward_armor_trim_smithing_template | gear:helmet | vanilla:host_armor_trim_smithing_template | gear:wings;shards:3"
-                        + " | vanilla:music_disc_relic | vanilla:shaper_armor_trim_smithing_template | vanilla:beacon | vanilla:wayfinder_armor_trim_smithing_template"
-                        + " | vanilla:nether_star;shards:3 | vanilla:enchanted_golden_apple | vanilla:raiser_armor_trim_smithing_template | vanilla:netherite_block"
-                        + " | vanilla:silence_armor_trim_smithing_template | cosmetic:season:aura;hearts:1;shards:5;giftbag:1", 4000);
+                "vanilla:golden_apple:4 | vanilla:diamond:8 | vanilla:diamond_block | vanilla:wind_charge:32"
+                        + " | vanilla:nautilus_shell:4;shards:1 | vanilla:netherite_scrap:4 | vanilla:ominous_trial_key:2 | vanilla:sponge:8"
+                        + " | vanilla:echo_shard:8 | cosmetic:season:trail;shards:2 | vanilla:heart_of_the_sea | book:mending"
+                        + " | vanilla:music_disc_5 | vanilla:breeze_rod:12 | gear:pickaxe;shards:2 | vanilla:ancient_debris:6"
+                        + " | vanilla:totem_of_undying:2 | vanilla:trial_key:5 | vanilla:netherite_ingot:2 | gear:axe;shards:2"
+                        + " | vanilla:music_disc_pigstep | item:rally_horn | book:soul_speed:3 | vanilla:trident"
+                        + " | hearts:1;shards:3 | vanilla:netherite_ingot:3 | vanilla:recovery_compass | gear:hoe"
+                        + " | book:swift_sneak:3 | cosmetic:season:kill;shards:3 | vanilla:sniffer_egg | vanilla:totem_of_undying:3"
+                        + " | vanilla:music_disc_otherside | vanilla:conduit | gear:scythe;shards:3 | vanilla:heavy_core"
+                        + " | book:density:5 | gear:helmet | vanilla:wither_skeleton_skull:3 | gear:wings;shards:3"
+                        + " | vanilla:music_disc_relic | book:breach:4 | vanilla:beacon | vanilla:enchanted_golden_apple:2"
+                        + " | vanilla:nether_star;shards:4 | vanilla:netherite_block | book:wind_burst:3 | vanilla:enchanted_golden_apple:3"
+                        + " | vanilla:netherite_block:2 | cosmetic:season:aura;hearts:1;shards:6;giftbag:1", 4000);
         text("season.reward.fallback", "Reward past the track", "Season Pass Rewards",
                 "What a tier beyond the end of the reward track pays, in the same format as one entry.",
                 "vanilla:golden_apple:2", 200);
 
         bool("season.giftbag.enabled", "Giftbag openings", "Season Giftbag",
-                "Allow players to unseal and roll their mythical Season Giftbags.", true);
+                "Allow players to unseal and roll their Mythic Giftbags.", true);
         integer("season.giftbag.animation-ticks", "Giftbag buildup", "Season Giftbag",
                 "Ticks of cinematic buildup before the Giftbag hatches its reward.",
                 180, 40, 600, "ticks", false);
@@ -2001,7 +2000,7 @@ final class GameVariableStore {
                 "Largest number of keys one give may hand over at a time.",
                 64, 1, 10_000, "keys", false);
         integer("give.maximum-giftbags", "Most Giftbags per give", "Players",
-                "Largest number of mythical Giftbags one administrator give may hand over.",
+                "Largest number of Mythic Giftbags one administrator give may hand over.",
                 16, 1, 64, "giftbags", false);
         integer("amethyst-items.active-hours", "Amethyst item lifetime", "Amethyst Shop",
                 "Hours an activated Amethyst item stays usable.", 24, 1, 8_760, "hours", false);

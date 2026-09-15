@@ -123,22 +123,18 @@ final class GiftbagService implements Listener {
         ItemStack bag = new ItemStack(Material.BUNDLE);
         ItemMeta meta = bag.getItemMeta();
         meta.setMaxStackSize(1);
-        meta.displayName(Component.text("✦ ", MYTHIC, TextDecoration.BOLD)
-                .append(Component.text("SEASON " + season + " ", VIOLET, TextDecoration.BOLD))
-                .append(Component.text("幻 GIFTBAG", MYTHIC, TextDecoration.BOLD))
-                .append(Component.text(" ✦", VIOLET, TextDecoration.BOLD))
+        meta.displayName(Component.text("Season " + season + " Mythic Giftbag", MYTHIC)
                 .decoration(TextDecoration.ITALIC, false));
         meta.lore(List.of(
-                line("A sealed thing people speak about as a rumour.", NamedTextColor.GRAY),
-                line("One Giftbag. One irreversible roll.", NamedTextColor.WHITE),
+                line("Contains one random reward.", NamedTextColor.GRAY),
+                line("One Giftbag. One roll.", NamedTextColor.GRAY),
                 Component.empty(),
-                line("Contains Season " + season + " exclusives, Shards,", NamedTextColor.LIGHT_PURPLE),
-                line("and three impossible permanent mythic items.", NamedTextColor.LIGHT_PURPLE),
+                line("Season " + season + " gear, cosmetics, Shards,", NamedTextColor.LIGHT_PURPLE),
+                line("and three exceptionally rare mythic items.", NamedTextColor.LIGHT_PURPLE),
                 Component.empty(),
-                line("Right-click to inspect and open.", NamedTextColor.AQUA),
-                line("Tradeable · Droppable · Auctionable", NamedTextColor.DARK_GRAY),
-                Component.text("幻 MYTHICAL RELIC", MYTHIC, TextDecoration.BOLD)
-                        .decoration(TextDecoration.ITALIC, false)
+                line("Right-click to open", NamedTextColor.AQUA),
+                line("Can be traded", NamedTextColor.DARK_GRAY),
+                Component.text("Mythic", MYTHIC).decoration(TextDecoration.ITALIC, false)
         ));
         meta.getPersistentDataContainer().set(markerKey, PersistentDataType.BYTE, (byte) 1);
         meta.getPersistentDataContainer().set(seasonKey, PersistentDataType.INTEGER, season);
@@ -197,14 +193,14 @@ final class GiftbagService implements Listener {
     private void openConfirm(Player player, int season) {
         Menu holder = new Menu(Screen.CONFIRM, season);
         Inventory menu = Bukkit.createInventory(holder, 27,
-                Component.text("Open the 幻 Giftbag?", VIOLET, TextDecoration.BOLD));
+                Component.text("Open Mythic Giftbag?", VIOLET));
         holder.inventory = menu;
         fill(menu, Material.PURPLE_STAINED_GLASS_PANE);
-        menu.setItem(YES_SLOT, MenuItems.detailed(Material.LIME_CONCRETE, "OPEN IT", List.of(
+        menu.setItem(YES_SLOT, MenuItems.detailed(Material.LIME_CONCRETE, "Open Giftbag", List.of(
                 line("Consumes exactly one Giftbag.", NamedTextColor.GRAY),
                 line("The result is selected before the reveal begins.", NamedTextColor.GRAY))));
         menu.setItem(CONTENTS_SLOT, preview(season));
-        menu.setItem(NO_SLOT, MenuItems.detailed(Material.RED_CONCRETE, "KEEP IT SEALED", List.of(
+        menu.setItem(NO_SLOT, MenuItems.detailed(Material.RED_CONCRETE, "Keep Giftbag", List.of(
                 line("Close this screen without consuming it.", NamedTextColor.GRAY))));
         player.openInventory(menu);
         sound(player, Sound.BLOCK_AMETHYST_BLOCK_CHIME, 0.8f, 0.55f);
@@ -213,7 +209,7 @@ final class GiftbagService implements Listener {
     private void openContents(Player player, int season) {
         Menu holder = new Menu(Screen.CONTENTS, season);
         Inventory menu = Bukkit.createInventory(holder, 54,
-                Component.text("Inside the Season " + season + " Giftbag", MYTHIC, TextDecoration.BOLD));
+                Component.text("Mythic Giftbag Contents", MYTHIC));
         holder.inventory = menu;
         fill(menu, Material.BLACK_STAINED_GLASS_PANE);
         List<GiftbagCatalog.Entry> rewards = GiftbagCatalog.forSeason(season);
@@ -307,7 +303,7 @@ final class GiftbagService implements Listener {
             entity.setViewRange(variables.integer("season.giftbag.viewer-radius"));
         });
         BossBar bar = BossBar.bossBar(
-                Component.text("✦ THE SEAL IS LISTENING... ✦", VIOLET, TextDecoration.BOLD), 0f,
+                Component.text("The giftbag hums...", VIOLET), 0f,
                 BossBar.Color.PURPLE, BossBar.Overlay.NOTCHED_20);
         List<UUID> audience = nearby(player, anchor);
         for (UUID id : audience) {
@@ -317,8 +313,8 @@ final class GiftbagService implements Listener {
         Reveal reveal = new Reveal(player.getUniqueId(), pending, anchor, display, bar, audience);
         reveals.put(player.getUniqueId(), reveal);
         player.showTitle(Title.title(
-                Component.text("幻", MYTHIC, TextDecoration.BOLD),
-                Component.text("Something impossible is waking...", VIOLET),
+                Component.text("Mythic Giftbag", MYTHIC),
+                Component.text("The seal begins to loosen...", VIOLET),
                 Title.Times.times(Duration.ofMillis(200), Duration.ofSeconds(2), Duration.ofMillis(400))));
         sound(player, Sound.BLOCK_RESPAWN_ANCHOR_CHARGE, 1.2f, 0.5f);
         reveal.task = Bukkit.getScheduler().runTaskTimer(plugin, () -> tick(reveal), 0L, 2L);
@@ -334,10 +330,10 @@ final class GiftbagService implements Listener {
         reveal.elapsed += 2;
         float progress = Math.min(1f, reveal.elapsed / (float) duration);
         reveal.bar.progress(progress);
-        reveal.bar.name(Component.text(progress < .35f ? "✦ THE SEAL IS LISTENING... ✦"
-                : progress < .72f ? "✦ REALITY IS THINNING... ✦"
-                : progress < .94f ? "✦ DO NOT LOOK AWAY ✦" : "✦ 幻 ✦",
-                progress < .72f ? VIOLET : MYTHIC, TextDecoration.BOLD));
+        reveal.bar.name(Component.text(progress < .35f ? "The giftbag hums..."
+                : progress < .72f ? "The cord begins to loosen..."
+                : progress < .94f ? "The seal gives way..." : "The giftbag opens",
+                progress < .72f ? VIOLET : MYTHIC));
         double wave = Math.sin(reveal.elapsed * 0.16d) * (0.08d + progress * 0.18d);
         Location at = reveal.anchor.clone().add(0, wave, 0);
         at.setYaw(reveal.elapsed * (0.9f + progress * 3.5f));
@@ -367,8 +363,7 @@ final class GiftbagService implements Listener {
         if (reveal.task != null) reveal.task.cancel();
         GiftbagCatalog.Entry reward = GiftbagCatalog.find(reveal.pending.rewardId()).orElseThrow();
         reveal.display.setItemStack(rewardPreview(reward, reveal.pending.season()));
-        reveal.bar.name(Component.text("✦ " + reward.displayName().toUpperCase(Locale.ROOT) + " ✦",
-                TextColor.color(reward.rarity().colour), TextDecoration.BOLD));
+        reveal.bar.name(Component.text(reward.displayName(), TextColor.color(reward.rarity().colour)));
         reveal.bar.progress(1f);
         player.showTitle(Title.title(
                 Component.text(reward.rarity().label, TextColor.color(reward.rarity().colour), TextDecoration.BOLD),
@@ -381,7 +376,7 @@ final class GiftbagService implements Listener {
                 viewer.spawnParticle(Particle.END_ROD, reveal.anchor, 75, 1.4, 1.1, 1.4, .12);
                 viewer.spawnParticle(Particle.SONIC_BOOM, reveal.anchor, 1, 0, 0, 0, 0);
             }
-            sound(viewer, reward.rarity() == GiftbagCatalog.Rarity.IMPOSSIBLE
+            sound(viewer, reward.rarity() == GiftbagCatalog.Rarity.MYTHIC_ITEM
                     ? Sound.ENTITY_WITHER_SPAWN : Sound.BLOCK_END_PORTAL_SPAWN, 1.1f, .72f);
             sound(viewer, Sound.UI_TOAST_CHALLENGE_COMPLETE, .9f, 1.05f);
         }
@@ -500,7 +495,7 @@ final class GiftbagService implements Listener {
     }
 
     private void announce(Player winner, GiftbagCatalog.Entry reward, int season) {
-        Component message = Component.text("✦ 幻 GIFTBAG ✦ ", MYTHIC, TextDecoration.BOLD)
+        Component message = Component.text("Mythic Giftbag » ", MYTHIC)
                 .append(Component.text(winner.getName(), NamedTextColor.GOLD, TextDecoration.BOLD))
                 .append(Component.text(" unsealed ", NamedTextColor.WHITE))
                 .append(Component.text(rewardName(reward, season), TextColor.color(reward.rarity().colour), TextDecoration.BOLD))

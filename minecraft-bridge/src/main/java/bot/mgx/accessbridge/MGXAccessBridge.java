@@ -1064,7 +1064,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 gameVariables,
                 amethystItems,
                 amethystDragon,
-                giftbags
+                giftbags,
+                mythicGiftItems
         );
         getCommand("mgxadmin").setExecutor(adminService);
         getCommand("mgxadmin").setTabCompleter(adminService);

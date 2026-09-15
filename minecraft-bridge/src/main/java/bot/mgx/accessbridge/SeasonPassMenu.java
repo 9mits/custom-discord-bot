@@ -54,13 +54,13 @@ final class SeasonPassMenu implements Listener {
 
     /** Rarity names and colours, by what a reward is rather than what a crate rolls. */
     enum Rarity {
-        MYTHICAL("幻 MYTHICAL", 0x53E5FF, 0),
-        EXCLUSIVE("SEASON EXCLUSIVE", 0xFF55FF, 1),
-        LEGENDARY("LEGENDARY", 0xFFAA00, 2),
-        EPIC("EPIC", 0xB56CFF, 3),
-        RARE("RARE", 0x55C8FF, 4),
-        UNCOMMON("UNCOMMON", 0x62E06A, 5),
-        COMMON("COMMON", 0xC6CFDA, 6);
+        MYTHIC("Mythic", 0x53E5FF, 0),
+        EXCLUSIVE("Season Exclusive", 0xFF55FF, 1),
+        LEGENDARY("Legendary", 0xFFAA00, 2),
+        EPIC("Epic", 0xB56CFF, 3),
+        RARE("Rare", 0x55C8FF, 4),
+        UNCOMMON("Uncommon", 0x62E06A, 5),
+        COMMON("Common", 0xC6CFDA, 6);
 
         final String label;
         final int colour;
@@ -99,7 +99,7 @@ final class SeasonPassMenu implements Listener {
 
     static Rarity rarity(SeasonPassRules.Grant grant, Optional<CrateCatalog.Reward> reward) {
         return switch (grant.kind()) {
-            case "giftbag" -> Rarity.MYTHICAL;
+            case "giftbag" -> Rarity.MYTHIC;
             case "season_cosmetic", "season_gear" -> Rarity.EXCLUSIVE;
             case "season_item" -> Rarity.EPIC;
             case "vanilla", "book" -> vanillaRarity(grant.id());
@@ -140,6 +140,7 @@ final class SeasonPassMenu implements Listener {
             case "sponge", "conduit", "beacon", "heavy_core", "netherite_block" -> "block/" + id;
             case "ancient_debris" -> "block/ancient_debris_side";
             case "sniffer_egg" -> "block/sniffer_egg_not_cracked_east";
+            case "enchanted_golden_apple" -> "item/golden_apple";
             default -> "item/" + id;
         };
     }
