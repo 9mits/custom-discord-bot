@@ -170,6 +170,7 @@ Avoid: flat symbol design, mobile-game gloss, smooth illustration, excessive det
 | `soul_requiem` | Dark iron reliquary lantern containing a cyan spirit flame and soul wisp. |
 | `void_collapse` | Dense black-violet imploding sphere with a broken amethyst rim. |
 | `shard` | Three sharply faceted violet and cyan crystal shards rising from one compact dark-purple base, matching the supplied reference silhouette. |
+| `mythic_giftbag` | Midnight-violet enchanted drawstring pouch with angular cyan and lilac stitching, an asymmetrical antique-gold ribbon and seal, and one tiny pale-lilac sparkle at the knot. |
 | `dragonheart_rupture` | Heavy faceted amethyst dragon-heart split by a white-lilac rupture, with three short angular blast shards. |
 | `crystal_wingfall` | Dark-amethyst dragon core enclosed by two descending pale-lilac crystalline wings. |
 | `endscale_cataclysm` | Dense black-violet dragon scale bursting through a broken ring of large amethyst scales. |

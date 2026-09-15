@@ -46,6 +46,7 @@ final class SeasonStoreTest {
                 new SeasonQuestRules.Profile(row.activity, false, true));
         row.daily.slots.get(0).progress = 7;
         row.owedXp = 1_000;
+        row.owedGiftbagSeasons.add(1);
         SeasonStore.Community goal = new SeasonStore.Community();
         goal.week = 2_958L;
         goal.objective = "kill_mobs";
@@ -61,6 +62,7 @@ final class SeasonStoreTest {
         assertEquals(7, back.daily.slots.get(0).progress);
         assertEquals(row.daily.slots.get(2).objective, back.daily.slots.get(2).objective);
         assertEquals(1_000, back.owedXp);
+        assertEquals(List.of(1), back.owedGiftbagSeasons);
         assertEquals(55L, reopened.community().contributions.get(player.toString()));
     }
 
@@ -73,6 +75,7 @@ final class SeasonStoreTest {
         SeasonStore.Row row = store.row(UUID.nameUUIDFromBytes(new byte[] {1}));
         assertEquals(5, row.xp);
         assertTrue(row.activity.isEmpty());
+        assertTrue(row.owedGiftbagSeasons.isEmpty(), "old saves migrate the Giftbag queue");
         assertEquals(Long.MIN_VALUE, store.community().week);
         assertTrue(store.hourlyPeaks().isEmpty());
     }

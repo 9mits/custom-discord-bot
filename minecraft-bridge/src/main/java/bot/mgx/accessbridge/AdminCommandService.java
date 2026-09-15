@@ -105,6 +105,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     private final GameVariableStore variables;
     private final AmethystItemService amethystItems;
     private final AmethystDragonService amethystDragon;
+    private final GiftbagService giftbags;
 
     AdminCommandService(
             MGXAccessBridge plugin,
@@ -128,7 +129,8 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             ClanBattleService clanBattles,
             GameVariableStore variables,
             AmethystItemService amethystItems,
-            AmethystDragonService amethystDragon
+            AmethystDragonService amethystDragon,
+            GiftbagService giftbags
     ) {
         this.plugin = plugin;
         this.rankSync = rankSync;
@@ -152,6 +154,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         this.variables = variables;
         this.amethystItems = amethystItems;
         this.amethystDragon = amethystDragon;
+        this.giftbags = giftbags;
     }
 
     @Override
@@ -760,6 +763,19 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 int amount = (int) request.amount();
                 int count = forEachTarget(targets, player -> hand(player, crateItems.shard(amount)));
                 String what = amount + (amount == 1 ? " Shard" : " Shards");
+                success(sender, "Gave " + what + " to " + describeTargets(targets, count) + ".");
+                audit(sender, targets, what, count);
+            }
+            case GIFTBAG -> {
+                if (giftbags == null || plugin.seasonPass() == null) {
+                    throw new IllegalArgumentException("Season Giftbags are unavailable.");
+                }
+                int amount = (int) request.amount();
+                int season = plugin.seasonPass().season();
+                int count = forEachTarget(targets, player -> {
+                    for (int copy = 0; copy < amount; copy++) hand(player, giftbags.create(season));
+                });
+                String what = amount + " Season " + season + " 幻 Giftbag" + (amount == 1 ? "" : "s");
                 success(sender, "Gave " + what + " to " + describeTargets(targets, count) + ".");
                 audit(sender, targets, what, count);
             }

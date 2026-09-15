@@ -177,11 +177,13 @@ final class SeasonPassRules {
     static final int MAX_HEARTS_PER_TIER = 5;
     /** Most copies of one crate reward a tier can pay. */
     static final long MAX_REWARD_COUNT = 16L;
+    /** Giftbags never stack and should remain genuinely scarce. */
+    static final long MAX_GIFTBAGS_PER_TIER = 4L;
     /** Highest level any vanilla enchantment has; the real maximum is applied when paid. */
     static final long MAX_BOOK_LEVEL = 5L;
 
     /**
-     * Parses a tier reward such as {@code hearts:1;shards:2;vanilla:nether_star;book:mending;gear:scythe;cosmetic:season:aura;item:rally_horn}.
+     * Parses a tier reward such as {@code hearts:1;shards:2;vanilla:nether_star;book:mending;gear:scythe;cosmetic:season:aura;item:rally_horn;giftbag:1}.
      *
      * <p>{@code cosmetic:season:<aura|trail|kill>} names this season's exclusive rather than
      * a fixed id, so one setting pays Season 1's crown in Season 1 and Season 2's in
@@ -202,6 +204,15 @@ final class SeasonPassRules {
                     try {
                         long amount = Long.parseLong(value.replace(",", "").replace("_", ""));
                         if (kind.equals("hearts")) amount = Math.min(MAX_HEARTS_PER_TIER, amount);
+                        if (amount > 0L) grants.add(new Grant(kind, amount, ""));
+                    } catch (NumberFormatException ignored) {
+                        // skipped
+                    }
+                }
+                case "giftbag" -> {
+                    try {
+                        long amount = Math.min(MAX_GIFTBAGS_PER_TIER,
+                                Long.parseLong(value.replace(",", "").replace("_", "")));
                         if (amount > 0L) grants.add(new Grant(kind, amount, ""));
                     } catch (NumberFormatException ignored) {
                         // skipped

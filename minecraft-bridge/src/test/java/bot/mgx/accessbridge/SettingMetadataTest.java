@@ -120,6 +120,7 @@ final class SettingMetadataTest {
         expected.put("airdrop.loot.rare", 13);
         expected.put("airdrop.loot.legendary", 13);
         expected.put("airdrop.loot.mythic", 13);
+        expected.put("season.giftbag", 17);
         assertEquals(new TreeMap<>(expected), tables,
                 "the loot tables changed shape — the panel's editors are built per table");
     }
@@ -136,7 +137,7 @@ final class SettingMetadataTest {
                 empty.add(entry.get("table").getAsString());
             }
         }
-        assertEquals(12, tables, "expected one summary per editable distribution");
+        assertEquals(13, tables, "expected one summary per editable distribution");
         assertTrue(empty.isEmpty(), "distributions that cannot produce a chance: " + empty);
     }
 
@@ -168,6 +169,7 @@ final class SettingMetadataTest {
         expected.put("airdrop.loot.rare", 13);
         expected.put("airdrop.loot.legendary", 13);
         expected.put("airdrop.loot.mythic", 13);
+        expected.put("season.giftbag", 17);
         assertEquals(expected, entries, "a table gained or lost rows");
     }
 
@@ -283,12 +285,12 @@ final class SettingMetadataTest {
                         Map.entry("world", 14),
                         Map.entry("potions", 13),
                         Map.entry("cosmetics", 13),
-                        Map.entry("players", 24),
+                        Map.entry("players", 25),
                         Map.entry("event_multipliers", 10),
                         Map.entry("pvp_duels", 25),
                         Map.entry("pvp_competitive", 58),
-                        Map.entry("seasons", 40),
-                        Map.entry("security", 17),
+                        Map.entry("seasons", 69),
+                        Map.entry("security", 19),
                         Map.entry("crate_balance", 8),
                         Map.entry("amethyst_shop", 27),
                         Map.entry("clans", 4),
@@ -307,7 +309,7 @@ final class SettingMetadataTest {
                 perGroup,
                 "the catalogue moved between panel pages"
         );
-        assertEquals(1125, perGroup.values().stream().mapToInt(Integer::intValue).sum(),
+        assertEquals(1157, perGroup.values().stream().mapToInt(Integer::intValue).sum(),
                 "group counts no longer add up to the catalogue");
     }
 

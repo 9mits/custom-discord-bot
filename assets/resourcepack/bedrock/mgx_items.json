@@ -1,6 +1,17 @@
 {
   "format_version": 2,
   "items": {
+    "minecraft:bundle": [
+      {
+        "type": "definition",
+        "model": "mgx:mythic_giftbag",
+        "bedrock_identifier": "mgx:mythic_giftbag",
+        "display_name": "Season Giftbag",
+        "bedrock_options": {
+          "icon": "mgx:mythic_giftbag"
+        }
+      }
+    ],
     "minecraft:trial_key": [
       {
         "type": "definition",

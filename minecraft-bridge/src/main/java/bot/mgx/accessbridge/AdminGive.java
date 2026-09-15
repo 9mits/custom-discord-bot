@@ -28,7 +28,7 @@ final class AdminGive {
 
 
     static final List<String> TYPES = List.of(
-            "money", "key", "shard", "cosmetic", "cosmetics", "reward", "amethyst", "daily", "afk"
+            "money", "key", "shard", "giftbag", "cosmetic", "cosmetics", "reward", "amethyst", "daily", "afk"
     );
 
     /** Every cosmetic an administrator can preview or grant through command completion. */
@@ -42,6 +42,7 @@ final class AdminGive {
         MONEY,
         KEY,
         SHARD,
+        GIFTBAG,
         COSMETIC,
         LEADERBOARD_COSMETICS,
         REWARD,
@@ -91,6 +92,14 @@ final class AdminGive {
                 }
                 return new Request(Type.SHARD, amount, null);
             }
+            case "giftbag", "giftbags", "gift" -> {
+                int maximum = (int) tuned("give.maximum-giftbags", 16);
+                int amount = value == null ? 1 : parseCount(value);
+                if (amount < 1 || amount > maximum) {
+                    throw new IllegalArgumentException("Give between 1 and " + maximum + " Giftbags at a time.");
+                }
+                return new Request(Type.GIFTBAG, amount, null);
+            }
             case "cosmetic" -> {
                 if (value == null || value.isBlank()) {
                     throw new IllegalArgumentException(
@@ -137,6 +146,6 @@ final class AdminGive {
 
     static String usage() {
         return "Usage: /mgxadmin give <player|everyone> "
-                + "<money|key|shard|cosmetic <id>|cosmetics|reward <id>|amethyst|daily <n>|afk <n>>";
+                + "<money|key|shard|giftbag [n]|cosmetic <id>|cosmetics|reward <id>|amethyst|daily <n>|afk <n>>";
     }
 }

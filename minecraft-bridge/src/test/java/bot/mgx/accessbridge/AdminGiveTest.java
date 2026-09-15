@@ -42,6 +42,16 @@ class AdminGiveTest {
     }
 
     @Test
+    void giftbagsAreExplicitAndStrictlyLimited() {
+        assertEquals(new AdminGive.Request(AdminGive.Type.GIFTBAG, 1L, null),
+                AdminGive.parse("giftbag", null));
+        assertEquals(new AdminGive.Request(AdminGive.Type.GIFTBAG, 16L, null),
+                AdminGive.parse("giftbags", "16"));
+        assertThrows(IllegalArgumentException.class, () -> AdminGive.parse("giftbag", "17"));
+        assertTrue(AdminGive.TYPES.contains("giftbag"));
+    }
+
+    @Test
     void cosmeticsCarryTheirIdNormalised() {
         assertEquals(
                 new AdminGive.Request(AdminGive.Type.COSMETIC, 1L, "ember_trail"),

@@ -29,6 +29,8 @@ final class SeasonStore {
         /** Quest line key to how many of its levels have been paid, so a retuned ladder pays exactly once. */
         Map<String, Integer> questPaid = new LinkedHashMap<>();
         int owedShards;
+        /** Season numbers of podium Giftbags waiting for an offline winner. */
+        List<Integer> owedGiftbagSeasons = new ArrayList<>();
         /** Lifetime totals by quest objective plus active minutes: how boards learn what a player does. */
         Map<String, Long> activity = new LinkedHashMap<>();
         Board daily;
@@ -123,6 +125,7 @@ final class SeasonStore {
             if (row.activity == null) row.activity = new LinkedHashMap<>();
             if (row.quests == null) row.quests = new LinkedHashMap<>();
             if (row.questPaid == null) row.questPaid = new LinkedHashMap<>();
+            if (row.owedGiftbagSeasons == null) row.owedGiftbagSeasons = new ArrayList<>();
             if (row.name == null) row.name = "";
         }
     }
