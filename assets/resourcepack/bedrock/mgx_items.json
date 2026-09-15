@@ -1,7 +1,7 @@
 {
   "format_version": 2,
   "items": {
-    "minecraft:bundle": [
+    "minecraft:flower_banner_pattern": [
       {
         "type": "definition",
         "model": "mgx:mythic_giftbag",
@@ -9,6 +9,35 @@
         "display_name": "Season Giftbag",
         "bedrock_options": {
           "icon": "mgx:mythic_giftbag"
+        }
+      }
+    ],
+    "minecraft:red_dye": [
+      {
+        "type": "definition",
+        "model": "mgx:season_heart",
+        "bedrock_identifier": "mgx:season_heart",
+        "display_name": "Season Heart",
+        "bedrock_options": {
+          "icon": "mgx:season_heart"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/blood_burst",
+        "bedrock_identifier": "mgx:cosmetic_blood_burst",
+        "display_name": "Blood Burst",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_blood_burst"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/blood_trail",
+        "bedrock_identifier": "mgx:cosmetic_blood_trail",
+        "display_name": "Blood Trail",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_blood_trail"
         }
       }
     ],
@@ -49,26 +78,6 @@
         "display_name": "Crate Luck Potion",
         "bedrock_options": {
           "icon": "mgx:crate_luck_potion"
-        }
-      }
-    ],
-    "minecraft:red_dye": [
-      {
-        "type": "definition",
-        "model": "mgx:cosmetic/blood_burst",
-        "bedrock_identifier": "mgx:cosmetic_blood_burst",
-        "display_name": "Blood Burst",
-        "bedrock_options": {
-          "icon": "mgx:cosmetic_blood_burst"
-        }
-      },
-      {
-        "type": "definition",
-        "model": "mgx:cosmetic/blood_trail",
-        "bedrock_identifier": "mgx:cosmetic_blood_trail",
-        "display_name": "Blood Trail",
-        "bedrock_options": {
-          "icon": "mgx:cosmetic_blood_trail"
         }
       }
     ],

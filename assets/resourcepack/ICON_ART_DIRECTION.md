@@ -226,6 +226,13 @@ reference, the two item models must resolve to different texture files, Fortune
 must remain green, and Crate Luck must remain violet. A failing invariant means the
 asset is wrong; do not weaken the test to accept a redesigned bottle.
 
+### Supplied Season Heart
+
+`season_heart.png` is not generated artwork. It is the owner-supplied 9x9 pixel heart
+from `https://art.pixilart.com/699fb46a495e3d1.png`, drawn at 2x on the 18x18 grid and
+exported as exact 8x8 texel blocks. Do not regenerate or reshade it; re-export from the
+source image if it ever has to change.
+
 ## Season exclusives
 
 Every season pays one aura, trail and kill effect that no later season repeats. Their

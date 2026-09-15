@@ -1099,7 +1099,7 @@ final class SeasonPassService implements Listener, CommandExecutor {
                 DialogBody.plainMessage(MenuText.rule("mgx:item/mythic_giftbag", "Mythic Giftbag",
                         "The final tier's one-roll reward. It can contain this season's rarest rewards"
                                 + " or one of three exceptionally rare mythic items."), RULE_WIDTH),
-                DialogBody.plainMessage(MenuText.rule("item/red_dye", "Season Hearts",
+                DialogBody.plainMessage(MenuText.rule(SeasonPassMenu.HEART_SPRITE, "Season Hearts",
                         "Up to " + heartCap() + " extra hearts that expire when the season ends."), RULE_WIDTH),
                 DialogBody.plainMessage(MenuText.rule("item/gold_ingot", "Season Top",
                         "The top three when the season ends win "

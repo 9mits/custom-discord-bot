@@ -43,6 +43,28 @@ final class SeasonPassMenuTest {
     }
 
     @Test
+    void tierRewardsSitMirroredAboutTheCentreSlot() {
+        for (int count = 1; count <= 7; count++) {
+            int[] slots = SeasonPassMenu.rewardSlots(count);
+            assertEquals(count, slots.length);
+            for (int index = 0; index < count; index++) {
+                assertTrue(slots[index] >= 9 && slots[index] <= 17, "rewards stay on the middle row");
+                assertEquals(26, slots[index] + slots[count - 1 - index], count + " rewards lean to one side");
+            }
+        }
+        assertEquals(7, SeasonPassMenu.rewardSlots(12).length, "the row holds at most seven");
+    }
+
+    @Test
+    void passRaritiesFollowWhatARewardIsNotItsCrateWeight() {
+        assertEquals(SeasonPassMenu.Rarity.RARE, SeasonPassMenu.knownRewardRarity("fortune_potion_i").orElseThrow());
+        assertEquals(SeasonPassMenu.Rarity.LEGENDARY, SeasonPassMenu.knownRewardRarity("crate_luck_v").orElseThrow());
+        assertEquals(SeasonPassMenu.Rarity.EPIC, SeasonPassMenu.knownRewardRarity("enchant_fortune_iv").orElseThrow());
+        assertEquals(SeasonPassMenu.Rarity.EPIC, SeasonPassMenu.knownRewardRarity("daily_lantern_helm").orElseThrow());
+        assertTrue(SeasonPassMenu.knownRewardRarity("daily_diamonds").isEmpty());
+    }
+
+    @Test
     void modelKeysBecomeTheirItemTextures() {
         assertEquals("mgx:item/season_1_scythe", SeasonPassMenu.textureOf("mgx:season_1_scythe"));
         assertEquals("mgx:item/cosmetic/season_1_aura", SeasonPassMenu.textureOf("mgx:cosmetic/season_1_aura"));

@@ -107,11 +107,32 @@ final class SeasonPassMenu implements Listener {
             case "shards" -> grant.amount() >= 3 ? Rarity.LEGENDARY : Rarity.EPIC;
             case "cosmetic" -> Rarity.EPIC;
             case "keys" -> Rarity.COMMON;
-            default -> reward.map(found -> found.weight() < 200 ? Rarity.LEGENDARY
+            default -> knownRewardRarity(grant.id()).or(() -> reward.map(found -> found.weight() < 200 ? Rarity.LEGENDARY
                     : found.weight() < 1_000 ? Rarity.EPIC
                     : found.weight() < 3_000 ? Rarity.RARE
-                    : found.weight() < 7_000 ? Rarity.UNCOMMON : Rarity.COMMON).orElse(Rarity.COMMON);
+                    : found.weight() < 7_000 ? Rarity.UNCOMMON : Rarity.COMMON)).orElse(Rarity.COMMON);
         };
+    }
+
+    /**
+     * The pass's crate rewards ranked by what they are, not by how rarely one crate rolls
+     * them: a Fortune Potion I is rare in the Default Crate yet the weakest potion here.
+     */
+    static Optional<Rarity> knownRewardRarity(String id) {
+        if (id.equals("enchant_excavation_i")) return Optional.of(Rarity.LEGENDARY);
+        if (id.startsWith("fortune_potion_") || id.startsWith("crate_luck_") || id.startsWith("enchant_")) {
+            String level = id.substring(id.lastIndexOf('_') + 1);
+            return Optional.of(switch (level) {
+                case "v" -> Rarity.LEGENDARY;
+                case "iv" -> id.startsWith("enchant_") ? Rarity.EPIC : Rarity.LEGENDARY;
+                case "iii" -> Rarity.EPIC;
+                default -> Rarity.RARE;
+            });
+        }
+        if (id.startsWith("daily_") && RelicCatalog.find(id.substring("daily_".length())).isPresent()) {
+            return Optional.of(Rarity.EPIC);
+        }
+        return Optional.empty();
     }
 
     private List<SeasonPassRules.Grant> ranked(int tier) {
@@ -134,21 +155,43 @@ final class SeasonPassMenu implements Listener {
         };
     }
 
-    /** Vanilla item textures, except the blocks that have none of their own. */
+    /**
+     * The flat inventory texture a vanilla reward is drawn with in a dialog row.
+     *
+     * <p>A dialog row can only draw a sprite from the item atlas, never a rendered block
+     * model, so a block or an entity-rendered item (a beacon, a skull, a shield) has no
+     * honest dialog icon: its raw face texture reads as a flat tile, not as the item. The
+     * default track therefore pays only items with a real inventory texture, and
+     * {@code SeasonPassRulesTest} holds it to that list. Anything else an owner configures
+     * gets the enchanted book or Nether Star stand-in rather than a broken sprite.
+     */
     static String vanillaSprite(String id) {
+        if (FLAT_ITEM_TEXTURES.contains(id)) return "item/" + id;
         return switch (id) {
-            case "sponge", "conduit", "beacon", "heavy_core", "netherite_block" -> "block/" + id;
-            case "ancient_debris" -> "block/ancient_debris_side";
-            case "sniffer_egg" -> "block/sniffer_egg_not_cracked_east";
             case "enchanted_golden_apple" -> "item/golden_apple";
-            default -> "item/" + id;
+            case "recovery_compass" -> "item/recovery_compass_16";
+            case "compass" -> "item/compass_16";
+            case "clock" -> "item/clock_00";
+            default -> id.endsWith("_book") ? "item/enchanted_book" : "item/nether_star";
         };
     }
+
+    /**
+     * Vanilla items whose inventory icon is exactly {@code textures/item/<id>.png} in the
+     * 1.21.11 client. Checked against the client jar when the list was written.
+     */
+    static final java.util.Set<String> FLAT_ITEM_TEXTURES = java.util.Set.of(
+            "nether_star", "netherite_ingot", "netherite_scrap", "totem_of_undying", "trident", "mace",
+            "elytra", "heart_of_the_sea", "diamond", "emerald", "echo_shard", "shulker_shell",
+            "golden_apple", "experience_bottle", "enchanted_book", "breeze_rod", "wind_charge",
+            "nautilus_shell", "trial_key", "ominous_trial_key", "netherite_upgrade_smithing_template",
+            "goat_horn", "ender_pearl", "blaze_rod", "ghast_tear", "dragon_breath", "phantom_membrane",
+            "name_tag", "saddle", "lead", "spyglass", "amethyst_shard", "gold_ingot", "iron_ingot");
 
     /** The dialog icon for a grant: its own texture where it has one. */
     String sprite(SeasonPassRules.Grant grant) {
         return switch (grant.kind()) {
-            case "hearts" -> "item/red_dye";
+            case "hearts" -> HEART_SPRITE;
             case "shards" -> "mgx:item/shard";
             case "keys" -> "mgx:item/mystery_key";
             case "giftbag" -> "mgx:item/mythic_giftbag";
@@ -170,22 +213,14 @@ final class SeasonPassMenu implements Listener {
         return colon < 0 ? "item/bundle" : modelKey.substring(0, colon) + ":item/" + modelKey.substring(colon + 1);
     }
 
-    private static String spriteOf(CrateCatalog.Reward reward) {
-        if (reward.modelKey().startsWith("mgx:")) return textureOf(reward.modelKey());
-        return switch (reward.materialName()) {
-            case "DIAMOND" -> "item/diamond";
-            case "GOLDEN_APPLE", "ENCHANTED_GOLDEN_APPLE" -> "item/golden_apple";
-            case "EXPERIENCE_BOTTLE" -> "item/experience_bottle";
-            case "TOTEM_OF_UNDYING" -> "item/totem_of_undying";
-            case "NETHERITE_INGOT" -> "item/netherite_ingot";
-            case "NETHERITE_SCRAP" -> "item/netherite_scrap";
-            case "ANCIENT_DEBRIS" -> "block/ancient_debris_side";
-            case "MACE" -> "item/mace";
-            case "HEART_OF_THE_SEA" -> "item/heart_of_the_sea";
-            case "EMERALD" -> "item/emerald";
-            default -> "item/bundle";
-        };
+    static String spriteOf(CrateCatalog.Reward reward) {
+        if (reward.modelKey() != null && reward.modelKey().startsWith("mgx:")) return textureOf(reward.modelKey());
+        return vanillaSprite(reward.materialName().toLowerCase(Locale.ROOT));
     }
+
+    /** The supplied Season Heart artwork, shared by the dialog rows and the tier chest. */
+    static final String HEART_SPRITE = "mgx:item/season_heart";
+    static final String HEART_MODEL = "mgx:season_heart";
 
     private Optional<CrateCatalog.Reward> rewardOf(SeasonPassRules.Grant grant) {
         return grant.kind().equals("reward") ? CrateCatalog.find(grant.id()) : Optional.empty();
@@ -330,10 +365,9 @@ final class SeasonPassMenu implements Listener {
                 "Tier " + number, List.of(status(number, tier, xp))));
 
         List<SeasonPassRules.Grant> grants = ranked(number);
-        int shown = Math.min(7, grants.size());
-        int first = 9 + (9 - shown) / 2;
-        for (int index = 0; index < shown; index++) {
-            inventory.setItem(first + index, tile(grants.get(index), number, tier, xp));
+        int[] slots = rewardSlots(grants.size());
+        for (int index = 0; index < slots.length; index++) {
+            inventory.setItem(slots[index], tile(grants.get(index), number, tier, xp));
         }
         if (number > 1) {
             inventory.setItem(PREVIOUS_SLOT, MenuItems.button(Material.ARROW, "Tier " + (number - 1)));
@@ -342,6 +376,24 @@ final class SeasonPassMenu implements Listener {
         if (number < pass.maximumTier()) {
             inventory.setItem(NEXT_SLOT, MenuItems.button(Material.ARROW, "Tier " + (number + 1)));
         }
+    }
+
+    /**
+     * Middle-row slots for a tier's rewards, mirrored about the centre slot. An even count
+     * cannot sit in adjacent slots of a nine-wide row without leaning to one side, so two
+     * and four rewards leave a one-slot gap in the middle.
+     */
+    static int[] rewardSlots(int count) {
+        return switch (Math.max(0, Math.min(7, count))) {
+            case 0 -> new int[0];
+            case 1 -> new int[] {13};
+            case 2 -> new int[] {12, 14};
+            case 3 -> new int[] {11, 13, 15};
+            case 4 -> new int[] {10, 12, 14, 16};
+            case 5 -> new int[] {9, 11, 13, 15, 17};
+            case 6 -> new int[] {10, 11, 12, 14, 15, 16};
+            default -> new int[] {10, 11, 12, 13, 14, 15, 16};
+        };
     }
 
     private Component status(int number, int tier, long xp) {
@@ -380,6 +432,12 @@ final class SeasonPassMenu implements Listener {
                         "+" + grant.amount() + " Season " + (grant.amount() == 1 ? "Heart" : "Hearts"), List.of(
                                 text("Extra max health, applied instantly.", NamedTextColor.GRAY, false),
                                 text("Lasts until this season ends.", NamedTextColor.GRAY, false)));
+                ItemMeta heartMeta = heart.getItemMeta();
+                org.bukkit.NamespacedKey model = org.bukkit.NamespacedKey.fromString(HEART_MODEL);
+                if (heartMeta != null && model != null) {
+                    heartMeta.setItemModel(model);
+                    heart.setItemMeta(heartMeta);
+                }
                 heart.setAmount((int) Math.min(99, grant.amount()));
                 yield heart;
             }

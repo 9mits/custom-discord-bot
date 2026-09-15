@@ -1479,42 +1479,40 @@ final class GameVariableStore {
         integer("season.exclusive-fallback-shards", "Exclusive fallback Shards", "Season Pass",
                 "Shards paid in place of a season exclusive when the season has no themed set.",
                 3, 0, 64, "shards", false);
-        // One meaningful reward per tier. Copyable smithing templates are deliberately absent:
-        // twelve differently named trims still felt like the same filler reward and players can
-        // duplicate them. Useful consumables may repeat later at a higher amount, while the scarce
-        // vanilla rewards, season equipment and cosmetics steadily take over the track.
+        // Every tier pays something an established player still uses: the live auction house
+        // (September 2026) prices above-vanilla books at 150,000-250,000 and Fortune Potions at
+        // 50,000, and lists no collectable at all: discs, sponges and trims were dead tiers.
+        // Only what a player spends or wears is paid, stronger as the season goes on, and every
+        // vanilla item has a real inventory icon so the pass never shows a flat block face.
         text("season.reward.track", "Reward track", "Season Pass Rewards",
                 "What every tier pays, tier 1 first, separated by |. Each entry's parts are separated"
                         + " by ; and read vanilla:<item id>[:count], book:<enchantment>[:level], hearts:N,"
                         + " shards:N, reward:<crate reward id>[:count], gear:<scythe|pickaxe|axe|hoe|wings|helmet>,"
                         + " item:rally_horn, giftbag:N, cosmetic:<id> or cosmetic:season:<aura|trail|kill>.",
-                "vanilla:golden_apple:4 | vanilla:diamond:8 | vanilla:diamond_block | vanilla:wind_charge:32"
-                        + " | vanilla:nautilus_shell:4;shards:1 | vanilla:netherite_scrap:4 | vanilla:ominous_trial_key:2 | vanilla:sponge:8"
-                        + " | vanilla:echo_shard:8 | cosmetic:season:trail;shards:2 | vanilla:heart_of_the_sea | book:mending"
-                        + " | vanilla:music_disc_5 | vanilla:breeze_rod:12 | gear:pickaxe;shards:2 | vanilla:ancient_debris:6"
-                        + " | vanilla:totem_of_undying:2 | vanilla:trial_key:5 | vanilla:netherite_ingot:2 | gear:axe;shards:2"
-                        + " | vanilla:music_disc_pigstep | item:rally_horn | book:soul_speed:3 | vanilla:trident"
-                        + " | hearts:1;shards:3 | vanilla:netherite_ingot:3 | vanilla:recovery_compass | gear:hoe"
-                        + " | book:swift_sneak:3 | cosmetic:season:kill;shards:3 | vanilla:sniffer_egg | vanilla:totem_of_undying:3"
-                        + " | vanilla:music_disc_otherside | vanilla:conduit | gear:scythe;shards:3 | vanilla:heavy_core"
-                        + " | book:density:5 | gear:helmet | vanilla:wither_skeleton_skull:3 | gear:wings;shards:3"
-                        + " | vanilla:music_disc_relic | book:breach:4 | vanilla:beacon | vanilla:enchanted_golden_apple:2"
-                        + " | vanilla:nether_star;shards:4 | vanilla:netherite_block | book:wind_burst:3 | vanilla:enchanted_golden_apple:3"
-                        + " | vanilla:netherite_block:2 | cosmetic:season:aura;hearts:1;shards:6;giftbag:1", 4000);
+                "reward:fortune_potion_i:2 | vanilla:netherite_ingot | shards:1 | book:mending | reward:crate_luck_ii"
+                        + " | vanilla:totem_of_undying | reward:fortune_potion_ii:2 | reward:enchant_unbreaking_iv | shards:2 | cosmetic:season:trail"
+                        + " | vanilla:netherite_ingot:2 | reward:crate_luck_ii:2 | item:rally_horn | vanilla:trident | gear:pickaxe"
+                        + " | reward:fortune_potion_iii | reward:daily_lantern_helm | shards:3 | reward:enchant_fortune_iv | gear:axe"
+                        + " | vanilla:totem_of_undying:2 | reward:crate_luck_iii | vanilla:netherite_ingot:4 | reward:daily_veinseeker_pickaxe | hearts:1;shards:2"
+                        + " | reward:enchant_protection_v | reward:fortune_potion_iii:2 | gear:hoe | reward:daily_cloudstrider_boots | cosmetic:season:kill;shards:2"
+                        + " | vanilla:nether_star | reward:enchant_unbreaking_v | reward:crate_luck_iii:2 | shards:3 | gear:helmet"
+                        + " | reward:fortune_potion_iv | vanilla:totem_of_undying:3 | reward:enchant_excavation_i | vanilla:netherite_ingot:8 | gear:scythe;shards:2"
+                        + " | reward:crate_luck_iv | reward:enchant_fortune_v | reward:fortune_potion_iv:2 | shards:4 | gear:wings"
+                        + " | vanilla:nether_star:2 | hearts:1 | reward:crate_luck_v | reward:fortune_potion_v;shards:5 | cosmetic:season:aura;giftbag:1;shards:6", 4000);
         text("season.reward.fallback", "Reward past the track", "Season Pass Rewards",
                 "What a tier beyond the end of the reward track pays, in the same format as one entry.",
-                "vanilla:golden_apple:2", 200);
+                "reward:fortune_potion_ii", 200);
 
         bool("season.giftbag.enabled", "Giftbag openings", "Season Giftbag",
                 "Allow players to unseal and roll their Mythic Giftbags.", true);
         integer("season.giftbag.animation-ticks", "Giftbag buildup", "Season Giftbag",
-                "Ticks of cinematic buildup before the Giftbag hatches its reward.",
+                "Ticks the opening builds (rise, orbit, pull-in, charge) before the Giftbag bursts.",
                 180, 40, 600, "ticks", false);
         integer("season.giftbag.settle-ticks", "Giftbag result hold", "Season Giftbag",
-                "Ticks the revealed reward remains floating after it hatches.",
+                "Ticks the revealed reward floats in place before it flies to its owner.",
                 50, 10, 200, "ticks", false);
         integer("season.giftbag.viewer-radius", "Giftbag audience radius", "Season Giftbag",
-                "Distance from an opening at which players see its boss bar, VFX and sounds.",
+                "Distance from an opening at which players see its animation and hear its sounds.",
                 48, 8, 128, "blocks", false);
         integer("season.giftbag.particle-density", "Giftbag particle density", "Season Giftbag",
                 "Particles per animation pulse for viewers who keep crate VFX enabled.",
