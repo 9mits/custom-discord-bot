@@ -105,17 +105,6 @@ final class SeasonPassRulesTest {
     }
 
     @Test
-    void milestonesAndOverridesPickTheRightRewardSetting() {
-        Set<String> overrides = Set.of("season.reward.tier-25", "season.reward.tier-50");
-        assertEquals("season.reward.odd", SeasonPassRules.rewardKey(3, overrides::contains));
-        assertEquals("season.reward.even", SeasonPassRules.rewardKey(4, overrides::contains));
-        assertEquals("season.reward.every-5", SeasonPassRules.rewardKey(15, overrides::contains));
-        assertEquals("season.reward.every-10", SeasonPassRules.rewardKey(30, overrides::contains));
-        assertEquals("season.reward.tier-25", SeasonPassRules.rewardKey(25, overrides::contains));
-        assertEquals("season.reward.tier-50", SeasonPassRules.rewardKey(50, overrides::contains));
-    }
-
-    @Test
     void aNewSeasonIsSavedTheMomentItStarts() throws Exception {
         String service = java.nio.file.Files.readString(java.nio.file.Path.of(
                 "src/main/java/bot/mgx/accessbridge/SeasonPassService.java"));
@@ -144,105 +133,111 @@ final class SeasonPassRulesTest {
         assertEquals(4, gear.size(), "unknown gear and a bad count are skipped");
     }
 
-    /**
-     * Every default tier must pay something real, nothing but the scarce kinds, and the
-     * whole track must stay inside the Shard and heart budget the economy can absorb.
-     */
     @Test
-    void theDefaultTrackIsScarceRealAndOnBudget() throws Exception {
-        String store = java.nio.file.Files.readString(java.nio.file.Path.of(
-                "src/main/java/bot/mgx/accessbridge/GameVariableStore.java"));
-        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile(
-                "text\\(\"(season\\.reward\\.[a-z0-9-]+)\"[\\s\\S]*?,\\s*\"([^\"]*)\",\\s*\\d+\\);").matcher(store);
-        java.util.Map<String, String> specs = new java.util.HashMap<>();
-        while (matcher.find()) specs.put(matcher.group(1), matcher.group(2));
-        assertTrue(specs.size() >= 9, "found " + specs.keySet());
-        long shards = 0;
-        long hearts = 0;
-        Set<String> exclusives = new HashSet<>();
-        Set<String> gear = new HashSet<>();
-        Set<String> seen = new HashSet<>();
-        for (String key : List.of("season.reward.odd", "season.reward.even")) {
-            for (String variant : specs.get(key).split("\\|")) {
-                for (SeasonPassRules.Grant grant : SeasonPassRules.parse(variant)) {
-                    if (grant.kind().equals("reward")) {
-                        assertTrue(CrateCatalog.find(grant.id()).isPresent(), grant.id() + " is not a crate reward");
-                    }
-                }
-                assertEquals(variant.split(";").length, SeasonPassRules.parse(variant).size(),
-                        "every part of '" + variant.strip() + "' must parse");
+    void eachTierReadsItsOwnTrackEntry() {
+        String track = "a:1 | b:2 ;c:3|  | d:4";
+        assertEquals("a:1", SeasonPassRules.trackEntry(track, 1));
+        assertEquals("b:2 ;c:3", SeasonPassRules.trackEntry(track, 2));
+        assertEquals("", SeasonPassRules.trackEntry(track, 3), "an empty entry pays the fallback");
+        assertEquals("d:4", SeasonPassRules.trackEntry(track, 4));
+        assertEquals("", SeasonPassRules.trackEntry(track, 5), "past the end pays the fallback");
+        assertEquals("", SeasonPassRules.trackEntry(track, 0));
+    }
+
+    @Test
+    void vanillaItemsAndBooksParse() {
+        List<SeasonPassRules.Grant> grants = SeasonPassRules.parse(
+                "vanilla:Nether_Star;vanilla:wind_charge:16;vanilla:diamond:999;vanilla:not an item;vanilla:echo_shard:x;"
+                        + "book:mending;book:swift_sneak:3;book:sharpness:99;book:bad-name");
+        assertEquals(new SeasonPassRules.Grant("vanilla", 1, "nether_star"), grants.get(0));
+        assertEquals(16, grants.get(1).amount());
+        assertEquals(SeasonPassRules.MAX_REWARD_COUNT, grants.get(2).amount());
+        assertEquals(new SeasonPassRules.Grant("book", 1, "mending"), grants.get(3));
+        assertEquals(new SeasonPassRules.Grant("book", 3, "swift_sneak"), grants.get(4));
+        assertEquals(SeasonPassRules.MAX_BOOK_LEVEL, grants.get(5).amount(), "never past any vanilla maximum");
+        assertEquals(6, grants.size(), "malformed ids and counts are skipped");
+        assertEquals("Silence Armor Trim", SeasonPassService.vanillaName("silence_armor_trim_smithing_template"));
+        assertEquals("Music Disc Pigstep", SeasonPassService.vanillaName("music_disc_pigstep"));
+    }
+
+    @Test
+    void theRallyHornNeverDecidesAFight() {
+        List<SeasonPassRules.Grant> grants = SeasonPassRules.parse("item:Rally_Horn:2;item:miners_tonic");
+        assertEquals(List.of(new SeasonPassRules.Grant("season_item", 2, "rally_horn")), grants,
+                "only the horn is a season consumable");
+        for (SeasonItemCatalog.Item item : SeasonItemCatalog.Item.values()) {
+            for (SeasonItemCatalog.Effect effect : item.effects) {
+                assertFalse(SeasonItemCatalog.COMBAT_EFFECTS.contains(effect.type()),
+                        item.id + " grants " + effect.type() + ", which wins fights");
+                assertTrue(effect.seconds() <= 300 && effect.amplifier() <= 1, item.id + " is too strong: " + effect);
             }
         }
+        assertEquals("Haste II for 5 min", SeasonItemCatalog.Item.RALLY_HORN.effects.get(0).describe());
+    }
+
+    /**
+     * The owner's rules for the track (September 2026): no item twice, vanilla first and
+     * custom items only at milestones from tier 10, nothing the shop sells or the End gives,
+     * every id real, and the Shard and heart budget the economy can absorb.
+     */
+    @Test
+    void theDefaultTrackIsVanillaFirstUniqueRealAndOnBudget() throws Exception {
+        String store = java.nio.file.Files.readString(java.nio.file.Path.of(
+                "src/main/java/bot/mgx/accessbridge/GameVariableStore.java"));
+        String block = store.substring(store.indexOf("text(\"season.reward.track\""),
+                store.indexOf("text(\"season.reward.fallback\""));
+        String track = block.substring(block.indexOf("vanilla:golden_apple:3"), block.lastIndexOf("\", 4000);"))
+                .replaceAll("\"\\s*\\+\\s*\"", "");
+        String shop = java.nio.file.Files.readString(java.nio.file.Path.of(
+                "src/main/java/bot/mgx/accessbridge/ShopCatalog.java"));
+        Set<String> end = Set.of("elytra", "shulker_shell", "shulker_box", "dragon_egg", "dragon_head",
+                "dragon_breath", "end_crystal", "chorus_fruit", "spire_armor_trim_smithing_template");
+        Set<String> gameBreaking = Set.of("spawner", "budding_amethyst", "trial_spawner", "vault", "mace");
+        assertEquals(50, track.split("\\|", -1).length, "one entry per tier");
+
+        long shards = 0;
+        long hearts = 0;
+        Set<String> items = new HashSet<>();
+        Set<String> exclusives = new HashSet<>();
+        Set<String> gear = new HashSet<>();
         for (int tier = 1; tier <= 50; tier++) {
-            String key = SeasonPassRules.rewardKey(tier, specs::containsKey);
-            String spec = SeasonPassRules.variant(specs.get(key), tier);
-            seen.add(key + ":" + spec);
-            List<SeasonPassRules.Grant> grants = SeasonPassRules.parse(spec);
-            assertTrue(!grants.isEmpty(), "tier " + tier + " pays nothing");
+            String entry = SeasonPassRules.trackEntry(track, tier);
+            List<SeasonPassRules.Grant> grants = SeasonPassRules.parse(entry);
+            assertEquals(entry.split(";").length, grants.size(), "tier " + tier + " has a part that does not parse");
+            assertFalse(grants.isEmpty(), "tier " + tier + " pays nothing");
             for (SeasonPassRules.Grant grant : grants) {
+                boolean custom = !grant.kind().equals("vanilla") && !grant.kind().equals("book")
+                        && !grant.kind().equals("shards") && !grant.kind().equals("hearts");
+                assertFalse(custom && tier < 10, "tier " + tier + " pays a custom item before tier 10");
                 switch (grant.kind()) {
+                    case "vanilla" -> {
+                        assertTrue(items.add(grant.id()), grant.id() + " is paid twice");
+                        org.bukkit.Material material = org.bukkit.Material.matchMaterial(grant.id());
+                        assertTrue(material != null, grant.id() + " is not a real item");
+                        assertFalse(shop.contains("\"" + material.name() + "\""), grant.id() + " is sold in /shop");
+                        assertFalse(end.contains(grant.id()), grant.id() + " comes from the End");
+                        assertFalse(gameBreaking.contains(grant.id()), grant.id() + " breaks the game");
+                    }
+                    case "book" -> assertTrue(items.add("book:" + grant.id()), grant.id() + " book is paid twice");
                     case "shards" -> shards += grant.amount();
                     case "hearts" -> hearts += grant.amount();
                     case "season_cosmetic" -> assertTrue(exclusives.add(grant.id()), "exclusive paid twice");
                     case "season_gear" -> assertTrue(gear.add(grant.id()), "gear paid twice");
-                    case "reward" -> assertTrue(CrateCatalog.find(grant.id()).isPresent(),
-                            grant.id() + " is not a registered crate reward");
-                    case "cosmetic" -> assertTrue(CosmeticCatalog.find(grant.id()).isPresent(), grant.id());
-                    case "season_item" -> assertTrue(SeasonItemCatalog.find(grant.id()).isPresent(), grant.id());
-                    default -> throw new AssertionError("tier " + tier + " pays " + grant.kind()
-                            + ", which is minted too freely to mean anything");
+                    case "season_item" -> assertTrue(items.add(grant.id()), grant.id() + " is paid twice");
+                    default -> throw new AssertionError("tier " + tier + " pays " + grant.kind());
                 }
             }
         }
         assertEquals(Set.of("AURA", "TRAIL", "KILL_EFFECT"), exclusives);
         assertEquals(java.util.Arrays.stream(SeasonGear.Piece.values()).map(Enum::name)
                 .collect(java.util.stream.Collectors.toSet()), gear, "every gear piece is on the track once");
-        for (String key : List.of("season.reward.odd", "season.reward.even")) {
-            for (String variant : specs.get(key).split("\\|")) {
-                assertTrue(seen.contains(key + ":" + variant.strip()),
-                        "'" + variant.strip() + "' is hidden behind milestone tiers and never paid");
-            }
-        }
-        assertTrue(seen.size() >= 30, "the track needs variety: only " + seen.size() + " different tiers");
         assertEquals(2, hearts, "Season Hearts affect PvP, so a full pass pays two");
         assertTrue(shards >= 5 && shards <= 12, "a full track pays " + shards + " Shards");
-    }
-
-    @Test
-    void tiersStepThroughTheirAlternatives() {
-        String spec = "a:1 | b:2 |c:3";
-        assertEquals("a:1", SeasonPassRules.variant(spec, 1));
-        assertEquals("a:1", SeasonPassRules.variant(spec, 2), "an odd tier and the even tier after it share a step");
-        assertEquals("b:2", SeasonPassRules.variant(spec, 3));
-        assertEquals("c:3", SeasonPassRules.variant(spec, 6));
-        assertEquals("a:1", SeasonPassRules.variant(spec, 7), "the list wraps");
-        assertEquals("shards:1", SeasonPassRules.variant("shards:1", 41), "a single reward is every tier's");
-        assertEquals("", SeasonPassRules.variant(" | ", 3));
-    }
-
-    @Test
-    void seasonConsumablesParseWithCountsAndUnknownsAreSkipped() {
-        List<SeasonPassRules.Grant> grants = SeasonPassRules.parse(
-                "item:Rally_Horn;item:miners_tonic:3;item:miners_tonic:999;item:strength_tonic;item:skyward_tonic:x");
-        assertEquals(new SeasonPassRules.Grant("season_item", 1, "rally_horn"), grants.get(0));
-        assertEquals(3, grants.get(1).amount());
-        assertEquals(SeasonPassRules.MAX_REWARD_COUNT, grants.get(2).amount());
-        assertEquals(3, grants.size(), "an unknown item and a bad count are skipped");
-    }
-
-    @Test
-    void seasonConsumablesFeelStrongButNeverDecideAFight() {
-        for (SeasonItemCatalog.Item item : SeasonItemCatalog.Item.values()) {
-            assertFalse(item.effects.isEmpty(), item.id);
-            for (SeasonItemCatalog.Effect effect : item.effects) {
-                assertFalse(SeasonItemCatalog.COMBAT_EFFECTS.contains(effect.type()),
-                        item.id + " grants " + effect.type() + ", which wins fights");
-                assertTrue(effect.seconds() <= 1_200, item.id + " lasts too long: " + effect);
-                assertTrue(effect.amplifier() <= 2, item.id + " is too strong: " + effect);
-            }
+        for (String sprite : List.of("nether_star", "beacon", "conduit", "sniffer_egg", "heavy_core", "sponge")) {
+            assertTrue(SeasonPassMenu.vanillaSprite(sprite).startsWith("item/")
+                    || SeasonPassMenu.vanillaSprite(sprite).startsWith("block/"));
         }
-        assertEquals("Haste III for 10 min", SeasonItemCatalog.Item.MINERS_TONIC.effects.get(0).describe());
-        assertEquals("Regeneration for 30s", SeasonItemCatalog.Item.RALLY_HORN.effects.get(2).describe());
+        assertEquals(SeasonPassMenu.Rarity.LEGENDARY, SeasonPassMenu.vanillaRarity("nether_star"));
     }
 
     @Test

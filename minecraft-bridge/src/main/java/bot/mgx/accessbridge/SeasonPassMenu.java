@@ -100,6 +100,7 @@ final class SeasonPassMenu implements Listener {
         return switch (grant.kind()) {
             case "season_cosmetic", "season_gear" -> Rarity.EXCLUSIVE;
             case "season_item" -> Rarity.EPIC;
+            case "vanilla", "book" -> vanillaRarity(grant.id());
             case "hearts" -> Rarity.LEGENDARY;
             case "shards" -> grant.amount() >= 3 ? Rarity.LEGENDARY : Rarity.EPIC;
             case "cosmetic" -> Rarity.EPIC;
@@ -117,6 +118,30 @@ final class SeasonPassMenu implements Listener {
         return grants;
     }
 
+    /**
+     * How rare a vanilla reward is on the live server (September 2026, 84 players):
+     * held by nobody or one or two players is legendary, by a handful epic.
+     */
+    static Rarity vanillaRarity(String id) {
+        return switch (id) {
+            case "nether_star", "beacon", "conduit", "netherite_block", "silence_armor_trim_smithing_template",
+                 "sniffer_egg", "enchanted_golden_apple", "heavy_core" -> Rarity.LEGENDARY;
+            case "trident", "totem_of_undying", "heart_of_the_sea", "mending", "swift_sneak",
+                 "music_disc_pigstep", "music_disc_otherside", "music_disc_relic", "netherite_ingot" -> Rarity.EPIC;
+            default -> id.endsWith("_armor_trim_smithing_template") ? Rarity.EPIC : Rarity.RARE;
+        };
+    }
+
+    /** Vanilla item textures, except the blocks that have none of their own. */
+    static String vanillaSprite(String id) {
+        return switch (id) {
+            case "sponge", "conduit", "beacon", "heavy_core", "netherite_block" -> "block/" + id;
+            case "ancient_debris" -> "block/ancient_debris_side";
+            case "sniffer_egg" -> "block/sniffer_egg_not_cracked_east";
+            default -> "item/" + id;
+        };
+    }
+
     /** The dialog icon for a grant: its own texture where it has one. */
     String sprite(SeasonPassRules.Grant grant) {
         return switch (grant.kind()) {
@@ -124,6 +149,8 @@ final class SeasonPassMenu implements Listener {
             case "shards" -> "mgx:item/shard";
             case "keys" -> "mgx:item/mystery_key";
             case "season_item" -> SeasonItemCatalog.find(grant.id()).map(item -> item.sprite).orElse("item/bundle");
+            case "book" -> "item/enchanted_book";
+            case "vanilla" -> vanillaSprite(grant.id());
             case "season_gear" -> pass.seasonGearModel(grant).map(SeasonPassMenu::textureOf).orElse("mgx:item/shard");
             case "season_cosmetic" -> pass.seasonCosmeticDefinition(grant)
                     .map(definition -> textureOf(definition.modelKey())).orElse("mgx:item/shard");
@@ -356,6 +383,10 @@ final class SeasonPassMenu implements Listener {
             case "keys" -> items.mysteryKey(Math.min(64, grant.amount()));
             case "season_gear" -> pass.seasonGearPreview(grant).orElseGet(() -> items.shard(3));
             case "season_item" -> pass.seasonItemPreview(grant).orElseGet(() -> new ItemStack(Material.BARRIER));
+            case "vanilla", "book" -> pass.vanillaItem(grant).map(item -> {
+                item.setAmount((int) Math.min(item.getMaxStackSize(), grant.amount()));
+                return item;
+            }).orElseGet(() -> new ItemStack(Material.BARRIER));
             case "season_cosmetic" -> pass.seasonCosmeticDefinition(grant)
                     .map(definition -> cosmeticItems.preview(definition, false))
                     .orElseGet(() -> items.shard(3));

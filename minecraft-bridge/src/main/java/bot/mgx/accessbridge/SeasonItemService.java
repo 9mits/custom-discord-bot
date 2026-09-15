@@ -8,7 +8,6 @@ import org.bukkit.Color;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.Particle;
-import org.bukkit.Registry;
 import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -19,7 +18,6 @@ import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
-import org.bukkit.inventory.meta.PotionMeta;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
@@ -30,8 +28,7 @@ import java.util.Locale;
 import java.util.Optional;
 
 /**
- * Builds the Season Pass consumables and runs the one that needs code: the Rally Horn.
- * Tonics are real potions, so drinking them is vanilla. See {@link SeasonItemCatalog}.
+ * Builds the Season Pass consumable and runs it: the Rally Horn. See {@link SeasonItemCatalog}.
  */
 final class SeasonItemService implements Listener {
     private final MGXAccessBridge plugin;
@@ -53,28 +50,20 @@ final class SeasonItemService implements Listener {
         List<Component> lore = new ArrayList<>();
         lore.add(line(item.detail, NamedTextColor.GRAY));
         lore.add(Component.empty());
-        // A potion's tooltip lists its own effects; the horn has nobody to do that for it.
-        if (!(meta instanceof PotionMeta)) {
-            for (SeasonItemCatalog.Effect effect : item.effects) lore.add(line("• " + effect.describe(), NamedTextColor.WHITE));
-            lore.add(Component.empty());
-        }
-        lore.add(line(item.shared ? "Right-click to sound. Used up." : "Drink to use.", NamedTextColor.GRAY));
+        for (SeasonItemCatalog.Effect effect : item.effects) lore.add(line("• " + effect.describe(), NamedTextColor.WHITE));
+        lore.add(Component.empty());
+        lore.add(line("Right-click to sound. Used up.", NamedTextColor.GRAY));
         lore.add(Component.text("Season Pass Reward", colour, TextDecoration.BOLD).decoration(TextDecoration.ITALIC, false));
         meta.lore(lore);
         meta.setEnchantmentGlintOverride(true);
-        if (meta instanceof PotionMeta potion) {
-            potion.setColor(Color.fromRGB(item.colour));
-            for (SeasonItemCatalog.Effect effect : item.effects) {
-                effectType(effect).ifPresent(type -> potion.addCustomEffect(
-                        new PotionEffect(type, effect.seconds() * 20, effect.amplifier()), true));
-            }
-        }
         stack.setItemMeta(meta);
         return stack;
     }
 
     private Optional<PotionEffectType> effectType(SeasonItemCatalog.Effect effect) {
-        PotionEffectType type = Registry.EFFECT.get(NamespacedKey.minecraft(effect.type().toLowerCase(Locale.ROOT)));
+        PotionEffectType type = io.papermc.paper.registry.RegistryAccess.registryAccess()
+                .getRegistry(io.papermc.paper.registry.RegistryKey.MOB_EFFECT)
+                .get(NamespacedKey.minecraft(effect.type().toLowerCase(Locale.ROOT)));
         if (type == null) plugin.getLogger().warning("Unknown season item effect " + effect.type());
         return Optional.ofNullable(type);
     }
@@ -91,7 +80,7 @@ final class SeasonItemService implements Listener {
         if (event.getHand() != EquipmentSlot.HAND) return;
         Player player = event.getPlayer();
         ItemStack held = player.getInventory().getItemInMainHand();
-        Optional<SeasonItemCatalog.Item> item = itemOf(held).filter(found -> found.shared);
+        Optional<SeasonItemCatalog.Item> item = itemOf(held);
         if (item.isEmpty()) return;
         // The vanilla horn would play its own sound and start a cooldown on every horn.
         event.setCancelled(true);
