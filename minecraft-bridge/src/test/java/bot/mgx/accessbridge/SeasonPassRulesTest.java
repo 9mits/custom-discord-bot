@@ -25,20 +25,37 @@ final class SeasonPassRulesTest {
     void questLaddersClimbWithoutTimeLimits() {
         for (SeasonPassRules.QuestType type : SeasonPassRules.QuestType.values()) {
             long previousTarget = 0;
+            long previousWork = 0;
             long previousXp = 0;
             for (int level = 0; level < type.levels(); level++) {
                 SeasonPassRules.Quest quest = SeasonPassRules.quest(type, level).orElseThrow();
                 assertTrue(quest.target() > previousTarget, type + " level " + level + " must be harder");
+                long newWork = quest.target() - previousTarget;
+                assertTrue(newWork > previousWork,
+                        type + " level " + level + " must require more new work than the previous level");
                 assertTrue(quest.xp() > previousXp, type + " level " + level + " must pay more");
+                previousWork = newWork;
                 previousTarget = quest.target();
                 previousXp = quest.xp();
             }
             assertTrue(SeasonPassRules.quest(type, type.levels()).isEmpty(), "a finished ladder has no next rung");
             assertTrue(type.levels() >= 5, type + " needs a real ladder");
         }
-        assertEquals(0, SeasonPassRules.levelFor(SeasonPassRules.QuestType.KILL_MOBS, 99));
-        assertEquals(2, SeasonPassRules.levelFor(SeasonPassRules.QuestType.KILL_MOBS, 300));
+        assertEquals(0, SeasonPassRules.levelFor(SeasonPassRules.QuestType.KILL_MOBS, 9));
+        assertEquals(1, SeasonPassRules.levelFor(SeasonPassRules.QuestType.KILL_MOBS, 10));
+        assertEquals(3, SeasonPassRules.levelFor(SeasonPassRules.QuestType.KILL_MOBS, 300));
         assertEquals(8, SeasonPassRules.levelFor(SeasonPassRules.QuestType.KILL_MOBS, 1_000_000));
+    }
+
+    @Test
+    void everyQuestLineStartsWithAFirstSessionGoal() {
+        assertEquals(10, firstTarget(SeasonPassRules.QuestType.KILL_MOBS));
+        assertEquals(5, firstTarget(SeasonPassRules.QuestType.MINE_ORES));
+        assertEquals(20, firstTarget(SeasonPassRules.QuestType.HARVEST_CROPS));
+        assertEquals(1, firstTarget(SeasonPassRules.QuestType.OPEN_CRATES));
+        assertEquals(5_000, firstTarget(SeasonPassRules.QuestType.SELL_MONEY));
+        assertEquals(15, firstTarget(SeasonPassRules.QuestType.PLAY_MINUTES));
+        assertEquals(1, firstTarget(SeasonPassRules.QuestType.WIN_PVP));
     }
 
     @Test
@@ -69,6 +86,10 @@ final class SeasonPassRulesTest {
         assertTrue(SeasonPassRules.quest(SeasonPassRules.QuestType.KILL_MOBS, 7).orElseThrow().target() >= 12_000);
         assertTrue(SeasonPassRules.quest(SeasonPassRules.QuestType.MINE_ORES, 6).orElseThrow().target() >= 3_000);
         assertTrue(SeasonPassRules.quest(SeasonPassRules.QuestType.SELL_MONEY, 6).orElseThrow().target() >= 10_000_000);
+    }
+
+    private static long firstTarget(SeasonPassRules.QuestType type) {
+        return SeasonPassRules.quest(type, 0).orElseThrow().target();
     }
 
     @Test
