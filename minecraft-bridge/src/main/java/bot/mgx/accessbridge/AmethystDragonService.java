@@ -1646,7 +1646,11 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                     ThreadLocalRandom.current().nextDouble(-.05, .05),
                     ThreadLocalRandom.current().nextDouble(-.08, .08))));
         }
-        dragon.setPhase(EnderDragon.Phase.CHARGE_PLAYER);
+        // Not CHARGE_PLAYER: the API cannot give that phase a target, so vanilla logs
+        // "Aborting charge player" and drops to the holding pattern (CIRCLING) on its next tick.
+        // Over a fight that was thousands of warnings for the same end state, and the
+        // velocity below is what actually sends the dragon at its target.
+        dragon.setPhase(EnderDragon.Phase.CIRCLING);
         dragon.setVelocity(direction.multiply(variables.decimal("dragon-event.aggression-speed")));
         arena.spawnParticle(Particle.DRAGON_BREATH, dragon.getEyeLocation(),
                 variables.integer("dragon-event.attack-particle-count"), 1.4, 1.0, 1.4, .08, 1.0f);
@@ -2557,8 +2561,8 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     }
 
     private boolean isDragonEgg(ItemStack item) {
-        return item != null && item.hasItemMeta()
-                && item.getItemMeta().getPersistentDataContainer().has(eggKey, PersistentDataType.BYTE);
+        return item != null
+                && item.getPersistentDataContainer().has(eggKey, PersistentDataType.BYTE);
     }
 
     private void showStats(Player player) {
@@ -3150,8 +3154,16 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     }
 
     private void updateDisplays() {
-        if (portal != null && portal.location() != null) {
-            List<TextDisplay> displays = portal.location().getWorld().getEntitiesByClass(TextDisplay.class).stream()
+        Location portalAt = portal == null ? null : portal.location();
+        if (portalAt != null && portalAt.getWorld() != null
+                && portalAt.getWorld().isChunkLoaded(portalAt.getBlockX() >> 4, portalAt.getBlockZ() >> 4)) {
+            // Searched around the portal, not across the world: this runs every second
+            // for as long as a portal is registered, which is permanently, and the whole
+            // overworld's display entities were being listed to find these two.
+            double height = variables.decimal("dragon-event.portal-display-height");
+            Location labels = portalAt.clone().add(0d, height - 0.8d, 0d);
+            List<TextDisplay> displays = portalAt.getWorld()
+                    .getNearbyEntitiesByType(TextDisplay.class, labels, 4d).stream()
                     .filter(entity -> entity.getScoreboardTags().contains(PORTAL_DISPLAY_TAG)).toList();
             if (displays.size() < 2) {
                 refreshPortalDisplay();

@@ -992,6 +992,12 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         spawnMobBarrier.start();
         perfMonitor = new PerfMonitor(this);
         getServer().getPluginManager().registerEvents(perfMonitor, this);
+        if (bridgeClient != null) {
+            PerfMonitor.gauge("bridge.send-queue", bridgeClient::queuedSends);
+        }
+        if (cosmeticStore != null) {
+            PerfMonitor.gauge("cosmetics.minted", cosmeticStore::mintedCount);
+        }
         perfMonitor.start();
         // Anyone already online across a /reload, before the join handler can reach them.
         chaosService.healEveryone();

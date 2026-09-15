@@ -462,10 +462,10 @@ final class SpecialItemService implements Listener {
 
     /** Every custom mark on an item: a book's own, and the flag a pickaxe carries. */
     private Map<String, Integer> customEnchants(ItemStack item) {
-        if (item == null || item.getType().isAir() || !item.hasItemMeta()) {
+        if (item == null || item.getType().isAir()) {
             return Map.of();
         }
-        PersistentDataContainer data = item.getItemMeta().getPersistentDataContainer();
+        io.papermc.paper.persistence.PersistentDataContainerView data = item.getPersistentDataContainer();
         Map<String, Integer> marks = new TreeMap<>(
                 CustomEnchants.parse(data.get(bookKey, PersistentDataType.STRING))
         );
@@ -616,8 +616,8 @@ final class SpecialItemService implements Listener {
     }
 
     private boolean hasExcavation(ItemStack item) {
-        return item != null && item.hasItemMeta()
-                && item.getItemMeta().getPersistentDataContainer().has(
+        return item != null
+                && item.getPersistentDataContainer().has(
                         excavationKey, PersistentDataType.INTEGER
                 );
     }

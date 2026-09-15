@@ -149,8 +149,12 @@ final class CosmeticEffectService implements Listener {
     private static final int SECRET_REVEAL_FRAMES = 70;
     private static final int GENUINE_REVEAL_FRAMES = 250;
 
-    /** Every ten seconds, because a stand nobody owns is a bug rather than the norm. */
-    private static final long NAMEPLATE_SWEEP_FRAMES = 100L;
+    /**
+     * Once a minute, because a stand nobody owns is a bug rather than the norm, and the
+     * sweep has to look at every armour stand in every world to find one. The stands are
+     * never saved, so a restart clears any that slip through regardless.
+     */
+    private static final long NAMEPLATE_SWEEP_FRAMES = 600L;
     private final MGXAccessBridge plugin;
     private final CosmeticStore store;
     private final CosmeticItems items;
@@ -470,7 +474,7 @@ final class CosmeticEffectService implements Listener {
      */
     private void sweepOrphanedNameplates() {
         for (World world : plugin.getServer().getWorlds()) {
-            for (Entity entity : world.getEntities()) {
+            for (Entity entity : world.getEntitiesByClass(ArmorStand.class)) {
                 if (!entity.getScoreboardTags().contains(RARITY_NAMEPLATE_TAG)) {
                     continue;
                 }

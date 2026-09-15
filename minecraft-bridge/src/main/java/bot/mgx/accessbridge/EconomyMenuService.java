@@ -2099,10 +2099,13 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
     }
 
     private static boolean isInstantSellable(ItemStack item) {
-        if (item == null || item.getType().isAir() || hasPreservedData(item)) {
+        if (item == null || item.getType().isAir()) {
             return false;
         }
-        return ShopCatalog.sellCredit(item.getType().name(), item.getAmount()) > 0L;
+        // The price lookup first: it is a map read, while the preserved-data check
+        // copies the item's whole meta, and most of an inventory is not for sale.
+        return ShopCatalog.sellCredit(item.getType().name(), item.getAmount()) > 0L
+                && !hasPreservedData(item);
     }
 
     private static boolean hasPreservedData(ItemStack item) {

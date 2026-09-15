@@ -1189,10 +1189,10 @@ final class AirdropService implements Listener {
     }
 
     private String airdropCosmetic(ItemStack item) {
-        if (item == null || item.getType().isAir() || !item.hasItemMeta()) {
+        if (item == null || item.getType().isAir()) {
             return null;
         }
-        return item.getItemMeta().getPersistentDataContainer()
+        return item.getPersistentDataContainer()
                 .get(cosmeticMarker, PersistentDataType.STRING);
     }
 

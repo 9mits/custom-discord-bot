@@ -249,10 +249,10 @@ final class CosmeticItems {
     }
 
     Optional<TokenInfo> read(ItemStack item) {
-        if (item == null || item.getType().isAir() || !item.hasItemMeta()) {
+        if (item == null || item.getType().isAir()) {
             return Optional.empty();
         }
-        PersistentDataContainer data = item.getItemMeta().getPersistentDataContainer();
+        io.papermc.paper.persistence.PersistentDataContainerView data = item.getPersistentDataContainer();
         String cosmeticId = data.get(cosmeticIdKey, PersistentDataType.STRING);
         String rawSerial = data.get(serialKey, PersistentDataType.STRING);
         Integer generation = data.get(generationKey, PersistentDataType.INTEGER);

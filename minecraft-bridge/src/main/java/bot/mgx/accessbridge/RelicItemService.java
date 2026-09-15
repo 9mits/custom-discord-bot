@@ -111,8 +111,8 @@ final class RelicItemService implements Listener {
     }
 
     Optional<RelicCatalog.Relic> relic(ItemStack item) {
-        if (item == null || item.getType().isAir() || !item.hasItemMeta()) return Optional.empty();
-        return RelicCatalog.find(item.getItemMeta().getPersistentDataContainer().get(relicKey, PersistentDataType.STRING));
+        if (item == null || item.getType().isAir()) return Optional.empty();
+        return RelicCatalog.find(item.getPersistentDataContainer().get(relicKey, PersistentDataType.STRING));
     }
 
     private boolean holding(Player player, RelicCatalog.Relic relic) {

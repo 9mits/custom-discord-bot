@@ -164,6 +164,13 @@ final class PlayerPerkService implements Listener {
             return;
         }
         AttributeModifier current = health.getModifier(key);
+        double wanted = extraHearts * 2.0;
+        // Every join re-applies every online player's perks. Removing and re-adding an
+        // unchanged modifier still marks the attribute dirty and sends it to everyone
+        // tracking that player, so an unchanged value is left exactly as it is.
+        if (unchanged(current, wanted, AttributeModifier.Operation.ADD_NUMBER, extraHearts > 0)) {
+            return;
+        }
         if (current != null) {
             health.removeModifier(current);
         }
@@ -180,12 +187,24 @@ final class PlayerPerkService implements Listener {
     }
 
     /** ADD_SCALAR reads as a percentage of the base value, which is what perks promise. */
+    private static boolean unchanged(
+            AttributeModifier current, double amount, AttributeModifier.Operation operation, boolean wanted
+    ) {
+        if (!wanted) {
+            return current == null;
+        }
+        return current != null && current.getAmount() == amount && current.getOperation() == operation;
+    }
+
     private void applyScalar(Player player, Attribute attribute, NamespacedKey key, double fraction) {
         AttributeInstance instance = player.getAttribute(attribute);
         if (instance == null) {
             return;
         }
         AttributeModifier current = instance.getModifier(key);
+        if (unchanged(current, fraction, AttributeModifier.Operation.ADD_SCALAR, fraction > 0)) {
+            return;
+        }
         if (current != null) {
             instance.removeModifier(current);
         }

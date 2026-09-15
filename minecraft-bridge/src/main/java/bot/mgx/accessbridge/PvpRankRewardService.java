@@ -148,8 +148,8 @@ final class PvpRankRewardService implements Listener {
     }
 
     static boolean isRewardScythe(ItemStack item) {
-        if (item == null || item.getType().isAir() || !item.hasItemMeta()) return false;
-        return item.getItemMeta().getPersistentDataContainer()
+        if (item == null || item.getType().isAir()) return false;
+        return item.getPersistentDataContainer()
                 .has(PLACEMENT_KEY, PersistentDataType.INTEGER);
     }
 
@@ -390,7 +390,7 @@ final class PvpRankRewardService implements Listener {
 
     private static int placement(ItemStack item) {
         if (!isRewardScythe(item)) return 0;
-        Integer value = item.getItemMeta().getPersistentDataContainer()
+        Integer value = item.getPersistentDataContainer()
                 .get(PLACEMENT_KEY, PersistentDataType.INTEGER);
         return value == null || value < 1 || value > 3 ? 0 : value;
     }

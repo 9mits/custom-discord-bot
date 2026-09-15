@@ -110,7 +110,7 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
                 .whenComplete((connected, error) -> {
                     connecting.set(false);
                     if (error != null) {
-                        plugin.getLogger().warning("Minecraft bridge connection failed: " + safeError(error));
+                        warnConnectionFailure(error);
                         scheduleReconnect();
                     } else {
                         socket = connected;
@@ -190,6 +190,8 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
                     }
                     authenticated = true;
                     reconnectAttempts = 0;
+                    suppressedConnectFailures = 0;
+                    lastConnectWarningAt = 0L;
                     plugin.getLogger().info("Connected to the signed Minecraft application bridge.");
                     flushVerificationOutbox();
                     flushPlayerActivityOutbox();
@@ -204,6 +206,10 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
                 }
                 case "HEARTBEAT_ACK" -> {
                     // The signed response is sufficient proof of liveness.
+                }
+                case "PLAYER_AFK_ACK" -> {
+                    // AFK changes are reported once and never retried, so there is no
+                    // outbox entry to clear. Logging it as unsupported filled the log.
                 }
                 case "VERIFICATION_ACK" -> {
                     String key = envelope.get("idempotency_key").getAsString();
@@ -1335,6 +1341,7 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
     }
 
     private void heartbeat() {
+        unstickSends();
         if (!isConnected()) {
             return;
         }
@@ -1357,21 +1364,115 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
         }
     }
 
+    /**
+     * Queues one message for the socket it was built for.
+     *
+     * <p>Java's WebSocket accepts one outgoing text frame at a time: a second
+     * {@code sendText} while the first is still on the wire fails with "Send pending".
+     * Sends come from the main thread, the chat thread and this network thread, and every
+     * reconnect and heartbeat flushes whole outboxes in a loop, so most of a burst used to
+     * fail silently and wait fifteen seconds for the next heartbeat to try again, which
+     * then failed the same way. Everything now goes through one queue, one frame at a time.
+     *
+     * <p>Bounded, because a bot that stops reading must not turn into unbounded memory.
+     * Anything dropped here is still in its outbox and goes again after a reconnect.
+     */
     private void sendRaw(String message) {
         WebSocket current = socket;
         if (current == null || current.isOutputClosed()) {
             return;
         }
+        boolean start;
+        synchronized (sendQueue) {
+            if (sendQueue.size() >= MAX_QUEUED_SENDS) {
+                droppedSends++;
+                return;
+            }
+            sendQueue.addLast(new Outgoing(current, message));
+            start = !sending;
+            if (start) {
+                sending = true;
+                sendStartedAt = System.currentTimeMillis();
+            }
+        }
+        if (start) {
+            drainSends();
+        }
+    }
+
+    private record Outgoing(WebSocket target, String text) {
+    }
+
+    private static final int MAX_QUEUED_SENDS = 5_000;
+    private final java.util.ArrayDeque<Outgoing> sendQueue = new java.util.ArrayDeque<>();
+    private boolean sending;
+    private volatile long sendStartedAt;
+    private long droppedSends;
+
+    /** Sends the next queued frame, continuing from its completion on the network thread. */
+    private void drainSends() {
+        Outgoing next;
+        while (true) {
+            synchronized (sendQueue) {
+                next = sendQueue.pollFirst();
+                if (next == null) {
+                    sending = false;
+                    return;
+                }
+                sendStartedAt = System.currentTimeMillis();
+            }
+            // A frame built for a socket that has since closed or been replaced is
+            // skipped: the outbox it came from sends it again on the new connection.
+            if (next.target() == socket && !next.target().isOutputClosed()) {
+                break;
+            }
+        }
         try {
-            current.sendText(message, true).whenComplete((ignored, error) -> {
+            next.target().sendText(next.text(), true).whenCompleteAsync((ignored, error) -> {
                 if (error != null && config.debug()) {
                     plugin.getLogger().warning("Bridge send failed: " + safeError(error));
                 }
-            });
+                drainSends();
+            }, networkExecutor);
         } catch (RuntimeException exception) {
             if (config.debug()) {
                 plugin.getLogger().warning("Bridge send failed: " + safeError(exception));
             }
+            try {
+                networkExecutor.execute(this::drainSends);
+            } catch (RejectedExecutionException stopping) {
+                synchronized (sendQueue) {
+                    sendQueue.clear();
+                    sending = false;
+                }
+            }
+        }
+    }
+
+    /** Frames waiting to go out, for the performance log. */
+    int queuedSends() {
+        synchronized (sendQueue) {
+            return sendQueue.size();
+        }
+    }
+
+    /**
+     * Restarts a send queue whose last frame never completed.
+     *
+     * <p>A frame on a connection that dies mid-write should complete exceptionally, but
+     * a queue that silently stops is the one failure nobody would notice for days.
+     */
+    private void unstickSends() {
+        boolean restart;
+        synchronized (sendQueue) {
+            restart = sending && System.currentTimeMillis() - sendStartedAt > 30_000L;
+            if (restart) {
+                sendStartedAt = System.currentTimeMillis();
+            }
+        }
+        if (restart) {
+            plugin.getLogger().warning("Bridge send queue stalled; restarting it.");
+            drainSends();
         }
     }
 
@@ -1400,6 +1501,27 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
             plugin.getLogger().warning("Minecraft bridge error: " + safeError(error));
             scheduleReconnect();
         }
+    }
+
+    private long lastConnectWarningAt;
+    private int suppressedConnectFailures;
+
+    /**
+     * Logs a failed connection attempt, at most once every ten minutes while the bot
+     * stays unreachable. A bot that is simply switched off otherwise wrote a warning
+     * every minute for as long as it was down.
+     */
+    private void warnConnectionFailure(Throwable error) {
+        long now = System.currentTimeMillis();
+        if (now - lastConnectWarningAt < 10L * 60L * 1_000L) {
+            suppressedConnectFailures++;
+            return;
+        }
+        String repeated = suppressedConnectFailures == 0 ? ""
+                : " (" + suppressedConnectFailures + " more attempts failed since the last warning)";
+        plugin.getLogger().warning("Minecraft bridge connection failed: " + safeError(error) + repeated);
+        lastConnectWarningAt = now;
+        suppressedConnectFailures = 0;
     }
 
     private void scheduleReconnect() {
