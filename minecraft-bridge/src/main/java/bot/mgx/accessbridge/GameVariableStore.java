@@ -3178,6 +3178,46 @@ final class GameVariableStore {
                     value = "OPEN • CLOSES IN <time>";
                     migrated = true;
                 }
+                // The first configurable Season quest ladders copied the old end-game
+                // scale into level one. Replace only those exact shipped lists so a
+                // player's first goals become approachable without overwriting an
+                // owner's custom progression.
+                if (value instanceof String text) {
+                    String easier = switch (canonical) {
+                        case "season.quest.kill_mobs.targets" -> text.equals(
+                                "100, 300, 750, 1500, 3000, 6000, 12000, 25000")
+                                ? SeasonPassRules.ladderText(
+                                        SeasonPassRules.QuestType.KILL_MOBS.defaultTargets()) : null;
+                        case "season.quest.mine_ores.targets" -> text.equals(
+                                "50, 150, 400, 800, 1500, 3000, 6000")
+                                ? SeasonPassRules.ladderText(
+                                        SeasonPassRules.QuestType.MINE_ORES.defaultTargets()) : null;
+                        case "season.quest.harvest_crops.targets" -> text.equals(
+                                "100, 300, 750, 1500, 3000, 6000, 12000")
+                                ? SeasonPassRules.ladderText(
+                                        SeasonPassRules.QuestType.HARVEST_CROPS.defaultTargets()) : null;
+                        case "season.quest.open_crates.targets" -> text.equals(
+                                "50, 200, 500, 1000, 2500, 5000")
+                                ? SeasonPassRules.ladderText(
+                                        SeasonPassRules.QuestType.OPEN_CRATES.defaultTargets()) : null;
+                        case "season.quest.sell_money.targets" -> text.equals(
+                                "100000, 500000, 1000000, 2500000, 5000000, 10000000, 25000000")
+                                ? SeasonPassRules.ladderText(
+                                        SeasonPassRules.QuestType.SELL_MONEY.defaultTargets()) : null;
+                        case "season.quest.play_minutes.targets" -> text.equals(
+                                "120, 480, 1200, 2400, 4800, 9600")
+                                ? SeasonPassRules.ladderText(
+                                        SeasonPassRules.QuestType.PLAY_MINUTES.defaultTargets()) : null;
+                        case "season.quest.win_pvp.targets" -> text.equals("3, 10, 25, 50, 100")
+                                ? SeasonPassRules.ladderText(
+                                        SeasonPassRules.QuestType.WIN_PVP.defaultTargets()) : null;
+                        default -> null;
+                    };
+                    if (easier != null) {
+                        value = easier;
+                        migrated = true;
+                    }
+                }
                 // The first PvP entrance label was centred inside the portal. Move only
                 // the shipped values into the same above-frame presentation as Dragon.
                 if (canonical.equals("pvp-competitive.portal-display-height")

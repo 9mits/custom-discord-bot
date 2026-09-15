@@ -19,23 +19,24 @@ final class SeasonPassRules {
      * sized from the live server's own numbers (September 2026): a typical engaged
      * player kills about 50 hostile mobs and mines about 12 ores an hour, the top tenth
      * have 12,000+ kills and 3,000+ ores, and the richest balances run to hundreds of
-     * millions. The first rungs are an evening; the last are a whole season of effort.
+     * millions. The first rungs fit a player's first session; each next rung asks for a
+     * larger amount of new work, and the last remains a whole season of effort.
      */
     enum QuestType {
         KILL_MOBS("Mob Hunter", "Defeat %s hostile mobs", "item/iron_sword",
-                100, 300, 750, 1_500, 3_000, 6_000, 12_000, 25_000),
+                10, 50, 200, 750, 3_000, 6_000, 12_000, 25_000),
         MINE_ORES("Deep Miner", "Mine %s ores", "item/iron_pickaxe",
-                50, 150, 400, 800, 1_500, 3_000, 6_000),
+                5, 25, 100, 400, 1_500, 3_000, 6_000),
         HARVEST_CROPS("Harvester", "Harvest %s fully grown crops", "item/wheat",
-                100, 300, 750, 1_500, 3_000, 6_000, 12_000),
+                20, 100, 400, 1_500, 3_000, 6_000, 12_000),
         OPEN_CRATES("Crate Opener", "Open %s crates", "item/trial_key",
-                50, 200, 500, 1_000, 2_500, 5_000),
+                1, 5, 25, 100, 500, 5_000),
         SELL_MONEY("Merchant", "Earn %s from /sell", "item/gold_ingot",
-                100_000, 500_000, 1_000_000, 2_500_000, 5_000_000, 10_000_000, 25_000_000),
+                5_000, 25_000, 100_000, 500_000, 2_500_000, 10_000_000, 25_000_000),
         PLAY_MINUTES("Playtime", "Play %s active minutes", "item/clock_00",
-                120, 480, 1_200, 2_400, 4_800, 9_600),
+                15, 60, 240, 1_200, 4_800, 9_600),
         WIN_PVP("Champion", "Win %s ranked PvP matches", "item/netherite_sword",
-                3, 10, 25, 50, 100);
+                1, 5, 20, 50, 100);
 
         private final String title;
         private final String template;
