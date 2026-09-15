@@ -51,7 +51,7 @@ LINKED_ICON_SIZES = {
     # Season gear is re-coloured from the leaderboard Scythe and the imported Amethyst
     # gear, so each piece keeps its source's grid exactly.
     **{f"season_{season}_scythe": (64, 64) for season in range(1, 5)},
-    **{f"season_{season}_{piece}": (16, 16) for season in range(1, 5) for piece in ("pickaxe", "axe", "wings", "boots", "hoe", "helmet", "bow")},
+    **{f"season_{season}_{piece}": (16, 16) for season in range(1, 5) for piece in ("pickaxe", "axe", "wings", "hoe", "helmet")},
     # Relics are re-coloured from the imported 16x16 Amethyst gear.
     **{relic: (16, 16) for relic in (
         "veinseeker_pickaxe", "magnetite_shovel", "bloodthirst_blade", "frostbite_bow",
@@ -149,9 +149,9 @@ class ResourcePackIconTests(unittest.TestCase):
         # 94, plus the eleven Eternal twins of the timed Amethyst gear, plus the
         # Mysterious Crate Key, which became its own item when the Amethyst Token
         # inherited the old key's identity, plus three exclusives for each of the
-        # four themed seasons, plus each season's Scythe, Pickaxe, Axe, Wings, Boots, Hoe,
-        # Helmet and Bow, plus the seven Relics and the Dawnbreak and Dreamdrift crate cosmetics.
-        self.assertEqual(163, len(icons))
+        # four themed seasons, plus each season's Scythe, Pickaxe, Axe, Wings, Hoe and Helmet,
+        # plus the seven Relics and the Dawnbreak and Dreamdrift crate cosmetics.
+        self.assertEqual(155, len(icons))
 
         digests = set()
         for path in icons:
@@ -361,7 +361,7 @@ class ResourcePackIconTests(unittest.TestCase):
                 )
                 for slot in ("aura", "trail", "kill"):
                     self.assertTrue((ITEM_TEXTURES / "cosmetic" / f"season_{season}_{slot}.png").is_file())
-                for piece in ("scythe", "pickaxe", "axe", "wings", "boots", "hoe", "helmet", "bow"):
+                for piece in ("scythe", "pickaxe", "axe", "wings", "hoe", "helmet"):
                     self.assertTrue((ITEM_TEXTURES / f"season_{season}_{piece}.png").is_file())
                 worn = RESOURCE_PACK / "src" / "assets" / "mgx" / "textures" / "entity" / "equipment" / "wings"
                 self.assertTrue((worn / f"season_{season}_wings.png").is_file())

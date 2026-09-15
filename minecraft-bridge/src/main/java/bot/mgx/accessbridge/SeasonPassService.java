@@ -177,6 +177,36 @@ final class SeasonPassService implements Listener, CommandExecutor {
         return java.util.Optional.of(plugin.amethystItems().createSeasonGear(theme.get(), piece.get()));
     }
 
+    /** "silence_armor_trim_smithing_template" reads as "Silence Armor Trim". */
+    static String vanillaName(String id) {
+        return java.util.Arrays.stream(id.replace("_smithing_template", "").split("_"))
+                .filter(word -> !word.isEmpty())
+                .map(word -> Character.toUpperCase(word.charAt(0)) + word.substring(1))
+                .collect(java.util.stream.Collectors.joining(" "));
+    }
+
+    /**
+     * One copy of a vanilla or enchanted-book reward, or empty when the id is not real.
+     * Books are clamped to the enchantment's own maximum, so no tier pays past vanilla.
+     */
+    java.util.Optional<ItemStack> vanillaItem(SeasonPassRules.Grant grant) {
+        if (grant.kind().equals("book")) {
+            org.bukkit.enchantments.Enchantment enchantment = io.papermc.paper.registry.RegistryAccess.registryAccess()
+                    .getRegistry(io.papermc.paper.registry.RegistryKey.ENCHANTMENT)
+                    .get(org.bukkit.NamespacedKey.minecraft(grant.id()));
+            if (enchantment == null) return java.util.Optional.empty();
+            ItemStack book = new ItemStack(Material.ENCHANTED_BOOK);
+            if (book.getItemMeta() instanceof org.bukkit.inventory.meta.EnchantmentStorageMeta meta) {
+                meta.addStoredEnchant(enchantment, (int) Math.min(grant.amount(), enchantment.getMaxLevel()), false);
+                book.setItemMeta(meta);
+            }
+            return java.util.Optional.of(book);
+        }
+        Material material = Material.matchMaterial(grant.id());
+        return material == null || !material.isItem() || material.isAir()
+                ? java.util.Optional.empty() : java.util.Optional.of(new ItemStack(material));
+    }
+
     /** A season consumable as the real item, for a menu tile. */
     java.util.Optional<ItemStack> seasonItemPreview(SeasonPassRules.Grant grant) {
         return SeasonItemCatalog.find(grant.id()).filter(item -> plugin.seasonItems() != null)
@@ -613,8 +643,8 @@ final class SeasonPassService implements Listener, CommandExecutor {
     // ------------------------------------------------------------------ rewards
 
     List<SeasonPassRules.Grant> grants(int tier) {
-        String key = SeasonPassRules.rewardKey(tier, candidate -> variables.find(candidate).isPresent());
-        return SeasonPassRules.parse(SeasonPassRules.variant(variables.string(key), tier));
+        String entry = SeasonPassRules.trackEntry(variables.string("season.reward.track"), tier);
+        return SeasonPassRules.parse(entry.isEmpty() ? variables.string("season.reward.fallback") : entry);
     }
 
     String describe(List<SeasonPassRules.Grant> grants) {
@@ -633,6 +663,9 @@ final class SeasonPassService implements Listener, CommandExecutor {
                         .orElse(exclusiveFallbackShards() + " Shards"));
                 case "season_item" -> SeasonItemCatalog.find(grant.id()).ifPresent(item ->
                         parts.add((grant.amount() > 1 ? grant.amount() + "x " : "") + item.displayName));
+                case "vanilla" -> parts.add((grant.amount() > 1 ? grant.amount() + "x " : "") + vanillaName(grant.id()));
+                case "book" -> parts.add(vanillaName(grant.id()) + (grant.amount() > 1 ? " " + roman((int) grant.amount()) : "")
+                        + " Book");
                 case "keys" -> parts.add(grant.amount() + (grant.amount() == 1 ? " Key" : " Keys"));
                 case "shards" -> parts.add(grant.amount() + (grant.amount() == 1 ? " Shard" : " Shards"));
                 case "cosmetic" -> parts.add(CosmeticCatalog.find(grant.id())
@@ -719,6 +752,15 @@ final class SeasonPassService implements Listener, CommandExecutor {
                             left -= stack.getAmount();
                         }
                     });
+                    case "vanilla", "book" -> vanillaItem(grant).ifPresentOrElse(item -> {
+                        for (long left = grant.amount(); left > 0; ) {
+                            ItemStack stack = item.clone();
+                            stack.setAmount((int) Math.min(left, item.getMaxStackSize()));
+                            give(player, stack);
+                            left -= stack.getAmount();
+                        }
+                    }, () -> plugin.getLogger().warning("Season Pass " + grant.kind() + " reward "
+                            + grant.id() + " is not a real item or enchantment."));
                     case "keys" -> {
                         if (plugin.crateService() != null) {
                             plugin.crateService().grantKeys(player, (int) Math.min(256, grant.amount()));

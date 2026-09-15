@@ -413,13 +413,6 @@ final class AmethystItemService implements Listener {
                 equippable.setModel(model);
                 meta.setEquippable(equippable);
             }
-            case BOOTS -> {
-                meta.addEnchant(Enchantment.PROTECTION, 4, true);
-                meta.addEnchant(Enchantment.FEATHER_FALLING, 4, true);
-                meta.addEnchant(Enchantment.DEPTH_STRIDER, 3, true);
-                meta.addEnchant(Enchantment.SOUL_SPEED, 3, true);
-                wearAs(meta, EquipmentSlot.FEET, theme.season());
-            }
             case HELMET -> {
                 meta.addEnchant(Enchantment.PROTECTION, 4, true);
                 meta.addEnchant(Enchantment.RESPIRATION, 3, true);
@@ -429,11 +422,6 @@ final class AmethystItemService implements Listener {
             case HOE -> {
                 meta.addEnchant(Enchantment.EFFICIENCY, 5, true);
                 meta.addEnchant(Enchantment.FORTUNE, 3, true);
-            }
-            case BOW -> {
-                meta.addEnchant(Enchantment.POWER, 5, true);
-                meta.addEnchant(Enchantment.FLAME, 1, true);
-                meta.addEnchant(Enchantment.INFINITY, 1, true);
             }
         }
         meta.lore(List.of(
@@ -467,21 +455,6 @@ final class AmethystItemService implements Listener {
         if (seasonPiece(player.getInventory().getItemInMainHand()).filter(SeasonGear.Piece.SCYTHE::equals).isPresent()) {
             event.setDamage(event.getDamage() * (1d + SeasonGear.Piece.MOB_DAMAGE_BONUS));
         }
-    }
-
-    /** Featherstep: Season Boots cancel fall damage, but never for someone in a fight. */
-    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
-    public void onSeasonFall(org.bukkit.event.entity.EntityDamageEvent event) {
-        if (event.getCause() != org.bukkit.event.entity.EntityDamageEvent.DamageCause.FALL
-                || !(event.getEntity() instanceof Player player)
-                || seasonPiece(player.getInventory().getBoots()).filter(SeasonGear.Piece.BOOTS::equals).isEmpty()) {
-            return;
-        }
-        // A fall immunity that held in combat would decide chases and pearl escapes.
-        if (plugin.inPvpDuel(player) || (plugin.afkService() != null && plugin.afkService().inCombat(player))) {
-            return;
-        }
-        event.setCancelled(true);
     }
 
     /** Deepsight: long enough that night vision never reaches its flickering last seconds. */
@@ -541,46 +514,6 @@ final class AmethystItemService implements Listener {
             replanted.setAge(0);
             block.setBlockData(replanted, false);
         }
-    }
-
-    /** Starfall: marks arrows from a Season Bow so their hits can be recognised. */
-    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
-    public void onSeasonShoot(EntityShootBowEvent event) {
-        if (!(event.getEntity() instanceof Player) || event.getBow() == null
-                || seasonPiece(event.getBow()).filter(SeasonGear.Piece.BOW::equals).isEmpty()) {
-            return;
-        }
-        event.getProjectile().getPersistentDataContainer().set(seasonKey, PersistentDataType.INTEGER,
-                season(event.getBow()));
-    }
-
-    /** Starfall: a Season Bow hits mobs harder and bursts onto hostile mobs nearby. Players are never affected. */
-    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
-    public void onSeasonArrow(EntityDamageByEntityEvent event) {
-        if (!(event.getDamager() instanceof Projectile arrow)
-                || !(arrow.getShooter() instanceof Player shooter)
-                || event.getEntity() instanceof Player
-                || !(event.getEntity() instanceof LivingEntity target)) {
-            return;
-        }
-        Integer season = arrow.getPersistentDataContainer().get(seasonKey, PersistentDataType.INTEGER);
-        if (season == null) return;
-        event.setDamage(event.getDamage() * (1d + SeasonGear.Piece.MOB_DAMAGE_BONUS));
-        double splash = event.getDamage() * SeasonGear.Piece.STARFALL_SPLASH;
-        double radius = SeasonGear.Piece.STARFALL_RADIUS;
-        for (Entity nearby : target.getNearbyEntities(radius, radius, radius)) {
-            if (nearby instanceof org.bukkit.entity.Enemy && !(nearby instanceof Player)
-                    && nearby instanceof LivingEntity victim && !victim.isDead()) {
-                victim.damage(splash, shooter);
-            }
-        }
-        var theme = SeasonCosmetics.theme(season);
-        Color colour = theme.map(found -> Color.fromRGB(found.primary())).orElse(Color.WHITE);
-        target.getWorld().spawnParticle(Particle.DUST, target.getLocation().add(0, 1, 0), 24,
-                radius / 3d, 0.6, radius / 3d, 0d, new Particle.DustOptions(colour, 1.3f));
-        target.getWorld().spawnParticle(Particle.FIREWORK, target.getLocation().add(0, 1, 0), 12,
-                0.4, 0.4, 0.4, 0.08);
-        target.getWorld().playSound(target.getLocation(), Sound.ENTITY_FIREWORK_ROCKET_BLAST, 0.7f, 1.3f);
     }
 
     /** Forge Touch: a Season Pickaxe smelts ore drops, and only ore drops. */

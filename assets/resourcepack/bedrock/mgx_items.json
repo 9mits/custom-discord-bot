@@ -930,42 +930,6 @@
         "bedrock_options": {
           "icon": "mgx:frostbite_bow"
         }
-      },
-      {
-        "type": "definition",
-        "model": "mgx:season_1_bow",
-        "bedrock_identifier": "mgx:season_1_bow",
-        "display_name": "Solstice Bow",
-        "bedrock_options": {
-          "icon": "mgx:season_1_bow"
-        }
-      },
-      {
-        "type": "definition",
-        "model": "mgx:season_2_bow",
-        "bedrock_identifier": "mgx:season_2_bow",
-        "display_name": "Frostbound Bow",
-        "bedrock_options": {
-          "icon": "mgx:season_2_bow"
-        }
-      },
-      {
-        "type": "definition",
-        "model": "mgx:season_3_bow",
-        "bedrock_identifier": "mgx:season_3_bow",
-        "display_name": "Verdant Bow",
-        "bedrock_options": {
-          "icon": "mgx:season_3_bow"
-        }
-      },
-      {
-        "type": "definition",
-        "model": "mgx:season_4_bow",
-        "bedrock_identifier": "mgx:season_4_bow",
-        "display_name": "Eclipse Bow",
-        "bedrock_options": {
-          "icon": "mgx:season_4_bow"
-        }
       }
     ],
     "minecraft:diamond_helmet": [
@@ -1448,44 +1412,6 @@
         "display_name": "Eclipse Axe",
         "bedrock_options": {
           "icon": "mgx:season_4_axe"
-        }
-      }
-    ],
-    "minecraft:netherite_boots": [
-      {
-        "type": "definition",
-        "model": "mgx:season_1_boots",
-        "bedrock_identifier": "mgx:season_1_boots",
-        "display_name": "Solstice Boots",
-        "bedrock_options": {
-          "icon": "mgx:season_1_boots"
-        }
-      },
-      {
-        "type": "definition",
-        "model": "mgx:season_2_boots",
-        "bedrock_identifier": "mgx:season_2_boots",
-        "display_name": "Frostbound Boots",
-        "bedrock_options": {
-          "icon": "mgx:season_2_boots"
-        }
-      },
-      {
-        "type": "definition",
-        "model": "mgx:season_3_boots",
-        "bedrock_identifier": "mgx:season_3_boots",
-        "display_name": "Verdant Boots",
-        "bedrock_options": {
-          "icon": "mgx:season_3_boots"
-        }
-      },
-      {
-        "type": "definition",
-        "model": "mgx:season_4_boots",
-        "bedrock_identifier": "mgx:season_4_boots",
-        "display_name": "Eclipse Boots",
-        "bedrock_options": {
-          "icon": "mgx:season_4_boots"
         }
       }
     ],

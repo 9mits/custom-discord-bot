@@ -177,9 +177,11 @@ final class SeasonPassRules {
     static final int MAX_HEARTS_PER_TIER = 5;
     /** Most copies of one crate reward a tier can pay. */
     static final long MAX_REWARD_COUNT = 16L;
+    /** Highest level any vanilla enchantment has; the real maximum is applied when paid. */
+    static final long MAX_BOOK_LEVEL = 5L;
 
     /**
-     * Parses a tier reward such as {@code hearts:1;shards:2;reward:ancient_debris:2;gear:scythe;cosmetic:season:aura;item:rally_horn}.
+     * Parses a tier reward such as {@code hearts:1;shards:2;vanilla:nether_star;book:mending;gear:scythe;cosmetic:season:aura;item:rally_horn}.
      *
      * <p>{@code cosmetic:season:<aura|trail|kill>} names this season's exclusive rather than
      * a fixed id, so one setting pays Season 1's crown in Season 1 and Season 2's in
@@ -216,6 +218,33 @@ final class SeasonPassRules {
                 }
                 case "gear" -> SeasonGear.Piece.parse(value).ifPresent(piece ->
                         grants.add(new Grant("season_gear", 1L, piece.name())));
+                case "vanilla" -> {
+                    // vanilla:<material id> or vanilla:<id>:<count>. Checked against the real
+                    // material list when paid, since materials need a running server.
+                    String[] item = value.toLowerCase(Locale.ROOT).split(":", 2);
+                    long count = 1L;
+                    if (item.length == 2) {
+                        try {
+                            count = Math.max(1L, Math.min(MAX_REWARD_COUNT, Long.parseLong(item[1].strip())));
+                        } catch (NumberFormatException ignored) {
+                            continue;
+                        }
+                    }
+                    if (item[0].strip().matches("[a-z0-9_]+")) grants.add(new Grant(kind, count, item[0].strip()));
+                }
+                case "book" -> {
+                    // book:<enchantment> or book:<enchantment>:<level>, never past its vanilla maximum.
+                    String[] book = value.toLowerCase(Locale.ROOT).split(":", 2);
+                    long level = 1L;
+                    if (book.length == 2) {
+                        try {
+                            level = Math.max(1L, Math.min(MAX_BOOK_LEVEL, Long.parseLong(book[1].strip())));
+                        } catch (NumberFormatException ignored) {
+                            continue;
+                        }
+                    }
+                    if (book[0].strip().matches("[a-z_]+")) grants.add(new Grant(kind, level, book[0].strip()));
+                }
                 case "item" -> {
                     // item:<season consumable id> or item:<id>:<count>
                     String[] item = value.toLowerCase(Locale.ROOT).split(":", 2);
@@ -253,25 +282,12 @@ final class SeasonPassRules {
     }
 
     /**
-     * One tier's reward from a setting that may list several, separated by {@code |}.
-     * Odd and even tiers step through their lists in turn (tiers 1 and 2 take the first,
-     * 3 and 4 the second), so twenty odd tiers are not twenty copies of one bundle. The
-     * choice depends only on the tier, so every screen and every payout agrees.
+     * One tier's reward from the track: entries separated by {@code |}, the first for tier 1.
+     * A tier past the end of the track reads empty, and the caller pays the fallback.
      */
-    static String variant(String spec, int tier) {
-        if (spec == null) return "";
-        String[] variants = java.util.Arrays.stream(spec.split("\\|"))
-                .map(String::strip).filter(part -> !part.isEmpty()).toArray(String[]::new);
-        if (variants.length == 0) return "";
-        return variants[Math.floorMod((tier - 1) / 2, variants.length)];
-    }
-
-    /** Which reward setting a tier uses: its own override, a milestone, or odd/even. */
-    static String rewardKey(int tier, java.util.function.Predicate<String> hasOverride) {
-        String own = "season.reward.tier-" + tier;
-        if (hasOverride.test(own)) return own;
-        if (tier % 10 == 0) return "season.reward.every-10";
-        if (tier % 5 == 0) return "season.reward.every-5";
-        return tier % 2 == 0 ? "season.reward.even" : "season.reward.odd";
+    static String trackEntry(String track, int tier) {
+        if (track == null || tier < 1) return "";
+        String[] entries = track.split("\\|", -1);
+        return tier <= entries.length ? entries[tier - 1].strip() : "";
     }
 }
