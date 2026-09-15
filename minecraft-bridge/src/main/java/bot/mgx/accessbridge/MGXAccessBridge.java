@@ -1225,7 +1225,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     void applyPlayerProfile(org.bukkit.entity.Player player, PlayerProfile profile) {
         perkService.apply(player, profile);
         if (sidebarService != null) {
-            sidebarService.refreshAll();
+            sidebarService.refreshAllSoon();
         }
     }
 
@@ -1836,7 +1836,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
      */
     void refreshClans() {
         if (sidebarService != null) {
-            sidebarService.refreshAll();
+            sidebarService.refreshAllSoon();
         }
         if (perkService != null && clanStore != null) {
             for (org.bukkit.entity.Player player : getServer().getOnlinePlayers()) {

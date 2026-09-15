@@ -1767,6 +1767,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
 
     void stop() {
         creditOnlinePlayers();
+        odds.flush();
         if (hourlyTask != null) {
             hourlyTask.cancel();
             hourlyTask = null;
@@ -1938,6 +1939,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private void creditOnlinePlayers() {
+        odds.flush();
         long now = System.currentTimeMillis();
         Map<UUID, Long> elapsed = new HashMap<>();
         for (Player player : plugin.getServer().getOnlinePlayers()) {

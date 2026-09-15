@@ -86,6 +86,8 @@ final class CrateOddsStoreTest {
         UUID player = UUID.randomUUID();
         CrateOddsStore first = store(dir);
         open(first, player, 20, true);
+        // Opens are saved in batches; the crate service flushes every minute and on stop.
+        first.flush();
 
         CrateOddsStore reloaded = store(dir);
         assertEquals(20L, reloaded.counts(KIND).opens());

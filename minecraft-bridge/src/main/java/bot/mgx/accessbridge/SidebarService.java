@@ -138,6 +138,29 @@ final class SidebarService {
         lastTeamKey = "";
     }
 
+    /**
+     * Schedules one full refresh for the next tick, however many things ask for it.
+     *
+     * <p>A single join re-applies the player's Discord profile, refreshes clans and can
+     * change AFK state, and each of those used to rebuild every player's list entry and
+     * name tags on the spot. They now share one pass a tick later.
+     */
+    void refreshAllSoon() {
+        if (refreshQueued || taskId < 0) {
+            if (taskId < 0) {
+                refreshAll();
+            }
+            return;
+        }
+        refreshQueued = true;
+        plugin.getServer().getScheduler().runTask(plugin, () -> {
+            refreshQueued = false;
+            refreshAll();
+        });
+    }
+
+    private boolean refreshQueued;
+
     void refreshAll() {
         boards.keySet().removeIf(uuid -> plugin.getServer().getPlayer(uuid) == null);
         tabKeys.keySet().removeIf(uuid -> plugin.getServer().getPlayer(uuid) == null);

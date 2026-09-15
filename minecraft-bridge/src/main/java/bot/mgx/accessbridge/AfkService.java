@@ -470,7 +470,7 @@ final class AfkService implements Listener, CommandExecutor {
 
     private void refreshTab() {
         if (plugin.sidebarService() != null) {
-            plugin.sidebarService().refreshAll();
+            plugin.sidebarService().refreshAllSoon();
         }
     }
 

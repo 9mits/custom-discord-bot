@@ -49,6 +49,9 @@ final class PerfMonitor implements Listener {
         private final AtomicLong maxNanos = new AtomicLong();
         private final AtomicLong failures = new AtomicLong();
         private final AtomicLong totalRuns = new AtomicLong();
+        private final AtomicLong totalNanos = new AtomicLong();
+        private final AtomicLong worstNanos = new AtomicLong();
+        private final AtomicLong totalFailures = new AtomicLong();
         private volatile long lastSlowWarning;
 
         private Stat(String name) {
@@ -59,7 +62,9 @@ final class PerfMonitor implements Listener {
             runs.incrementAndGet();
             totalRuns.incrementAndGet();
             nanos.addAndGet(elapsed);
+            totalNanos.addAndGet(elapsed);
             maxNanos.accumulateAndGet(elapsed, Math::max);
+            worstNanos.accumulateAndGet(elapsed, Math::max);
             if (elapsed >= slowTaskNanos) {
                 long now = System.nanoTime();
                 Logger log = logger;
@@ -99,6 +104,7 @@ final class PerfMonitor implements Listener {
                 task.run();
             } catch (RuntimeException | Error failure) {
                 stat.failures.incrementAndGet();
+                stat.totalFailures.incrementAndGet();
                 throw failure;
             } finally {
                 stat.record(System.nanoTime() - start);
@@ -240,8 +246,8 @@ final class PerfMonitor implements Listener {
     static List<Row> snapshot() {
         List<Row> rows = new ArrayList<>();
         for (Stat stat : TASKS.values()) {
-            rows.add(new Row(stat.name, stat.runs.get(), stat.nanos.get(), stat.maxNanos.get(),
-                    stat.failures.get()));
+            rows.add(new Row(stat.name, stat.totalRuns.get(), stat.totalNanos.get(), stat.worstNanos.get(),
+                    stat.totalFailures.get()));
         }
         rows.sort(Comparator.comparingLong(Row::nanos).reversed());
         return rows;
