@@ -45,8 +45,13 @@ APPLY_ATTACHMENT_URI = f"attachment://{APPLY_FILENAME}"
 MARK_FILENAME = "mysterious_smp_x_mark.png"
 MARK_PATH = Path(__file__).resolve().parent.parent / "assets" / "minecraft" / MARK_FILENAME
 MARK_ATTACHMENT_URI = f"attachment://{MARK_FILENAME}"
-MINECRAFT_HEAD_URL = "https://api.mcheads.org/ioshead/{identifier}/left"
-MINECRAFT_SKIN_URL = "https://api.mcheads.org/iosbody/{identifier}/left"
+MINECRAFT_HEAD_URL = "https://mc-heads.net/head/{identifier}"
+MINECRAFT_SKIN_URL = "https://mc-heads.net/body/{identifier}"
+# Floodgate names are understood by the Bedrock-aware renderer, while mc-heads.net
+# deliberately resolves Java accounts only. Keep that narrower route for Bedrock
+# instead of replacing a real Bedrock skin with the renderer's default Steve.
+BEDROCK_HEAD_URL = "https://api.mcheads.org/ioshead/{identifier}/left"
+BEDROCK_SKIN_URL = "https://api.mcheads.org/iosbody/{identifier}/left"
 STEVE_HEAD_URL = MINECRAFT_HEAD_URL.format(identifier="MHF_Steve")
 STEVE_SKIN_URL = MINECRAFT_SKIN_URL.format(identifier="MHF_Steve")
 #: A remote copy of the mark, for embeds that are not sent with an attachment —
@@ -63,25 +68,25 @@ _BEDROCK_UUID_PREFIX = "0" * 16
 def head_url(minecraft_uuid: str, username: str = "") -> str:
     """One square, isometric head render for a player on either edition.
 
-    The renderer understands a dot-prefixed Bedrock gamertag.  Keeping every
-    edition on the same endpoint prevents Bedrock faces from appearing as flat
-    tiles beside Java's isometric heads.  A completely missing identity gets a
-    real Steve render rather than a broken image or a punctuation initial.
+    Java accounts use the Cloudflare-cached renderer. Floodgate accounts stay on
+    the renderer that understands a dot-prefixed Bedrock gamertag. Both return
+    isometric art, and a missing identity gets Steve instead of a broken image.
     """
     compact = str(minecraft_uuid or "").replace("-", "").lower()
-    if compact.startswith(_BEDROCK_UUID_PREFIX) and username:
+    if username and (compact.startswith(_BEDROCK_UUID_PREFIX) or username.startswith(".")):
         name = username if username.startswith(".") else f".{username}"
-        return MINECRAFT_HEAD_URL.format(identifier=quote(name, safe=""))
+        return BEDROCK_HEAD_URL.format(identifier=quote(name, safe=""))
     identifier = minecraft_uuid or username or "MHF_Steve"
     return MINECRAFT_HEAD_URL.format(identifier=quote(identifier, safe=""))
 
 
 def skin_url(minecraft_uuid: str, username: str = "") -> str:
-    """A matching isometric body render, with Steve for an absent identity."""
+    """A matching isometric body render, preserving Bedrock name lookup."""
     compact = str(minecraft_uuid or "").replace("-", "").lower()
     identifier = minecraft_uuid or username or "MHF_Steve"
-    if compact.startswith(_BEDROCK_UUID_PREFIX) and username:
+    if username and (compact.startswith(_BEDROCK_UUID_PREFIX) or username.startswith(".")):
         identifier = username if username.startswith(".") else f".{username}"
+        return BEDROCK_SKIN_URL.format(identifier=quote(identifier, safe=""))
     return MINECRAFT_SKIN_URL.format(identifier=quote(identifier, safe=""))
 
 #: How the server is described, in the one place both panels read it from. The

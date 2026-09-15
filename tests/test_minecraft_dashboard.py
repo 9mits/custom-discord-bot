@@ -127,8 +127,8 @@ class MinecraftDashboardSecurityTests(unittest.IsolatedAsyncioTestCase):
             payload = await response.json()
             row = payload["individual"]["wealth"][0]
             self.assertEqual(row["discord_username"], "nine")
-            self.assertIn("api.mcheads.org/ioshead", row["head_url"])
-            self.assertIn("api.mcheads.org/iosbody", row["skin_url"])
+            self.assertIn("mc-heads.net/head", row["head_url"])
+            self.assertIn("mc-heads.net/body", row["skin_url"])
             self.assertNotIn("variables", payload)
             self.assertEqual(response.headers["X-Frame-Options"], "DENY")
 
@@ -177,8 +177,10 @@ class MinecraftDashboardAssetTests(unittest.TestCase):
         self.assertIn("slice(0, 10)", script)
         self.assertIn("live-podium", script)
         self.assertIn("skin_url", script)
-        self.assertIn("ioshead/MHF_Steve/left", script)
-        self.assertIn('data-fallback="', script)
+        self.assertIn("mc-heads.net/head/MHF_Steve", script)
+        self.assertIn("api.mcheads.org/", script)
+        self.assertIn('data-sources="', script)
+        self.assertIn("image.hidden = true", script)
         self.assertNotIn("live-avatar-fallback", script)
         self.assertIn("row.icon", script)
         self.assertNotIn("clanIcons", script)
@@ -210,7 +212,7 @@ class MinecraftDashboardAssetTests(unittest.TestCase):
             Path(__file__).parents[1] / "devblog" / "static" / "server-statistics.js"
         ).read_text()
 
-        self.assertIn("ioshead/MHF_Steve/left", script)
+        self.assertIn("mc-heads.net/head/MHF_Steve", script)
         self.assertIn("wireHeadFallbacks", script)
         self.assertIn("data-head-fallback", script)
 

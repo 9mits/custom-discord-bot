@@ -359,8 +359,8 @@ class MinecraftBotPolicyTests(unittest.TestCase):
             minecraft_uuid="12345678-1234-1234-1234-123456789abc",
         )
         expected = (
-            "https://api.mcheads.org/ioshead/"
-            "12345678-1234-1234-1234-123456789abc/left"
+            "https://mc-heads.net/head/"
+            "12345678-1234-1234-1234-123456789abc"
         )
 
         self.assertEqual(application_log_embed(verified).thumbnail.url, expected)
@@ -403,7 +403,7 @@ class MinecraftBotPolicyTests(unittest.TestCase):
 
         self.assertEqual(
             application_log_embed(java_application).thumbnail.url,
-            "https://api.mcheads.org/ioshead/JavaPlayer/left",
+            "https://mc-heads.net/head/JavaPlayer",
         )
         self.assertEqual(
             application_log_embed(bedrock_application).thumbnail.url,
@@ -1476,25 +1476,29 @@ class MinecraftLeaderboardRenderTests(unittest.TestCase):
                 self.assertTrue(embed.thumbnail.url.startswith("https://"))
 
     def test_bedrock_heads_use_the_name_lookup(self):
-        # Floodgate UUIDs are zero-prefixed and unresolvable by the Java head
-        # service, so a Bedrock player on the podium previously got no head.
-        from minecraft_bot.presentation import head_url
+        # Floodgate UUIDs are zero-prefixed and unresolvable by the Java-only
+        # renderer, so a Bedrock player keeps the provider that accepts names.
+        from minecraft_bot.presentation import head_url, skin_url
 
         bedrock = head_url("00000000-0000-0000-0009-01f9d1ebbeb2", ".Wv4mp")
         java = head_url("5ebdc316-b5d6-4f32-8afb-330642f6ff2a", "MinimumOrc")
+        bedrock_skin = skin_url("00000000-0000-0000-0009-01f9d1ebbeb2", ".Wv4mp")
+        java_skin = skin_url("5ebdc316-b5d6-4f32-8afb-330642f6ff2a", "MinimumOrc")
 
         self.assertIn("api.mcheads.org/ioshead", bedrock)
+        self.assertIn("api.mcheads.org/iosbody", bedrock_skin)
         self.assertIn(".Wv4mp", bedrock)
         self.assertIn("Wv4mp", bedrock)
         self.assertNotIn("00000000", bedrock)
-        self.assertIn("api.mcheads.org/ioshead", java)
+        self.assertIn("mc-heads.net/head", java)
+        self.assertIn("mc-heads.net/body", java_skin)
         self.assertIn("5ebdc316-b5d6-4f32-8afb-330642f6ff2a", java)
 
     def test_missing_player_identity_uses_the_3d_steve_head(self):
         from minecraft_bot.presentation import STEVE_HEAD_URL, head_url
 
         self.assertEqual(head_url("", ""), STEVE_HEAD_URL)
-        self.assertIn("ioshead/MHF_Steve/left", STEVE_HEAD_URL)
+        self.assertIn("mc-heads.net/head/MHF_Steve", STEVE_HEAD_URL)
 
     def test_thumbnail_falls_back_to_the_brand_when_a_board_is_empty(self):
         from minecraft_bot.presentation import MARK_ICON_URL, MARK_PATH
