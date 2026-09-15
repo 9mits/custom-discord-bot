@@ -96,12 +96,15 @@ final class SeasonPassRulesTest {
     @Test
     void rewardSpecsParseAndSkipNonsense() {
         List<SeasonPassRules.Grant> grants = SeasonPassRules.parse(
-                "keys:3; shards:1 ;money:20,000;cosmetic:Prismatic_Trail;bogus:5;keys:-1;reward:crate_luck_v");
-        assertEquals(4, grants.size());
+                "keys:3; shards:1 ;money:20,000;cosmetic:Prismatic_Trail;bogus:5;keys:-1;"
+                        + "reward:crate_luck_v;giftbag:99");
+        assertEquals(5, grants.size());
         assertEquals(new SeasonPassRules.Grant("shards", 1, ""), grants.get(1));
         assertEquals("prismatic_trail", grants.get(2).id());
         assertTrue(grants.stream().noneMatch(grant -> grant.kind().equals("money")),
                 "money is never a reward: its value moves with the economy");
+        assertEquals(SeasonPassRules.MAX_GIFTBAGS_PER_TIER, grants.get(4).amount(),
+                "even a mistuned tier cannot flood Giftbags");
     }
 
     @Test
@@ -197,6 +200,7 @@ final class SeasonPassRulesTest {
 
         long shards = 0;
         long hearts = 0;
+        long giftbags = 0;
         Set<String> items = new HashSet<>();
         Set<String> exclusives = new HashSet<>();
         Set<String> gear = new HashSet<>();
@@ -221,6 +225,7 @@ final class SeasonPassRulesTest {
                     case "book" -> assertTrue(items.add("book:" + grant.id()), grant.id() + " book is paid twice");
                     case "shards" -> shards += grant.amount();
                     case "hearts" -> hearts += grant.amount();
+                    case "giftbag" -> giftbags += grant.amount();
                     case "season_cosmetic" -> assertTrue(exclusives.add(grant.id()), "exclusive paid twice");
                     case "season_gear" -> assertTrue(gear.add(grant.id()), "gear paid twice");
                     case "season_item" -> assertTrue(items.add(grant.id()), grant.id() + " is paid twice");
@@ -232,7 +237,8 @@ final class SeasonPassRulesTest {
         assertEquals(java.util.Arrays.stream(SeasonGear.Piece.values()).map(Enum::name)
                 .collect(java.util.stream.Collectors.toSet()), gear, "every gear piece is on the track once");
         assertEquals(2, hearts, "Season Hearts affect PvP, so a full pass pays two");
-        assertTrue(shards >= 5 && shards <= 12, "a full track pays " + shards + " Shards");
+        assertEquals(1, giftbags, "only the final tier pays the mythical Giftbag");
+        assertTrue(shards >= 18 && shards <= 28, "a full track pays " + shards + " Shards");
         for (String sprite : List.of("nether_star", "beacon", "conduit", "sniffer_egg", "heavy_core", "sponge")) {
             assertTrue(SeasonPassMenu.vanillaSprite(sprite).startsWith("item/")
                     || SeasonPassMenu.vanillaSprite(sprite).startsWith("block/"));

@@ -48,6 +48,8 @@ final class SentinelEngine {
         MYSTERY_KEY("Mystery Keys"),
         AMETHYST_TOKEN("Amethyst Tokens"),
         COSMETIC("cosmetic tokens"),
+        GIFTBAG("Giftbags"),
+        MYTHIC_ITEM("Giftbag mythic items"),
         /** Quarter-ingots, so scrap (1) and blocks (36) compare with ingots (4). */
         NETHERITE("netherite (quarter ingots)"),
         /** Single diamonds, so blocks (9) and diamonds compare. */

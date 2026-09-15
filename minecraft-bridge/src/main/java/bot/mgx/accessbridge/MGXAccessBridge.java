@@ -88,6 +88,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private CapabilityService capabilityService;
     private ClanStore clanStore;
     private SeasonItemService seasonItems;
+    private GiftbagService giftbags;
+    private MythicGiftItemService mythicGiftItems;
     private ClanMenuService clanMenuService;
     private PlayerMenuService playerMenuService;
     private PlayerSettingsStore playerSettings;
@@ -934,18 +936,29 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         } catch (IOException exception) {
             getLogger().severe("Daily login streaks are disabled: " + exception.getMessage());
         }
+        seasonItems = new SeasonItemService(this);
+        getServer().getPluginManager().registerEvents(seasonItems, this);
+        mythicGiftItems = new MythicGiftItemService(this, gameVariables);
+        getServer().getPluginManager().registerEvents(mythicGiftItems, this);
+        try {
+            giftbags = new GiftbagService(this,
+                    new GiftbagStore(getDataFolder().toPath().resolve("giftbags.json")),
+                    gameVariables, crateItems, cosmeticStore, cosmeticItemsForSentinel,
+                    playerSettings, mythicGiftItems);
+            getServer().getPluginManager().registerEvents(giftbags, this);
+        } catch (IOException exception) {
+            getLogger().severe("Season Giftbags are disabled: " + exception.getMessage());
+        }
         try {
             sentinel = new SentinelService(this,
                     new SentinelStore(getDataFolder().toPath().resolve("sentinel.json")),
-                    gameVariables, crateItems, cosmeticItemsForSentinel);
+                    gameVariables, crateItems, cosmeticItemsForSentinel, giftbags, mythicGiftItems);
             getServer().getPluginManager().registerEvents(sentinel, this);
             if (luckPermsService != null) luckPermsService.onAction(sentinel::luckPermsAction);
             sentinel.start();
         } catch (IOException exception) {
             getLogger().severe("Sentinel is disabled: " + exception.getMessage());
         }
-        seasonItems = new SeasonItemService(this);
-        getServer().getPluginManager().registerEvents(seasonItems, this);
         try {
             seasonPass = new SeasonPassService(this,
                     new SeasonStore(getDataFolder().toPath().resolve("season-pass.json")),
@@ -1050,7 +1063,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 clanBattles,
                 gameVariables,
                 amethystItems,
-                amethystDragon
+                amethystDragon,
+                giftbags
         );
         getCommand("mgxadmin").setExecutor(adminService);
         getCommand("mgxadmin").setTabCompleter(adminService);
@@ -1121,6 +1135,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         }
         if (sentinel != null) {
             sentinel.stop();
+        }
+        if (giftbags != null) {
+            giftbags.stop();
         }
         // Before anything else: an operator event must never survive a reload.
         if (chaosService != null) {
@@ -1668,6 +1685,10 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
 
     SeasonItemService seasonItems() {
         return seasonItems;
+    }
+
+    GiftbagService giftbags() {
+        return giftbags;
     }
 
     LoginStreakService loginStreaks() {

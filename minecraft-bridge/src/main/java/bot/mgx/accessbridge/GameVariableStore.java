@@ -1418,6 +1418,10 @@ final class GameVariableStore {
                 "Amethyst Tokens gained with no source that raise an incident.", 500, 1, 1_000_000, "tokens", false);
         integer("sentinel.threshold.cosmetic", "Unexplained cosmetics", "Sentinel",
                 "Cosmetic tokens gained with no source that raise an incident.", 3, 1, 1_000, "cosmetics", false);
+        integer("sentinel.threshold.giftbag", "Unexplained Giftbags", "Sentinel",
+                "Giftbags gained with no recorded mint that raise an incident.", 1, 1, 1_000, "giftbags", false);
+        integer("sentinel.threshold.mythic-item", "Unexplained mythic items", "Sentinel",
+                "Giftbag mythic items gained with no recorded mint that raise an incident.", 1, 1, 1_000, "items", false);
         integer("sentinel.threshold.netherite", "Unexplained netherite", "Sentinel",
                 "Netherite gained with no source, in quarter ingots (4 = 1 ingot).", 128, 4, 100_000, "quarters", false);
         integer("sentinel.threshold.diamond", "Unexplained diamonds", "Sentinel",
@@ -1463,6 +1467,9 @@ final class GameVariableStore {
                 "Shards for second place when the season ends.", 6, 0, 640, "shards", false);
         integer("season.third-place-shards", "Third place Shards", "Season Pass",
                 "Shards for third place when the season ends.", 3, 0, 640, "shards", false);
+        integer("season.first-place-giftbags", "First place Giftbags", "Season Pass",
+                "Season-bound mythical Giftbags awarded to the highest Season XP when the season ends.",
+                1, 0, 16, "giftbags", false);
         integer("season.hearts.cap", "Season Heart cap", "Season Pass",
                 "Most Season Hearts one player can hold in a season. They expire when the season ends.",
                 2, 0, 20, "hearts", false);
@@ -1481,23 +1488,56 @@ final class GameVariableStore {
                 "What every tier pays, tier 1 first, separated by |. Each entry's parts are separated"
                         + " by ; and read vanilla:<item id>[:count], book:<enchantment>[:level], hearts:N,"
                         + " shards:N, reward:<crate reward id>[:count], gear:<scythe|pickaxe|axe|hoe|wings|helmet>,"
-                        + " item:rally_horn, cosmetic:<id> or cosmetic:season:<aura|trail|kill>.",
+                        + " item:rally_horn, giftbag:N, cosmetic:<id> or cosmetic:season:<aura|trail|kill>.",
                 "vanilla:golden_apple:3 | vanilla:diamond:6 | vanilla:netherite_scrap:2 | vanilla:wind_charge:16"
-                        + " | vanilla:dune_armor_trim_smithing_template | vanilla:nautilus_shell:3 | vanilla:ominous_trial_key | vanilla:sponge:4"
-                        + " | vanilla:echo_shard:4 | cosmetic:season:trail;shards:1 | vanilla:heart_of_the_sea | book:mending"
-                        + " | vanilla:music_disc_5 | vanilla:sentry_armor_trim_smithing_template | gear:pickaxe | vanilla:ancient_debris:3"
+                        + " | vanilla:dune_armor_trim_smithing_template;shards:1 | vanilla:nautilus_shell:3 | vanilla:ominous_trial_key | vanilla:sponge:4"
+                        + " | vanilla:echo_shard:4 | cosmetic:season:trail;shards:2 | vanilla:heart_of_the_sea | book:mending"
+                        + " | vanilla:music_disc_5 | vanilla:sentry_armor_trim_smithing_template | gear:pickaxe;shards:1 | vanilla:ancient_debris:3"
                         + " | vanilla:totem_of_undying | vanilla:wild_armor_trim_smithing_template | vanilla:netherite_upgrade_smithing_template | gear:axe;shards:1"
                         + " | vanilla:music_disc_pigstep | item:rally_horn | vanilla:snout_armor_trim_smithing_template | vanilla:trident"
-                        + " | hearts:1 | vanilla:netherite_ingot | vanilla:tide_armor_trim_smithing_template | gear:hoe"
-                        + " | book:swift_sneak:3 | cosmetic:season:kill;shards:1 | vanilla:sniffer_egg | vanilla:vex_armor_trim_smithing_template"
-                        + " | vanilla:music_disc_otherside | vanilla:conduit | gear:scythe | vanilla:heavy_core"
-                        + " | vanilla:ward_armor_trim_smithing_template | gear:helmet | vanilla:host_armor_trim_smithing_template | gear:wings;shards:2"
+                        + " | hearts:1;shards:2 | vanilla:netherite_ingot | vanilla:tide_armor_trim_smithing_template | gear:hoe"
+                        + " | book:swift_sneak:3 | cosmetic:season:kill;shards:2 | vanilla:sniffer_egg | vanilla:vex_armor_trim_smithing_template"
+                        + " | vanilla:music_disc_otherside | vanilla:conduit | gear:scythe;shards:2 | vanilla:heavy_core"
+                        + " | vanilla:ward_armor_trim_smithing_template | gear:helmet | vanilla:host_armor_trim_smithing_template | gear:wings;shards:3"
                         + " | vanilla:music_disc_relic | vanilla:shaper_armor_trim_smithing_template | vanilla:beacon | vanilla:wayfinder_armor_trim_smithing_template"
-                        + " | vanilla:nether_star;shards:2 | vanilla:enchanted_golden_apple | vanilla:raiser_armor_trim_smithing_template | vanilla:netherite_block"
-                        + " | vanilla:silence_armor_trim_smithing_template | cosmetic:season:aura;hearts:1;shards:3", 4000);
+                        + " | vanilla:nether_star;shards:3 | vanilla:enchanted_golden_apple | vanilla:raiser_armor_trim_smithing_template | vanilla:netherite_block"
+                        + " | vanilla:silence_armor_trim_smithing_template | cosmetic:season:aura;hearts:1;shards:5;giftbag:1", 4000);
         text("season.reward.fallback", "Reward past the track", "Season Pass Rewards",
                 "What a tier beyond the end of the reward track pays, in the same format as one entry.",
                 "vanilla:golden_apple:2", 200);
+
+        bool("season.giftbag.enabled", "Giftbag openings", "Season Giftbag",
+                "Allow players to unseal and roll their mythical Season Giftbags.", true);
+        integer("season.giftbag.animation-ticks", "Giftbag buildup", "Season Giftbag",
+                "Ticks of cinematic buildup before the Giftbag hatches its reward.",
+                180, 40, 600, "ticks", false);
+        integer("season.giftbag.settle-ticks", "Giftbag result hold", "Season Giftbag",
+                "Ticks the revealed reward remains floating after it hatches.",
+                50, 10, 200, "ticks", false);
+        integer("season.giftbag.viewer-radius", "Giftbag audience radius", "Season Giftbag",
+                "Distance from an opening at which players see its boss bar, VFX and sounds.",
+                48, 8, 128, "blocks", false);
+        integer("season.giftbag.particle-density", "Giftbag particle density", "Season Giftbag",
+                "Particles per animation pulse for viewers who keep crate VFX enabled.",
+                2, 1, 20, "particles", false);
+        decimal("season.giftbag.sound-volume", "Giftbag sound volume", "Season Giftbag",
+                "Volume multiplier for the Giftbag's layered opening sounds.", 1.0, 0.0, 2.0, "multiplier");
+        decimal("season.giftbag.riftcleaver.mob-damage-multiplier", "Riftcleaver mob damage", "Season Giftbag",
+                "Total Riftcleaver damage multiplier against non-player mobs. PvP is never multiplied.",
+                3.0, 1.0, 10.0, "multiplier");
+        integer("season.giftbag.riftcleaver.looting-level", "Riftcleaver Looting", "Season Giftbag",
+                "Looting level carried by Riftcleaver.", 6, 1, 20, "level", false);
+        integer("season.giftbag.worldcarver.efficiency-level", "Worldcarver Efficiency", "Season Giftbag",
+                "Efficiency level carried by Worldcarver.", 10, 1, 20, "level", false);
+        integer("season.giftbag.worldcarver.fortune-level", "Worldcarver Fortune", "Season Giftbag",
+                "Fortune level carried by Worldcarver.", 6, 1, 20, "level", false);
+        integer("season.giftbag.fatebound-idol.charges", "Fatebound Idol charges", "Season Giftbag",
+                "Resurrections sealed into a newly minted Fatebound Idol.", 3, 1, 20, "charges", false);
+        for (GiftbagCatalog.Entry entry : GiftbagCatalog.all()) {
+            integer(entry.weightKey(), entry.displayName() + " weight", "Season Giftbag Odds",
+                    "Relative Giftbag roll weight. Zero disables this reward.",
+                    entry.defaultWeight(), 0, 10_000_000, "weight", false);
+        }
 
         // Quest ladders: cumulative season totals, one list per line, each value harder.
         for (SeasonPassRules.QuestType type : SeasonPassRules.QuestType.values()) {
@@ -1960,6 +2000,9 @@ final class GameVariableStore {
         integer("give.maximum-keys", "Most keys per give", "Players",
                 "Largest number of keys one give may hand over at a time.",
                 64, 1, 10_000, "keys", false);
+        integer("give.maximum-giftbags", "Most Giftbags per give", "Players",
+                "Largest number of mythical Giftbags one administrator give may hand over.",
+                16, 1, 64, "giftbags", false);
         integer("amethyst-items.active-hours", "Amethyst item lifetime", "Amethyst Shop",
                 "Hours an activated Amethyst item stays usable.", 24, 1, 8_760, "hours", false);
         integer("amethyst-items.efficiency-level", "Amethyst tool Efficiency", "Amethyst Shop",
@@ -2732,6 +2775,10 @@ final class GameVariableStore {
             addMetadata(row, definition);
             if (definition.key().startsWith("crate.") && definition.key().endsWith(".weight")) {
                 addChance(row, crateChance(definition.key()));
+            } else if (definition.key().startsWith("season.giftbag.reward.")
+                    && definition.key().endsWith(".weight")) {
+                long total = tableTotal("season.giftbag");
+                addChance(row, total <= 0L ? 0d : ((Number) value).doubleValue() * 100d / total);
             } else if (definition.key().startsWith("airdrop.rarity.")
                     && definition.key().endsWith(".weight")) {
                 addChance(row, airdropRarityChance(definition.key()));
@@ -2837,6 +2884,15 @@ final class GameVariableStore {
             summary.add(entry);
         });
         return summary;
+    }
+
+    private long tableTotal(String wanted) {
+        long total = 0L;
+        for (Definition definition : definitions.values()) {
+            if (!SettingMetadata.table(definition.key()).filter(wanted::equals).isPresent()) continue;
+            total += ((Number) overrides.getOrDefault(definition.key(), definition.defaultValue())).longValue();
+        }
+        return total;
     }
 
     int keyCost(CrateKind kind) {

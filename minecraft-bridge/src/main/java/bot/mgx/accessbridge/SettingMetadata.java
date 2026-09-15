@@ -362,6 +362,11 @@ record SettingMetadata(
         if (parts.length == 5 && parts[0].equals("crate") && parts[2].equals("reward")) {
             return Optional.of("crate." + parts[1]);
         }
+        // season.giftbag.reward.<id>.weight
+        if (parts.length == 5 && parts[0].equals("season") && parts[1].equals("giftbag")
+                && parts[2].equals("reward")) {
+            return Optional.of("season.giftbag");
+        }
         if (key.equals("huge-amethyst.spawn-weight")
                 || key.equals("giant-amethyst.spawn-weight")
                 || key.equals("humongous-amethyst.spawn-weight")) {

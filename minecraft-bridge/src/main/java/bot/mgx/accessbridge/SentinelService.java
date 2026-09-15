@@ -66,7 +66,7 @@ import static bot.mgx.accessbridge.MenuItems.ORANGE;
  * <ul>
  *   <li>holdings census — gains above a player's peak that no mint, pickup, container,
  *       claim or return accounts for ({@link SentinelEngine});</li>
- *   <li>duplication signatures — one cosmetic serial in two places, cloned containers,
+ *   <li>duplication signatures — one unique-item serial in two places, cloned containers,
  *       over-stacked items and impossible enchantments;</li>
  *   <li>creative copies of valuables, and switches into creative or spectator;</li>
  *   <li>high-risk commands from anyone, including the console ({@link SentinelCommands});</li>
@@ -88,6 +88,8 @@ final class SentinelService implements Listener {
     private final GameVariableStore variables;
     private final CrateItems crateItems;
     private final CosmeticItems cosmeticItems;
+    private final GiftbagService giftbags;
+    private final MythicGiftItemService mythicItems;
     private final SentinelEngine engine = new SentinelEngine();
     private final SentinelEngine.RiskLedger risk = new SentinelEngine.RiskLedger(6L * 60L * MINUTE);
     private final SentinelEngine.Deduper deduper = new SentinelEngine.Deduper();
@@ -100,12 +102,15 @@ final class SentinelService implements Listener {
     private boolean dirty;
 
     SentinelService(MGXAccessBridge plugin, SentinelStore store, GameVariableStore variables,
-            CrateItems crateItems, CosmeticItems cosmeticItems) {
+            CrateItems crateItems, CosmeticItems cosmeticItems, GiftbagService giftbags,
+            MythicGiftItemService mythicItems) {
         this.plugin = plugin;
         this.store = store;
         this.variables = variables;
         this.crateItems = crateItems;
         this.cosmeticItems = cosmeticItems;
+        this.giftbags = giftbags;
+        this.mythicItems = mythicItems;
         store.lastKnown().forEach(engine::restoreLastKnown);
         store.risk().forEach((id, value) -> {
             try {
@@ -282,9 +287,9 @@ final class SentinelService implements Listener {
             if (holders.size() < 2) return;
             report(new SentinelEngine.Finding("duplicate_serial", SentinelEngine.Severity.CRITICAL, null,
                     String.join(", ", holders.stream().distinct().toList()),
-                    "One cosmetic serial exists in two places",
+                    "One unique-item serial exists in two places",
                     List.of("Serial " + serial, "Seen at: " + String.join("; ", holders),
-                            "A serialised cosmetic can only exist once; this is a duplicate")));
+                            "A serialised item can only exist once; this is a duplicate")));
         });
         containers.forEach((fingerprint, holders) -> {
             if (holders.size() < 2) return;
@@ -347,6 +352,8 @@ final class SentinelService implements Listener {
             else if (crateItems.isMysteryKey(item)) counts.merge(SentinelEngine.Kind.MYSTERY_KEY, amount, Long::sum);
             else if (crateItems.isKey(item)) counts.merge(SentinelEngine.Kind.AMETHYST_TOKEN, amount, Long::sum);
             else if (cosmeticItems.read(item).isPresent()) counts.merge(SentinelEngine.Kind.COSMETIC, amount, Long::sum);
+            else if (giftbags != null && giftbags.isGiftbag(item)) counts.merge(SentinelEngine.Kind.GIFTBAG, amount, Long::sum);
+            else if (mythicItems != null && mythicItems.isMythic(item)) counts.merge(SentinelEngine.Kind.MYTHIC_ITEM, amount, Long::sum);
         }
         switch (item.getType()) {
             case NETHERITE_INGOT -> counts.merge(SentinelEngine.Kind.NETHERITE, amount * 4L, Long::sum);
@@ -378,6 +385,20 @@ final class SentinelService implements Listener {
         String holder = player.getName();
         cosmeticItems.read(item).ifPresent(token -> {
             String key = token.cosmeticId() + "#" + token.serial();
+            serials.computeIfAbsent(key, ignored -> new ArrayList<>()).add(holder);
+            if (owners != null) {
+                owners.computeIfAbsent(key, ignored -> new java.util.HashSet<>()).add(player.getUniqueId());
+            }
+        });
+        if (mythicItems != null) mythicItems.serial(item).ifPresent(serial -> {
+            String key = "giftbag-mythic#" + serial;
+            serials.computeIfAbsent(key, ignored -> new ArrayList<>()).add(holder);
+            if (owners != null) {
+                owners.computeIfAbsent(key, ignored -> new java.util.HashSet<>()).add(player.getUniqueId());
+            }
+        });
+        if (giftbags != null) giftbags.serial(item).ifPresent(serial -> {
+            String key = "giftbag#" + serial;
             serials.computeIfAbsent(key, ignored -> new ArrayList<>()).add(holder);
             if (owners != null) {
                 owners.computeIfAbsent(key, ignored -> new java.util.HashSet<>()).add(player.getUniqueId());
