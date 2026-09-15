@@ -190,11 +190,11 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
         inventoryFile = new File(plugin.getDataFolder(), "verification-inventories.yml");
         inventoryStashes = YamlConfiguration.loadConfiguration(inventoryFile);
         Bukkit.getScheduler().runTaskTimer(
-                plugin, this::remindPlayers, PROMPT_INTERVAL_TICKS, PROMPT_INTERVAL_TICKS
+                plugin, PerfMonitor.track("verification-lobby.remind", this::remindPlayers), PROMPT_INTERVAL_TICKS, PROMPT_INTERVAL_TICKS
         );
         // Chat fades quickly and many players never open it. Keep the single current
         // action visible without filling the otherwise-empty queue screen with UI.
-        Bukkit.getScheduler().runTaskTimer(plugin, this::refreshHud, 20L, 20L);
+        Bukkit.getScheduler().runTaskTimer(plugin, PerfMonitor.track("verification-lobby.hud", this::refreshHud), 20L, 20L);
     }
 
     static boolean isLobbyWorld(World candidate) {

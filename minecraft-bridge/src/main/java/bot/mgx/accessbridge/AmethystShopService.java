@@ -56,7 +56,7 @@ final class AmethystShopService {
     void start() {
         stop();
         task = plugin.getServer().getScheduler().runTaskTimer(
-                plugin, this::check, 20L, CHECK_TICKS
+                plugin, PerfMonitor.track("amethyst-shop.check", this::check), 20L, CHECK_TICKS
         );
     }
 

@@ -309,7 +309,7 @@ final class PvpCompetitionService implements Listener {
                 plugin.getServer().getScheduler().runTask(plugin, this::refreshEntranceDisplay);
             }
         });
-        clock = plugin.getServer().getScheduler().runTaskTimer(plugin, this::tick, 20L, 20L);
+        clock = plugin.getServer().getScheduler().runTaskTimer(plugin, PerfMonitor.track("pvp-competitive.tick", this::tick), 20L, 20L);
     }
 
     private boolean enabled() {

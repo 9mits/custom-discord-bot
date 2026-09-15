@@ -248,6 +248,14 @@ final class ClanStore {
     private final Gson gson = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
     private SavedState state;
     private final Map<UUID, SavedClan> memberIndex = new LinkedHashMap<>();
+    /**
+     * Views handed out by {@link #clanOf}, dropped whenever the state is written.
+     *
+     * <p>A view parses every member, staff and ally id and copies the warps, and
+     * {@code clanOf} is asked on chat, damage and every sidebar and name-tag pass for
+     * every online player. Every mutation ends in {@link #persist}, which clears this.
+     */
+    private final Map<SavedClan, ClanView> viewCache = new java.util.IdentityHashMap<>();
 
     ClanStore(Path path) throws IOException {
         this.path = path;
@@ -297,7 +305,7 @@ final class ClanStore {
 
     synchronized Optional<ClanView> clanOf(UUID playerId) {
         SavedClan clan = memberIndex.get(playerId);
-        return clan == null ? Optional.empty() : Optional.of(view(clan));
+        return clan == null ? Optional.empty() : Optional.of(viewCache.computeIfAbsent(clan, this::view));
     }
 
     synchronized Optional<ClanView> findClanById(UUID clanId) {
@@ -860,6 +868,7 @@ final class ClanStore {
     }
 
     private boolean rebuildIndex() throws IOException {
+        viewCache.clear();
         Set<String> names = new LinkedHashSet<>();
         Set<UUID> clanIds = new LinkedHashSet<>();
         boolean migrated = state.version < FORMAT_VERSION;
@@ -1004,6 +1013,7 @@ final class ClanStore {
     }
 
     private void persist() throws IOException {
+        viewCache.clear();
         try {
             Files.createDirectories(path.getParent());
             Path temporary = path.resolveSibling(path.getFileName() + ".tmp");

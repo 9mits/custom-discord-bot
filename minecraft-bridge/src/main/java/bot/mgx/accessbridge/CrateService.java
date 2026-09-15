@@ -1755,13 +1755,13 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             onlineRewardStarted.put(player.getUniqueId(), now);
         }
         hourlyTask = plugin.getServer().getScheduler().runTaskTimer(
-                plugin, this::creditOnlinePlayers, ONLINE_PULSE_TICKS, ONLINE_PULSE_TICKS
+                plugin, PerfMonitor.track("crates.online-credit", this::creditOnlinePlayers), ONLINE_PULSE_TICKS, ONLINE_PULSE_TICKS
         );
         keyBarTask = plugin.getServer().getScheduler().runTaskTimer(
-                plugin, this::refreshKeyBars, KEY_BAR_TICKS, KEY_BAR_TICKS
+                plugin, PerfMonitor.track("crates.key-bars", this::refreshKeyBars), KEY_BAR_TICKS, KEY_BAR_TICKS
         );
         countdownTask = plugin.getServer().getScheduler().runTaskTimer(
-                plugin, this::refreshCountdowns, COUNTDOWN_TICKS, COUNTDOWN_TICKS
+                plugin, PerfMonitor.track("crates.menu-countdowns", this::refreshCountdowns), COUNTDOWN_TICKS, COUNTDOWN_TICKS
         );
     }
 

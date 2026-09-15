@@ -215,6 +215,7 @@ final class AirdropService implements Listener {
      * bar, its expiry - hangs off the drop rather than off the service.
      */
     private final Map<UUID, ActiveAirdrop> active = new LinkedHashMap<>();
+    private final GatedListener hopperGuard;
     /**
      * Every protected block, flattened across drops.
      *
@@ -266,6 +267,7 @@ final class AirdropService implements Listener {
             RandomGenerator random
     ) {
         this.plugin = plugin;
+        this.hopperGuard = new GatedListener(plugin, new HopperGuard());
         this.crateItems = crateItems;
         this.cosmeticStore = cosmeticStore;
         this.cosmeticItems = cosmeticItems;
@@ -729,14 +731,15 @@ final class AirdropService implements Listener {
 
     /** The shared effect and countdown tickers run only while something is standing. */
     private void startTickers() {
+        hopperGuard.enable(true);
         if (effectTask == null) {
             effectTask = plugin.getServer().getScheduler().runTaskTimer(
-                    plugin, this::drawEffects, 1L, EFFECT_PERIOD_TICKS
+                    plugin, PerfMonitor.track("airdrop.effects", this::drawEffects), 1L, EFFECT_PERIOD_TICKS
             );
         }
         if (countdownTask == null) {
             countdownTask = plugin.getServer().getScheduler().runTaskTimer(
-                    plugin, this::refreshCountdown, 1L, COUNTDOWN_PERIOD_TICKS
+                    plugin, PerfMonitor.track("airdrop.countdown", this::refreshCountdown), 1L, COUNTDOWN_PERIOD_TICKS
             );
         }
     }
@@ -745,6 +748,7 @@ final class AirdropService implements Listener {
         if (!active.isEmpty()) {
             return;
         }
+        hopperGuard.enable(false);
         cancel(effectTask);
         effectTask = null;
         cancel(countdownTask);
@@ -1136,10 +1140,21 @@ final class AirdropService implements Listener {
         }
     }
 
-    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = false)
     public void onInventoryMove(InventoryMoveItemEvent event) {
         if (isActiveInventory(event.getSource()) || isActiveInventory(event.getDestination())) {
             event.setCancelled(true);
+        }
+    }
+
+    /**
+     * Keeps hoppers out of a standing drop's chest. Registered only while a drop stands:
+     * any listener for this event turns off Paper's fast path for every hopper on the
+     * server, and drops are up for minutes a day.
+     */
+    final class HopperGuard implements Listener {
+        @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = false)
+        public void onHopper(InventoryMoveItemEvent event) {
+            onInventoryMove(event);
         }
     }
 

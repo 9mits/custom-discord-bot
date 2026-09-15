@@ -138,7 +138,7 @@ final class AmethystItemService implements Listener {
         stop();
         indexLoadedDrops();
         expiryTask = plugin.getServer().getScheduler().runTaskTimer(
-                plugin, this::sweepOnlinePlayers, 20L, 20L
+                plugin, PerfMonitor.track("amethyst-items.expiry", this::sweepOnlinePlayers), 20L, 20L
         );
     }
 

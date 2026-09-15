@@ -328,7 +328,7 @@ final class CrateDisplayService implements CommandExecutor, TabCompleter, Listen
             return;
         }
         particleTask = Bukkit.getScheduler().runTaskTimer(
-                plugin, this::tickParticles, 1L, 4L
+                plugin, PerfMonitor.track("crate-displays.particles", this::tickParticles), 1L, 4L
         );
     }
 

@@ -448,6 +448,11 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     private final Map<UUID, CompetitiveArena> competitiveArenas = new LinkedHashMap<>();
     private final Map<UUID, CompetitiveArena> competitiveArenaByPlayer = new HashMap<>();
     private final PvpFarmGuard farmGuard = new PvpFarmGuard();
+    /**
+     * Registered only while an arena is live, because any physics listener makes Paper
+     * build an event for every neighbour update on the server, piston farms included.
+     */
+    private final GatedListener physicsRecorder;
     private PvpCompetitionService competition;
     /** Arenas already told they have taken as much damage as can be undone. */
     private final Set<UUID> arenaFullWarned = new HashSet<>();
@@ -478,6 +483,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         this.store = new PvpDuelStore(recoveryFile);
         this.arenaRestore = new ArenaRestoreStore(arenaRestoreFile);
         this.duelRecords = duelRecords;
+        this.physicsRecorder = new GatedListener(plugin, new PhysicsRecorder());
         // Money can be repaired while its owner is offline. Items and locations wait
         // for join, but raising to the pre-duel value is idempotent and never removes
         // anything the player earned before recovery ran.
@@ -499,7 +505,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         // can hold tens of thousands of blocks whose JSON is not something to build
         // and write between two ticks of a fight.
         plugin.getServer().getScheduler().runTaskTimerAsynchronously(
-                plugin, this::flushArenaRestore, 40L, 40L);
+                plugin, PerfMonitor.track("pvp-duels.arena-flush", this::flushArenaRestore), 40L, 40L);
     }
 
     /**
@@ -861,6 +867,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     void activateCompetitiveArena(PreparedArena prepared, Collection<UUID> players) {
         CompetitiveArena arena = new CompetitiveArena(prepared, players);
         competitiveArenas.put(prepared.id(), arena);
+        updatePhysicsRecorder();
         arenaChunks.put(prepared.id(), prepared.held());
         for (UUID player : players) competitiveArenaByPlayer.put(player, arena);
         sweepArena(arena, false);
@@ -884,6 +891,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
     void releaseCompetitiveArena(UUID arenaId) {
         CompetitiveArena arena = competitiveArenas.remove(arenaId);
         if (arena == null) return;
+        updatePhysicsRecorder();
         for (UUID player : arena.players) competitiveArenaByPlayer.remove(player, arena);
         for (UUID player : arena.players) returnPlacedBlocks(player);
         arenaFullWarned.remove(arenaId);
@@ -2117,6 +2125,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
                 fightId, first, second, wager, arena, Map.copyOf(states)
         );
         fights.put(fight.id, fight);
+        updatePhysicsRecorder();
         arenaChunks.put(fight.id, held);
         fighting.put(fight.first, fight);
         fighting.put(fight.second, fight);
@@ -2533,6 +2542,7 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         fighting.remove(fight.first);
         fighting.remove(fight.second);
         fights.remove(fight.id);
+        updatePhysicsRecorder();
         arenaFullWarned.remove(fight.id);
         for (UUID playerId : List.of(fight.first, fight.second)) {
             Player player = Bukkit.getPlayer(playerId);
@@ -4170,7 +4180,6 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
      * anything at all unless a fight is actually running, and the recorded-already
      * check inside {@link #remember} is what keeps the repeat cost down.
      */
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPhysics(BlockPhysicsEvent event) {
         if (fights.isEmpty() && competitiveArenas.isEmpty()) {
             return;
@@ -4181,6 +4190,18 @@ final class PvpDuelService implements CommandExecutor, TabCompleter, Listener {
         ArenaContext fight = fightAt(event.getBlock().getLocation());
         if (fight != null && !remember(fight, event.getBlock())) {
             event.setCancelled(true);
+        }
+    }
+
+    private void updatePhysicsRecorder() {
+        physicsRecorder.enable(!fights.isEmpty() || !competitiveArenas.isEmpty());
+    }
+
+    /** The physics half of the arena recorder, present only while an arena is live. */
+    final class PhysicsRecorder implements Listener {
+        @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+        public void onArenaPhysics(BlockPhysicsEvent event) {
+            onPhysics(event);
         }
     }
 

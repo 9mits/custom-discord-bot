@@ -236,7 +236,7 @@ final class AmethystBlockEventService implements Listener {
         clearStaleStructures();
         stopped = false;
         visualTrailTask = plugin.getServer().getScheduler().runTaskTimer(
-                plugin, this::trailVisualKeys, 2L, 2L
+                plugin, PerfMonitor.track("amethyst-block.key-trails", this::trailVisualKeys), 2L, 2L
         );
     }
 
@@ -570,7 +570,7 @@ final class AmethystBlockEventService implements Listener {
                 playSpawnCue(player);
             }
             frameTask = plugin.getServer().getScheduler().runTaskTimer(
-                    plugin, this::frame, 1L, 5L
+                    plugin, PerfMonitor.track("amethyst-block.frame", this::frame), 1L, 5L
             );
             spawnArrival(active);
             announce(EventBanner.chat(

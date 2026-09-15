@@ -126,8 +126,8 @@ final class SentinelService implements Listener {
     void start() {
         SentinelHub.install(this);
         long census = Math.max(5L, variables.integer("sentinel.census-seconds")) * 20L;
-        plugin.getServer().getScheduler().runTaskTimer(plugin, this::census, census, census);
-        plugin.getServer().getScheduler().runTaskTimer(plugin, this::save, 1_200L, 1_200L);
+        plugin.getServer().getScheduler().runTaskTimer(plugin, PerfMonitor.track("sentinel.census", this::census), census, census);
+        plugin.getServer().getScheduler().runTaskTimer(plugin, PerfMonitor.track("sentinel.save", this::save), 1_200L, 1_200L);
         hookGrim();
         variables.onChangeSet((actor, changes) -> {
             for (GameVariableStore.Change change : changes) {

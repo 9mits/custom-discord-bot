@@ -193,6 +193,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     private int eggBeaconPulse;
     private final Set<Location> portalBlocks = new HashSet<>();
     private final Set<Location> rewardStructureBlocks = new HashSet<>();
+    private final GatedListener gatePhysics;
     private final Set<Item> visualKeys = new HashSet<>();
     private BukkitTask ticker;
     private BukkitTask summoningTask;
@@ -221,6 +222,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         this.bedrockForms = bedrockForms;
         this.portalFile = plugin.getDataFolder().toPath().resolve("dragon-portal.json");
         this.eggKey = new NamespacedKey(plugin, "amethyst_dragon_egg");
+        this.gatePhysics = new GatedListener(plugin, new GatePhysicsGuard());
         loadPortal();
         CrateKind.dragonEndSource(() -> phaseEndsAt);
         variables.onChange(key -> {
@@ -258,7 +260,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         phase = Phase.WAITING;
         scheduledAt = nextEvent(Instant.now());
         refreshPortalDisplay();
-        ticker = plugin.getServer().getScheduler().runTaskTimer(plugin, this::tick, 20L, 20L);
+        ticker = plugin.getServer().getScheduler().runTaskTimer(plugin, PerfMonitor.track("dragon.tick", this::tick), 20L, 20L);
     }
 
     void stop() {
@@ -1902,7 +1904,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
             Block block = frame.get(index);
             if (block.getType().isAir()) {
                 block.setType(index % 4 == 0 ? Material.CRYING_OBSIDIAN : Material.OBSIDIAN, false);
-                rewardStructureBlocks.add(block.getLocation());
+                protectGateBlock(block);
             }
         }
     }
@@ -1916,7 +1918,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
             for (int y = 1; y <= 4; y++) {
                 Block block = arena.getBlockAt(x, baseY + y, 0);
                 block.setBlockData(data.clone(), false);
-                rewardStructureBlocks.add(block.getLocation());
+                protectGateBlock(block);
             }
         }
         returnGate = new Location(arena, .5, baseY + 1.1, .5);
@@ -2186,7 +2188,9 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     /** Runs after the Dragon's own tracking pass so our title, clock and viewers win. */
     @EventHandler
     public void onServerTickEnd(ServerTickEndEvent event) {
-        if (arena == null) return;
+        // Every tick, for the life of the server. The arena world stays loaded between
+        // events, so an empty one has to cost nothing.
+        if (arena == null || (arena.getPlayerCount() == 0 && visualKeys.isEmpty())) return;
         if (phase == Phase.FIGHT) updateDragonBar();
         else hideVanillaDragonBar();
         rescueFallenPlayers();
@@ -3284,7 +3288,6 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
      * own blocks is what makes that impossible, and the sweep below repairs anything that
      * got through before this existed.
      */
-    @EventHandler(priority = EventPriority.HIGHEST)
     public void onGatePhysics(BlockPhysicsEvent event) {
         if (isReturnGateBlock(event.getBlock())
                 || isReturnGateBlock(event.getSourceBlock())) {
@@ -3324,6 +3327,23 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         event.blockList().removeIf(this::isReturnGateBlock);
     }
 
+    private void protectGateBlock(Block block) {
+        rewardStructureBlocks.add(block.getLocation());
+        gatePhysics.enable(true);
+    }
+
+    /**
+     * The gate's physics guard, registered only while a gate stands. A physics listener
+     * makes Paper build an event for every neighbour update on the whole server, and the
+     * gate exists for a few minutes after a Dragon fight.
+     */
+    final class GatePhysicsGuard implements Listener {
+        @EventHandler(priority = EventPriority.HIGHEST)
+        public void onPhysics(BlockPhysicsEvent event) {
+            onGatePhysics(event);
+        }
+    }
+
     private boolean isReturnGateBlock(Block block) {
         return block != null
                 && !rewardStructureBlocks.isEmpty()
@@ -3357,7 +3377,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                 Block block = arena.getBlockAt(x, baseY + y, 0);
                 if (block.getType() != Material.NETHER_PORTAL) {
                     block.setBlockData(portalData.clone(), false);
-                    rewardStructureBlocks.add(block.getLocation());
+                    protectGateBlock(block);
                 }
             }
         }
@@ -3368,7 +3388,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
             return;
         }
         block.setType(Material.OBSIDIAN, false);
-        rewardStructureBlocks.add(block.getLocation());
+        protectGateBlock(block);
     }
 
     private void clearRewardArea() {
@@ -3389,6 +3409,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
             if (block.getWorld() == arena) block.getBlock().setType(Material.AIR, false);
         }
         rewardStructureBlocks.clear();
+        gatePhysics.enable(false);
         rewardChest = null;
         returnGate = null;
     }

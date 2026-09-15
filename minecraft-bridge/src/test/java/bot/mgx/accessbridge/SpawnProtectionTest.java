@@ -29,6 +29,18 @@ final class SpawnProtectionTest {
     }
 
     @Test
+    void aMobOnTheEdgeIsPutBackOutsideTheNearestSide() {
+        double[] west = SpawnMobBarrier.nearestOutside(REGION, -49.5d, 10d, 0.35d);
+        assertFalse(REGION.contains(west[0], west[1]));
+        assertEquals(10d, west[1]);
+        double[] south = SpawnMobBarrier.nearestOutside(REGION, 3d, 49.8d, 0.35d);
+        assertFalse(REGION.contains(south[0], south[1]));
+        assertEquals(3d, south[0]);
+        assertTrue(REGION.containsBeyondEdge(0d, 0d, 2d));
+        assertFalse(REGION.containsBeyondEdge(-49d, 0d, 2d), "the edge strip is the patrol's");
+    }
+
+    @Test
     void walkingInIsDetectedButWalkingAroundOutsideIsNot() {
         assertTrue(REGION.enters(-60d, 0d, -40d, 0d));
         assertFalse(REGION.enters(-40d, 0d, -30d, 0d), "already inside is not an entry");
@@ -47,7 +59,12 @@ final class SpawnProtectionTest {
         ));
 
         assertTrue(source.contains("public void onCreatureSpawn"), "mobs must not spawn");
-        assertTrue(source.contains("public void onZombieMove"), "mobs must not walk in");
+        // Mobs must not walk in. The edge is patrolled rather than enforced through
+        // EntityMoveEvent: any listener for that event makes Paper build one for every
+        // living entity that moves anywhere on the server, every tick.
+        assertTrue(source.contains("private void patrolEdge()"), "mobs must not walk in");
+        assertFalse(source.contains("EntityMoveEvent event"),
+                "a server-wide entity move listener must not come back");
         assertTrue(source.contains("public void onBlockBreak"), "blocks must not break");
         assertTrue(source.contains("public void onBlockPlace"), "blocks must not be placed");
         assertTrue(source.contains("public void onPvp"), "PvP must be refused");

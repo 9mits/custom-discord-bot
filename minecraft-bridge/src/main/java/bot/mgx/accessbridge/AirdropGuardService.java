@@ -137,7 +137,7 @@ final class AirdropGuardService {
 
         if (task == null) {
             task = plugin.getServer().getScheduler().runTaskTimer(
-                    plugin, this::patrol, PERIOD_TICKS, PERIOD_TICKS
+                    plugin, PerfMonitor.track("airdrop.guards", this::patrol), PERIOD_TICKS, PERIOD_TICKS
             );
         }
     }

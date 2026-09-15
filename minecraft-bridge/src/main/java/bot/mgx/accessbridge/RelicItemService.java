@@ -72,7 +72,7 @@ final class RelicItemService implements Listener {
     }
 
     void start() {
-        plugin.getServer().getScheduler().runTaskTimer(plugin, this::lanternPulse, 40L, 40L);
+        plugin.getServer().getScheduler().runTaskTimer(plugin, PerfMonitor.track("relics.lantern", this::lanternPulse), 40L, 40L);
     }
 
     ItemStack create(RelicCatalog.Relic relic) {

@@ -77,7 +77,7 @@ final class LeaderboardService {
     void start() {
         taskId = plugin.getServer().getScheduler().scheduleSyncRepeatingTask(
                 plugin,
-                this::publish,
+                PerfMonitor.track("leaderboards.publish", this::publish),
                 FIRST_PUBLISH_TICKS,
                 refreshTicks
         );

@@ -116,7 +116,7 @@ final class PvpRankRewardService implements Listener {
     void start() {
         refreshSoon();
         ownershipSweep = plugin.getServer().getScheduler().runTaskTimer(
-                plugin, this::reconcileOnline, 100L, 100L
+                plugin, PerfMonitor.track("pvp-rank-rewards.reconcile", this::reconcileOnline), 100L, 100L
         );
     }
 

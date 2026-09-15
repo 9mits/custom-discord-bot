@@ -1896,6 +1896,14 @@ final class GameVariableStore {
         integer("launch.pvp-hold-hours", "PvP hold after launch", "Server",
                 "Hours PvP stays off after the launch countdown finishes.",
                 5, 0, 168, "hours", false);
+        integer("performance.report-minutes", "Performance report interval", "Server",
+                "Minutes between the one-line performance summary written to the server log."
+                        + " 0 turns the summary off.",
+                15, 0, 1_440, "minutes", false);
+        integer("performance.slow-task-ms", "Slow task warning", "Server",
+                "A single run of a background task taking at least this long is written to"
+                        + " the server log, at most once per task every five minutes.",
+                50, 5, 5_000, "milliseconds", false);
     }
 
     /** Teleport warmups, the bounty floor, and the random-teleport border margin. */

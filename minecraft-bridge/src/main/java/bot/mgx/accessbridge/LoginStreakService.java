@@ -55,7 +55,7 @@ final class LoginStreakService implements Listener, CommandExecutor {
     }
 
     void start() {
-        plugin.getServer().getScheduler().runTaskTimer(plugin, this::pulse, PULSE_TICKS, PULSE_TICKS);
+        plugin.getServer().getScheduler().runTaskTimer(plugin, PerfMonitor.track("login-streaks.pulse", this::pulse), PULSE_TICKS, PULSE_TICKS);
     }
 
     static long today() {
