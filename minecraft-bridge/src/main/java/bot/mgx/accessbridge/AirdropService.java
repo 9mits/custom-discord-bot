@@ -1073,6 +1073,9 @@ final class AirdropService implements Listener {
             return;
         }
         drop.firstOpener = player.getUniqueId();
+        if (plugin.seasonPass() != null) {
+            plugin.seasonPass().record(player, SeasonQuestRules.Objective.JOIN_EVENT, 1L);
+        }
         ServerEvent.of(
                 "airdrop_open",
                 ServerEvent.CATEGORY_CRATE,

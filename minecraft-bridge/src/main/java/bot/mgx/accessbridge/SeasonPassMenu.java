@@ -176,6 +176,8 @@ final class SeasonPassMenu implements Listener {
         body.add(line(Component.text("Ends " + pass.endsIn(), QUIET)
                 .append(Component.text("   ·   ", QUIET))
                 .append(Component.text("Season Hearts " + pass.hearts(player.getUniqueId()) + " / " + pass.heartCap(), QUIET))));
+        body.add(line(pass.questSummary(player.getUniqueId())));
+        pass.boosts(player.getUniqueId()).forEach(boost -> body.add(line(boost)));
         body.add(DialogBody.plainMessage(Component.empty(), WIDTH));
         body.add(line(Component.text(tier >= maximum ? "COMPLETE" : "UP NEXT", NamedTextColor.WHITE, TextDecoration.BOLD)
                 .append(Component.text("   Click a tier to see its rewards up close.", QUIET))));
@@ -189,7 +191,7 @@ final class SeasonPassMenu implements Listener {
                 .append(Component.text("   Browse every reward in the pass", QUIET)),
                 "Click to browse every tier.", viewer -> openAllTiers(viewer, SeasonPassMenu.listPageOf(first))));
         buttons.add(Screens.row("item/writable_book", Component.text("Quests", NamedTextColor.WHITE)
-                .append(Component.text("   Your progress on every quest", QUIET)),
+                .append(Component.text("   Daily, weekly, community and milestones", QUIET)),
                 "Click to see your quests.", viewer -> pass.openQuests(viewer, this::openHome)));
         buttons.add(Screens.row("item/gold_ingot", Component.text("Season Top", NamedTextColor.WHITE)
                 .append(Component.text("   The highest Season XP", QUIET)),

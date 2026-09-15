@@ -316,6 +316,11 @@ final class PvpCompetitionService implements Listener {
         return plugin.gameVariables().bool("pvp-competitive.enabled");
     }
 
+    /** Whether ranked matches can be played, so a quest never asks for one that cannot. */
+    boolean open() {
+        return enabled();
+    }
+
     boolean isParticipant(UUID playerId) {
         return matchByPlayer.containsKey(playerId) || viewing.containsKey(playerId);
     }
@@ -1913,6 +1918,7 @@ final class PvpCompetitionService implements Listener {
                 if (decided && winners.contains(playerId)) {
                     pass.progress(fighter, SeasonPassRules.QuestType.WIN_PVP, 1L);
                 }
+                pass.record(fighter, SeasonQuestRules.Objective.PLAY_PVP, 1L);
             }
         }
 

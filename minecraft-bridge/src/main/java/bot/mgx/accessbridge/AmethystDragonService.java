@@ -803,6 +803,10 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         scheduleVanillaExitPortalCleanup();
         for (UUID playerId : activeParticipants()) {
             giveKeys(playerId, variables.integer("dragon-event.kill-keys"));
+            Player participant = Bukkit.getPlayer(playerId);
+            if (participant != null && plugin.seasonPass() != null) {
+                plugin.seasonPass().record(participant, SeasonQuestRules.Objective.JOIN_EVENT, 1L);
+            }
         }
         String name = killer == null ? "the team" : killer.getName();
         announce(render(variables.string("dragon-event.victory-message"), "player", name),

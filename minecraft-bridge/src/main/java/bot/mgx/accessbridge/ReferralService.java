@@ -259,6 +259,7 @@ final class ReferralService implements Listener, CommandExecutor, TabCompleter {
             pay(referrerId, referrerShards, "for bringing " + referee.getName()
                     + " back to the server.");
         }
+        if (plugin.seasonPass() != null) plugin.seasonPass().referralXp(referrerId, referee.getName());
         audit(referee, "referral_reward", referee.getName() + " was referred by " + referrerName,
                 referrerName, refereeShards + referrerShards);
     }

@@ -1589,6 +1589,9 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
                 player.getUniqueId(), menu.subject(), money, System.currentTimeMillis()
         );
         plugin.metricCounters().increment(ServerMetrics.AUCTION_SALES);
+        if (plugin.seasonPass() != null && !purchase.listing().seller().equals(player.getUniqueId())) {
+            plugin.seasonPass().record(player, SeasonQuestRules.Objective.BUY_AUCTION, 1L);
+        }
         SentinelHub.expect(player.getUniqueId(), List.of(item), "an auction purchase from " + offered.sellerName());
         give(player, item);
         // A cosmetic is owned in the wardrobe, not carried in the inventory. Listing one
