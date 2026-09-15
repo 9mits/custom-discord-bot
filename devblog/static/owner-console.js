@@ -29,6 +29,7 @@
     {id: "crate_balance", label: "Crate balance", group: "Rewards"},
     {id: "airdrops", label: "Airdrops", group: "Rewards"},
     {id: "online_rewards", label: "Online rewards", group: "Rewards"},
+    {id: "seasons", label: "Season Pass & streaks", group: "Rewards"},
     {id: "shop", label: "Shop", group: "Rewards"},
     {id: "amethyst_shop", label: "Amethyst shop", group: "Rewards"},
     {id: "economy", label: "Economy", group: "Rewards"},
@@ -45,8 +46,10 @@
     {id: "world", label: "World", group: "World & players"},
     {id: "players", label: "Players", group: "World & players"},
     {id: "pvp_duels", label: "PvP", group: "World & players"},
+    {id: "pvp_competitive", label: "Ranked PvP", group: "World & players"},
     {id: "clans", label: "Clans", group: "World & players"},
     {id: "permissions", label: "Permissions", group: "World & players"},
+    {id: "security", label: "Security", group: "World & players"},
     {id: "launch", label: "Launch", group: "World & players"},
 
     {id: "potions", label: "Potions", group: "Items & effects"},
@@ -110,7 +113,10 @@
     boss_bars: "The colour of each boss bar.",
     perks: "What Elite and Booster are worth in play.",
     clan_battles: "What each placement pays when a Clan Battle ends.",
-    launch: "The opening countdown and how long PvP stays off afterwards.",
+    launch: "The opening countdown, how long PvP stays off afterwards, and how often the server log records a performance summary.",
+    seasons: "The Season Pass: quest targets, tier rewards and Season Hearts, plus how the daily login streak adds crate luck.",
+    pvp_competitive: "Queued ranked matches: the lobby, arenas, match rules and what each rank earns.",
+    security: "Sentinel, the watch for duplication, hacking and abuse of power. How sensitive each check is, and how long it remembers.",
     messages: "The exact words players see. Formatting is MiniMessage — <bold>text</bold> and <#b57edc>colour</#b57edc> work — and anything in angle brackets like <keys> is filled in by the server. Empty a message to switch it off entirely.",
     presentation: "Small pieces of what players see."
   };

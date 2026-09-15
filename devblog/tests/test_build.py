@@ -745,7 +745,7 @@ class PageTests(unittest.TestCase):
         build.build("https://example.com", include_private=True)
         page = (build.DIST_DIR / "leaderboards" / "index.html").read_text(encoding="utf-8")
         self.assertIn('class="doc live-doc"', page)
-        self.assertIn('src="../assets/server-dashboard.js"', page)
+        self.assertRegex(page, r'src="\.\./assets/server-dashboard\.js\?v=[0-9a-f]{10}"')
         self.assertTrue((build.DIST_DIR / "assets" / "server-dashboard.js").is_file())
 
     def test_backend_pages_are_not_published_to_the_static_site(self):

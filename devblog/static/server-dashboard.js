@@ -22,13 +22,24 @@
     rank: "PvP Ranks",
     amethyst_crates: "Amethyst Crates",
     amethyst_airdrops: "Airdrops Claimed",
+    dragon_damage: "Dragon Damage",
+    dragon_crystals: "Crystals Destroyed",
     clan_battle: "Clan Battle"
   };
   var descriptions = {
     amethyst_airdrops: "Claim the most Amethyst Airdrops before the event closes.",
-    amethyst_crates: "Open the most Amethyst Crates and take the event crown."
+    amethyst_crates: "Open the most Amethyst Crates and take the event crown.",
+    dragon_damage: "Deal the most damage to the Amethyst Dragon across its fights.",
+    dragon_crystals: "Destroy the most crystals shielding the Amethyst Dragon."
   };
-  var eventIcons = {amethyst_airdrops: "amethyst_shard", amethyst_crates: "crate_key"};
+  var eventIcons = {
+    amethyst_airdrops: "amethyst_shard", amethyst_crates: "crate_key",
+    dragon_damage: "amethyst_sword", dragon_crystals: "amethyst_dragon_egg"
+  };
+  /** The published site has no API. Learnt once, so it is not asked again every minute. */
+  var apiMissing = false;
+  /** What the boards were last drawn from, so an unchanged minute redraws nothing. */
+  var drawnFrom = "";
   var steveHead = "https://api.mcheads.org/ioshead/MHF_Steve/left";
   var steveBody = "https://api.mcheads.org/iosbody/MHF_Steve/left";
 
@@ -91,7 +102,7 @@
     return '<div class="live-player-art ' + (full ? "full" : "head") + '">' +
       '<img class="' + (full ? "live-skin-render" : "live-head-render") + '" src="' +
         escapeHtml(source) + '" data-fallback="' + fallback + '" alt="' + label +
-        (full ? ' Minecraft skin"' : ' Minecraft head"') + ' loading="lazy"></div>';
+        (full ? ' Minecraft skin"' : ' Minecraft head"') + ' loading="lazy" decoding="async"></div>';
   }
   function clanArt(row) {
     var supplied = String(row.icon || "");
@@ -213,11 +224,18 @@
    * as old as the last rebuild.
    */
   async function liveOrPublishedStandings() {
-    try {
-      var live = await api("/api/leaderboards");
-      if (live && (live.individual || live.clan)) { return live; }
-    } catch (ignored) {
-      // No backend on this origin. Expected on the published site.
+    if (!apiMissing) {
+      try {
+        var reply = await window.fetch("/api/leaderboards", {cache: "no-store"});
+        if (reply.status === 404 || reply.status === 405) {
+          apiMissing = true;
+        } else if (reply.ok) {
+          var live = await reply.json();
+          if (live && (live.individual || live.clan)) { return live; }
+        }
+      } catch (ignored) {
+        // No backend on this origin. Expected on the published site.
+      }
     }
     var response = await fetch("../assets/leaderboards.json", { credentials: "omit" });
     if (!response.ok) { throw new Error("No standings are published yet."); }
@@ -233,8 +251,14 @@
 
   async function loadLeaderboards() {
     try {
-      state.snapshot = await liveOrPublishedStandings();
-      byId("generated-at").textContent = relativeTime(Number(state.snapshot.generated_at || 0));
+      var snapshot = await liveOrPublishedStandings();
+      var fingerprint = JSON.stringify(snapshot);
+      byId("generated-at").textContent = relativeTime(Number(snapshot.generated_at || 0));
+      // Redrawing unchanged boards replaced every head render on the page each minute,
+      // which is a visible flicker and a re-decode of every image for nothing.
+      if (fingerprint === drawnFrom) { return; }
+      drawnFrom = fingerprint;
+      state.snapshot = snapshot;
       var playerKeys = defaultBoards.filter(function (key) { return key in (state.snapshot.individual || {}); });
       var clanKeys = defaultBoards.filter(function (key) { return key in (state.snapshot.clan || {}); });
       var eventKeys = eventBoards.filter(function (key) { return key in (state.snapshot.individual || {}); });
@@ -384,7 +408,9 @@
       button.addEventListener("click", function () { selectLeaderboardView(button.dataset.view); });
     });
     loadLeaderboards();
-    window.setInterval(loadLeaderboards, 60000);
+    // Nobody is reading a tab in the background, so it does not poll there.
+    window.setInterval(function () { if (!document.hidden) loadLeaderboards(); }, 60000);
+    document.addEventListener("visibilitychange", function () { if (!document.hidden) loadLeaderboards(); });
   }
   if (byId("control-root")) {
     var search = byId("setting-search");

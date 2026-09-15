@@ -332,4 +332,24 @@ final class SettingMetadataTest {
         }
         throw new AssertionError("no summary for " + table);
     }
+
+    /**
+     * Every page the plugin can file a setting under has a page in the owner console.
+     *
+     * <p>The website's own test enforces the same thing, but it runs in the website's
+     * deploy job, so a new group added here used to break every deploy of the site —
+     * including the scheduled refresh of the live player counts and leaderboards —
+     * until somebody noticed. Checking it here fails the plugin build instead.
+     */
+    @Test
+    void everyGroupHasAnOwnerConsolePage() throws Exception {
+        String console = java.nio.file.Files.readString(Path.of("../devblog/static/owner-console.js"));
+        List<String> missing = new ArrayList<>();
+        for (SettingMetadata.Group group : SettingMetadata.Group.values()) {
+            if (group == SettingMetadata.Group.UNCLASSIFIED) continue;
+            String id = group.name().toLowerCase(java.util.Locale.ROOT);
+            if (!console.contains("{id: \"" + id + "\"")) missing.add(id);
+        }
+        assertTrue(missing.isEmpty(), "add these pages to devblog/static/owner-console.js PAGES: " + missing);
+    }
 }

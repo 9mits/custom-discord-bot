@@ -50,6 +50,9 @@ tasks {
     }
     test {
         useJUnitPlatform()
+        // SettingMetadataTest reads the owner console's page list, so a change there
+        // must re-run the tests rather than leave them up to date.
+        inputs.file("../devblog/static/owner-console.js")
     }
     shadowJar {
         archiveFileName.set("MGXAccessBridge.jar")
