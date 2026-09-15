@@ -87,6 +87,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private PersonalNotificationService personalNotifications;
     private CapabilityService capabilityService;
     private ClanStore clanStore;
+    private SeasonItemService seasonItems;
     private ClanMenuService clanMenuService;
     private PlayerMenuService playerMenuService;
     private PlayerSettingsStore playerSettings;
@@ -943,6 +944,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         } catch (IOException exception) {
             getLogger().severe("Sentinel is disabled: " + exception.getMessage());
         }
+        seasonItems = new SeasonItemService(this);
+        getServer().getPluginManager().registerEvents(seasonItems, this);
         try {
             seasonPass = new SeasonPassService(this,
                     new SeasonStore(getDataFolder().toPath().resolve("season-pass.json")),
@@ -1661,6 +1664,10 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
 
     AmethystItemService amethystItems() {
         return amethystItems;
+    }
+
+    SeasonItemService seasonItems() {
+        return seasonItems;
     }
 
     LoginStreakService loginStreaks() {

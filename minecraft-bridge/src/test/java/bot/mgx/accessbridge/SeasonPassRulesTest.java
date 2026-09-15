@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class SeasonPassRulesTest {
@@ -152,7 +153,7 @@ final class SeasonPassRulesTest {
         String store = java.nio.file.Files.readString(java.nio.file.Path.of(
                 "src/main/java/bot/mgx/accessbridge/GameVariableStore.java"));
         java.util.regex.Matcher matcher = java.util.regex.Pattern.compile(
-                "text\\(\"(season\\.reward\\.[a-z0-9-]+)\"[\\s\\S]*?,\\s*\"([^\"]*)\",\\s*200\\);").matcher(store);
+                "text\\(\"(season\\.reward\\.[a-z0-9-]+)\"[\\s\\S]*?,\\s*\"([^\"]*)\",\\s*\\d+\\);").matcher(store);
         java.util.Map<String, String> specs = new java.util.HashMap<>();
         while (matcher.find()) specs.put(matcher.group(1), matcher.group(2));
         assertTrue(specs.size() >= 9, "found " + specs.keySet());
@@ -160,8 +161,22 @@ final class SeasonPassRulesTest {
         long hearts = 0;
         Set<String> exclusives = new HashSet<>();
         Set<String> gear = new HashSet<>();
+        Set<String> seen = new HashSet<>();
+        for (String key : List.of("season.reward.odd", "season.reward.even")) {
+            for (String variant : specs.get(key).split("\\|")) {
+                for (SeasonPassRules.Grant grant : SeasonPassRules.parse(variant)) {
+                    if (grant.kind().equals("reward")) {
+                        assertTrue(CrateCatalog.find(grant.id()).isPresent(), grant.id() + " is not a crate reward");
+                    }
+                }
+                assertEquals(variant.split(";").length, SeasonPassRules.parse(variant).size(),
+                        "every part of '" + variant.strip() + "' must parse");
+            }
+        }
         for (int tier = 1; tier <= 50; tier++) {
-            String spec = specs.get(SeasonPassRules.rewardKey(tier, specs::containsKey));
+            String key = SeasonPassRules.rewardKey(tier, specs::containsKey);
+            String spec = SeasonPassRules.variant(specs.get(key), tier);
+            seen.add(key + ":" + spec);
             List<SeasonPassRules.Grant> grants = SeasonPassRules.parse(spec);
             assertTrue(!grants.isEmpty(), "tier " + tier + " pays nothing");
             for (SeasonPassRules.Grant grant : grants) {
@@ -173,15 +188,61 @@ final class SeasonPassRulesTest {
                     case "reward" -> assertTrue(CrateCatalog.find(grant.id()).isPresent(),
                             grant.id() + " is not a registered crate reward");
                     case "cosmetic" -> assertTrue(CosmeticCatalog.find(grant.id()).isPresent(), grant.id());
+                    case "season_item" -> assertTrue(SeasonItemCatalog.find(grant.id()).isPresent(), grant.id());
                     default -> throw new AssertionError("tier " + tier + " pays " + grant.kind()
                             + ", which is minted too freely to mean anything");
                 }
             }
         }
         assertEquals(Set.of("AURA", "TRAIL", "KILL_EFFECT"), exclusives);
-        assertEquals(Set.of("SCYTHE", "PICKAXE", "AXE", "WINGS"), gear);
+        assertEquals(java.util.Arrays.stream(SeasonGear.Piece.values()).map(Enum::name)
+                .collect(java.util.stream.Collectors.toSet()), gear, "every gear piece is on the track once");
+        for (String key : List.of("season.reward.odd", "season.reward.even")) {
+            for (String variant : specs.get(key).split("\\|")) {
+                assertTrue(seen.contains(key + ":" + variant.strip()),
+                        "'" + variant.strip() + "' is hidden behind milestone tiers and never paid");
+            }
+        }
+        assertTrue(seen.size() >= 30, "the track needs variety: only " + seen.size() + " different tiers");
         assertEquals(2, hearts, "Season Hearts affect PvP, so a full pass pays two");
         assertTrue(shards >= 5 && shards <= 12, "a full track pays " + shards + " Shards");
+    }
+
+    @Test
+    void tiersStepThroughTheirAlternatives() {
+        String spec = "a:1 | b:2 |c:3";
+        assertEquals("a:1", SeasonPassRules.variant(spec, 1));
+        assertEquals("a:1", SeasonPassRules.variant(spec, 2), "an odd tier and the even tier after it share a step");
+        assertEquals("b:2", SeasonPassRules.variant(spec, 3));
+        assertEquals("c:3", SeasonPassRules.variant(spec, 6));
+        assertEquals("a:1", SeasonPassRules.variant(spec, 7), "the list wraps");
+        assertEquals("shards:1", SeasonPassRules.variant("shards:1", 41), "a single reward is every tier's");
+        assertEquals("", SeasonPassRules.variant(" | ", 3));
+    }
+
+    @Test
+    void seasonConsumablesParseWithCountsAndUnknownsAreSkipped() {
+        List<SeasonPassRules.Grant> grants = SeasonPassRules.parse(
+                "item:Rally_Horn;item:miners_tonic:3;item:miners_tonic:999;item:strength_tonic;item:skyward_tonic:x");
+        assertEquals(new SeasonPassRules.Grant("season_item", 1, "rally_horn"), grants.get(0));
+        assertEquals(3, grants.get(1).amount());
+        assertEquals(SeasonPassRules.MAX_REWARD_COUNT, grants.get(2).amount());
+        assertEquals(3, grants.size(), "an unknown item and a bad count are skipped");
+    }
+
+    @Test
+    void seasonConsumablesFeelStrongButNeverDecideAFight() {
+        for (SeasonItemCatalog.Item item : SeasonItemCatalog.Item.values()) {
+            assertFalse(item.effects.isEmpty(), item.id);
+            for (SeasonItemCatalog.Effect effect : item.effects) {
+                assertFalse(SeasonItemCatalog.COMBAT_EFFECTS.contains(effect.type()),
+                        item.id + " grants " + effect.type() + ", which wins fights");
+                assertTrue(effect.seconds() <= 1_200, item.id + " lasts too long: " + effect);
+                assertTrue(effect.amplifier() <= 2, item.id + " is too strong: " + effect);
+            }
+        }
+        assertEquals("Haste III for 10 min", SeasonItemCatalog.Item.MINERS_TONIC.effects.get(0).describe());
+        assertEquals("Regeneration for 30s", SeasonItemCatalog.Item.RALLY_HORN.effects.get(2).describe());
     }
 
     @Test

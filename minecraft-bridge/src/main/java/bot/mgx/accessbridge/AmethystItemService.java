@@ -413,6 +413,28 @@ final class AmethystItemService implements Listener {
                 equippable.setModel(model);
                 meta.setEquippable(equippable);
             }
+            case BOOTS -> {
+                meta.addEnchant(Enchantment.PROTECTION, 4, true);
+                meta.addEnchant(Enchantment.FEATHER_FALLING, 4, true);
+                meta.addEnchant(Enchantment.DEPTH_STRIDER, 3, true);
+                meta.addEnchant(Enchantment.SOUL_SPEED, 3, true);
+                wearAs(meta, EquipmentSlot.FEET, theme.season());
+            }
+            case HELMET -> {
+                meta.addEnchant(Enchantment.PROTECTION, 4, true);
+                meta.addEnchant(Enchantment.RESPIRATION, 3, true);
+                meta.addEnchant(Enchantment.AQUA_AFFINITY, 1, true);
+                wearAs(meta, EquipmentSlot.HEAD, theme.season());
+            }
+            case HOE -> {
+                meta.addEnchant(Enchantment.EFFICIENCY, 5, true);
+                meta.addEnchant(Enchantment.FORTUNE, 3, true);
+            }
+            case BOW -> {
+                meta.addEnchant(Enchantment.POWER, 5, true);
+                meta.addEnchant(Enchantment.FLAME, 1, true);
+                meta.addEnchant(Enchantment.INFINITY, 1, true);
+            }
         }
         meta.lore(List.of(
                 line(piece.ability), line(piece.detail), Component.empty(),
@@ -420,6 +442,13 @@ final class AmethystItemService implements Listener {
                         .decoration(TextDecoration.ITALIC, false)));
         item.setItemMeta(meta);
         return item;
+    }
+
+    private static void wearAs(ItemMeta meta, EquipmentSlot slot, int season) {
+        org.bukkit.inventory.meta.components.EquippableComponent equippable = meta.getEquippable();
+        equippable.setSlot(slot);
+        equippable.setModel(NamespacedKey.fromString(SeasonGear.armourKey(season)));
+        meta.setEquippable(equippable);
     }
 
     private Optional<SeasonGear.Piece> seasonPiece(ItemStack item) {
@@ -438,6 +467,120 @@ final class AmethystItemService implements Listener {
         if (seasonPiece(player.getInventory().getItemInMainHand()).filter(SeasonGear.Piece.SCYTHE::equals).isPresent()) {
             event.setDamage(event.getDamage() * (1d + SeasonGear.Piece.MOB_DAMAGE_BONUS));
         }
+    }
+
+    /** Featherstep: Season Boots cancel fall damage, but never for someone in a fight. */
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onSeasonFall(org.bukkit.event.entity.EntityDamageEvent event) {
+        if (event.getCause() != org.bukkit.event.entity.EntityDamageEvent.DamageCause.FALL
+                || !(event.getEntity() instanceof Player player)
+                || seasonPiece(player.getInventory().getBoots()).filter(SeasonGear.Piece.BOOTS::equals).isEmpty()) {
+            return;
+        }
+        // A fall immunity that held in combat would decide chases and pearl escapes.
+        if (plugin.inPvpDuel(player) || (plugin.afkService() != null && plugin.afkService().inCombat(player))) {
+            return;
+        }
+        event.setCancelled(true);
+    }
+
+    /** Deepsight: long enough that night vision never reaches its flickering last seconds. */
+    private void applySeasonHelmet(Player player) {
+        if (seasonPiece(player.getInventory().getHelmet()).filter(SeasonGear.Piece.HELMET::equals).isEmpty()) {
+            return;
+        }
+        player.addPotionEffect(new PotionEffect(PotionEffectType.NIGHT_VISION, 20 * 15, 0, true, false, true));
+        player.addPotionEffect(new PotionEffect(PotionEffectType.WATER_BREATHING, 20 * 15, 0, true, false, true));
+    }
+
+    /** Bountiful: a Season Hoe harvests and replants every grown crop in a 5x5. */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onSeasonHarvest(BlockBreakEvent event) {
+        Player player = event.getPlayer();
+        Block centre = event.getBlock();
+        if (multiBreaking.contains(player.getUniqueId())
+                || !(centre.getBlockData() instanceof org.bukkit.block.data.Ageable crop)
+                || crop.getAge() < crop.getMaximumAge()
+                || seasonPiece(player.getInventory().getItemInMainHand()).filter(SeasonGear.Piece.HOE::equals).isEmpty()) {
+            return;
+        }
+        Material type = centre.getType();
+        plugin.getServer().getScheduler().runTask(plugin, () -> {
+            if (!player.isOnline()) return;
+            multiBreaking.add(player.getUniqueId());
+            try {
+                int radius = SeasonGear.Piece.HARVEST_RADIUS;
+                for (int x = -radius; x <= radius; x++) {
+                    for (int z = -radius; z <= radius; z++) {
+                        Block block = centre.getRelative(x, 0, z);
+                        Material cropType = block.getType();
+                        boolean grown = block.getBlockData() instanceof org.bukkit.block.data.Ageable ageable
+                                && ageable.getAge() >= ageable.getMaximumAge();
+                        // breakBlock rather than breakNaturally, so region protection still applies.
+                        if (x == 0 && z == 0) {
+                            cropType = type;
+                        } else if (!grown || !player.breakBlock(block)) {
+                            continue;
+                        }
+                        if (block.getType().isAir()) replant(block, cropType);
+                    }
+                }
+            } finally {
+                multiBreaking.remove(player.getUniqueId());
+            }
+        });
+    }
+
+    private static void replant(Block block, Material cropType) {
+        Material soil = block.getRelative(0, -1, 0).getType();
+        boolean supported = cropType == Material.NETHER_WART ? soil == Material.SOUL_SAND
+                : soil == Material.FARMLAND;
+        if (!supported) return;
+        block.setType(cropType, false);
+        if (block.getBlockData() instanceof org.bukkit.block.data.Ageable replanted) {
+            replanted.setAge(0);
+            block.setBlockData(replanted, false);
+        }
+    }
+
+    /** Starfall: marks arrows from a Season Bow so their hits can be recognised. */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onSeasonShoot(EntityShootBowEvent event) {
+        if (!(event.getEntity() instanceof Player) || event.getBow() == null
+                || seasonPiece(event.getBow()).filter(SeasonGear.Piece.BOW::equals).isEmpty()) {
+            return;
+        }
+        event.getProjectile().getPersistentDataContainer().set(seasonKey, PersistentDataType.INTEGER,
+                season(event.getBow()));
+    }
+
+    /** Starfall: a Season Bow hits mobs harder and bursts onto hostile mobs nearby. Players are never affected. */
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onSeasonArrow(EntityDamageByEntityEvent event) {
+        if (!(event.getDamager() instanceof Projectile arrow)
+                || !(arrow.getShooter() instanceof Player shooter)
+                || event.getEntity() instanceof Player
+                || !(event.getEntity() instanceof LivingEntity target)) {
+            return;
+        }
+        Integer season = arrow.getPersistentDataContainer().get(seasonKey, PersistentDataType.INTEGER);
+        if (season == null) return;
+        event.setDamage(event.getDamage() * (1d + SeasonGear.Piece.MOB_DAMAGE_BONUS));
+        double splash = event.getDamage() * SeasonGear.Piece.STARFALL_SPLASH;
+        double radius = SeasonGear.Piece.STARFALL_RADIUS;
+        for (Entity nearby : target.getNearbyEntities(radius, radius, radius)) {
+            if (nearby instanceof org.bukkit.entity.Enemy && !(nearby instanceof Player)
+                    && nearby instanceof LivingEntity victim && !victim.isDead()) {
+                victim.damage(splash, shooter);
+            }
+        }
+        var theme = SeasonCosmetics.theme(season);
+        Color colour = theme.map(found -> Color.fromRGB(found.primary())).orElse(Color.WHITE);
+        target.getWorld().spawnParticle(Particle.DUST, target.getLocation().add(0, 1, 0), 24,
+                radius / 3d, 0.6, radius / 3d, 0d, new Particle.DustOptions(colour, 1.3f));
+        target.getWorld().spawnParticle(Particle.FIREWORK, target.getLocation().add(0, 1, 0), 12,
+                0.4, 0.4, 0.4, 0.08);
+        target.getWorld().playSound(target.getLocation(), Sound.ENTITY_FIREWORK_ROCKET_BLAST, 0.7f, 1.3f);
     }
 
     /** Forge Touch: a Season Pickaxe smelts ore drops, and only ore drops. */
@@ -1072,6 +1215,7 @@ final class AmethystItemService implements Listener {
 
     private void sweepOnlinePlayers() {
         long now = System.currentTimeMillis();
+        for (Player online : plugin.getServer().getOnlinePlayers()) applySeasonHelmet(online);
         Iterator<UUID> iterator = droppedTimedItems.iterator();
         while (iterator.hasNext()) {
             Entity entity = Bukkit.getEntity(iterator.next());

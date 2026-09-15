@@ -85,6 +85,19 @@ final class SeasonCosmeticsTest {
         assertTrue(scythe.contains("event.getEntity() instanceof Player"), "the mob bonus must skip players");
         assertTrue(SeasonGear.Piece.MOB_DAMAGE_BONUS <= 0.25);
         assertTrue(SeasonGear.Piece.TIMBER_LIMIT < 256, "smaller than the Amethyst Axe");
+        String arrow = service.substring(service.indexOf("public void onSeasonArrow("),
+                service.indexOf("/** Forge Touch"));
+        assertTrue(arrow.contains("event.getEntity() instanceof Player") && arrow.contains("instanceof org.bukkit.entity.Enemy")
+                        && arrow.contains("!(nearby instanceof Player)"),
+                "Starfall must skip players, both the target and the burst");
+        String fall = service.substring(service.indexOf("public void onSeasonFall("),
+                service.indexOf("private void applySeasonHelmet("));
+        assertTrue(fall.contains("inPvpDuel(player)") && fall.contains("inCombat(player)"),
+                "Featherstep must stop working in a fight");
+        assertTrue(SeasonGear.Piece.HARVEST_RADIUS < 3, "no bigger than a 5x5");
+        String harvest = service.substring(service.indexOf("public void onSeasonHarvest("),
+                service.indexOf("private static void replant("));
+        assertFalse(harvest.contains(".breakNaturally("), "breakBlock keeps region protection in force");
     }
 
     @Test

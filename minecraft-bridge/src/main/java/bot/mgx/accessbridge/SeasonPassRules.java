@@ -179,7 +179,7 @@ final class SeasonPassRules {
     static final long MAX_REWARD_COUNT = 16L;
 
     /**
-     * Parses a tier reward such as {@code hearts:1;shards:2;reward:ancient_debris:2;gear:scythe;cosmetic:season:aura}.
+     * Parses a tier reward such as {@code hearts:1;shards:2;reward:ancient_debris:2;gear:scythe;cosmetic:season:aura;item:rally_horn}.
      *
      * <p>{@code cosmetic:season:<aura|trail|kill>} names this season's exclusive rather than
      * a fixed id, so one setting pays Season 1's crown in Season 1 and Season 2's in
@@ -216,6 +216,21 @@ final class SeasonPassRules {
                 }
                 case "gear" -> SeasonGear.Piece.parse(value).ifPresent(piece ->
                         grants.add(new Grant("season_gear", 1L, piece.name())));
+                case "item" -> {
+                    // item:<season consumable id> or item:<id>:<count>
+                    String[] item = value.toLowerCase(Locale.ROOT).split(":", 2);
+                    long count = 1L;
+                    if (item.length == 2) {
+                        try {
+                            count = Math.max(1L, Math.min(MAX_REWARD_COUNT, Long.parseLong(item[1].strip())));
+                        } catch (NumberFormatException ignored) {
+                            continue;
+                        }
+                    }
+                    long copies = count;
+                    SeasonItemCatalog.find(item[0]).ifPresent(found ->
+                            grants.add(new Grant("season_item", copies, found.id)));
+                }
                 case "reward" -> {
                     // reward:<id> or reward:<id>:<count>, so a tier can pay a stack.
                     String[] reward = value.toLowerCase(Locale.ROOT).split(":", 2);
@@ -235,6 +250,20 @@ final class SeasonPassRules {
             }
         }
         return List.copyOf(grants);
+    }
+
+    /**
+     * One tier's reward from a setting that may list several, separated by {@code |}.
+     * Odd and even tiers step through their lists in turn (tiers 1 and 2 take the first,
+     * 3 and 4 the second), so twenty odd tiers are not twenty copies of one bundle. The
+     * choice depends only on the tier, so every screen and every payout agrees.
+     */
+    static String variant(String spec, int tier) {
+        if (spec == null) return "";
+        String[] variants = java.util.Arrays.stream(spec.split("\\|"))
+                .map(String::strip).filter(part -> !part.isEmpty()).toArray(String[]::new);
+        if (variants.length == 0) return "";
+        return variants[Math.floorMod((tier - 1) / 2, variants.length)];
     }
 
     /** Which reward setting a tier uses: its own override, a milestone, or odd/even. */

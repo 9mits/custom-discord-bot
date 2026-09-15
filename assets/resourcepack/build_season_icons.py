@@ -29,6 +29,7 @@ MGX = PACK / "src" / "assets" / "mgx"
 ITEM_TEXTURES = MGX / "textures" / "item"
 TEXTURES = ITEM_TEXTURES / "cosmetic"
 WORN_WINGS = MGX / "textures" / "entity" / "equipment" / "wings"
+WORN_ARMOUR = MGX / "textures" / "entity" / "equipment" / "humanoid"
 EQUIPMENT = MGX / "equipment"
 GEAR_MODELS = MGX / "models" / "item"
 GEAR_ITEMS = MGX / "items"
@@ -71,6 +72,10 @@ GEAR = {
     "pickaxe": ("amethyst_pickaxe", is_not_handle, "netherite_pickaxe", "amethyst_pickaxe", "Pickaxe", None),
     "axe": ("amethyst_axe", is_not_handle, "netherite_axe", "amethyst_axe", "Axe", None),
     "wings": ("amethyst_elytra", everything, "elytra", "amethyst_elytra", "Wings", None),
+    "boots": ("amethyst_boots", everything, "netherite_boots", "amethyst_boots", "Boots", None),
+    "hoe": ("amethyst_hoe", is_not_handle, "netherite_hoe", "amethyst_hoe", "Hoe", None),
+    "helmet": ("amethyst_helmet", everything, "netherite_helmet", "amethyst_helmet", "Helmet", None),
+    "bow": ("amethyst_bow", is_not_handle, "bow", "amethyst_bow", "Bow", None),
 }
 
 
@@ -166,6 +171,13 @@ def main() -> int:
             write_json(GEAR_MODELS / f"{name}.json", model)
             write_json(GEAR_ITEMS / f"{name}.json",
                        {"model": {"type": "minecraft:model", "model": f"mgx:item/{name}"}})
+            if piece == "helmet":
+                # The Helmet and Boots share one worn look, as vanilla armour sets do.
+                armour = f"season_{season}_armor"
+                with Image.open(WORN_ARMOUR / "amethyst_armor.png") as worn:
+                    recolour(worn, shadow, primary, highlight).save(WORN_ARMOUR / f"{armour}.png", optimize=True)
+                write_json(EQUIPMENT / f"{armour}.json",
+                           {"layers": {"humanoid": [{"texture": f"mgx:{armour}"}]}})
             if piece == "wings":
                 with Image.open(WORN_WINGS / "amethyst_elytra.png") as worn:
                     recolour(worn, shadow, primary, highlight).save(WORN_WINGS / f"{name}.png", optimize=True)

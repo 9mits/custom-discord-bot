@@ -177,6 +177,12 @@ final class SeasonPassService implements Listener, CommandExecutor {
         return java.util.Optional.of(plugin.amethystItems().createSeasonGear(theme.get(), piece.get()));
     }
 
+    /** A season consumable as the real item, for a menu tile. */
+    java.util.Optional<ItemStack> seasonItemPreview(SeasonPassRules.Grant grant) {
+        return SeasonItemCatalog.find(grant.id()).filter(item -> plugin.seasonItems() != null)
+                .map(item -> plugin.seasonItems().create(item, (int) Math.min(64, grant.amount())));
+    }
+
     /** The tier a player holds this season, for the sidebar. */
     int tier(UUID playerId) {
         return SeasonPassRules.tier(store.row(playerId).xp, xpPerTier(), maximumTier());
@@ -608,7 +614,7 @@ final class SeasonPassService implements Listener, CommandExecutor {
 
     List<SeasonPassRules.Grant> grants(int tier) {
         String key = SeasonPassRules.rewardKey(tier, candidate -> variables.find(candidate).isPresent());
-        return SeasonPassRules.parse(variables.string(key));
+        return SeasonPassRules.parse(SeasonPassRules.variant(variables.string(key), tier));
     }
 
     String describe(List<SeasonPassRules.Grant> grants) {
@@ -625,6 +631,8 @@ final class SeasonPassService implements Listener, CommandExecutor {
                 case "season_cosmetic" -> parts.add(seasonCosmetic(grant)
                         .map(definition -> definition.displayName() + " (Season " + store.season() + " Exclusive)")
                         .orElse(exclusiveFallbackShards() + " Shards"));
+                case "season_item" -> SeasonItemCatalog.find(grant.id()).ifPresent(item ->
+                        parts.add((grant.amount() > 1 ? grant.amount() + "x " : "") + item.displayName));
                 case "keys" -> parts.add(grant.amount() + (grant.amount() == 1 ? " Key" : " Keys"));
                 case "shards" -> parts.add(grant.amount() + (grant.amount() == 1 ? " Shard" : " Shards"));
                 case "cosmetic" -> parts.add(CosmeticCatalog.find(grant.id())
@@ -702,6 +710,15 @@ final class SeasonPassService implements Listener, CommandExecutor {
                             giveShards(player, exclusiveFallbackShards());
                         }
                     }
+                    case "season_item" -> SeasonItemCatalog.find(grant.id()).ifPresent(item -> {
+                        if (plugin.seasonItems() == null) return;
+                        // A horn does not stack, so each copy is its own item.
+                        for (long left = grant.amount(); left > 0; ) {
+                            ItemStack stack = plugin.seasonItems().create(item, (int) left);
+                            give(player, stack);
+                            left -= stack.getAmount();
+                        }
+                    });
                     case "keys" -> {
                         if (plugin.crateService() != null) {
                             plugin.crateService().grantKeys(player, (int) Math.min(256, grant.amount()));
