@@ -8,6 +8,9 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalTime;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -15,6 +18,60 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 final class AmethystDragonServiceTest {
+    @Test
+    void fiveTimesDragonAddsFourRunsInsideEveryNormalScheduleInterval() {
+        List<LocalTime> normal = List.of(
+                LocalTime.of(3, 0), LocalTime.of(11, 0), LocalTime.of(19, 0));
+
+        Instant cursor = Instant.parse("2026-09-15T02:59:59Z");
+        Instant endOfDay = Instant.parse("2026-09-16T03:00:00Z");
+        for (int run = 0; run < 15; run++) {
+            cursor = AmethystDragonService.nextEvent(cursor, normal, 5);
+            assertTrue(cursor.isBefore(endOfDay), "run " + (run + 1) + " belongs in this cycle");
+        }
+        assertEquals(endOfDay, AmethystDragonService.nextEvent(cursor, normal, 5));
+
+        assertEquals(Instant.parse("2026-09-15T04:36:00Z"),
+                AmethystDragonService.nextEvent(
+                        Instant.parse("2026-09-15T03:00:00Z"), normal, 5));
+        assertEquals(Instant.parse("2026-09-15T23:48:00Z"),
+                AmethystDragonService.nextEvent(
+                        Instant.parse("2026-09-15T23:00:00Z"), normal, 5));
+        assertEquals(Instant.parse("2026-09-16T01:24:00Z"),
+                AmethystDragonService.nextEvent(
+                        Instant.parse("2026-09-15T23:48:00Z"), normal, 5));
+        assertEquals(Instant.parse("2026-09-16T03:00:00Z"),
+                AmethystDragonService.nextEvent(
+                        Instant.parse("2026-09-16T01:24:00Z"), normal, 5));
+    }
+
+    @Test
+    void normalDragonScheduleStillUsesOnlyItsThreeDailyAnchors() {
+        List<LocalTime> normal = List.of(
+                LocalTime.of(3, 0), LocalTime.of(11, 0), LocalTime.of(19, 0));
+
+        assertEquals(Instant.parse("2026-09-15T11:00:00Z"),
+                AmethystDragonService.nextEvent(
+                        Instant.parse("2026-09-15T03:00:00Z"), normal, 1));
+        assertEquals(Instant.parse("2026-09-16T03:00:00Z"),
+                AmethystDragonService.nextEvent(
+                        Instant.parse("2026-09-15T19:00:00Z"), normal, 1));
+    }
+
+    @Test
+    void dragonRewardsAreNotMultipliedByTheFrequencyEvent() throws IOException {
+        String source = Files.readString(Path.of(
+                "src/main/java/bot/mgx/accessbridge/AmethystDragonService.java"));
+        String keys = method(source, "private void giveKeys(UUID playerId, int amount)",
+                "private void giveShards(Player player, int amount)");
+        String shards = method(source, "private void giveShards(Player player, int amount)",
+                "private void flushDamageStats()");
+
+        assertFalse(keys.contains("dragonFrequencyFactor"));
+        assertFalse(shards.contains("dragonFrequencyFactor"));
+        assertFalse(source.contains("every Dragon reward pays"));
+    }
+
     @Test
     void dragonArenaRescuesPlayersBeforeVanillaVoidDamage() {
         assertEquals(true, AmethystDragonService.belowVoidRescueHeight(19.99, 20));

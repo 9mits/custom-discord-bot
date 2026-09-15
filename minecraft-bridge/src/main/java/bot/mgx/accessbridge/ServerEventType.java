@@ -12,7 +12,7 @@ import java.util.Set;
  * <p>Free of Bukkit so the names, aliases and duration rail can be unit tested.
  * The multiplier is fixed per event rather than chosen per activation: every one of
  * these is advertised to players by its factor, on the boss bar and in the server list,
- * and an event called 2x that quietly paid 3x would be worse than one that did not
+ * and an event called 2x that quietly applied 3x would be worse than one that did not
  * exist. A test holds the name and the factor together.
  */
 enum ServerEventType {
@@ -27,15 +27,7 @@ enum ServerEventType {
             "block", "amethyst"),
     /** The big one. Stacks with nothing: the largest key factor in play wins. */
     MEGA_KEY("megakey", 4, "4x Keys", "4X KEY EVENT!", "megakeys", "bigkey"),
-    /**
-     * Multiplies what the Amethyst Dragon itself pays: crystal keys, damage-wave keys,
-     * the kill reward and the shard drops.
-     *
-     * <p>Frequency is not the lever here the way it is for Airdrops and Huge Blocks. The
-     * Dragon runs on three fixed UTC times a day that players plan around, so "5x Dragon"
-     * has to mean five times the loot from the fight rather than five times as many
-     * fights.
-     */
+    /** Inserts four extra Dragon runs between every pair of normal scheduled runs. */
     AMETHYST_DRAGON("dragon", 5, "5x Amethyst Dragon", "5X AMETHYST DRAGON EVENT!",
             "amethystdragon", "dragons");
 

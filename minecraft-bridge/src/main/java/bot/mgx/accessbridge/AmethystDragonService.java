@@ -154,6 +154,8 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     private Portal portal;
     private Phase phase = Phase.WAITING;
     private Instant scheduledAt;
+    /** Factor used to calculate scheduledAt, so live starts, stops and expiry reschedule it. */
+    private int scheduledFrequencyFactor = 1;
     /** The run the Discord ten-minute heads-up was already sent for. */
     private Instant pingedFor;
     private long phaseEndsAt;
@@ -226,15 +228,17 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         loadPortal();
         CrateKind.dragonEndSource(() -> phaseEndsAt);
         variables.onChange(key -> {
-            if (!key.startsWith("dragon-event.")) return;
+            boolean frequencyFactor = key.equals("events.dragon.multiplier");
+            if (!key.startsWith("dragon-event.") && !frequencyFactor) return;
             plugin.getServer().getScheduler().runTask(plugin, () -> {
                 if (key.startsWith("dragon-event.portal-") || key.equals("dragon-event.ended-hologram")) {
                     refreshPortalDisplay();
                     setPortalLit(phase == Phase.PORTAL_OPEN);
                 }
                 if (phase == Phase.WAITING && (key.equals("dragon-event.schedule-utc")
-                        || key.equals("dragon-event.enabled"))) {
+                        || key.equals("dragon-event.enabled") || frequencyFactor)) {
                     scheduledAt = nextEvent(Instant.now());
+                    pingedFor = null;
                 }
                 if (arena != null && key.equals("dragon-event.border-size")) {
                     arena.getWorldBorder().setSize(variables.integer("dragon-event.border-size"));
@@ -375,6 +379,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
 
     private void tick() {
         long now = System.currentTimeMillis();
+        refreshFrequencySchedule();
         if (phase == Phase.WAITING) {
             if (!variables.bool("dragon-event.enabled") || Instant.now().isAfter(eventEnd())) {
                 scheduledAt = nextEvent(Instant.now().plus(Duration.ofMinutes(1)));
@@ -386,8 +391,11 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                         - variables.integer("dragon-event.portal-open-minutes") * 60_000L;
                 if (now >= openAt - 600_000L && now < openAt && !scheduledAt.equals(pingedFor)) {
                     pingedFor = scheduledAt;
-                    plugin.pingDiscord("ping_event_soon", "The Amethyst Dragon portal opens in 10 minutes",
-                            java.util.Map.of("event", "Amethyst Dragon", "minutes", "10"));
+                    long minutes = Math.max(1L, (openAt - now + 59_999L) / 60_000L);
+                    plugin.pingDiscord("ping_event_soon",
+                            "The Amethyst Dragon portal opens in " + minutes + " minutes",
+                            java.util.Map.of("event", "Amethyst Dragon",
+                                    "minutes", String.valueOf(minutes)));
                 }
                 if (now >= openAt && now < scheduledAt.toEpochMilli()) {
                     openPortal();
@@ -421,16 +429,45 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     }
 
     Instant nextEvent(Instant after) {
-        List<LocalTime> times = schedule();
+        int factor = dragonFrequencyFactor();
+        scheduledFrequencyFactor = factor;
+        return nextEvent(after, schedule(), factor);
+    }
+
+    /**
+     * Finds the next run after expanding every interval in the normal daily schedule.
+     * A 5x event therefore turns three runs per day into fifteen, including the interval
+     * across UTC midnight, without moving any of the three familiar anchor times.
+     */
+    static Instant nextEvent(Instant after, List<LocalTime> times, int frequencyFactor) {
+        int factor = Math.max(1, frequencyFactor);
+        List<LocalTime> ordered = times.stream().distinct().sorted().toList();
+        if (ordered.isEmpty()) throw new IllegalArgumentException("Dragon schedule is empty.");
         LocalDate day = after.atZone(ZoneOffset.UTC).toLocalDate();
-        for (int offset = 0; offset < 3; offset++) {
+        for (int offset = -1; offset < 3; offset++) {
             LocalDate candidateDay = day.plusDays(offset);
-            for (LocalTime time : times) {
-                Instant candidate = candidateDay.atTime(time).toInstant(ZoneOffset.UTC);
-                if (candidate.isAfter(after)) return candidate;
+            for (int index = 0; index < ordered.size(); index++) {
+                Instant anchor = candidateDay.atTime(ordered.get(index)).toInstant(ZoneOffset.UTC);
+                Instant nextAnchor = index + 1 < ordered.size()
+                        ? candidateDay.atTime(ordered.get(index + 1)).toInstant(ZoneOffset.UTC)
+                        : candidateDay.plusDays(1).atTime(ordered.getFirst()).toInstant(ZoneOffset.UTC);
+                Duration step = Duration.between(anchor, nextAnchor).dividedBy(factor);
+                for (int extra = 0; extra < factor; extra++) {
+                    Instant candidate = anchor.plus(step.multipliedBy(extra));
+                    if (candidate.isAfter(after)) return candidate;
+                }
             }
         }
-        return day.plusDays(1).atTime(times.getFirst()).toInstant(ZoneOffset.UTC);
+        throw new IllegalStateException("Could not find the next Dragon event.");
+    }
+
+    /** Recalculate movable countdowns when the frequency event starts, stops or expires. */
+    private void refreshFrequencySchedule() {
+        int factor = dragonFrequencyFactor();
+        if (factor == scheduledFrequencyFactor) return;
+        if (phase == Phase.PORTAL_OPEN || phase == Phase.SUMMONING) return;
+        scheduledAt = nextEvent(Instant.now());
+        pingedFor = null;
     }
 
     private List<LocalTime> schedule() {
@@ -487,13 +524,11 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                 "minutes", String.valueOf(minutes));
         List<Player> online = List.copyOf(Bukkit.getOnlinePlayers());
         Component body = Component.text("  " + message, AMETHYST, TextDecoration.BOLD);
-        int factor = dragonEventFactor();
+        int factor = dragonFrequencyFactor();
         if (factor > 1) {
-            // Worth its own line: a multiplier event is the reason to drop what you are
-            // doing for this particular run rather than catch the next one.
             body = body.append(Component.newline()).append(Component.text(
                     "  " + ServerEventType.AMETHYST_DRAGON.displayName(factor)
-                            + " is live - every Dragon reward pays " + factor + "x!",
+                            + " is live - Dragon events run " + factor + "x as often!",
                     NamedTextColor.GOLD, TextDecoration.BOLD));
         }
         plugin.broadcasts().announceBanner(online, title, body);
@@ -2494,14 +2529,8 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         return result;
     }
 
-    /**
-     * The Dragon event's own factor.
-     *
-     * <p>Applied here rather than at each of the four reward sites so a crystal, a
-     * damage wave, the kill and a shard roll cannot drift apart, and so the figure the
-     * boss bar advertises is the figure every payout goes through.
-     */
-    private int dragonEventFactor() {
+    /** How densely the normal three-times-daily schedule is expanded right now. */
+    private int dragonFrequencyFactor() {
         return plugin.serverEventMultiplier(ServerEventType.AMETHYST_DRAGON);
     }
 
@@ -2509,18 +2538,16 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         if (amount <= 0) return;
         Player player = Bukkit.getPlayer(playerId);
         if (player == null || !player.isOnline()) return;
-        int paid = Math.max(amount, amount * dragonEventFactor());
-        if (items.giveKeysOrDrop(player, paid)) {
-            stats.computeIfAbsent(playerId, ignored -> new RunStats()).keys += paid;
+        if (items.giveKeysOrDrop(player, amount)) {
+            stats.computeIfAbsent(playerId, ignored -> new RunStats()).keys += amount;
         }
     }
 
     private void giveShards(Player player, int amount) {
         if (amount <= 0) return;
-        int paid = Math.max(amount, amount * dragonEventFactor());
-        // items.shard() clamps to one stack, so a multiplied roll is handed over as
-        // however many full stacks it comes to rather than quietly losing the rest.
-        for (int left = paid; left > 0; left -= 64) {
+        // items.shard() clamps to one stack, so large owner-configured rewards are handed
+        // over as however many full stacks they need rather than quietly losing the rest.
+        for (int left = amount; left > 0; left -= 64) {
             player.getInventory().addItem(items.shard(Math.min(64, left))).values()
                     .forEach(spill -> player.getWorld()
                             .dropItemNaturally(player.getLocation(), spill));

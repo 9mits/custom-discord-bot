@@ -9,17 +9,17 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * An event advertised as 2x must pay 2x. The factor moved from a shared constant to a
+ * An event advertised as 2x must apply 2x. The factor moved from a shared constant to a
  * per-type field when 4x Keys arrived, so the name and the number are now checked against
  * each other rather than being true by construction.
  */
 final class ServerEventTypeMultiplierTest {
     @Test
-    void everyEventPaysWhatItsNameSays() {
+    void everyEventAdvertisesItsConfiguredFactor() {
         for (ServerEventType type : ServerEventType.values()) {
             String name = type.displayName().toLowerCase(Locale.ROOT);
             assertTrue(name.startsWith(type.multiplier() + "x"),
-                    type + " is named \"" + type.displayName() + "\" but pays "
+                    type + " is named \"" + type.displayName() + "\" but applies "
                             + type.multiplier() + "x");
             assertTrue(type.motdLabel().toUpperCase(Locale.ROOT)
                             .startsWith(type.multiplier() + "X"),

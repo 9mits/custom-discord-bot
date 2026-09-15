@@ -1105,11 +1105,18 @@ final class GameVariableStore {
             // The factor was fixed because an event advertised as 2x that paid 3x would
             // be worse than none. The name is now derived from the factor instead, so it
             // can be changed and still say what it does.
+            boolean frequency = type == ServerEventType.AIRDROP
+                    || type == ServerEventType.AMETHYST_BLOCK
+                    || type == ServerEventType.AMETHYST_DRAGON;
             integer("events." + type.id() + ".multiplier", type.baseDisplayName() + " factor",
                     "Event Multipliers",
-                    "How much the " + type.baseDisplayName()
-                            + " event multiplies. Players are told this figure, so the"
-                            + " announcement follows whatever it is set to.",
+                    frequency
+                            ? "How many times as often the " + type.baseDisplayName()
+                                    + " event runs. Players are told this figure, so the"
+                                    + " announcement follows whatever it is set to."
+                            : "How much the " + type.baseDisplayName()
+                                    + " event pays. Players are told this figure, so the"
+                                    + " announcement follows whatever it is set to.",
                     type.baseMultiplier(), 2, 100, "x", false);
         }
     }

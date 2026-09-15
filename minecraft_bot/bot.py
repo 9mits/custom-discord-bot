@@ -3154,7 +3154,12 @@ class MinecraftAccessBot(commands.Bot):
                     "shows on the server list. Players joining later see it too."
                 )
             else:
-                summary = f"> **{event.name}** has ended. Rates are back to normal."
+                ending = (
+                    "The Dragon schedule is back to normal."
+                    if event.value == "dragon"
+                    else "Rates are back to normal."
+                )
+                summary = f"> **{event.name}** has ended. {ending}"
             await interaction.edit_original_response(
                 **branded_edit(
                     info_embed(
