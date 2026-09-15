@@ -40,8 +40,8 @@
   var apiMissing = false;
   /** What the boards were last drawn from, so an unchanged minute redraws nothing. */
   var drawnFrom = "";
-  var steveHead = "https://api.mcheads.org/ioshead/MHF_Steve/left";
-  var steveBody = "https://api.mcheads.org/iosbody/MHF_Steve/left";
+  var steveHead = "https://mc-heads.net/head/MHF_Steve";
+  var steveBody = "https://mc-heads.net/body/MHF_Steve";
 
   function byId(id) { return document.getElementById(id); }
   function escapeHtml(value) {
@@ -95,13 +95,33 @@
   function tierFor(rank) {
     return rank === 1 ? "rank-gold" : (rank === 2 ? "rank-silver" : "rank-bronze");
   }
+  function rendererIdentifier(source) {
+    var match = String(source || "").match(/\/(?:ioshead|iosbody|head|body)\/([^/?]+)(?:\/left)?(?:[?#]|$)/);
+    return match ? match[1] : "";
+  }
+  function playerSources(source, full) {
+    var identifier = rendererIdentifier(source);
+    if (!identifier) return [source || (full ? steveBody : steveHead)];
+    var bedrock = false;
+    try { bedrock = decodeURIComponent(identifier).startsWith("."); } catch (ignored) {}
+    var stable = "https://mc-heads.net/" + (full ? "body/" : "head/") + identifier;
+    var bedrockAware = "https://api.mcheads.org/" + (full ? "iosbody/" : "ioshead/") + identifier + "/left";
+    var ordered = bedrock
+      ? [bedrockAware, stable, full ? steveBody : steveHead]
+      : [stable, bedrockAware, full ? steveBody : steveHead];
+    return ordered.filter(function (candidate, index) {
+      return candidate && ordered.indexOf(candidate) === index;
+    });
+  }
   function playerArt(row, full) {
     var fallback = full ? steveBody : steveHead;
     var source = (full ? row.skin_url : row.head_url) || fallback;
+    var sources = playerSources(source, full);
     var label = escapeHtml(row.username || "Player");
     return '<div class="live-player-art ' + (full ? "full" : "head") + '">' +
       '<img class="' + (full ? "live-skin-render" : "live-head-render") + '" src="' +
-        escapeHtml(source) + '" data-fallback="' + fallback + '" alt="' + label +
+        escapeHtml(sources[0]) + '" data-sources="' + escapeHtml(JSON.stringify(sources)) +
+        '" data-source-index="0" alt="' + label +
         (full ? ' Minecraft skin"' : ' Minecraft head"') + ' loading="lazy" decoding="async"></div>';
   }
   function clanArt(row) {
@@ -142,7 +162,16 @@
   function wireImageFallbacks(target) {
     target.querySelectorAll(".live-player-art img").forEach(function (image) {
       image.addEventListener("error", function () {
-        if (image.src !== image.dataset.fallback) image.src = image.dataset.fallback;
+        var sources;
+        try { sources = JSON.parse(image.dataset.sources || "[]"); } catch (ignored) { sources = []; }
+        var next = Number(image.dataset.sourceIndex || 0) + 1;
+        if (next < sources.length) {
+          image.dataset.sourceIndex = String(next);
+          image.src = sources[next];
+        } else {
+          // Never leave the browser's broken-image glyph sitting on the podium.
+          image.hidden = true;
+        }
       });
     });
     target.querySelectorAll(".live-clan-crest img").forEach(function (image) {

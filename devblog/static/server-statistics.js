@@ -12,7 +12,7 @@
 (function () {
   "use strict";
 
-  var steveHead = "https://api.mcheads.org/ioshead/MHF_Steve/left";
+  var steveHead = "https://mc-heads.net/head/MHF_Steve";
 
   var root = document.getElementById("stats-root");
   if (!root) { return; }
