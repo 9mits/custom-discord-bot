@@ -27,7 +27,7 @@ final class SeasonGear {
         AXE("axe", "Axe", "axe", "NETHERITE_AXE",
                 "Timber", "Fells up to 32 connected logs"),
         WINGS("wings", "Wings", "elytra", "ELYTRA",
-                "Season Colours", "Shows this season's colours in flight");
+                "Never Breaks", "Shows this season's colours in flight");
 
         /** Logs one swing of a Season Axe can fell. */
         static final int TIMBER_LIMIT = 32;

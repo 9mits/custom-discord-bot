@@ -388,7 +388,14 @@ final class AmethystItemService implements Listener {
                 .decoration(TextDecoration.ITALIC, false));
         NamespacedKey model = NamespacedKey.fromString(modelKey);
         if (model != null) meta.setItemModel(model);
-        meta.addEnchant(Enchantment.UNBREAKING, 3, true);
+        // Wings never break: an elytra that has to be repaired mid-flight is the one piece
+        // where durability is a chore rather than a balance lever. The tools still wear out.
+        if (piece == SeasonGear.Piece.WINGS) {
+            meta.setUnbreakable(true);
+            meta.addItemFlags(org.bukkit.inventory.ItemFlag.HIDE_UNBREAKABLE);
+        } else {
+            meta.addEnchant(Enchantment.UNBREAKING, 3, true);
+        }
         switch (piece) {
             case SCYTHE -> {
                 meta.addEnchant(Enchantment.SHARPNESS, 5, true);
