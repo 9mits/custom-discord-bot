@@ -144,6 +144,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private AfkService afkService;
     private ChaosService chaosService;
     private SpawnMobBarrierService spawnMobBarrier;
+    private PerfMonitor perfMonitor;
     private BroadcastDisplayService broadcastDisplayService;
     private TeleportWarmupService teleportWarmups;
     private PvpDuelService pvpDuels;
@@ -902,7 +903,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         // Hourly: an order that nobody filled has to hand its money back on its own,
         // or a week-old typo holds a fortune out of the economy for good.
         getServer().getScheduler().runTaskTimer(
-                this, orderService::expireOrders, 20L * 60L, 20L * 60L * 60L
+                this, PerfMonitor.track("orders.expire", orderService::expireOrders), 20L * 60L, 20L * 60L * 60L
         );
         getCommand("afk").setExecutor(afkService);
         getServer().getPluginManager().registerEvents(bountyService, this);
@@ -958,28 +959,28 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         }
         getServer().getPluginManager().registerEvents(economyMenus, this);
         getServer().getScheduler().runTaskTimer(
-                this, holograms::refresh, 220L, bridgeConfig.leaderboardRefreshTicks()
+                this, PerfMonitor.track("holograms.refresh", holograms::refresh), 220L, bridgeConfig.leaderboardRefreshTicks()
         );
         getServer().getScheduler().runTaskTimer(
-                this, economyMenus::expireListings, 20L * 60L, 20L * 60L
+                this, PerfMonitor.track("auctions.expire", economyMenus::expireListings), 20L * 60L, 20L * 60L
         );
         // Standing orders repeat no faster than once a second, so checking once per
         // second avoids turning every hopper-fed farm into a per-tick entity scan. The
         // period is the service's own constant because its clock advances by exactly
         // this much per pass; the two drifting apart is what broke /autobuy's interval.
         getServer().getScheduler().runTaskTimer(
-                this, economyMenus::tickAutoOrders,
+                this, PerfMonitor.track("shop.auto-orders", economyMenus::tickAutoOrders),
                 EconomyMenuService.AUTO_ORDER_PERIOD_TICKS,
                 EconomyMenuService.AUTO_ORDER_PERIOD_TICKS
         );
         // The limited shelf's countdown, on the same second the crate screens use.
         getServer().getScheduler().runTaskTimer(
-                this, economyMenus::refreshCountdowns, 20L, 20L
+                this, PerfMonitor.track("shop.menu-countdowns", economyMenus::refreshCountdowns), 20L, 20L
         );
         // Two seconds: fast enough that a farm feels like it is selling itself, slow
         // enough that a running farm is one balance write rather than one per item.
         getServer().getScheduler().runTaskTimer(
-                this, economyMenus::sweepAutoSell, 40L, 40L
+                this, PerfMonitor.track("shop.autosell", economyMenus::sweepAutoSell), 40L, 40L
         );
         devBlogService = new DevBlogService(
                 this, devBlogStore, sidebarService, cosmeticStore
@@ -989,6 +990,15 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         spawnMobBarrier = new SpawnMobBarrierService(this, amethystMobs);
         getServer().getPluginManager().registerEvents(spawnMobBarrier, this);
         spawnMobBarrier.start();
+        perfMonitor = new PerfMonitor(this);
+        getServer().getPluginManager().registerEvents(perfMonitor, this);
+        if (bridgeClient != null) {
+            PerfMonitor.gauge("bridge.send-queue", bridgeClient::queuedSends);
+        }
+        if (cosmeticStore != null) {
+            PerfMonitor.gauge("cosmetics.minted", cosmeticStore::mintedCount);
+        }
+        perfMonitor.start();
         // Anyone already online across a /reload, before the join handler can reach them.
         chaosService.healEveryone();
         AdminCommandService adminService = new AdminCommandService(
@@ -1094,7 +1104,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         // and drop a kick issued during spawn, so a sweep is what actually
         // keeps a held server empty.
         maintenanceSweep = getServer().getScheduler().runTaskTimer(
-                this, this::sweepMaintenance, MaintenanceGate.SWEEP_PERIOD_TICKS, MaintenanceGate.SWEEP_PERIOD_TICKS
+                this, PerfMonitor.track("maintenance.sweep", this::sweepMaintenance), MaintenanceGate.SWEEP_PERIOD_TICKS, MaintenanceGate.SWEEP_PERIOD_TICKS
         );
         // Worlds may not exist yet during onEnable on Paper; the next tick
         // and WorldLoadEvent both call lockWorldSpawn.
@@ -1103,6 +1113,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
 
     @Override
     public void onDisable() {
+        if (perfMonitor != null) {
+            perfMonitor.stop();
+        }
         if (sentinel != null) {
             sentinel.stop();
         }
@@ -1200,6 +1213,17 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         if (bridgeClient != null) {
             bridgeClient.close();
         }
+        if (cosmeticStore != null) {
+            // Fold the journal into the snapshot on a clean stop, so the file alone is
+            // complete and an older build that knows nothing of the journal can still
+            // read every cosmetic.
+            try {
+                cosmeticStore.flush();
+            } catch (RuntimeException failure) {
+                getLogger().warning("Could not write the cosmetic snapshot on shutdown; the journal "
+                        + "still holds every change: " + failure.getMessage());
+            }
+        }
         if (maintenanceSweep != null) {
             maintenanceSweep.cancel();
             maintenanceSweep = null;
@@ -1212,7 +1236,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     void applyPlayerProfile(org.bukkit.entity.Player player, PlayerProfile profile) {
         perkService.apply(player, profile);
         if (sidebarService != null) {
-            sidebarService.refreshAll();
+            sidebarService.refreshAllSoon();
         }
     }
 
@@ -1823,7 +1847,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
      */
     void refreshClans() {
         if (sidebarService != null) {
-            sidebarService.refreshAll();
+            sidebarService.refreshAllSoon();
         }
         if (perkService != null && clanStore != null) {
             for (org.bukkit.entity.Player player : getServer().getOnlinePlayers()) {

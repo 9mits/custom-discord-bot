@@ -311,7 +311,7 @@ record SettingMetadata(
         if (key.startsWith("amethyst-shop.")) {
             return Group.AMETHYST_SHOP;
         }
-        if (key.startsWith("launch.")) {
+        if (key.startsWith("launch.") || key.startsWith("performance.")) {
             return Group.LAUNCH;
         }
         if (key.startsWith("perks.")) {

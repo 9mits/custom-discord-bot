@@ -37,9 +37,6 @@ import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.server.ServerCommandEvent;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.meta.BlockStateMeta;
-import org.bukkit.inventory.meta.BundleMeta;
-import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.Plugin;
 
 import java.lang.reflect.Method;
@@ -126,8 +123,8 @@ final class SentinelService implements Listener {
     void start() {
         SentinelHub.install(this);
         long census = Math.max(5L, variables.integer("sentinel.census-seconds")) * 20L;
-        plugin.getServer().getScheduler().runTaskTimer(plugin, this::census, census, census);
-        plugin.getServer().getScheduler().runTaskTimer(plugin, this::save, 1_200L, 1_200L);
+        plugin.getServer().getScheduler().runTaskTimer(plugin, PerfMonitor.track("sentinel.census", this::census), census, census);
+        plugin.getServer().getScheduler().runTaskTimer(plugin, PerfMonitor.track("sentinel.save", this::save), 1_200L, 1_200L);
         hookGrim();
         variables.onChangeSet((actor, changes) -> {
             for (GameVariableStore.Change change : changes) {
@@ -142,7 +139,11 @@ final class SentinelService implements Listener {
     }
 
     void stop() {
-        for (Player player : Bukkit.getOnlinePlayers()) censusOne(player, System.currentTimeMillis(), null, null);
+        if (censusPass != null) {
+            censusPass.task.cancel();
+            censusPass = null;
+        }
+        for (Player player : Bukkit.getOnlinePlayers()) censusOne(player, System.currentTimeMillis(), null);
         save();
         SentinelHub.install(null);
     }
@@ -199,13 +200,83 @@ final class SentinelService implements Listener {
     // ------------------------------------------------------------------ census
 
     private void census() {
-        if (!enabled()) return;
+        if (!enabled() || censusPass != null) return;
+        java.util.ArrayDeque<UUID> queue = new java.util.ArrayDeque<>();
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            if (!VerificationLobbyService.isLobbyWorld(player.getWorld())) queue.add(player.getUniqueId());
+        }
+        if (queue.isEmpty()) return;
+        CensusPass pass = new CensusPass(queue);
+        censusPass = pass;
+        pass.task = plugin.getServer().getScheduler().runTaskTimer(
+                plugin, PerfMonitor.track("sentinel.census-step", this::censusStep), 1L, 1L);
+    }
+
+    /** Players examined per tick while a census pass runs. */
+    private static final int CENSUS_PLAYERS_PER_TICK = 2;
+    private CensusPass censusPass;
+
+    /**
+     * One walk over everybody online, a couple of players a tick.
+     *
+     * <p>It used to happen in a single tick: every inventory, ender chest and shulker on
+     * the server read in one go, with several item-meta copies per stack. That is a
+     * stall that grows with both the player count and how much each of them carries,
+     * every thirty seconds. Spread out, a pass over fifty players takes about a second.
+     */
+    private static final class CensusPass {
+        private final java.util.ArrayDeque<UUID> queue;
+        private final Map<String, List<String>> serials = new HashMap<>();
+        private final Map<String, List<String>> containers = new HashMap<>();
+        /** Who held each serial or container fingerprint, for the recheck. */
+        private final Map<String, java.util.Set<UUID>> owners = new HashMap<>();
+        private org.bukkit.scheduler.BukkitTask task;
+
+        private CensusPass(java.util.ArrayDeque<UUID> queue) {
+            this.queue = queue;
+        }
+    }
+
+    private void censusStep() {
+        CensusPass pass = censusPass;
+        if (pass == null) return;
         long now = System.currentTimeMillis();
+        for (int examined = 0; examined < CENSUS_PLAYERS_PER_TICK && !pass.queue.isEmpty(); examined++) {
+            Player player = Bukkit.getPlayer(pass.queue.poll());
+            if (player == null || VerificationLobbyService.isLobbyWorld(player.getWorld())) continue;
+            censusOne(player, now, pass);
+        }
+        if (!pass.queue.isEmpty()) return;
+        pass.task.cancel();
+        censusPass = null;
+        finishCensus(pass);
+    }
+
+    /**
+     * Reports what the pass found in two places at once, after checking it still is.
+     *
+     * <p>A pass spans several ticks, so an item handed from one player to another
+     * between their turns was seen with both. Every suspect is looked at again in one
+     * tick before anything is reported, which only ever costs the players involved.
+     */
+    private void finishCensus(CensusPass pass) {
+        java.util.Set<UUID> suspects = new java.util.HashSet<>();
+        pass.serials.forEach((serial, holders) -> {
+            if (holders.size() >= 2) suspects.addAll(pass.owners.getOrDefault(serial, java.util.Set.of()));
+        });
+        pass.containers.forEach((fingerprint, holders) -> {
+            if (holders.size() >= 2) suspects.addAll(pass.owners.getOrDefault(fingerprint, java.util.Set.of()));
+        });
+        if (suspects.isEmpty()) {
+            dirty = true;
+            return;
+        }
         Map<String, List<String>> serials = new HashMap<>();
         Map<String, List<String>> containers = new HashMap<>();
-        for (Player player : List.copyOf(Bukkit.getOnlinePlayers())) {
-            if (VerificationLobbyService.isLobbyWorld(player.getWorld())) continue;
-            censusOne(player, now, serials, containers);
+        for (UUID suspect : suspects) {
+            Player player = Bukkit.getPlayer(suspect);
+            if (player == null) continue;
+            for (ItemStack item : holdingsOf(player)) inspect(player, item, serials, containers, null, false);
         }
         serials.forEach((serial, holders) -> {
             if (holders.size() < 2) return;
@@ -227,26 +298,29 @@ final class SentinelService implements Listener {
         dirty = true;
     }
 
-    private void censusOne(
-            Player player, long now, Map<String, List<String>> serials, Map<String, List<String>> containers
-    ) {
+    private void censusOne(Player player, long now, CensusPass pass) {
         EnumMap<SentinelEngine.Kind, Long> holdings = new EnumMap<>(SentinelEngine.Kind.class);
-        List<ItemStack> everything = new ArrayList<>();
-        for (ItemStack item : player.getInventory().getContents()) everything.add(item);
-        for (ItemStack item : player.getEnderChest().getContents()) everything.add(item);
-        everything.add(player.getItemOnCursor());
-        var top = player.getOpenInventory().getTopInventory();
-        if (top.getType() == org.bukkit.event.inventory.InventoryType.CRAFTING) {
-            for (ItemStack item : top.getContents()) everything.add(item);
-        }
-        for (ItemStack item : everything) {
+        for (ItemStack item : holdingsOf(player)) {
             count(item, holdings, 0);
-            if (serials != null) inspect(player, item, serials, containers);
+            if (pass != null) inspect(player, item, pass.serials, pass.containers, pass.owners, true);
         }
         List<SentinelEngine.Finding> findings = engine.census(player.getUniqueId(), player.getName(),
                 holdings, now, config());
         store.setLastKnown(player.getUniqueId(), holdings);
         findings.forEach(this::report);
+    }
+
+    /** Everything a player is carrying or has put away in their ender chest. */
+    private static List<ItemStack> holdingsOf(Player player) {
+        List<ItemStack> everything = new ArrayList<>(80);
+        java.util.Collections.addAll(everything, player.getInventory().getContents());
+        java.util.Collections.addAll(everything, player.getEnderChest().getContents());
+        everything.add(player.getItemOnCursor());
+        var top = player.getOpenInventory().getTopInventory();
+        if (top.getType() == org.bukkit.event.inventory.InventoryType.CRAFTING) {
+            java.util.Collections.addAll(everything, top.getContents());
+        }
+        return everything;
     }
 
     private SentinelEngine.Config config() {
@@ -258,14 +332,22 @@ final class SentinelService implements Listener {
                 thresholds, 10);
     }
 
-    /** Adds one stack, and anything nested inside it, to a holdings count. */
+    /**
+     * Adds up the valuables in one stack, and in anything packed inside it.
+     *
+     * <p>Every read here goes to the stack's own data rather than through item meta,
+     * which copies the whole item per call: this runs for every slot of every inventory
+     * the census, a container opening or a pickup looks at.
+     */
     private void count(ItemStack item, EnumMap<SentinelEngine.Kind, Long> counts, int depth) {
         if (item == null || item.getType().isAir() || depth > 3) return;
         long amount = item.getAmount();
-        if (crateItems.isShard(item)) counts.merge(SentinelEngine.Kind.SHARD, amount, Long::sum);
-        else if (crateItems.isMysteryKey(item)) counts.merge(SentinelEngine.Kind.MYSTERY_KEY, amount, Long::sum);
-        else if (crateItems.isKey(item)) counts.merge(SentinelEngine.Kind.AMETHYST_TOKEN, amount, Long::sum);
-        else if (cosmeticItems.read(item).isPresent()) counts.merge(SentinelEngine.Kind.COSMETIC, amount, Long::sum);
+        if (!item.getPersistentDataContainer().isEmpty()) {
+            if (crateItems.isShard(item)) counts.merge(SentinelEngine.Kind.SHARD, amount, Long::sum);
+            else if (crateItems.isMysteryKey(item)) counts.merge(SentinelEngine.Kind.MYSTERY_KEY, amount, Long::sum);
+            else if (crateItems.isKey(item)) counts.merge(SentinelEngine.Kind.AMETHYST_TOKEN, amount, Long::sum);
+            else if (cosmeticItems.read(item).isPresent()) counts.merge(SentinelEngine.Kind.COSMETIC, amount, Long::sum);
+        }
         switch (item.getType()) {
             case NETHERITE_INGOT -> counts.merge(SentinelEngine.Kind.NETHERITE, amount * 4L, Long::sum);
             case NETHERITE_BLOCK -> counts.merge(SentinelEngine.Kind.NETHERITE, amount * 36L, Long::sum);
@@ -274,61 +356,74 @@ final class SentinelService implements Listener {
             case DIAMOND_BLOCK -> counts.merge(SentinelEngine.Kind.DIAMOND, amount * 9L, Long::sum);
             default -> { }
         }
-        if (!item.hasItemMeta()) return;
-        ItemMeta meta = item.getItemMeta();
-        if (meta instanceof BlockStateMeta blockMeta && blockMeta.hasBlockState()
-                && blockMeta.getBlockState() instanceof ShulkerBox box) {
-            for (ItemStack inner : box.getInventory().getContents()) count(inner, counts, depth + 1);
-        } else if (meta instanceof BundleMeta bundle) {
-            for (ItemStack inner : bundle.getItems()) count(inner, counts, depth + 1);
-        }
+        for (ItemStack inner : packedInside(item)) count(inner, counts, depth + 1);
     }
 
-    /** Duplication signatures that only make sense across every online inventory at once. */
+    /** What a shulker box, bundle or other container item holds, read straight from its data. */
+    private static List<ItemStack> packedInside(ItemStack item) {
+        io.papermc.paper.datacomponent.item.ItemContainerContents container =
+                item.getData(io.papermc.paper.datacomponent.DataComponentTypes.CONTAINER);
+        if (container != null) return container.contents();
+        io.papermc.paper.datacomponent.item.BundleContents bundle =
+                item.getData(io.papermc.paper.datacomponent.DataComponentTypes.BUNDLE_CONTENTS);
+        return bundle == null ? List.of() : bundle.contents();
+    }
+
     private void inspect(
-            Player player, ItemStack item, Map<String, List<String>> serials, Map<String, List<String>> containers
+            Player player, ItemStack item, Map<String, List<String>> serials,
+            Map<String, List<String>> containers, Map<String, java.util.Set<UUID>> owners,
+            boolean reportItems
     ) {
         if (item == null || item.getType().isAir()) return;
         String holder = player.getName();
-        cosmeticItems.read(item).ifPresent(token -> serials
-                .computeIfAbsent(token.cosmeticId() + "#" + token.serial(), ignored -> new ArrayList<>())
-                .add(holder));
-        if (item.getAmount() > item.getMaxStackSize()) {
+        cosmeticItems.read(item).ifPresent(token -> {
+            String key = token.cosmeticId() + "#" + token.serial();
+            serials.computeIfAbsent(key, ignored -> new ArrayList<>()).add(holder);
+            if (owners != null) {
+                owners.computeIfAbsent(key, ignored -> new java.util.HashSet<>()).add(player.getUniqueId());
+            }
+        });
+        if (reportItems && item.getAmount() > item.getMaxStackSize()) {
             report(new SentinelEngine.Finding("illegal_stack", SentinelEngine.Severity.HIGH,
                     player.getUniqueId(), holder, "Over-stacked item",
                     List.of(item.getAmount() + "x " + item.getType() + " in one slot (maximum "
                             + item.getMaxStackSize() + ")", "Stacks this large cannot be made in survival")));
         }
-        if (!item.hasItemMeta()) return;
-        ItemMeta meta = item.getItemMeta();
-        boolean ours = meta.getPersistentDataContainer().getKeys().stream()
-                .anyMatch(key -> key.getNamespace().equals(plugin.getName().toLowerCase(Locale.ROOT)));
-        if (!ours) {
-            for (Map.Entry<Enchantment, Integer> enchant : meta.getEnchants().entrySet()) {
-                if (enchant.getValue() > Math.max(10, enchant.getKey().getMaxLevel() + 5)) {
-                    report(new SentinelEngine.Finding("illegal_enchant", SentinelEngine.Severity.HIGH,
-                            player.getUniqueId(), holder, "Impossible enchantment",
-                            List.of(item.getType() + " with " + enchant.getKey().getKey().getKey()
-                                    + " " + enchant.getValue(), "No server source grants this level")));
-                    break;
+        if (reportItems) {
+            String namespace = plugin.getName().toLowerCase(Locale.ROOT);
+            boolean ours = item.getPersistentDataContainer().getKeys().stream()
+                    .anyMatch(key -> key.getNamespace().equals(namespace));
+            if (!ours) {
+                for (Map.Entry<Enchantment, Integer> enchant : item.getEnchantments().entrySet()) {
+                    if (enchant.getValue() > Math.max(10, enchant.getKey().getMaxLevel() + 5)) {
+                        report(new SentinelEngine.Finding("illegal_enchant", SentinelEngine.Severity.HIGH,
+                                player.getUniqueId(), holder, "Impossible enchantment",
+                                List.of(item.getType() + " with " + enchant.getKey().getKey().getKey()
+                                        + " " + enchant.getValue(), "No server source grants this level")));
+                        break;
+                    }
                 }
             }
         }
-        if (meta instanceof BlockStateMeta blockMeta && blockMeta.hasBlockState()
-                && blockMeta.getBlockState() instanceof ShulkerBox box) {
-            EnumMap<SentinelEngine.Kind, Long> inside = new EnumMap<>(SentinelEngine.Kind.class);
-            for (ItemStack inner : box.getInventory().getContents()) count(inner, inside, 1);
-            long currency = inside.entrySet().stream().filter(entry -> !entry.getKey().vanilla())
-                    .mapToLong(Map.Entry::getValue).sum();
-            if (currency >= 64L) {
-                try {
-                    byte[] bytes = ItemStack.serializeItemsAsBytes(box.getInventory().getContents());
-                    String fingerprint = java.util.HexFormat.of().formatHex(
-                            java.security.MessageDigest.getInstance("SHA-256").digest(bytes));
-                    containers.computeIfAbsent(fingerprint, ignored -> new ArrayList<>()).add(holder);
-                } catch (java.security.NoSuchAlgorithmException | RuntimeException ignored) {
-                    // a box that cannot be fingerprinted is simply not compared
+        if (!org.bukkit.Tag.SHULKER_BOXES.isTagged(item.getType())) return;
+        List<ItemStack> contents = packedInside(item);
+        if (contents.isEmpty()) return;
+        EnumMap<SentinelEngine.Kind, Long> inside = new EnumMap<>(SentinelEngine.Kind.class);
+        for (ItemStack inner : contents) count(inner, inside, 1);
+        long currency = inside.entrySet().stream().filter(entry -> !entry.getKey().vanilla())
+                .mapToLong(Map.Entry::getValue).sum();
+        if (currency >= 64L) {
+            try {
+                byte[] bytes = ItemStack.serializeItemsAsBytes(contents);
+                String fingerprint = java.util.HexFormat.of().formatHex(
+                        java.security.MessageDigest.getInstance("SHA-256").digest(bytes));
+                containers.computeIfAbsent(fingerprint, ignored -> new ArrayList<>()).add(holder);
+                if (owners != null) {
+                    owners.computeIfAbsent(fingerprint, ignored -> new java.util.HashSet<>())
+                            .add(player.getUniqueId());
                 }
+            } catch (java.security.NoSuchAlgorithmException | RuntimeException ignored) {
+                // a box that cannot be fingerprinted is simply not compared
             }
         }
     }
@@ -362,7 +457,9 @@ final class SentinelService implements Listener {
     public void onBreak(BlockBreakEvent event) {
         Player player = event.getPlayer();
         Material type = event.getBlock().getType();
-        if (event.getBlock().getState() instanceof Container container) {
+        // Not a snapshot: this runs for every block broken on the server, and a snapshot
+        // copies the block entity's whole contents first.
+        if (event.getBlock().getState(false) instanceof Container container) {
             List<ItemStack> contents = new ArrayList<>();
             for (ItemStack item : container.getInventory().getContents()) contents.add(item);
             expect(player.getUniqueId(), contents, "a broken container at " + place(event.getBlock().getLocation()));
@@ -601,7 +698,7 @@ final class SentinelService implements Listener {
     public void onJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
         plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
-            if (player.isOnline() && enabled()) censusOne(player, System.currentTimeMillis(), null, null);
+            if (player.isOnline() && enabled()) censusOne(player, System.currentTimeMillis(), null);
         }, 60L);
     }
 
@@ -610,7 +707,7 @@ final class SentinelService implements Listener {
         Player player = event.getPlayer();
         UUID id = player.getUniqueId();
         if (enabled()) {
-            censusOne(player, System.currentTimeMillis(), null, null);
+            censusOne(player, System.currentTimeMillis(), null);
             Long dropped = lastValuableDrop.remove(id);
             if (dropped != null && System.currentTimeMillis() - dropped < 2_000L) {
                 report(new SentinelEngine.Finding("disconnect_after_drop", SentinelEngine.Severity.MEDIUM, id,
@@ -622,6 +719,7 @@ final class SentinelService implements Listener {
         }
         engine.quit(id);
         mining.remove(id);
+        mintedMoney.remove(id);
         lastCommand.remove(id);
         lastCommandAt.remove(id);
     }

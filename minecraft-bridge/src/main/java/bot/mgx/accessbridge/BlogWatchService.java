@@ -65,7 +65,7 @@ final class BlogWatchService {
         // The first check is delayed: on a fresh boot the world is still loading
         // and nobody is online to read a banner anyway.
         task = plugin.getServer().getScheduler().runTaskTimerAsynchronously(
-                plugin, this::poll, 20L * 30L, pollTicks
+                plugin, PerfMonitor.track("blog-watch.poll", this::poll), 20L * 30L, pollTicks
         );
     }
 

@@ -125,10 +125,10 @@ final class CrateItems {
     }
 
     boolean isMysteryKey(ItemStack item) {
-        if (item == null || item.getType() != Material.TRIAL_KEY || !item.hasItemMeta()) {
+        if (item == null || item.getType() != Material.TRIAL_KEY) {
             return false;
         }
-        return item.getItemMeta().getPersistentDataContainer()
+        return item.getPersistentDataContainer()
                 .has(mysteryKeyMarker, PersistentDataType.BYTE);
     }
 
@@ -246,17 +246,17 @@ final class CrateItems {
     }
 
     boolean isKey(ItemStack item) {
-        if (item == null || item.getType().isAir() || !item.hasItemMeta()) {
+        if (item == null || item.getType().isAir()) {
             return false;
         }
-        var data = item.getItemMeta().getPersistentDataContainer();
+        var data = item.getPersistentDataContainer();
         return data.has(keyMarker, PersistentDataType.BYTE)
                 || data.has(legacyKeyMarker, PersistentDataType.BYTE);
     }
 
     boolean isShard(ItemStack item) {
-        return item != null && !item.getType().isAir() && item.hasItemMeta()
-                && item.getItemMeta().getPersistentDataContainer()
+        return item != null && !item.getType().isAir()
+                && item.getPersistentDataContainer()
                 .has(shardMarker, PersistentDataType.BYTE);
     }
 
@@ -270,14 +270,14 @@ final class CrateItems {
      */
     long keyCount(ItemStack item) {
         if (!isKey(item)) return 0L;
-        long each = item.getItemMeta().getPersistentDataContainer()
+        long each = item.getPersistentDataContainer()
                 .getOrDefault(keyCountMarker, PersistentDataType.LONG, 1L);
         return Math.multiplyExact(Math.max(1L, each), item.getAmount());
     }
 
     /** A bundle minted before keys became real stacks, still carrying a virtual count. */
     boolean isLegacyBundle(ItemStack item) {
-        return isKey(item) && item.getItemMeta().getPersistentDataContainer()
+        return isKey(item) && item.getPersistentDataContainer()
                 .has(keyCountMarker, PersistentDataType.LONG);
     }
 
@@ -753,10 +753,10 @@ final class CrateItems {
     }
 
     private Optional<UUID> rewardSpin(ItemStack item) {
-        if (item == null || item.getType().isAir() || !item.hasItemMeta()) {
+        if (item == null || item.getType().isAir()) {
             return Optional.empty();
         }
-        var data = item.getItemMeta().getPersistentDataContainer();
+        var data = item.getPersistentDataContainer();
         String raw = data.get(rewardSpinMarker, PersistentDataType.STRING);
         if (raw == null) {
             raw = data.get(legacyRewardSpinMarker, PersistentDataType.STRING);
@@ -772,10 +772,10 @@ final class CrateItems {
     }
 
     private Optional<UUID> shardGrant(ItemStack item) {
-        if (item == null || item.getType().isAir() || !item.hasItemMeta()) {
+        if (item == null || item.getType().isAir()) {
             return Optional.empty();
         }
-        String raw = item.getItemMeta().getPersistentDataContainer().get(
+        String raw = item.getPersistentDataContainer().get(
                 shardGrantMarker, PersistentDataType.STRING
         );
         if (raw == null) {
@@ -789,10 +789,10 @@ final class CrateItems {
     }
 
     private boolean isLegacyKey(ItemStack item) {
-        if (item == null || item.getType().isAir() || !item.hasItemMeta()) {
+        if (item == null || item.getType().isAir()) {
             return false;
         }
-        var data = item.getItemMeta().getPersistentDataContainer();
+        var data = item.getPersistentDataContainer();
         return data.has(legacyKeyMarker, PersistentDataType.BYTE)
                 && !data.has(keyMarker, PersistentDataType.BYTE);
     }

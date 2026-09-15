@@ -70,7 +70,7 @@ final class AutoPayService implements CommandExecutor, TabCompleter, Listener {
 
     void start() {
         task = plugin.getServer().getScheduler().runTaskTimer(
-                plugin, this::sweep, SWEEP_TICKS, SWEEP_TICKS
+                plugin, PerfMonitor.track("autopay.sweep", this::sweep), SWEEP_TICKS, SWEEP_TICKS
         );
     }
 

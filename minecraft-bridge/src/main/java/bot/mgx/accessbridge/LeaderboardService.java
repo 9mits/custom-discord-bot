@@ -35,6 +35,9 @@ final class LeaderboardService {
     private static final int ROWS = 10;
     /** Publish shortly after boot so a freshly placed board is not blank for minutes. */
     private static final long FIRST_PUBLISH_TICKS = 200L;
+    /** The shortest gap between two passes that a money or kill change can trigger. */
+    private static final long CHANGE_REFRESH_GAP_MILLIS = 30_000L;
+    private volatile long lastPublishStartedAt;
 
     private final MGXAccessBridge plugin;
     private final BridgeClient bridge;
@@ -77,7 +80,7 @@ final class LeaderboardService {
     void start() {
         taskId = plugin.getServer().getScheduler().scheduleSyncRepeatingTask(
                 plugin,
-                this::publish,
+                PerfMonitor.track("leaderboards.publish", this::publish),
                 FIRST_PUBLISH_TICKS,
                 refreshTicks
         );
@@ -127,16 +130,26 @@ final class LeaderboardService {
         publish();
     }
 
-    /** Coalesces money and kill changes into one near-immediate leaderboard pass. */
+    /**
+     * Coalesces money and kill changes into one leaderboard pass, at most every thirty
+     * seconds.
+     *
+     * <p>Every balance change lands here, and an auto-seller changes a balance every two
+     * seconds for as long as their farm runs. Each pass lists every player the server has
+     * ever seen, rebuilds every board and sends the whole snapshot to Discord, so a
+     * one-second delay meant doing all of that continuously while anyone was farming.
+     */
     void refreshSoon() {
         if (!refreshQueued.compareAndSet(false, true)) {
             return;
         }
+        long sinceLast = System.currentTimeMillis() - lastPublishStartedAt;
+        long delayTicks = Math.max(20L, (CHANGE_REFRESH_GAP_MILLIS - sinceLast + 49L) / 50L);
         try {
             plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
                 refreshQueued.set(false);
                 publish();
-            }, 20L);
+            }, delayTicks);
         } catch (RuntimeException exception) {
             refreshQueued.set(false);
             throw exception;
@@ -149,6 +162,7 @@ final class LeaderboardService {
             refreshSoon();
             return;
         }
+        lastPublishStartedAt = System.currentTimeMillis();
         Map<UUID, String> knownNames = snapshotKnownPlayerNames();
         Map<UUID, Long> onlineKills = snapshotOnlineKills();
         try {

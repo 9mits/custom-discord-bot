@@ -1,6 +1,6 @@
 package bot.mgx.accessbridge;
 
-import io.papermc.paper.event.entity.EntityMoveEvent;
+import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Entity;
@@ -25,8 +25,15 @@ import java.util.UUID;
  * <p>Inside it no hostile mob spawns, hostile mobs walking in from outside are stopped at
  * the edge, blocks cannot be broken or placed by non-operators, and PvP is refused. The
  * mob rules are enforced three ways because none alone is enough: the spawn event is
- * cancelled, movement across the boundary is blocked, and a one-second sweep clears
- * anything that arrived by teleport, mount, or a spawn path that skipped the event.
+ * cancelled, a mob stepping over the boundary is put back outside it within two ticks,
+ * and a one-second sweep clears anything deeper inside that arrived by teleport, mount,
+ * or a spawn path that skipped the event.
+ *
+ * <p>The edge is patrolled rather than enforced through {@code EntityMoveEvent}. While
+ * anything listens for that event Paper builds one, with two locations, for every living
+ * entity that moves anywhere on the server, every tick: thousands of mobs across the
+ * world paying for one 100x100 box. Nothing else on the server listens for it, so the
+ * patrol lets Paper skip that work entirely, and costs a lookup of four thin strips.
  *
  * <p>Mob *entry* is why this lives here rather than in WorldGuard, which the production
  * server does run: WorldGuard can deny spawning but has no flag for keeping a mob that
@@ -41,7 +48,13 @@ final class SpawnMobBarrierService implements Listener {
     private final MGXAccessBridge plugin;
     private final AmethystMobService amethystMobs;
     private final UUID worldId;
+    /** How far inside the edge the patrol looks: two ticks of a sprinting mob, doubled. */
+    static final double EDGE_BAND = 2.0d;
+    /** How far outside the edge a mob is put back. */
+    static final double EDGE_CLEARANCE = 0.35d;
+    private static final long EDGE_PERIOD_TICKS = 2L;
     private BukkitTask sweep;
+    private BukkitTask edgePatrol;
 
     SpawnMobBarrierService(MGXAccessBridge plugin, AmethystMobService amethystMobs) {
         this.plugin = plugin;
@@ -68,13 +81,21 @@ final class SpawnMobBarrierService implements Listener {
         if (!enabled() || sweep != null) {
             return;
         }
-        sweep = plugin.getServer().getScheduler().runTaskTimer(plugin, this::removeInside, 1L, 20L);
+        sweep = plugin.getServer().getScheduler().runTaskTimer(
+                plugin, PerfMonitor.track("spawn-barrier.sweep", this::removeInside), 1L, 20L);
+        edgePatrol = plugin.getServer().getScheduler().runTaskTimer(
+                plugin, PerfMonitor.track("spawn-barrier.edge", this::patrolEdge),
+                EDGE_PERIOD_TICKS, EDGE_PERIOD_TICKS);
     }
 
     void stop() {
         if (sweep != null) {
             sweep.cancel();
             sweep = null;
+        }
+        if (edgePatrol != null) {
+            edgePatrol.cancel();
+            edgePatrol = null;
         }
     }
 
@@ -135,17 +156,49 @@ final class SpawnMobBarrierService implements Listener {
         return entity instanceof Monster && !amethystMobs.isAmethystMob(entity);
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
-    public void onZombieMove(EntityMoveEvent event) {
-        if (!enabled() || !hostile(event.getEntity())
-                || !event.getEntity().getWorld().getUID().equals(worldId)) {
+    /**
+     * Puts back any hostile mob that has just stepped over the edge.
+     *
+     * <p>Only the strips along the inside of the four edges are searched, so the cost
+     * does not grow with the size of the box or the number of mobs elsewhere. Nothing
+     * moves in an overworld with nobody in it, so an empty world is skipped.
+     */
+    private void patrolEdge() {
+        if (!enabled()) {
             return;
         }
-        if (bounds().enters(
-                event.getFrom().getX(), event.getFrom().getZ(),
-                event.getTo().getX(), event.getTo().getZ()
-        )) {
-            event.setCancelled(true);
+        World world = plugin.getServer().getWorld(worldId);
+        if (world == null || world.getPlayerCount() == 0) {
+            return;
+        }
+        SpawnMobBarrier box = bounds();
+        double minY = world.getMinHeight();
+        double maxY = world.getMaxHeight();
+        double west = box.minX();
+        double east = box.maxX() + 1d;
+        double north = box.minZ();
+        double south = box.maxZ() + 1d;
+        BoundingBox[] strips = {
+                new BoundingBox(west, minY, north, west + EDGE_BAND, maxY, south),
+                new BoundingBox(east - EDGE_BAND, minY, north, east, maxY, south),
+                new BoundingBox(west, minY, north, east, maxY, north + EDGE_BAND),
+                new BoundingBox(west, minY, south - EDGE_BAND, east, maxY, south)
+        };
+        java.util.Set<UUID> handled = new java.util.HashSet<>();
+        for (BoundingBox strip : strips) {
+            for (Entity entity : world.getNearbyEntities(strip, Monster.class::isInstance)) {
+                if (!handled.add(entity.getUniqueId()) || entity.isInsideVehicle()
+                        || !box.contains(entity.getX(), entity.getZ()) || !hostile(entity)) {
+                    continue;
+                }
+                double[] outside = SpawnMobBarrier.nearestOutside(box, entity.getX(), entity.getZ(),
+                        EDGE_CLEARANCE);
+                Location target = entity.getLocation();
+                target.setX(outside[0]);
+                target.setZ(outside[1]);
+                entity.teleport(target);
+                entity.setVelocity(entity.getVelocity().setX(0d).setZ(0d));
+            }
         }
     }
 
@@ -172,7 +225,9 @@ final class SpawnMobBarrierService implements Listener {
         );
         for (Entity entity : world.getNearbyEntities(region, Monster.class::isInstance)) {
             Monster monster = (Monster) entity;
-            if (box.contains(monster.getX(), monster.getZ()) && hostile(monster)) {
+            // A mob on the edge strip is the patrol's to put back, not to delete.
+            if (box.containsBeyondEdge(monster.getX(), monster.getZ(), EDGE_BAND)
+                    && hostile(monster)) {
                 monster.remove();
             }
         }

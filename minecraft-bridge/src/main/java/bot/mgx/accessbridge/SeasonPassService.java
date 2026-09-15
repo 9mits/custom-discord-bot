@@ -104,7 +104,7 @@ final class SeasonPassService implements Listener, CommandExecutor {
         // Saved at once: a season held only in memory would restart, with a new end
         // date, every time the server did.
         if (ensureSeason(today())) save();
-        plugin.getServer().getScheduler().runTaskTimer(plugin, this::pulse, PULSE_TICKS, PULSE_TICKS);
+        plugin.getServer().getScheduler().runTaskTimer(plugin, PerfMonitor.track("season-pass.pulse", this::pulse), PULSE_TICKS, PULSE_TICKS);
         // A plugin reload leaves players online who would otherwise lose their hearts.
         plugin.getServer().getOnlinePlayers().forEach(this::applyHearts);
     }

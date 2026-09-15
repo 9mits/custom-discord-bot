@@ -71,6 +71,8 @@ final class SidebarService {
      * empty block until an unrelated player logged in.
      */
     private final Map<UUID, String> tabKeys = new HashMap<>();
+    /** The player-list name each player was last given. */
+    private final Map<UUID, Component> tabNames = new HashMap<>();
     /** Players whose sidebar is hidden for a reason other than their setting. */
     private final java.util.Set<UUID> suppressed = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private String lastTeamKey = "";
@@ -104,7 +106,7 @@ final class SidebarService {
     void start() {
         taskId = plugin.getServer().getScheduler().scheduleSyncRepeatingTask(
                 plugin,
-                this::refreshAll,
+                PerfMonitor.track("sidebar.refresh", this::refreshAll),
                 1L,
                 updateTicks
         );
@@ -132,12 +134,37 @@ final class SidebarService {
         });
         boards.clear();
         tabKeys.clear();
+        tabNames.clear();
         lastTeamKey = "";
     }
+
+    /**
+     * Schedules one full refresh for the next tick, however many things ask for it.
+     *
+     * <p>A single join re-applies the player's Discord profile, refreshes clans and can
+     * change AFK state, and each of those used to rebuild every player's list entry and
+     * name tags on the spot. They now share one pass a tick later.
+     */
+    void refreshAllSoon() {
+        if (refreshQueued || taskId < 0) {
+            if (taskId < 0) {
+                refreshAll();
+            }
+            return;
+        }
+        refreshQueued = true;
+        plugin.getServer().getScheduler().runTask(plugin, () -> {
+            refreshQueued = false;
+            refreshAll();
+        });
+    }
+
+    private boolean refreshQueued;
 
     void refreshAll() {
         boards.keySet().removeIf(uuid -> plugin.getServer().getPlayer(uuid) == null);
         tabKeys.keySet().removeIf(uuid -> plugin.getServer().getPlayer(uuid) == null);
+        tabNames.keySet().removeIf(uuid -> plugin.getServer().getPlayer(uuid) == null);
         Collection<? extends Player> online = plugin.getServer().getOnlinePlayers();
         String teamKey = teamFingerprint(online);
         boolean teamsChanged = !teamKey.equals(lastTeamKey);
@@ -166,7 +193,7 @@ final class SidebarService {
     private void refresh(Player player, boolean syncTeams) {
         PlayerBoard board = boards.computeIfAbsent(player.getUniqueId(), ignored -> new PlayerBoard(player));
         if (syncTeams) {
-            syncClanTeams(board.scoreboard, player);
+            syncClanTeams(board, player);
         }
         boolean showSidebar = !suppressed.contains(player.getUniqueId())
                 && !VerificationLobbyService.isLobbyWorld(player.getWorld())
@@ -475,7 +502,7 @@ final class SidebarService {
 
     private void updateTabName(Player player, int nameColumn, int platformColumn) {
         if (VerificationLobbyService.isLobbyWorld(player.getWorld())) {
-            player.playerListName(Component.text(player.getName(), NamedTextColor.GRAY));
+            sendTabName(player, Component.text(player.getName(), NamedTextColor.GRAY));
             return;
         }
         PlayerProfile profile = perks.profile(player.getUniqueId());
@@ -509,6 +536,21 @@ final class SidebarService {
                 ))
                 .append(Component.text("│ ", NamedTextColor.DARK_GRAY))
                 .append(Component.text(player.getPing() + "ms", pingColor(player.getPing())));
+        sendTabName(player, rendered);
+    }
+
+    /**
+     * Sets a player-list name only when it changed.
+     *
+     * <p>Every call broadcasts a player-info packet to everyone online, so resending an
+     * unchanged list every refresh was one packet per pair of players: a hundred players
+     * cost ten thousand packets per pass for rows nobody saw change.
+     */
+    private void sendTabName(Player player, Component rendered) {
+        if (rendered.equals(tabNames.get(player.getUniqueId()))) {
+            return;
+        }
+        tabNames.put(player.getUniqueId(), rendered);
         player.playerListName(rendered);
     }
 
@@ -629,6 +671,7 @@ final class SidebarService {
         boards.remove(playerId);
         platforms.remove(playerId);
         tabKeys.remove(playerId);
+        tabNames.remove(playerId);
     }
 
     private ClientPlatform clientPlatform(Player player) {
@@ -650,7 +693,8 @@ final class SidebarService {
         return ClientPlatform.JAVA;
     }
 
-    private void syncClanTeams(Scoreboard scoreboard, Player viewer) {
+    private void syncClanTeams(PlayerBoard board, Player viewer) {
+        Scoreboard scoreboard = board.scoreboard;
         Map<String, Component> expected = new LinkedHashMap<>();
         Map<String, Set<String>> entries = new LinkedHashMap<>();
         Set<String> afkTeams = new LinkedHashSet<>();
@@ -680,26 +724,34 @@ final class SidebarService {
             if (team.getName().startsWith("mgx")
                     && !team.getName().startsWith("line_")
                     && !expected.containsKey(team.getName())) {
+                board.teamPrefixes.remove(team.getName());
                 team.unregister();
             }
         }
         expected.forEach((teamName, prefix) -> {
             Team team = scoreboard.getTeam(teamName);
-            if (team == null) {
+            boolean created = team == null;
+            if (created) {
                 team = scoreboard.registerNewTeam(teamName);
+                team.color(NamedTextColor.WHITE);
             }
-            team.prefix(prefix);
-            team.color(NamedTextColor.WHITE);
+            // Each team setter broadcasts a team packet whether or not the value moved,
+            // and this runs for every team on every viewer's board.
+            Component appliedPrefix = board.teamPrefixes.get(teamName);
+            if (created || !prefix.equals(appliedPrefix)) {
+                team.prefix(prefix);
+                board.teamPrefixes.put(teamName, prefix);
+            }
             // Player-versus-player shoving is resolved on the pushing player's own client,
             // so setCollidable alone never stopped a sneaking player or a Bedrock client
             // from walking an AFK player off a block. The team collision rule is the only
             // switch both editions' clients actually obey, and every player already has a
             // team of their own here, so it costs nothing to set per player.
-            team.setOption(
-                    Team.Option.COLLISION_RULE,
-                    afkTeams.contains(teamName)
-                            ? Team.OptionStatus.NEVER : Team.OptionStatus.ALWAYS
-            );
+            Team.OptionStatus collision = afkTeams.contains(teamName)
+                    ? Team.OptionStatus.NEVER : Team.OptionStatus.ALWAYS;
+            if (created || team.getOption(Team.Option.COLLISION_RULE) != collision) {
+                team.setOption(Team.Option.COLLISION_RULE, collision);
+            }
             Set<String> expectedEntries = entries.getOrDefault(teamName, Set.of());
             for (String oldEntry : new LinkedHashSet<>(team.getEntries())) {
                 if (!expectedEntries.contains(oldEntry)) {
@@ -717,6 +769,11 @@ final class SidebarService {
         private final List<String> entries = new ArrayList<>();
         private final List<Team> teams = new ArrayList<>();
         private final Set<String> balanceEntries = new LinkedHashSet<>();
+        /** What each sidebar line, overhead line and team prefix was last set to. */
+        private final Component[] lines = new Component[MAX_LINES];
+        private int shownLines = -1;
+        private final Map<String, Component> nameplates = new HashMap<>();
+        private final Map<String, Component> teamPrefixes = new HashMap<>();
         private boolean sidebarVisible = true;
 
         PlayerBoard(Player player) {
@@ -746,17 +803,30 @@ final class SidebarService {
 
         void update(List<Component> renderedLines) {
             int count = Math.min(renderedLines.size(), MAX_LINES);
+            boolean resized = count != shownLines;
             for (int index = 0; index < MAX_LINES; index++) {
                 String entry = entries.get(index);
                 if (index >= count) {
-                    scoreboard.resetScores(entry);
+                    if (resized && index < shownLines) {
+                        scoreboard.resetScores(entry);
+                    }
+                    lines[index] = null;
                     continue;
                 }
-                teams.get(index).prefix(renderedLines.get(index));
-                Score score = objective.getScore(entry);
-                score.setScore(count - index);
-                score.numberFormat(NumberFormat.blank());
+                // A board rebuilt every few seconds mostly says what it said last time,
+                // and each prefix and score write is a packet to this player.
+                Component line = renderedLines.get(index);
+                if (!line.equals(lines[index])) {
+                    teams.get(index).prefix(line);
+                    lines[index] = line;
+                }
+                if (resized) {
+                    Score score = objective.getScore(entry);
+                    score.setScore(count - index);
+                    score.numberFormat(NumberFormat.blank());
+                }
             }
+            shownLines = count;
         }
 
         void updateNameplates(Collection<? extends Player> online) {
@@ -764,16 +834,22 @@ final class SidebarService {
             for (Player shown : online) {
                 String entry = shown.getName();
                 current.add(entry);
-                Score score = balanceObjective.getScore(entry);
-                score.setScore(0);
-                score.numberFormat(NumberFormat.fixed(nameplateLine(
+                Component line = nameplateLine(
                         money.balance(shown.getUniqueId()),
                         pvpRecords.of(shown.getUniqueId()).rank()
-                )));
+                );
+                if (line.equals(nameplates.get(entry))) {
+                    continue;
+                }
+                Score score = balanceObjective.getScore(entry);
+                score.setScore(0);
+                score.numberFormat(NumberFormat.fixed(line));
+                nameplates.put(entry, line);
             }
             for (String old : new LinkedHashSet<>(balanceEntries)) {
                 if (!current.contains(old)) {
                     scoreboard.resetScores(old);
+                    nameplates.remove(old);
                 }
             }
             balanceEntries.clear();

@@ -81,8 +81,8 @@ final class AfkService implements Listener, CommandExecutor {
     void start() {
         long now = System.currentTimeMillis();
         plugin.getServer().getOnlinePlayers().forEach(player -> lastActivity.put(player.getUniqueId(), now));
-        task = plugin.getServer().getScheduler().runTaskTimer(plugin, this::checkIdle, 20L, 20L);
-        anchorTask = plugin.getServer().getScheduler().runTaskTimer(plugin, this::holdAnchors, 1L, 1L);
+        task = plugin.getServer().getScheduler().runTaskTimer(plugin, PerfMonitor.track("afk.idle-check", this::checkIdle), 20L, 20L);
+        anchorTask = plugin.getServer().getScheduler().runTaskTimer(plugin, PerfMonitor.track("afk.anchors", this::holdAnchors), 1L, 1L);
     }
 
     void stop() {
@@ -470,7 +470,7 @@ final class AfkService implements Listener, CommandExecutor {
 
     private void refreshTab() {
         if (plugin.sidebarService() != null) {
-            plugin.sidebarService().refreshAll();
+            plugin.sidebarService().refreshAllSoon();
         }
     }
 

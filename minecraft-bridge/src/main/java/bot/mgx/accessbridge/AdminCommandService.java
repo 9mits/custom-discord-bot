@@ -53,7 +53,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     private static final List<String> SUBCOMMANDS = List.of(
             "startserver", "teststart", "pvp", "give", "ranks", "eco", "bounty", "hologram",
             "reset", "testverify", "testcrate", "testlatest", "testairdrop", "testamethystblock", "devblog", "update", "serials",
-            "cosmetics", "clanbattle", "event", "variables", "help"
+            "cosmetics", "clanbattle", "event", "variables", "perf", "help"
     );
     private static final List<String> CRATE_REVEAL_TIERS = List.of("legendary", "mythic", "exotic", "secret", "dragonsecret");
     private static final List<String> AIRDROP_RARITIES = List.of(
@@ -206,6 +206,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 case "serials" -> serials(sender, args);
                 case "cosmetics" -> cosmetics(sender, args);
                 case "clanbattle", "clan-battle" -> clanBattle(sender, args);
+                case "perf", "performance" -> performance(sender);
                 case "abuse" -> {
                     String summary = adminEvents.run(sender, args);
                     success(sender, summary + ".");
@@ -1612,8 +1613,40 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
 
     // ------------------------------------------------------------------
 
+    /**
+     * What the plugin's own background work has cost since it started, most expensive
+     * first, plus the server's tick time and memory as they stand.
+     */
+    private void performance(CommandSender sender) {
+        heading(sender, "Performance");
+        double[] tps = plugin.getServer().getTPS();
+        info(sender, String.format(Locale.ROOT, "TPS %.2f / %.2f / %.2f  •  MSPT %.1f",
+                Math.min(20d, tps[0]), Math.min(20d, tps[1]), Math.min(20d, tps[2]),
+                plugin.getServer().getAverageTickTime()));
+        java.lang.management.MemoryUsage heap =
+                java.lang.management.ManagementFactory.getMemoryMXBean().getHeapMemoryUsage();
+        info(sender, String.format(Locale.ROOT, "Heap %d MB used of %d MB claimed (maximum %d MB)",
+                heap.getUsed() >> 20, heap.getCommitted() >> 20, heap.getMax() >> 20));
+        List<PerfMonitor.Row> rows = PerfMonitor.snapshot();
+        info(sender, "Background tasks since startup, most main-thread time first:");
+        int shown = 0;
+        for (PerfMonitor.Row row : rows) {
+            if (row.runs() == 0L || shown++ == 10) {
+                break;
+            }
+            info(sender, String.format(Locale.ROOT, "  %s: %.1f s total, %d runs, avg %.2f ms, worst %.1f ms%s",
+                    row.name(), row.nanos() / 1e9, row.runs(), row.nanos() / 1e6 / row.runs(),
+                    row.maxNanos() / 1e6, row.failures() > 0 ? ", " + row.failures() + " failed" : ""));
+        }
+        info(sender, "The server log carries a one-line summary every "
+                + plugin.gameVariables().integer("performance.report-minutes") + " minutes.");
+    }
+
     private void sendHelp(CommandSender sender) {
         heading(sender, "Administration");
+        sender.sendMessage(Component.text("  /mgxadmin perf", ORANGE)
+                .append(Component.text("  tick time, memory and the costliest background tasks",
+                        NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin startserver", ORANGE)
                 .append(Component.text("  countdown, strip barriers, hold PvP off for 5 hours", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin teststart", ORANGE)

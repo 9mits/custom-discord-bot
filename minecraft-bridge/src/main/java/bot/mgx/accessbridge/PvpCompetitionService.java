@@ -309,7 +309,7 @@ final class PvpCompetitionService implements Listener {
                 plugin.getServer().getScheduler().runTask(plugin, this::refreshEntranceDisplay);
             }
         });
-        clock = plugin.getServer().getScheduler().runTaskTimer(plugin, this::tick, 20L, 20L);
+        clock = plugin.getServer().getScheduler().runTaskTimer(plugin, PerfMonitor.track("pvp-competitive.tick", this::tick), 20L, 20L);
     }
 
     private boolean enabled() {
@@ -3808,13 +3808,16 @@ final class PvpCompetitionService implements Listener {
     private boolean touchesEntrancePortal(Location location) {
         Location registered = lobbyStore.portal().map(PvpLobbyStore.Point::resolve).orElse(null);
         if (registered == null || location == null || !sameWorld(registered, location)) return false;
-        boolean portal = location.getBlock().getType() == Material.NETHER_PORTAL
-                || location.clone().add(0, 1, 0).getBlock().getType() == Material.NETHER_PORTAL;
-        if (!portal) return false;
+        // Distance before blocks: this runs whenever anyone in the portal's world crosses a
+        // block boundary, and almost all of them are nowhere near it.
         double radius = integer("pvp-competitive.portal-light-radius") + 2d;
-        return horizontalSquared(registered, location) <= radius * radius
-                && Math.abs(registered.getY() - location.getY())
-                <= integer("pvp-competitive.portal-light-height") + 2d;
+        if (horizontalSquared(registered, location) > radius * radius
+                || Math.abs(registered.getY() - location.getY())
+                > integer("pvp-competitive.portal-light-height") + 2d) {
+            return false;
+        }
+        return location.getBlock().getType() == Material.NETHER_PORTAL
+                || location.clone().add(0, 1, 0).getBlock().getType() == Material.NETHER_PORTAL;
     }
 
     private void refreshEntranceDisplay() {
@@ -3866,7 +3869,7 @@ final class PvpCompetitionService implements Listener {
     }
 
     private void entranceLabel(Location at, Component text, float scale) {
-        at.getWorld().spawn(at, TextDisplay.class, display -> {
+        TextDisplay spawned = at.getWorld().spawn(at, TextDisplay.class, display -> {
             display.addScoreboardTag(ENTRANCE_DISPLAY_TAG);
             display.addScoreboardTag(ENTRANCE_TEXT_TAG);
             display.text(text);
@@ -3890,9 +3893,22 @@ final class PvpCompetitionService implements Listener {
                 ENTRANCE_DISPLAY_TAG, ENTRANCE_FALLBACK_TAG);
         fallback.setPersistent(false);
         fallback.setVisibleByDefault(false);
+        entranceLabels.add(spawned);
+        entranceLabels.add(fallback);
     }
 
+    /**
+     * The entrance labels this service spawned.
+     *
+     * <p>Kept rather than searched for: finding them meant listing every entity in every
+     * world once a second, overworld mobs and item frames included, to locate a handful
+     * of labels standing at one portal. They are not persistent, so every one that exists
+     * was spawned by {@link #entranceLabel} and is in this list.
+     */
+    private final List<Entity> entranceLabels = new ArrayList<>();
+
     private void clearEntranceDisplays() {
+        entranceLabels.clear();
         for (World world : Bukkit.getWorlds()) {
             world.getEntities().stream()
                     .filter(display -> display.getScoreboardTags().contains(ENTRANCE_DISPLAY_TAG))
@@ -3901,11 +3917,14 @@ final class PvpCompetitionService implements Listener {
     }
 
     private void updateEntranceLabelViewers() {
-        for (World world : Bukkit.getWorlds()) {
-            List<Entity> labels = world.getEntities().stream()
-                    .filter(entity -> entity.getScoreboardTags().contains(ENTRANCE_DISPLAY_TAG))
+        entranceLabels.removeIf(label -> !label.isValid());
+        if (entranceLabels.isEmpty()) return;
+        java.util.Set<World> worlds = new java.util.HashSet<>();
+        for (Entity label : entranceLabels) worlds.add(label.getWorld());
+        for (World world : worlds) {
+            List<Entity> labels = entranceLabels.stream()
+                    .filter(entity -> entity.getWorld() == world)
                     .toList();
-            if (labels.isEmpty()) continue;
             for (Player player : world.getPlayers()) {
                 boolean useText = clientSupport.supportsTextDisplays(player);
                 for (Entity label : labels) {

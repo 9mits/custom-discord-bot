@@ -175,6 +175,7 @@ class CosmeticStoreTest {
         CosmeticStore.Token first = store.mint(owner, "solar_orbit", UUID.randomUUID());
         CosmeticStore.Token second = store.mint(owner, "solar_orbit", UUID.randomUUID());
         CosmeticStore.Token other = store.mint(owner, "blood_burst", UUID.randomUUID());
+        store.flush();
         String saved = Files.readString(file)
                 .replaceFirst("\\\"serial_number\\\":1", "\\\"serial_number\\\":9")
                 .replaceFirst("\\\"serial_number\\\":2", "\\\"serial_number\\\":4");
@@ -331,7 +332,10 @@ class CosmeticStoreTest {
         store.mint(firstPlayer, "ember_trail", unrelated);
         store.equip(firstPlayer, "KILL_EFFECT", serial);
         store.equip(firstPlayer, "TRAIL", unrelated);
-        Files.createDirectory(file.resolveSibling(file.getFileName() + ".tmp"));
+        // Changes are journaled; fold them into the snapshot, then make the next
+        // journal write impossible.
+        store.flush();
+        Files.createDirectory(file.resolveSibling(file.getFileName() + ".journal"));
 
         assertThrows(
                 UncheckedIOException.class,

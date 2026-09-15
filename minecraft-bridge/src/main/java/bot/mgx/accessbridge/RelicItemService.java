@@ -72,7 +72,7 @@ final class RelicItemService implements Listener {
     }
 
     void start() {
-        plugin.getServer().getScheduler().runTaskTimer(plugin, this::lanternPulse, 40L, 40L);
+        plugin.getServer().getScheduler().runTaskTimer(plugin, PerfMonitor.track("relics.lantern", this::lanternPulse), 40L, 40L);
     }
 
     ItemStack create(RelicCatalog.Relic relic) {
@@ -111,8 +111,8 @@ final class RelicItemService implements Listener {
     }
 
     Optional<RelicCatalog.Relic> relic(ItemStack item) {
-        if (item == null || item.getType().isAir() || !item.hasItemMeta()) return Optional.empty();
-        return RelicCatalog.find(item.getItemMeta().getPersistentDataContainer().get(relicKey, PersistentDataType.STRING));
+        if (item == null || item.getType().isAir()) return Optional.empty();
+        return RelicCatalog.find(item.getPersistentDataContainer().get(relicKey, PersistentDataType.STRING));
     }
 
     private boolean holding(Player player, RelicCatalog.Relic relic) {

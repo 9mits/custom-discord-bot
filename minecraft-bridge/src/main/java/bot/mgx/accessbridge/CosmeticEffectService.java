@@ -149,8 +149,12 @@ final class CosmeticEffectService implements Listener {
     private static final int SECRET_REVEAL_FRAMES = 70;
     private static final int GENUINE_REVEAL_FRAMES = 250;
 
-    /** Every ten seconds, because a stand nobody owns is a bug rather than the norm. */
-    private static final long NAMEPLATE_SWEEP_FRAMES = 100L;
+    /**
+     * Once a minute, because a stand nobody owns is a bug rather than the norm, and the
+     * sweep has to look at every armour stand in every world to find one. The stands are
+     * never saved, so a restart clears any that slip through regardless.
+     */
+    private static final long NAMEPLATE_SWEEP_FRAMES = 600L;
     private final MGXAccessBridge plugin;
     private final CosmeticStore store;
     private final CosmeticItems items;
@@ -221,10 +225,10 @@ final class CosmeticEffectService implements Listener {
                     .filter(entity -> entity.getScoreboardTags().contains(RARITY_NAMEPLATE_TAG))
                     .forEach(Entity::remove));
             task = plugin.getServer().getScheduler().runTaskTimer(
-                    plugin, this::tick, PERIOD_TICKS, PERIOD_TICKS
+                    plugin, PerfMonitor.track("cosmetics.effects", this::tick), PERIOD_TICKS, PERIOD_TICKS
             );
             nameplateTask = plugin.getServer().getScheduler().runTaskTimer(
-                    plugin, this::followWithNameplates,
+                    plugin, PerfMonitor.track("cosmetics.nameplates", this::followWithNameplates),
                     NAMEPLATE_PERIOD_TICKS, NAMEPLATE_PERIOD_TICKS
             );
         }
@@ -470,7 +474,7 @@ final class CosmeticEffectService implements Listener {
      */
     private void sweepOrphanedNameplates() {
         for (World world : plugin.getServer().getWorlds()) {
-            for (Entity entity : world.getEntities()) {
+            for (Entity entity : world.getEntitiesByClass(ArmorStand.class)) {
                 if (!entity.getScoreboardTags().contains(RARITY_NAMEPLATE_TAG)) {
                     continue;
                 }
@@ -5212,11 +5216,20 @@ final class CosmeticEffectService implements Listener {
             PlayerSettingsStore.Setting ownSetting
     ) {
         Object particleData = particleData(particle, data);
-        for (Player viewer : viewers(owner, location, ownSetting)) {
+        World world = location.getWorld();
+        if (world == null) {
+            return;
+        }
+        Viewer[] candidates = candidates(owner, location, ownSetting);
+        double limit = viewLimitThisTick;
+        for (Viewer viewer : candidates) {
+            if (!viewer.sees(world, location, limit)) {
+                continue;
+            }
             if (particleData == null) {
-                viewer.spawnParticle(particle, location, count, offsetX, offsetY, offsetZ, extra);
+                viewer.player().spawnParticle(particle, location, count, offsetX, offsetY, offsetZ, extra);
             } else {
-                viewer.spawnParticle(
+                viewer.player().spawnParticle(
                         particle, location, count, offsetX, offsetY, offsetZ, extra, particleData
                 );
             }
@@ -5241,11 +5254,15 @@ final class CosmeticEffectService implements Listener {
             float pitch,
             PlayerSettingsStore.Setting ownSetting
     ) {
-        for (Player viewer : viewers(owner, location, ownSetting)) {
-            if (settings.isEnabled(
-                    viewer.getUniqueId(), PlayerSettingsStore.Setting.COSMETIC_SOUNDS
-            )) {
-                viewer.playSound(location, sound, volume, pitch);
+        World world = location.getWorld();
+        if (world == null) {
+            return;
+        }
+        Viewer[] candidates = candidates(owner, location, ownSetting);
+        double limit = viewLimitThisTick;
+        for (Viewer viewer : candidates) {
+            if (viewer.hearsCosmetics() && viewer.sees(world, location, limit)) {
+                viewer.player().playSound(location, sound, volume, pitch);
             }
         }
     }
@@ -5329,27 +5346,102 @@ final class CosmeticEffectService implements Listener {
         if (world == null) {
             return viewers;
         }
-        for (Player viewer : world.getPlayers()) {
-            if (viewer.getLocation().distanceSquared(location) > viewDistanceSquared()) {
-                continue;
-            }
-            boolean allowed;
-            if (viewer.getUniqueId().equals(owner.getUniqueId())) {
-                allowed = ownSetting == null || settings.isEnabled(viewer.getUniqueId(), ownSetting);
-            } else {
-                allowed = settings.isEnabled(
-                        viewer.getUniqueId(), PlayerSettingsStore.Setting.COSMETICS_VISIBLE
-                ) && (ownSetting != PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE
-                        || settings.isEnabled(
-                                viewer.getUniqueId(),
-                                PlayerSettingsStore.Setting.OTHER_TRAILS_VISIBLE
-                        ));
-            }
-            if (allowed) {
-                viewers.add(viewer);
+        Viewer[] candidates = candidates(owner, location, ownSetting);
+        double limit = viewLimitThisTick;
+        for (Viewer viewer : candidates) {
+            if (viewer.sees(world, location, limit)) {
+                viewers.add(viewer.player());
             }
         }
         return viewers;
+    }
+
+    /**
+     * One player who may see an owner's cosmetics, as they stood this tick.
+     *
+     * <p>Where they stand and what their settings allow cannot change inside a tick, so
+     * both are read once instead of once per particle.
+     */
+    private record Viewer(Player player, World world, double x, double y, double z,
+                          boolean hearsCosmetics) {
+        boolean sees(World at, Location location, double limitSquared) {
+            if (world != at) {
+                return false;
+            }
+            double dx = x - location.getX();
+            double dy = y - location.getY();
+            double dz = z - location.getZ();
+            return dx * dx + dy * dy + dz * dz <= limitSquared;
+        }
+    }
+
+    /** Candidate lists for the current tick, by owner and by which of their settings applies. */
+    private final Map<UUID, Viewer[][]> candidatesThisTick = new HashMap<>();
+    private int candidatesTick = Integer.MIN_VALUE;
+    /** The view distance, squared, read once per tick rather than once per particle. */
+    private double viewLimitThisTick = 48d * 48d;
+    private static final Viewer[] NO_VIEWERS = new Viewer[0];
+    /** Particles further than this from their owner are checked against everyone in the world. */
+    private static final double NEAR_OWNER_BLOCKS = 16d;
+
+    /**
+     * Everyone who may see this owner's effect at {@code location}, before distance.
+     *
+     * <p>Every aura, trail and reveal is dozens of particles a frame, and each one used
+     * to walk the world's player list, copy each player's location and look up their
+     * settings. At a few dozen players wearing cosmetics in front of a few dozen others
+     * that was the plugin's largest per-tick cost, and it grew with the square of the
+     * player count. The list is now built once per owner per tick; each particle only
+     * compares coordinates against it.
+     *
+     * <p>Most particles sit within a few blocks of their owner, so the usual list is
+     * pre-trimmed to players near the owner. A kill effect drawn where a distant victim
+     * fell uses the whole world's list, so no viewer who would have seen it is dropped.
+     */
+    private Viewer[] candidates(Player owner, Location location, PlayerSettingsStore.Setting ownSetting) {
+        World world = location.getWorld();
+        Location ownerAt = owner.getLocation();
+        boolean nearOwner = ownerAt.getWorld() == world
+                && ownerAt.distanceSquared(location) <= NEAR_OWNER_BLOCKS * NEAR_OWNER_BLOCKS;
+        int tick = plugin.getServer().getCurrentTick();
+        if (tick != candidatesTick) {
+            candidatesThisTick.clear();
+            candidatesTick = tick;
+            viewLimitThisTick = viewDistanceSquared();
+        }
+        Viewer[][] byKey = candidatesThisTick.computeIfAbsent(
+                owner.getUniqueId(),
+                ignored -> new Viewer[(PlayerSettingsStore.Setting.values().length + 1) * 2][]
+        );
+        int slot = ((ownSetting == null ? 0 : ownSetting.ordinal() + 1) * 2) + (nearOwner ? 1 : 0);
+        Viewer[] cached = byKey[slot];
+        if (cached != null) {
+            return cached;
+        }
+        double near = Math.sqrt(viewLimitThisTick) + NEAR_OWNER_BLOCKS;
+        List<Viewer> built = new ArrayList<>();
+        for (Player viewer : world.getPlayers()) {
+            Location at = viewer.getLocation();
+            if (nearOwner && at.distanceSquared(ownerAt) > near * near) {
+                continue;
+            }
+            boolean allowed;
+            UUID viewerId = viewer.getUniqueId();
+            if (viewerId.equals(owner.getUniqueId())) {
+                allowed = ownSetting == null || settings.isEnabled(viewerId, ownSetting);
+            } else {
+                allowed = settings.isEnabled(viewerId, PlayerSettingsStore.Setting.COSMETICS_VISIBLE)
+                        && (ownSetting != PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE
+                        || settings.isEnabled(viewerId, PlayerSettingsStore.Setting.OTHER_TRAILS_VISIBLE));
+            }
+            if (allowed) {
+                built.add(new Viewer(viewer, at.getWorld(), at.getX(), at.getY(), at.getZ(),
+                        settings.isEnabled(viewerId, PlayerSettingsStore.Setting.COSMETIC_SOUNDS)));
+            }
+        }
+        Viewer[] result = built.isEmpty() ? NO_VIEWERS : built.toArray(Viewer[]::new);
+        byKey[slot] = result;
+        return result;
     }
 
     private static Color podiumColour(int rank) {

@@ -138,7 +138,7 @@ final class AmethystItemService implements Listener {
         stop();
         indexLoadedDrops();
         expiryTask = plugin.getServer().getScheduler().runTaskTimer(
-                plugin, this::sweepOnlinePlayers, 20L, 20L
+                plugin, PerfMonitor.track("amethyst-items.expiry", this::sweepOnlinePlayers), 20L, 20L
         );
     }
 
@@ -423,8 +423,8 @@ final class AmethystItemService implements Listener {
     }
 
     private Optional<SeasonGear.Piece> seasonPiece(ItemStack item) {
-        if (item == null || item.getType().isAir() || !item.hasItemMeta()) return Optional.empty();
-        return SeasonGear.Piece.parse(item.getItemMeta().getPersistentDataContainer()
+        if (item == null || item.getType().isAir()) return Optional.empty();
+        return SeasonGear.Piece.parse(item.getPersistentDataContainer()
                 .get(seasonPieceKey, PersistentDataType.STRING));
     }
 
@@ -481,8 +481,8 @@ final class AmethystItemService implements Listener {
 
     /** The season a piece of season gear belongs to, or 0 for anything else. */
     int season(ItemStack item) {
-        if (item == null || !item.hasItemMeta()) return 0;
-        Integer season = item.getItemMeta().getPersistentDataContainer().get(seasonKey, PersistentDataType.INTEGER);
+        if (item == null) return 0;
+        Integer season = item.getPersistentDataContainer().get(seasonKey, PersistentDataType.INTEGER);
         return season == null ? 0 : season;
     }
 
@@ -571,10 +571,10 @@ final class AmethystItemService implements Listener {
      * {@code expiresKey} is never written.
      */
     boolean isEternal(ItemStack item) {
-        if (item == null || !item.hasItemMeta()) {
+        if (item == null) {
             return false;
         }
-        return item.getItemMeta().getPersistentDataContainer()
+        return item.getPersistentDataContainer()
                 .has(eternalKey, PersistentDataType.BYTE);
     }
 
@@ -586,10 +586,10 @@ final class AmethystItemService implements Listener {
     }
 
     Optional<UUID> serial(ItemStack item) {
-        if (item == null || !item.hasItemMeta()) {
+        if (item == null) {
             return Optional.empty();
         }
-        String raw = item.getItemMeta().getPersistentDataContainer()
+        String raw = item.getPersistentDataContainer()
                 .get(serialKey, PersistentDataType.STRING);
         try {
             return raw == null ? Optional.empty() : Optional.of(UUID.fromString(raw));
@@ -599,27 +599,27 @@ final class AmethystItemService implements Listener {
     }
 
     private Optional<String> kind(ItemStack item) {
-        if (item == null || item.getType().isAir() || !item.hasItemMeta()) {
+        if (item == null || item.getType().isAir()) {
             return Optional.empty();
         }
-        return Optional.ofNullable(item.getItemMeta().getPersistentDataContainer()
+        return Optional.ofNullable(item.getPersistentDataContainer()
                 .get(kindKey, PersistentDataType.STRING));
     }
 
     private long activatedAt(ItemStack item) {
-        if (item == null || !item.hasItemMeta()) {
+        if (item == null) {
             return 0L;
         }
-        Long value = item.getItemMeta().getPersistentDataContainer()
+        Long value = item.getPersistentDataContainer()
                 .get(activatedKey, PersistentDataType.LONG);
         return value == null ? 0L : value;
     }
 
     private long expiresAt(ItemStack item) {
-        if (item == null || !item.hasItemMeta()) {
+        if (item == null) {
             return 0L;
         }
-        Long value = item.getItemMeta().getPersistentDataContainer()
+        Long value = item.getPersistentDataContainer()
                 .get(expiresKey, PersistentDataType.LONG);
         return value == null ? 0L : value;
     }
@@ -837,8 +837,8 @@ final class AmethystItemService implements Listener {
     }
 
     private boolean isAmethystArrow(ItemStack item) {
-        return item != null && item.hasItemMeta()
-                && item.getItemMeta().getPersistentDataContainer().has(arrowKey, PersistentDataType.BYTE);
+        return item != null
+                && item.getPersistentDataContainer().has(arrowKey, PersistentDataType.BYTE);
     }
 
     private static String formatHours(double hours) {
@@ -1167,10 +1167,10 @@ final class AmethystItemService implements Listener {
      * which is exactly the path all three checks would have taken the long way round.
      */
     private boolean couldBeAmethyst(ItemStack item) {
-        if (item == null || item.getType().isAir() || !item.hasItemMeta()) {
+        if (item == null || item.getType().isAir()) {
             return false;
         }
-        return !item.getItemMeta().getPersistentDataContainer().isEmpty();
+        return !item.getPersistentDataContainer().isEmpty();
     }
 
     private boolean refreshCountdown(ItemStack item, long now) {

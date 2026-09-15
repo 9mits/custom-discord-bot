@@ -135,7 +135,7 @@ final class ActivityLogService implements Listener {
 
     void start() {
         flushTask = Bukkit.getScheduler().runTaskTimer(
-                plugin, this::flushAll, flushTicks, flushTicks
+                plugin, PerfMonitor.track("activity-log.flush", this::flushAll), flushTicks, flushTicks
         );
     }
 

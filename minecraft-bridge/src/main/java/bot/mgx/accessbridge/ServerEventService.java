@@ -54,7 +54,7 @@ final class ServerEventService implements Listener {
 
     void start() {
         task = plugin.getServer().getScheduler().runTaskTimer(
-                plugin, this::refresh, REFRESH_TICKS, REFRESH_TICKS
+                plugin, PerfMonitor.track("server-events.refresh", this::refresh), REFRESH_TICKS, REFRESH_TICKS
         );
     }
 

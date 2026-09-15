@@ -55,6 +55,7 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
     private final ConcurrentHashMap<String, JsonObject> linkRequestOutbox = new ConcurrentHashMap<>();
     private final StringBuilder inbound = new StringBuilder();
     private final AtomicBoolean connecting = new AtomicBoolean(false);
+    private final SerialSender sender;
 
     private volatile WebSocket socket;
     private volatile boolean authenticated;
@@ -88,6 +89,11 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
             );
         }
         this.httpClient = httpClientBuilder.build();
+        this.sender = new SerialSender(networkExecutor, () -> socket, error -> {
+            if (config.debug()) {
+                plugin.getLogger().warning("Bridge send failed: " + safeError(error));
+            }
+        }, System::currentTimeMillis);
     }
 
     void start() {
@@ -110,7 +116,7 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
                 .whenComplete((connected, error) -> {
                     connecting.set(false);
                     if (error != null) {
-                        plugin.getLogger().warning("Minecraft bridge connection failed: " + safeError(error));
+                        warnConnectionFailure(error);
                         scheduleReconnect();
                     } else {
                         socket = connected;
@@ -190,6 +196,8 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
                     }
                     authenticated = true;
                     reconnectAttempts = 0;
+                    suppressedConnectFailures = 0;
+                    lastConnectWarningAt = 0L;
                     plugin.getLogger().info("Connected to the signed Minecraft application bridge.");
                     flushVerificationOutbox();
                     flushPlayerActivityOutbox();
@@ -204,6 +212,10 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
                 }
                 case "HEARTBEAT_ACK" -> {
                     // The signed response is sufficient proof of liveness.
+                }
+                case "PLAYER_AFK_ACK" -> {
+                    // AFK changes are reported once and never retried, so there is no
+                    // outbox entry to clear. Logging it as unsupported filled the log.
                 }
                 case "VERIFICATION_ACK" -> {
                     String key = envelope.get("idempotency_key").getAsString();
@@ -1335,6 +1347,9 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
     }
 
     private void heartbeat() {
+        if (sender.unstick()) {
+            plugin.getLogger().warning("Bridge send queue stalled; restarting it.");
+        }
         if (!isConnected()) {
             return;
         }
@@ -1358,21 +1373,12 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
     }
 
     private void sendRaw(String message) {
-        WebSocket current = socket;
-        if (current == null || current.isOutputClosed()) {
-            return;
-        }
-        try {
-            current.sendText(message, true).whenComplete((ignored, error) -> {
-                if (error != null && config.debug()) {
-                    plugin.getLogger().warning("Bridge send failed: " + safeError(error));
-                }
-            });
-        } catch (RuntimeException exception) {
-            if (config.debug()) {
-                plugin.getLogger().warning("Bridge send failed: " + safeError(exception));
-            }
-        }
+        sender.send(socket, message);
+    }
+
+    /** Frames waiting to go out, for the performance log. */
+    int queuedSends() {
+        return sender.queued();
     }
 
     @Override
@@ -1400,6 +1406,27 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
             plugin.getLogger().warning("Minecraft bridge error: " + safeError(error));
             scheduleReconnect();
         }
+    }
+
+    private long lastConnectWarningAt;
+    private int suppressedConnectFailures;
+
+    /**
+     * Logs a failed connection attempt, at most once every ten minutes while the bot
+     * stays unreachable. A bot that is simply switched off otherwise wrote a warning
+     * every minute for as long as it was down.
+     */
+    private void warnConnectionFailure(Throwable error) {
+        long now = System.currentTimeMillis();
+        if (now - lastConnectWarningAt < 10L * 60L * 1_000L) {
+            suppressedConnectFailures++;
+            return;
+        }
+        String repeated = suppressedConnectFailures == 0 ? ""
+                : " (" + suppressedConnectFailures + " more attempts failed since the last warning)";
+        plugin.getLogger().warning("Minecraft bridge connection failed: " + safeError(error) + repeated);
+        lastConnectWarningAt = now;
+        suppressedConnectFailures = 0;
     }
 
     private void scheduleReconnect() {

@@ -400,6 +400,8 @@ final class PvpLobbyBuilder {
         Location centre = lobby == null ? null : lobby.resolve();
         if (centre == null || centre.getWorld() == null) return;
         World world = centre.getWorld();
+        // Nobody to show or hide anything from, so no reason to list the world's entities.
+        if (world.getPlayers().isEmpty()) return;
         List<Entity> labels = world.getEntities().stream()
                 .filter(entity -> entity.getScoreboardTags().contains(HOLOGRAM_TAG)).toList();
         for (Player player : world.getPlayers()) {
@@ -1246,6 +1248,9 @@ final class PvpLobbyBuilder {
         for (Gate gate : GATES.values()) {
             int gx = originX + gate.x();
             int gz = originZ + gate.z();
+            // As on the islands: reading a block in an unloaded chunk loads it, and this
+            // runs every second, which kept an empty lobby's chunks loaded for good.
+            if (!world.isChunkLoaded(gx >> 4, gz >> 4)) continue;
             boolean wideX = Math.abs(gate.x()) <= Math.abs(gate.z());
             if (!gatewayPortalIntact(world, gx, gz, wideX)) {
                 buildGatewayPlane(world, gx, gz, wideX);
@@ -1254,7 +1259,8 @@ final class PvpLobbyBuilder {
         }
         int returnX = originX + RETURN_GATE[0];
         int returnZ = originZ + RETURN_GATE[1];
-        if (!gatewayPortalIntact(world, returnX, returnZ, true)) {
+        if (world.isChunkLoaded(returnX >> 4, returnZ >> 4)
+                && !gatewayPortalIntact(world, returnX, returnZ, true)) {
             buildGatewayPlane(world, returnX, returnZ, true);
             repaired++;
         }

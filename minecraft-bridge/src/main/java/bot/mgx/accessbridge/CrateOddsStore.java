@@ -151,8 +151,31 @@ final class CrateOddsStore {
             decayContributions(players);
         }
         counts.put(kind, updated);
-        save();
+        dirty = true;
+        // A statistics window, not a ledger: a crash may lose a few seconds of opens, and
+        // writing the file on every roll of a triple pull under auto-open was pure cost.
+        if (System.currentTimeMillis() - lastSavedAt >= SAVE_INTERVAL_MILLIS) {
+            flushLocked();
+        }
         return updated;
+    }
+
+    private static final long SAVE_INTERVAL_MILLIS = 10_000L;
+    private boolean dirty;
+    private long lastSavedAt;
+
+    /** Writes any opens recorded since the last save. */
+    synchronized void flush() {
+        flushLocked();
+    }
+
+    private void flushLocked() {
+        if (!dirty) {
+            return;
+        }
+        save();
+        dirty = false;
+        lastSavedAt = System.currentTimeMillis();
     }
 
     /** Quotas halve with the window, or a player at their cap would never contribute again. */
@@ -169,6 +192,8 @@ final class CrateOddsStore {
         counts.clear();
         contributions.clear();
         save();
+        dirty = false;
+        lastSavedAt = System.currentTimeMillis();
     }
 
     private void save() {

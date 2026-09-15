@@ -73,7 +73,7 @@ final class ReferralService implements Listener, CommandExecutor, TabCompleter {
 
     void start() {
         plugin.getServer().getScheduler().runTaskTimer(
-                plugin, this::tickMinute, TICKS_PER_MINUTE, TICKS_PER_MINUTE);
+                plugin, PerfMonitor.track("referrals.minute", this::tickMinute), TICKS_PER_MINUTE, TICKS_PER_MINUTE);
     }
 
     // ------------------------------------------------------------------ arrivals
