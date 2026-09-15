@@ -17,9 +17,9 @@ import java.util.Map;
  * Which multiplier events are running, and until when.
  *
  * <p>Persisted for the same reason {@link MaintenanceStore} is: Paper accepts
- * logins, sales and crate openings from the moment it finishes starting, which
- * is before the bridge connects. An event that forgot itself across a restart
- * would keep advertising 2x on the server list while quietly paying 1x, and
+ * logins, sales, scheduled events and crate openings from the moment it finishes
+ * starting, which is before the bridge connects. An event that forgot itself across a
+ * restart would keep advertising 2x on the server list while quietly applying 1x, and
  * nobody would notice until a player did the arithmetic.
  *
  * <p>Expiry is evaluated on read rather than by a timer. A timer that did not
@@ -84,7 +84,7 @@ final class ServerEventStore {
         return Math.max(1, factors.applyAsInt(type));
     }
 
-    /** What to multiply by right now: the event's factor, or 1 when it is off. */
+    /** The event's active payout/frequency factor, or 1 when it is off. */
     synchronized int multiplier(ServerEventType type, long now) {
         return active(type, now) ? factor(type) : 1;
     }

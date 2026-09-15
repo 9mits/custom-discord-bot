@@ -71,7 +71,7 @@ final class ServerEventService implements Listener {
         visible.clear();
     }
 
-    /** What a payout should be multiplied by right now. */
+    /** The active factor: payout for reward events, frequency for scheduled events. */
     int multiplier(ServerEventType type) {
         return store.multiplier(type, System.currentTimeMillis());
     }
@@ -125,7 +125,11 @@ final class ServerEventService implements Listener {
                 ? Component.text(
                         seconds > 0 ? "Running for " + humanDuration(seconds * 1_000L) : "Live now",
                         NamedTextColor.WHITE)
-                : Component.text("Back to normal rates.", NamedTextColor.GRAY);
+                : Component.text(
+                        type == ServerEventType.AMETHYST_DRAGON
+                                ? "Back to the normal Dragon schedule."
+                                : "Back to normal rates.",
+                        NamedTextColor.GRAY);
         for (Player player : plugin.getServer().getOnlinePlayers()) {
             notifications.notify(
                     player,
