@@ -1007,13 +1007,13 @@ final class SeasonPassService implements Listener, CommandExecutor {
         });
         page.add(DialogBody.plainMessage(Component.empty(), RULE_WIDTH));
 
-        board(page, plain, "DAILY", "resets in " + untilTomorrow(), row.daily,
+        board(page, plain, "DAILY QUESTS", "New quests in " + untilTomorrow(), row.daily,
                 variables.integer("season.daily.xp"), variables.integer("season.daily.sweep-xp"), row);
-        board(page, plain, "WEEKLY", "resets in " + untilNextWeek(), row.weekly,
+        board(page, plain, "WEEKLY QUESTS", "New quests in " + untilNextWeek(), row.weekly,
                 variables.integer("season.weekly.xp"), variables.integer("season.weekly.sweep-xp"), row);
         community(page, plain, player);
 
-        header(page, plain, "SEASON MILESTONES", "long-term goals, bigger every level");
+        header(page, plain, "SEASON MILESTONES", "Long-term goals, bigger every level");
         for (SeasonPassRules.QuestType type : SeasonPassRules.QuestType.values()) {
             long total = row.quests.getOrDefault(type.key(), 0L);
             int level = SeasonPassRules.levelFor(type, total);
@@ -1023,6 +1023,7 @@ final class SeasonPassService implements Listener, CommandExecutor {
                         .append(MenuText.sprite("item/lime_dye")).append(Component.text(" "))
                         .append(Component.text(type.title() + " mastered  ✔", MenuText.VALUE))), RULE_WIDTH));
                 plain.append(type.title()).append(": mastered\n");
+                page.add(DialogBody.plainMessage(Component.empty(), RULE_WIDTH));
                 continue;
             }
             long previous = level == 0 ? 0L : SeasonPassRules.quest(type, level - 1).orElseThrow().target();
@@ -1037,6 +1038,7 @@ final class SeasonPassService implements Listener, CommandExecutor {
                     .append(Component.text("  " + amount + "   ·   Level " + (level + 1) + " of " + type.levels(),
                             MenuText.MUTED))), RULE_WIDTH));
             plain.append(quest.get().label()).append(" (").append(amount).append(")\n");
+            page.add(DialogBody.plainMessage(Component.empty(), RULE_WIDTH));
         }
         show(player, "Quests", page, plain.toString().strip(), List.of(), back == null ? this::openPass : back);
     }
@@ -1065,11 +1067,32 @@ final class SeasonPassService implements Listener, CommandExecutor {
         return lines;
     }
 
+    /** Pixel width of a section divider, rule and title together. */
+    static final int DIVIDER_WIDTH = 300;
+
+    /**
+     * A centred {@code ───── WEEKLY QUESTS ─────} divider with its note underneath, so each
+     * section reads as its own block instead of one long list. The rule is struck-through
+     * spaces: a solid line on every client, where dash glyphs leave gaps.
+     */
     private void header(List<DialogBody> page, StringBuilder plain, String title, String note) {
-        page.add(DialogBody.plainMessage(MenuText.upright(Component.text(title, NamedTextColor.WHITE, TextDecoration.BOLD)
-                .append(Component.text("   " + note, MenuText.MUTED).decoration(TextDecoration.BOLD, false))),
+        String rule = " ".repeat(dividerSpaces(title));
+        page.add(DialogBody.plainMessage(MenuText.upright(Component.empty()
+                .append(Component.text(rule, DIVIDER).decoration(TextDecoration.STRIKETHROUGH, true))
+                .append(Component.text("  " + title + "  ", ORANGE, TextDecoration.BOLD))
+                .append(Component.text(rule, DIVIDER).decoration(TextDecoration.STRIKETHROUGH, true))),
                 RULE_WIDTH));
-        plain.append('\n').append(title).append(" (").append(note).append(")\n");
+        page.add(DialogBody.plainMessage(MenuText.muted(note), RULE_WIDTH));
+        page.add(DialogBody.plainMessage(Component.empty(), RULE_WIDTH));
+        plain.append("\n----- ").append(title).append(" -----\n").append(note).append("\n\n");
+    }
+
+    private static final TextColor DIVIDER = TextColor.color(0x7A8494);
+
+    /** Spaces of rule on each side of a title so every divider is the same width. */
+    static int dividerSpaces(String title) {
+        int titleWidth = SidebarText.textWidth("  " + title + "  ", true);
+        return Math.max(3, (DIVIDER_WIDTH - titleWidth) / 2 / SidebarText.SPACE_WIDTH);
     }
 
     private void board(
@@ -1090,6 +1113,7 @@ final class SeasonPassService implements Listener, CommandExecutor {
                         .append(Component.text(label + "  ✔", MenuText.VALUE))
                         .append(Component.text("   " + goal, MenuText.MUTED))), RULE_WIDTH));
                 plain.append("✔ ").append(label).append('\n');
+                page.add(DialogBody.plainMessage(Component.empty(), RULE_WIDTH));
                 continue;
             }
             page.add(DialogBody.plainMessage(MenuText.upright(Component.empty()
@@ -1101,11 +1125,15 @@ final class SeasonPassService implements Listener, CommandExecutor {
                             slot.progress, slot.target, goal), MenuText.MUTED))), RULE_WIDTH));
             plain.append(goal).append(": ").append(label)
                     .append(String.format(Locale.ROOT, " (%,d/%,d) +%d XP%n", slot.progress, slot.target, xp));
+            page.add(DialogBody.plainMessage(Component.empty(), RULE_WIDTH));
         }
         if (sweepXp > 0L) {
             boolean swept = board.swept;
-            page.add(DialogBody.plainMessage(MenuText.muted(swept ? "Board cleared  ✔"
-                    : "Finish all three for +" + questXp(row, sweepXp) + " bonus XP"), RULE_WIDTH));
+            page.add(DialogBody.plainMessage(swept
+                    ? MenuText.upright(Component.text("Board cleared  ✔", MenuText.VALUE, TextDecoration.BOLD))
+                    : MenuText.upright(Component.text("Finish all three: ", MenuText.MUTED)
+                            .append(Component.text("+" + questXp(row, sweepXp) + " bonus XP", MenuText.GOLD,
+                                    TextDecoration.BOLD))), RULE_WIDTH));
             plain.append(swept ? "Board cleared\n" : "All three: +" + questXp(row, sweepXp) + " bonus XP\n");
         }
         page.add(DialogBody.plainMessage(Component.empty(), RULE_WIDTH));
@@ -1116,7 +1144,7 @@ final class SeasonPassService implements Listener, CommandExecutor {
         SeasonStore.Community goal = store.community();
         var objective = SeasonQuestRules.Objective.of(goal.objective);
         if (objective.isEmpty() || goal.week != SeasonQuestRules.weeklyPeriod(today())) return;
-        header(page, plain, "COMMUNITY GOAL", "the whole server, this week");
+        header(page, plain, "COMMUNITY GOAL", "The whole server, together, this week");
         long mine = goal.contributions.getOrDefault(player.getUniqueId().toString(), 0L);
         long minimum = SeasonQuestRules.contributorMinimum(objective.get(), goal.target);
         String label = objective.get().label(goal.target);

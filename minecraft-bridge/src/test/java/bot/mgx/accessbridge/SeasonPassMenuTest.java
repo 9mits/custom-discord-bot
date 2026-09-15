@@ -9,6 +9,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class SeasonPassMenuTest {
     @Test
+    void everyQuestSectionDividerIsTheSameWidth() {
+        java.util.List<Integer> widths = java.util.stream.Stream.of(
+                        "DAILY QUESTS", "WEEKLY QUESTS", "COMMUNITY GOAL", "SEASON MILESTONES")
+                .map(title -> 2 * SeasonPassService.dividerSpaces(title) * SidebarText.SPACE_WIDTH
+                        + SidebarText.textWidth("  " + title + "  ", true))
+                .toList();
+        int widest = widths.stream().max(Integer::compare).orElseThrow();
+        int narrowest = widths.stream().min(Integer::compare).orElseThrow();
+        assertTrue(widest - narrowest < 2 * SidebarText.SPACE_WIDTH, "dividers drift: " + widths);
+        assertTrue(widest <= SeasonPassService.DIVIDER_WIDTH, "a divider must not wrap: " + widths);
+    }
+
+    @Test
     void theTierListPagesByTens() {
         assertEquals(0, SeasonPassMenu.listPageOf(1));
         assertEquals(0, SeasonPassMenu.listPageOf(10));
