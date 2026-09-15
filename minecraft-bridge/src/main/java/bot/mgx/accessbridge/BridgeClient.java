@@ -55,6 +55,7 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
     private final ConcurrentHashMap<String, JsonObject> linkRequestOutbox = new ConcurrentHashMap<>();
     private final StringBuilder inbound = new StringBuilder();
     private final AtomicBoolean connecting = new AtomicBoolean(false);
+    private final SerialSender sender;
 
     private volatile WebSocket socket;
     private volatile boolean authenticated;
@@ -88,6 +89,11 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
             );
         }
         this.httpClient = httpClientBuilder.build();
+        this.sender = new SerialSender(networkExecutor, () -> socket, error -> {
+            if (config.debug()) {
+                plugin.getLogger().warning("Bridge send failed: " + safeError(error));
+            }
+        }, System::currentTimeMillis);
     }
 
     void start() {
@@ -1341,7 +1347,9 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
     }
 
     private void heartbeat() {
-        unstickSends();
+        if (sender.unstick()) {
+            plugin.getLogger().warning("Bridge send queue stalled; restarting it.");
+        }
         if (!isConnected()) {
             return;
         }
@@ -1364,116 +1372,13 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
         }
     }
 
-    /**
-     * Queues one message for the socket it was built for.
-     *
-     * <p>Java's WebSocket accepts one outgoing text frame at a time: a second
-     * {@code sendText} while the first is still on the wire fails with "Send pending".
-     * Sends come from the main thread, the chat thread and this network thread, and every
-     * reconnect and heartbeat flushes whole outboxes in a loop, so most of a burst used to
-     * fail silently and wait fifteen seconds for the next heartbeat to try again, which
-     * then failed the same way. Everything now goes through one queue, one frame at a time.
-     *
-     * <p>Bounded, because a bot that stops reading must not turn into unbounded memory.
-     * Anything dropped here is still in its outbox and goes again after a reconnect.
-     */
     private void sendRaw(String message) {
-        WebSocket current = socket;
-        if (current == null || current.isOutputClosed()) {
-            return;
-        }
-        boolean start;
-        synchronized (sendQueue) {
-            if (sendQueue.size() >= MAX_QUEUED_SENDS) {
-                droppedSends++;
-                return;
-            }
-            sendQueue.addLast(new Outgoing(current, message));
-            start = !sending;
-            if (start) {
-                sending = true;
-                sendStartedAt = System.currentTimeMillis();
-            }
-        }
-        if (start) {
-            drainSends();
-        }
-    }
-
-    private record Outgoing(WebSocket target, String text) {
-    }
-
-    private static final int MAX_QUEUED_SENDS = 5_000;
-    private final java.util.ArrayDeque<Outgoing> sendQueue = new java.util.ArrayDeque<>();
-    private boolean sending;
-    private volatile long sendStartedAt;
-    private long droppedSends;
-
-    /** Sends the next queued frame, continuing from its completion on the network thread. */
-    private void drainSends() {
-        Outgoing next;
-        while (true) {
-            synchronized (sendQueue) {
-                next = sendQueue.pollFirst();
-                if (next == null) {
-                    sending = false;
-                    return;
-                }
-                sendStartedAt = System.currentTimeMillis();
-            }
-            // A frame built for a socket that has since closed or been replaced is
-            // skipped: the outbox it came from sends it again on the new connection.
-            if (next.target() == socket && !next.target().isOutputClosed()) {
-                break;
-            }
-        }
-        try {
-            next.target().sendText(next.text(), true).whenCompleteAsync((ignored, error) -> {
-                if (error != null && config.debug()) {
-                    plugin.getLogger().warning("Bridge send failed: " + safeError(error));
-                }
-                drainSends();
-            }, networkExecutor);
-        } catch (RuntimeException exception) {
-            if (config.debug()) {
-                plugin.getLogger().warning("Bridge send failed: " + safeError(exception));
-            }
-            try {
-                networkExecutor.execute(this::drainSends);
-            } catch (RejectedExecutionException stopping) {
-                synchronized (sendQueue) {
-                    sendQueue.clear();
-                    sending = false;
-                }
-            }
-        }
+        sender.send(socket, message);
     }
 
     /** Frames waiting to go out, for the performance log. */
     int queuedSends() {
-        synchronized (sendQueue) {
-            return sendQueue.size();
-        }
-    }
-
-    /**
-     * Restarts a send queue whose last frame never completed.
-     *
-     * <p>A frame on a connection that dies mid-write should complete exceptionally, but
-     * a queue that silently stops is the one failure nobody would notice for days.
-     */
-    private void unstickSends() {
-        boolean restart;
-        synchronized (sendQueue) {
-            restart = sending && System.currentTimeMillis() - sendStartedAt > 30_000L;
-            if (restart) {
-                sendStartedAt = System.currentTimeMillis();
-            }
-        }
-        if (restart) {
-            plugin.getLogger().warning("Bridge send queue stalled; restarting it.");
-            drainSends();
-        }
+        return sender.queued();
     }
 
     @Override

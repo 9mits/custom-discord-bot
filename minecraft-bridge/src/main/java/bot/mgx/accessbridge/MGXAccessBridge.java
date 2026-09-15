@@ -1213,6 +1213,17 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         if (bridgeClient != null) {
             bridgeClient.close();
         }
+        if (cosmeticStore != null) {
+            // Fold the journal into the snapshot on a clean stop, so the file alone is
+            // complete and an older build that knows nothing of the journal can still
+            // read every cosmetic.
+            try {
+                cosmeticStore.flush();
+            } catch (RuntimeException failure) {
+                getLogger().warning("Could not write the cosmetic snapshot on shutdown; the journal "
+                        + "still holds every change: " + failure.getMessage());
+            }
+        }
         if (maintenanceSweep != null) {
             maintenanceSweep.cancel();
             maintenanceSweep = null;
