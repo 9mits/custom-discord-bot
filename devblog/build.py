@@ -30,6 +30,7 @@ except ModuleNotFoundError:  # pragma: no cover - guidance beats a stack trace
 
 import config
 import theme
+import images
 
 ROOT = Path(__file__).resolve().parent
 POSTS_DIR = ROOT / "posts"
@@ -37,6 +38,8 @@ EVENTS_DIR = ROOT / "events"
 PAGES_DIR = ROOT / "pages"
 DATA_DIR = ROOT / "data"
 MEDIA_DIR = ROOT / "media"
+#: Encoded image copies keyed by content, so a rebuild only encodes what changed.
+IMAGE_CACHE_DIR = ROOT / ".cache" / "images"
 STATIC_DIR = ROOT / "static"
 DIST_DIR = ROOT / "dist"
 
@@ -397,6 +400,36 @@ def check_slugs(names: Sequence[str], what: str) -> None:
             )
 
 
+def version_assets(dist: Path) -> None:
+    """Stamps each stylesheet and script reference with a hash of its contents.
+
+    GitHub Pages lets a browser keep assets for ten minutes, so a visitor who came
+    back just after a deploy got the new page with the old stylesheet: a layout the
+    CSS no longer described. A changed file now has a new URL, and an unchanged one
+    keeps its cached copy.
+    """
+    import hashlib
+
+    assets = dist / "assets"
+    if not assets.is_dir():
+        return
+    stamps = {
+        item.name: hashlib.sha1(item.read_bytes()).hexdigest()[:10]
+        for item in assets.iterdir()
+        if item.is_file() and item.suffix in (".css", ".js")
+    }
+    if not stamps:
+        return
+    pattern = re.compile(
+        r'((?:href|src)="[^"]*assets/(%s))"' % "|".join(re.escape(name) for name in stamps)
+    )
+    for page in dist.rglob("*.html"):
+        html = page.read_text(encoding="utf-8")
+        stamped = pattern.sub(lambda m: '%s?v=%s"' % (m.group(1), stamps[m.group(2)]), html)
+        if stamped != html:
+            page.write_text(stamped, encoding="utf-8")
+
+
 def build(
     site_url: str, include_drafts: bool = False, include_private: bool = False
 ) -> List[Post]:
@@ -563,6 +596,11 @@ def build(
 
     # Tell GitHub Pages not to run Jekyll over the output.
     (DIST_DIR / ".nojekyll").write_text("", encoding="utf-8")
+
+    version_assets(DIST_DIR)
+    # Last, over the finished pages: responsive, compressed copies of large images.
+    report = images.optimise(DIST_DIR, site_url=site_url, cache_dir=IMAGE_CACHE_DIR)
+    print(report.summary())
 
     return posts
 
