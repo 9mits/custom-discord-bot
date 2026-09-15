@@ -6,12 +6,14 @@ import java.util.Locale;
 import java.util.Optional;
 
 /**
- * The gear only one season's pass pays: a Scythe, a Pickaxe, an Axe and Wings in that
- * season's colours.
+ * The gear only one season's pass pays, in that season's colours: a Scythe, Pickaxe, Axe,
+ * Hoe and Bow for work and hunting, and Wings, a Helmet and Boots to wear.
  *
  * <p>Everyone who plays the season can earn these, so they are balanced as deserved
  * rewards rather than power: vanilla-maximum enchantments, normal durability (Mending
- * works), and one modest ability each that never adds an edge against another player.
+ * works), and one ability each that feels strong in the world but never adds an edge
+ * against another player: bonuses land on mobs, crops and the environment, and the Boots
+ * stop working the moment their wearer is in a fight.
  * They sit below the Eternal Amethyst gear, which stays the rare chase. What makes a
  * piece special is that its season's version never comes back.
  *
@@ -27,12 +29,25 @@ final class SeasonGear {
         AXE("axe", "Axe", "axe", "NETHERITE_AXE",
                 "Timber", "Fells up to 32 connected logs"),
         WINGS("wings", "Wings", "elytra", "ELYTRA",
-                "Never Breaks", "Shows this season's colours in flight");
+                "Never Breaks", "Shows this season's colours in flight"),
+        BOOTS("boots", "Boots", "boots", "NETHERITE_BOOTS",
+                "Featherstep", "No fall damage, except in a fight"),
+        HOE("hoe", "Hoe", "hoe", "NETHERITE_HOE",
+                "Bountiful", "Harvests and replants a 5x5 of crops"),
+        HELMET("helmet", "Helmet", "helmet", "NETHERITE_HELMET",
+                "Deepsight", "Night vision and water breathing while worn"),
+        BOW("bow", "Bow", "bow", "BOW",
+                "Starfall", "Hits on mobs burst onto hostile mobs nearby");
 
         /** Logs one swing of a Season Axe can fell. */
         static final int TIMBER_LIMIT = 32;
-        /** Extra damage a Season Scythe deals to mobs, never to players. */
+        /** Extra damage a Season Scythe or Bow deals to mobs, never to players. */
         static final double MOB_DAMAGE_BONUS = 0.20;
+        /** Blocks from the struck crop a Season Hoe harvests: 2 is a 5x5. */
+        static final int HARVEST_RADIUS = 2;
+        /** Share of a Season Bow hit that bursts onto other hostile mobs, and how far. */
+        static final double STARFALL_SPLASH = 0.5;
+        static final double STARFALL_RADIUS = 3.0;
 
         final String key;
         final String label;
@@ -69,6 +84,11 @@ final class SeasonGear {
     /** The item model, and for Wings also the equipment asset other players see worn. */
     static String modelKey(int season, Piece piece) {
         return "mgx:season_" + season + "_" + piece.key;
+    }
+
+    /** The worn look the Helmet and Boots share, one per season. */
+    static String armourKey(int season) {
+        return "mgx:season_" + season + "_armor";
     }
 
     static String displayName(SeasonCosmetics.Theme theme, Piece piece) {

@@ -99,6 +99,7 @@ final class SeasonPassMenu implements Listener {
     static Rarity rarity(SeasonPassRules.Grant grant, Optional<CrateCatalog.Reward> reward) {
         return switch (grant.kind()) {
             case "season_cosmetic", "season_gear" -> Rarity.EXCLUSIVE;
+            case "season_item" -> Rarity.EPIC;
             case "hearts" -> Rarity.LEGENDARY;
             case "shards" -> grant.amount() >= 3 ? Rarity.LEGENDARY : Rarity.EPIC;
             case "cosmetic" -> Rarity.EPIC;
@@ -122,6 +123,7 @@ final class SeasonPassMenu implements Listener {
             case "hearts" -> "item/red_dye";
             case "shards" -> "mgx:item/shard";
             case "keys" -> "mgx:item/mystery_key";
+            case "season_item" -> SeasonItemCatalog.find(grant.id()).map(item -> item.sprite).orElse("item/bundle");
             case "season_gear" -> pass.seasonGearModel(grant).map(SeasonPassMenu::textureOf).orElse("mgx:item/shard");
             case "season_cosmetic" -> pass.seasonCosmeticDefinition(grant)
                     .map(definition -> textureOf(definition.modelKey())).orElse("mgx:item/shard");
@@ -353,6 +355,7 @@ final class SeasonPassMenu implements Listener {
             case "shards" -> items.shard((int) Math.min(64, grant.amount()));
             case "keys" -> items.mysteryKey(Math.min(64, grant.amount()));
             case "season_gear" -> pass.seasonGearPreview(grant).orElseGet(() -> items.shard(3));
+            case "season_item" -> pass.seasonItemPreview(grant).orElseGet(() -> new ItemStack(Material.BARRIER));
             case "season_cosmetic" -> pass.seasonCosmeticDefinition(grant)
                     .map(definition -> cosmeticItems.preview(definition, false))
                     .orElseGet(() -> items.shard(3));

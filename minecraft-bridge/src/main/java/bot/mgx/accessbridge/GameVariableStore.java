@@ -1475,13 +1475,23 @@ final class GameVariableStore {
         // Never money or keys: both are minted in such volume that a tier paying them
         // meant nothing. Every default here is scarce, permanent, or both.
         String rewardFormat = " Parts are separated by ; and read hearts:N, shards:N,"
-                + " reward:<crate reward id>[:count], gear:<scythe|pickaxe|axe|wings>, cosmetic:<id>"
+                + " reward:<crate reward id>[:count], gear:<scythe|pickaxe|axe|hoe|bow|wings|helmet|boots>,"
+                + " item:<rally_horn|miners_tonic|skyward_tonic|deepdiver_tonic>[:count], cosmetic:<id>"
                 + " or cosmetic:season:<aura|trail|kill>.";
+        // Odd and even tiers step through their lists (separated by |), so the track never
+        // repeats one bundle twenty times. Nine each is the count at which every entry lands
+        // on at least one tier the milestones do not take. Temporary power (24-hour Amethyst
+        // tools, tonics, horns) sits between permanent relics and enchantments.
+        String listFormat = " Separate alternatives with |; tiers take them in turn.";
         text("season.reward.odd", "Odd tier reward", "Season Pass Rewards",
-                "What each odd tier pays." + rewardFormat, "reward:ancient_debris;reward:golden_apple:2", 200);
+                "What odd tiers pay." + listFormat + rewardFormat,
+                "reward:ancient_debris:2;reward:golden_apple:2 | item:miners_tonic;reward:amethyst_experience_bottles | reward:daily_veinseeker_pickaxe | item:deepdiver_tonic;reward:echo_shards | item:skyward_tonic;reward:netherite_scrap:2 | reward:amethyst_pickaxe;item:miners_tonic | item:rally_horn;reward:golden_apple:2 | reward:daily_magnetite_shovel | reward:amethyst_apple;reward:golden_apple:2", 1000);
         text("season.reward.even", "Even tier reward", "Season Pass Rewards",
-                "What each even tier pays." + rewardFormat,
-                "reward:fortune_potion_ii;reward:crate_luck_ii;reward:amethyst_experience_bottles", 200);
+                "What even tiers pay." + listFormat + rewardFormat,
+                "reward:fortune_potion_ii;reward:crate_luck_ii;reward:amethyst_experience_bottles | reward:daily_frostbite_bow;item:miners_tonic | reward:enchant_unbreaking_iv | item:rally_horn;reward:crate_luck_iii | reward:amethyst_totem | reward:daily_bloodthirst_blade;item:deepdiver_tonic | reward:amethyst_shovel;reward:fortune_potion_ii | reward:enchant_excavation_i;item:skyward_tonic | reward:enchant_fortune_iv", 1000);
+        text("season.reward.tier-5", "Tier 5 reward", "Season Pass Rewards",
+                "This season's Boots, early, so a first session ends with something to keep." + rewardFormat,
+                "gear:boots;item:rally_horn", 200);
         text("season.reward.every-5", "Every 5th tier reward", "Season Pass Rewards",
                 "What a fifth tier without its own reward pays." + rewardFormat,
                 "reward:totem_of_undying;reward:fortune_potion_iii", 200);
@@ -1494,24 +1504,33 @@ final class GameVariableStore {
         text("season.reward.tier-15", "Tier 15 reward", "Season Pass Rewards",
                 "This season's Pickaxe." + rewardFormat,
                 "gear:pickaxe;reward:fortune_potion_iii", 200);
+        text("season.reward.tier-18", "Tier 18 reward", "Season Pass Rewards",
+                "This season's Hoe." + rewardFormat,
+                "gear:hoe;item:skyward_tonic", 200);
         text("season.reward.tier-20", "Tier 20 reward", "Season Pass Rewards",
                 "This season's Axe." + rewardFormat,
                 "gear:axe;shards:1", 200);
         text("season.reward.tier-25", "Tier 25 reward", "Season Pass Rewards",
                 "A Season Heart." + rewardFormat,
                 "hearts:1;reward:totem_of_undying", 200);
+        text("season.reward.tier-28", "Tier 28 reward", "Season Pass Rewards",
+                "This season's Helmet." + rewardFormat,
+                "gear:helmet;item:deepdiver_tonic", 200);
         text("season.reward.tier-30", "Tier 30 reward", "Season Pass Rewards",
                 "This season's kill effect." + rewardFormat,
                 "cosmetic:season:kill;shards:1", 200);
         text("season.reward.tier-35", "Tier 35 reward", "Season Pass Rewards",
                 "This season's Scythe." + rewardFormat,
                 "gear:scythe;reward:enchanted_golden_apple", 200);
+        text("season.reward.tier-38", "Tier 38 reward", "Season Pass Rewards",
+                "This season's Bow." + rewardFormat,
+                "gear:bow;reward:amethyst_arrows", 200);
         text("season.reward.tier-40", "Tier 40 reward", "Season Pass Rewards",
                 "This season's Wings." + rewardFormat,
                 "gear:wings;shards:2", 200);
         text("season.reward.tier-45", "Tier 45 reward", "Season Pass Rewards",
                 "The last step before the final tier." + rewardFormat,
-                "shards:2;reward:netherite_ingot:2;reward:heavy_core", 200);
+                "shards:2;reward:netherite_ingot:2;item:rally_horn:2", 200);
         text("season.reward.tier-50", "Tier 50 reward", "Season Pass Rewards",
                 "This season's crown and a Season Heart." + rewardFormat,
                 "cosmetic:season:aura;hearts:1;shards:3;reward:crate_luck_v", 200);
