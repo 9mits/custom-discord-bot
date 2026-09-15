@@ -3,6 +3,8 @@ package bot.mgx.accessbridge;
 import io.papermc.paper.registry.data.dialog.ActionButton;
 import io.papermc.paper.registry.data.dialog.body.DialogBody;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.event.ClickEvent;
+import net.kyori.adventure.text.event.HoverEvent;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextColor;
 import net.kyori.adventure.text.format.TextDecoration;
@@ -43,8 +45,12 @@ import static bot.mgx.accessbridge.MenuItems.ORANGE;
 /**
  * The Season Pass and its quests.
  *
- * <p>XP comes mostly from quest ladders, each level harder and worth more than the last,
- * plus a little for every active minute. Every tier pays automatically the
+ * <p>XP comes from three kinds of quest, each with a job. Daily and weekly boards bring
+ * players back and together (see {@link SeasonQuestRules}); season ladders, each level
+ * harder and worth more than the last, reward long-term mastery; a weekly community goal
+ * gives the whole server one shared target. A little XP also comes from every active
+ * minute, and all of it is raised during a Rally or for a player behind the season's pace.
+ * Every tier pays automatically the
  * moment it is reached, so nothing is ever left unclaimed; the last tiers pay chase
  * rewards: Season Hearts, Shards, permanent gear, and an aura, trail and kill effect that
  * only this season's pass ever pays. A season runs for a fixed number of days, then its top
@@ -83,11 +89,16 @@ final class SeasonPassService implements Listener, CommandExecutor {
     private final CrateItems items;
     private final SettingsClientSupport clientSupport;
     private final BedrockForms forms;
+    private final ClanStore clans;
     private boolean dirty;
+    /** Whether a Rally is running; recomputed every pulse from who is actually playing. */
+    private boolean rally;
+    private int rallyThreshold = 2;
+    private int activeCount;
 
     SeasonPassService(
             MGXAccessBridge plugin, SeasonStore store, GameVariableStore variables, CrateItems items,
-            SettingsClientSupport clientSupport, BedrockForms forms
+            SettingsClientSupport clientSupport, BedrockForms forms, ClanStore clans
     ) {
         this.plugin = plugin;
         this.store = store;
@@ -95,6 +106,7 @@ final class SeasonPassService implements Listener, CommandExecutor {
         this.items = items;
         this.clientSupport = clientSupport;
         this.forms = forms;
+        this.clans = clans;
     }
 
     void start() {
@@ -104,6 +116,7 @@ final class SeasonPassService implements Listener, CommandExecutor {
         // Saved at once: a season held only in memory would restart, with a new end
         // date, every time the server did.
         if (ensureSeason(today())) save();
+        ensureCommunity(today());
         plugin.getServer().getScheduler().runTaskTimer(plugin, PerfMonitor.track("season-pass.pulse", this::pulse), PULSE_TICKS, PULSE_TICKS);
         // A plugin reload leaves players online who would otherwise lose their hearts.
         plugin.getServer().getOnlinePlayers().forEach(this::applyHearts);
@@ -178,6 +191,7 @@ final class SeasonPassService implements Listener, CommandExecutor {
     void progress(Player player, SeasonPassRules.QuestType type, long amount) {
         if (!enabled() || amount <= 0L || player == null
                 || VerificationLobbyService.isLobbyWorld(player.getWorld())) return;
+        mirror(type).ifPresent(objective -> record(player, objective, amount));
         SeasonStore.Row row = rowFor(player);
         long before = row.quests.getOrDefault(type.key(), 0L);
         long after = before + amount;
@@ -190,17 +204,291 @@ final class SeasonPassService implements Listener, CommandExecutor {
         if (to > from) row.questPaid.put(type.key(), to);
         for (int level = from; level < to; level++) {
             SeasonPassRules.Quest quest = SeasonPassRules.quest(type, level).orElseThrow();
+            long xp = questXp(row, quest.xp());
             player.showTitle(Title.title(
                     Component.text(type.title().toUpperCase(Locale.ROOT) + " " + roman(level + 1),
                             NamedTextColor.GREEN, TextDecoration.BOLD),
-                    Component.text(quest.label() + "  •  +" + quest.xp() + " XP", NamedTextColor.GOLD),
+                    Component.text(quest.label() + "  •  +" + xp + " XP", NamedTextColor.GOLD),
                     Title.Times.times(Duration.ZERO, Duration.ofMillis(1800), Duration.ofMillis(300))));
             player.playSound(player, Sound.UI_TOAST_CHALLENGE_COMPLETE, 0.7f, 1.4f);
             String nextGoal = SeasonPassRules.quest(type, level + 1).map(next -> " Next: " + next.label() + ".")
                     .orElse(" That line is mastered.");
-            info(player, "Quest complete: " + quest.label() + ". +" + quest.xp() + " Season XP." + nextGoal);
-            addXp(player, row, quest.xp());
+            info(player, "Milestone complete: " + quest.label() + ". +" + xp + " Season XP" + boostNote(row, true)
+                    + "." + nextGoal);
+            addXp(player, row, xp);
         }
+    }
+
+    /** The board objective a season ladder's work also counts toward. */
+    private static java.util.Optional<SeasonQuestRules.Objective> mirror(SeasonPassRules.QuestType type) {
+        return switch (type) {
+            case KILL_MOBS -> java.util.Optional.of(SeasonQuestRules.Objective.KILL_MOBS);
+            case MINE_ORES -> java.util.Optional.of(SeasonQuestRules.Objective.MINE_ORES);
+            case HARVEST_CROPS -> java.util.Optional.of(SeasonQuestRules.Objective.HARVEST_CROPS);
+            default -> java.util.Optional.empty();
+        };
+    }
+
+    // ------------------------------------------------------------------ boards
+
+    /**
+     * Counts work toward the daily and weekly boards, the community goal and the history
+     * that deals future boards. Season ladders are counted separately by {@link #progress}.
+     */
+    void record(Player player, SeasonQuestRules.Objective objective, long amount) {
+        if (!enabled() || amount <= 0L || player == null
+                || VerificationLobbyService.isLobbyWorld(player.getWorld())) return;
+        SeasonStore.Row row = rowFor(player);
+        row.activity.merge(objective.key(), amount, Long::sum);
+        store.addWeekTotal(objective.key(), amount);
+        dirty = true;
+        ensureBoards(player, row);
+        for (SeasonStore.Slot slot : SeasonQuestRules.advance(row.daily, objective, amount)) {
+            completeSlot(player, row, slot, "DAILY", row.daily, variables.integer("season.daily.xp"));
+        }
+        if (SeasonQuestRules.takeSweep(row.daily)) {
+            sweep(player, row, "Daily board cleared", variables.integer("season.daily.sweep-xp"),
+                    "New quests at 00:00 UTC, " + untilTomorrow() + " from now.");
+        }
+        for (SeasonStore.Slot slot : SeasonQuestRules.advance(row.weekly, objective, amount)) {
+            completeSlot(player, row, slot, "WEEKLY", row.weekly, variables.integer("season.weekly.xp"));
+        }
+        if (SeasonQuestRules.takeSweep(row.weekly)) {
+            sweep(player, row, "Weekly board cleared", variables.integer("season.weekly.sweep-xp"),
+                    "New quests on Monday, " + untilNextWeek() + " from now.");
+        }
+        contribute(player, objective, amount);
+    }
+
+    /** Deals a fresh board for any period that has rolled over since the last one. */
+    private void ensureBoards(Player player, SeasonStore.Row row) {
+        long today = today();
+        long week = SeasonQuestRules.weeklyPeriod(today);
+        boolean dailyStale = row.daily == null || row.daily.period != SeasonQuestRules.dailyPeriod(today);
+        boolean weeklyStale = row.weekly == null || row.weekly.period != week;
+        if (!dailyStale && !weeklyStale) return;
+        SeasonQuestRules.Profile profile = new SeasonQuestRules.Profile(row.activity,
+                inClanWithOthers(player.getUniqueId()),
+                plugin.pvpCompetition() != null && plugin.pvpCompetition().open());
+        if (dailyStale) {
+            row.daily = board(SeasonQuestRules.dailyPeriod(today),
+                    SeasonQuestRules.dealDaily(player.getUniqueId(), today, profile));
+        }
+        if (weeklyStale) {
+            // Nobody can play on four days of a week that has two left in it.
+            long daysLeft = SeasonQuestRules.nextWeekStartDay(week) - today;
+            long days = Math.min(daysLeft, variables.integer("season.weekly.play-days"));
+            row.weekly = board(week, SeasonQuestRules.dealWeekly(player.getUniqueId(), week, profile, days));
+        }
+        dirty = true;
+    }
+
+    private static SeasonStore.Board board(long period, List<SeasonStore.Slot> slots) {
+        SeasonStore.Board board = new SeasonStore.Board();
+        board.period = period;
+        board.slots = new ArrayList<>(slots);
+        return board;
+    }
+
+    private boolean inClanWithOthers(UUID playerId) {
+        return clans != null && clans.clanOf(playerId).map(clan -> clan.members().size() > 1).orElse(false);
+    }
+
+    private void completeSlot(
+            Player player, SeasonStore.Row row, SeasonStore.Slot slot, String board,
+            SeasonStore.Board owner, long base
+    ) {
+        var objective = SeasonQuestRules.Objective.of(slot.objective);
+        if (objective.isEmpty()) return;
+        long xp = questXp(row, base);
+        String label = objective.get().label(slot.target);
+        player.showTitle(Title.title(
+                Component.text(board + " QUEST COMPLETE", NamedTextColor.GREEN, TextDecoration.BOLD),
+                Component.text(label + "  •  +" + xp + " XP", NamedTextColor.GOLD),
+                Title.Times.times(Duration.ZERO, Duration.ofMillis(1800), Duration.ofMillis(300))));
+        player.playSound(player, Sound.UI_TOAST_CHALLENGE_COMPLETE, 0.7f, 1.4f);
+        long left = owner.slots.size() - SeasonQuestRules.done(owner);
+        info(player, board.charAt(0) + board.substring(1).toLowerCase(Locale.ROOT) + " quest complete: " + label
+                + ". +" + xp + " Season XP" + boostNote(row, true) + "."
+                + (left > 0 ? " " + left + " left on this board." : ""));
+        addXp(player, row, xp);
+    }
+
+    private void sweep(Player player, SeasonStore.Row row, String headline, long base, String next) {
+        if (base <= 0L) return;
+        long xp = questXp(row, base);
+        player.playSound(player, Sound.UI_TOAST_CHALLENGE_COMPLETE, 0.9f, 1.0f);
+        info(player, headline + "! +" + xp + " bonus Season XP" + boostNote(row, true) + ". " + next);
+        addXp(player, row, xp);
+    }
+
+    /** Minutes played, and the Together and Come Back quests that only minutes can move. */
+    private void countMinute(Player player, List<Player> active, long today) {
+        SeasonStore.Row row = rowFor(player);
+        row.activity.merge(SeasonQuestRules.ACTIVE_MINUTES, 1L, Long::sum);
+        store.markWeekPlayer(player.getUniqueId());
+        ensureBoards(player, row);
+        if (SeasonQuestRules.countActiveMinute(row, today, variables.integer("season.daily.active-day-minutes"))) {
+            record(player, SeasonQuestRules.Objective.PLAY_DAYS, 1L);
+        }
+        double radius = variables.integer("season.together.radius");
+        double reach = radius * radius;
+        boolean near = false;
+        for (Player other : active) {
+            if (other != player && other.getWorld().equals(player.getWorld())
+                    && other.getLocation().distanceSquared(player.getLocation()) <= reach) {
+                near = true;
+                break;
+            }
+        }
+        if (near) record(player, SeasonQuestRules.Objective.TOGETHER_MINUTES, 1L);
+        boolean clanmate = clans != null && clans.clanOf(player.getUniqueId())
+                .map(clan -> active.stream().anyMatch(other -> other != player
+                        && clan.members().containsKey(other.getUniqueId())))
+                .orElse(false);
+        if (clanmate) record(player, SeasonQuestRules.Objective.CLAN_MINUTES, 1L);
+    }
+
+    // ------------------------------------------------------------------ boosts
+
+    /** Quest XP with catch-up and a live Rally applied. */
+    private long questXp(SeasonStore.Row row, long base) {
+        return SeasonQuestRules.boosted(base, catchUpPercent(row), rallyPercent());
+    }
+
+    int rallyPercent() {
+        return rally ? variables.integer("season.rally.xp-percent") : 100;
+    }
+
+    boolean rallyLive() {
+        return rally;
+    }
+
+    int rallyThreshold() {
+        return rallyThreshold;
+    }
+
+    int activePlayers() {
+        return activeCount;
+    }
+
+    private int catchUpPercent(SeasonStore.Row row) {
+        int tier = SeasonPassRules.tier(row.xp, xpPerTier(), maximumTier());
+        return SeasonQuestRules.catchingUp(tier, paceTier()) ? variables.integer("season.catch-up.xp-percent") : 100;
+    }
+
+    /** The tier the season's pace line has reached today. */
+    int paceTier() {
+        return SeasonQuestRules.paceTier(today(), store.startedDay(), store.endsDay(), maximumTier(),
+                variables.integer("season.catch-up.pace-percent"));
+    }
+
+    boolean catchingUp(UUID playerId) {
+        return catchUpPercent(store.row(playerId)) > 100;
+    }
+
+    private String boostNote(SeasonStore.Row row, boolean quest) {
+        List<String> notes = new ArrayList<>();
+        if (quest && catchUpPercent(row) > 100) notes.add("catch-up " + multiplier(catchUpPercent(row)));
+        if (rallyPercent() > 100) notes.add("Rally " + multiplier(rallyPercent()));
+        return notes.isEmpty() ? "" : " (" + String.join(", ", notes) + ")";
+    }
+
+    static String multiplier(int percent) {
+        return "x" + java.math.BigDecimal.valueOf(percent, 2).stripTrailingZeros().toPlainString();
+    }
+
+    // ------------------------------------------------------------------ community goal
+
+    /** Sets this week's server-wide goal once, from last week's totals. */
+    private void ensureCommunity(long today) {
+        long week = SeasonQuestRules.weeklyPeriod(today);
+        boolean rolled = store.rollWeek(week);
+        SeasonStore.Community current = store.community();
+        if (!rolled && current.week == week) return;
+        SeasonStore.Community next = new SeasonStore.Community();
+        SeasonQuestRules.Objective objective = SeasonQuestRules.communityObjective(week);
+        next.week = week;
+        next.objective = objective.key();
+        next.target = SeasonQuestRules.communityTarget(objective, store.lastWeekTotal(objective.key()),
+                store.lastWeekPlayers(), variables.integer("season.community.growth-percent"));
+        store.community(next);
+        dirty = true;
+        if (enabled() && variables.bool("season.community.enabled")) {
+            Component line = Component.text("COMMUNITY GOAL » ", ORANGE, TextDecoration.BOLD)
+                    .append(Component.text("This week, together: " + objective.label(next.target)
+                            + ". Everyone who helps earns " + variables.integer("season.community.xp")
+                            + " Season XP. /quests", NamedTextColor.WHITE));
+            plugin.getServer().getOnlinePlayers().forEach(player -> player.sendMessage(line));
+        }
+    }
+
+    private void contribute(Player player, SeasonQuestRules.Objective objective, long amount) {
+        if (!variables.bool("season.community.enabled")) return;
+        SeasonStore.Community goal = store.community();
+        if (goal.completed || goal.week != SeasonQuestRules.weeklyPeriod(today())
+                || !objective.key().equals(goal.objective)) return;
+        goal.progress = Math.min(goal.target, goal.progress + amount);
+        goal.contributions.merge(player.getUniqueId().toString(), amount, Long::sum);
+        int quarter = (int) Math.min(4L, goal.progress * 4L / Math.max(1L, goal.target));
+        if (quarter > goal.announcedQuarter) {
+            goal.announcedQuarter = quarter;
+            if (quarter < 4) {
+                Component line = Component.text("COMMUNITY GOAL » ", ORANGE, TextDecoration.BOLD)
+                        .append(Component.text((quarter * 25) + "% done: " + objective.label(goal.target)
+                                + ". Help before Monday to share " + variables.integer("season.community.xp")
+                                + " Season XP.", NamedTextColor.WHITE));
+                plugin.getServer().getOnlinePlayers().forEach(online -> online.sendMessage(line));
+            }
+        }
+        if (goal.progress >= goal.target) completeCommunity(goal, objective);
+    }
+
+    private void completeCommunity(SeasonStore.Community goal, SeasonQuestRules.Objective objective) {
+        goal.completed = true;
+        long minimum = SeasonQuestRules.contributorMinimum(objective, goal.target);
+        long xp = Math.max(0, variables.integer("season.community.xp"));
+        int helpers = 0;
+        for (Map.Entry<String, Long> entry : goal.contributions.entrySet()) {
+            if (entry.getValue() < minimum) continue;
+            UUID id;
+            try {
+                id = UUID.fromString(entry.getKey());
+            } catch (IllegalArgumentException invalid) {
+                continue;
+            }
+            helpers++;
+            Player online = plugin.getServer().getPlayer(id);
+            SeasonStore.Row row = store.row(id);
+            if (online != null) {
+                info(online, "Community goal reached! +" + xp + " Season XP for helping.");
+                addXp(online, row, xp);
+            } else {
+                row.owedXp += xp;
+            }
+        }
+        dirty = true;
+        Component line = Component.text("COMMUNITY GOAL REACHED » ", ORANGE, TextDecoration.BOLD)
+                .append(Component.text(helpers + (helpers == 1 ? " player" : " players") + " finished "
+                        + objective.label(goal.target) + " together. Everyone who helped earned "
+                        + xp + " Season XP.", NamedTextColor.WHITE));
+        plugin.getServer().getOnlinePlayers().forEach(player -> player.sendMessage(line));
+    }
+
+    /** Season XP for bringing somebody to the server, paid now or at the inviter's next join. */
+    void referralXp(UUID referrerId, String refereeName) {
+        long xp = variables.integer("season.referral-xp");
+        if (!enabled() || xp <= 0L || referrerId == null) return;
+        Player online = plugin.getServer().getPlayer(referrerId);
+        SeasonStore.Row row = store.row(referrerId);
+        if (online != null) {
+            info(online, "+" + xp + " Season XP for bringing " + refereeName + " to the server.");
+            addXp(online, row, xp);
+        } else {
+            row.owedXp += xp;
+        }
+        dirty = true;
+        save();
     }
 
     static String roman(int number) {
@@ -260,21 +548,60 @@ final class SeasonPassService implements Listener, CommandExecutor {
     private void pulse() {
         long today = today();
         if (ensureSeason(today)) save();
+        ensureCommunity(today);
         if (!enabled()) return;
-        int perMinute = variables.integer("season.xp-per-active-minute");
+        List<Player> active = new ArrayList<>();
         for (Player player : List.copyOf(plugin.getServer().getOnlinePlayers())) {
-            if (VerificationLobbyService.isLobbyWorld(player.getWorld())) continue;
-            if (plugin.afkService() != null && plugin.afkService().isAfk(player.getUniqueId())) continue;
+            if (VerificationLobbyService.isLobbyWorld(player.getWorld()) || afk(player)) continue;
+            active.add(player);
+        }
+        updateRally(active.size());
+        int perMinute = variables.integer("season.xp-per-active-minute");
+        for (Player player : active) {
+            countMinute(player, active, today);
             progress(player, SeasonPassRules.QuestType.PLAY_MINUTES, 1L);
             SeasonStore.Row row = rowFor(player);
             if (perMinute > 0) {
-                addXp(player, row, perMinute);
+                addXp(player, row, SeasonQuestRules.boosted(perMinute, rallyPercent()));
                 dirty = true;
             } else {
                 grantReachedTiers(player, row);
             }
         }
         if (dirty) save();
+    }
+
+    /**
+     * Starts or ends a Rally from how many people are actually playing. The threshold is
+     * the busiest quarter of the last week's hours, so it always asks for a busier server
+     * than usual, and the start pings Discord's Event Pings role to fill it further.
+     */
+    private void updateRally(int active) {
+        activeCount = active;
+        store.recordActive(System.currentTimeMillis() / 3_600_000L, active);
+        dirty = true;
+        rallyThreshold = SeasonQuestRules.rallyThreshold(store.hourlyPeaks(),
+                variables.integer("season.rally.minimum-players"));
+        boolean live = variables.bool("season.rally.enabled")
+                && SeasonQuestRules.rallyLive(rally, active, rallyThreshold);
+        if (live == rally) return;
+        rally = live;
+        String boost = multiplier(variables.integer("season.rally.xp-percent"));
+        Component line = live
+                ? Component.text("RALLY » ", ORANGE, TextDecoration.BOLD)
+                        .append(Component.text(active + " players are online: " + boost
+                                + " Season XP while the server stays this busy.", NamedTextColor.WHITE))
+                : Component.text("RALLY » ", ORANGE, TextDecoration.BOLD)
+                        .append(Component.text("The Rally has ended. It starts again at " + rallyThreshold
+                                + " active players.", NamedTextColor.WHITE));
+        plugin.getServer().getOnlinePlayers().forEach(player -> player.sendMessage(line));
+        long now = System.currentTimeMillis();
+        long cooldown = variables.integer("season.rally.ping-cooldown-minutes") * 60_000L;
+        if (live && now - store.lastRallyPingAt() >= cooldown) {
+            store.lastRallyPingAt(now);
+            plugin.pingDiscord("ping_event_live", "A Season XP Rally started with " + active + " players online",
+                    Map.of("event", boost + " Season XP Rally"));
+        }
     }
 
     // ------------------------------------------------------------------ rewards
@@ -480,15 +807,69 @@ final class SeasonPassService implements Listener, CommandExecutor {
         }, 2L);
         plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
             if (!player.isOnline() || !enabled()) return;
-            SeasonStore.Row row = store.row(player.getUniqueId());
+            SeasonStore.Row row = rowFor(player);
             if (row.owedShards > 0) {
                 giveShards(player, row.owedShards);
                 info(player, "Your Season podium prize arrived: " + row.owedShards + " Shards.");
                 row.owedShards = 0;
                 dirty = true;
-                save();
             }
+            if (row.owedXp > 0L) {
+                long owed = row.owedXp;
+                row.owedXp = 0L;
+                info(player, "+" + owed + " Season XP arrived while you were away.");
+                addXp(player, row, owed);
+                dirty = true;
+            }
+            if (VerificationLobbyService.isLobbyWorld(player.getWorld())) {
+                if (dirty) save();
+                return;
+            }
+            ensureBoards(player, row);
+            greet(player, row);
+            if (dirty) save();
         }, 120L);
+    }
+
+    /** One line with today's open quests, so nobody has to remember the board exists. */
+    private void greet(Player player, SeasonStore.Row row) {
+        List<String> open = new ArrayList<>();
+        if (row.daily != null) {
+            for (SeasonStore.Slot slot : row.daily.slots) {
+                if (slot.done) continue;
+                SeasonQuestRules.Objective.of(slot.objective).ifPresent(objective ->
+                        open.add(objective.label(slot.target)));
+            }
+        }
+        Component line = Component.text("SEASON » ", ORANGE, TextDecoration.BOLD)
+                .append(Component.text(open.isEmpty()
+                        ? "Today's quests are done. New ones in " + untilTomorrow() + "."
+                        : "Today: " + String.join("  ·  ", open) + ".", NamedTextColor.WHITE))
+                .append(Component.text("  [Quests]", NamedTextColor.GOLD, TextDecoration.BOLD)
+                        .clickEvent(ClickEvent.runCommand("/quests"))
+                        .hoverEvent(HoverEvent.showText(Component.text("Open your quests"))));
+        player.sendMessage(line);
+        int tier = SeasonPassRules.tier(row.xp, xpPerTier(), maximumTier());
+        int pace = paceTier();
+        if (SeasonQuestRules.catchingUp(tier, pace)) {
+            info(player, "Catch-up is on: quest XP " + multiplier(variables.integer("season.catch-up.xp-percent"))
+                    + " until you reach Tier " + pace + ".");
+        }
+        if (rally) {
+            info(player, "A Rally is live: " + multiplier(variables.integer("season.rally.xp-percent"))
+                    + " Season XP while " + (rallyThreshold - 1) + "+ players stay on.");
+        }
+    }
+
+    String untilTomorrow() {
+        return compact(LocalDate.ofEpochDay(today() + 1L).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+                - System.currentTimeMillis());
+    }
+
+    String untilNextWeek() {
+        long day = SeasonQuestRules.nextWeekStartDay(SeasonQuestRules.weeklyPeriod(today()));
+        return compact(LocalDate.ofEpochDay(day).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+                - System.currentTimeMillis());
     }
 
     // ------------------------------------------------------------------ hooks
@@ -560,12 +941,28 @@ final class SeasonPassService implements Listener, CommandExecutor {
                         + "  •  ends " + endsIn()), RULE_WIDTH),
                 DialogBody.plainMessage(MenuText.stat("Your tier", tier + " / " + maximumTier()), RULE_WIDTH),
                 DialogBody.plainMessage(Component.empty(), RULE_WIDTH),
-                DialogBody.plainMessage(MenuText.rule("item/writable_book", "Quests",
-                        "Complete quest goals. Each level is bigger and pays more XP."), RULE_WIDTH),
+                DialogBody.plainMessage(MenuText.rule("item/writable_book", "Daily and weekly quests",
+                        "Three new quests every day and every week: your own game, one to play"
+                                + " together, and something to try. Finish a board for bonus XP."), RULE_WIDTH),
+                DialogBody.plainMessage(MenuText.rule("item/cake", "Community goal",
+                        "One goal for the whole server each week. Everyone who helps earns "
+                                + variables.integer("season.community.xp") + " XP."), RULE_WIDTH),
+                DialogBody.plainMessage(MenuText.rule("item/bell", "Rallies",
+                        "When " + rallyThreshold + "+ players are active, Season XP is "
+                                + multiplier(variables.integer("season.rally.xp-percent")) + "."), RULE_WIDTH),
+                DialogBody.plainMessage(MenuText.rule("item/compass_16", "Catch-up",
+                        "Behind the season's pace? Quest XP is "
+                                + multiplier(variables.integer("season.catch-up.xp-percent"))
+                                + " until you catch up."), RULE_WIDTH),
+                DialogBody.plainMessage(MenuText.rule("item/iron_sword", "Milestones",
+                        "Long-term goals for the whole season. Each level is bigger and pays more."), RULE_WIDTH),
                 DialogBody.plainMessage(MenuText.rule("item/clock_00", "Playtime",
                         variables.integer("season.xp-per-active-minute") + " XP every active minute. AFK time earns none."), RULE_WIDTH),
                 DialogBody.plainMessage(MenuText.rule("item/firework_star", "Daily streak",
                         variables.integer("season.streak-xp") + " XP each time you claim a streak day."), RULE_WIDTH),
+                DialogBody.plainMessage(MenuText.rule("item/name_tag", "Invite friends",
+                        variables.integer("season.referral-xp") + " XP when a friend you invite qualifies. /referrals"),
+                        RULE_WIDTH),
                 DialogBody.plainMessage(Component.empty(), RULE_WIDTH),
                 DialogBody.plainMessage(MenuText.rule("item/nether_star", "Season exclusives",
                         "Gear and cosmetics only this season pays. They never come back."), RULE_WIDTH),
@@ -580,8 +977,11 @@ final class SeasonPassService implements Listener, CommandExecutor {
                 DialogBody.plainMessage(MenuText.muted("Every tier pays the moment you reach it."
                         + " Rewards wait while you are in PvP or screenshot mode."), RULE_WIDTH)));
         String plain = "Season " + store.season() + " ends " + endsIn() + ". Tier " + tier + "/" + maximumTier()
-                + ".\nQuests are most of your XP, plus " + variables.integer("season.xp-per-active-minute")
-                + " XP per active minute and " + variables.integer("season.streak-xp") + " per streak day."
+                + ".\nDaily and weekly quests, the community goal and milestones are most of your XP, plus "
+                + variables.integer("season.xp-per-active-minute") + " XP per active minute and "
+                + variables.integer("season.streak-xp") + " per streak day."
+                + "\nRallies (" + rallyThreshold + "+ active players) and catch-up boost your XP."
+                + "\nInvite a friend: " + variables.integer("season.referral-xp") + " XP when they qualify."
                 + "\nSeason exclusives never come back. Season Hearts expire when the season ends.";
         show(player, "How The Pass Works", page, plain, List.of(
                 new Action("item/writable_book", "Quests", "Today's and this week's quests.",
@@ -590,13 +990,30 @@ final class SeasonPassService implements Listener, CommandExecutor {
                         this::openTop)), this::openPass);
     }
 
-    /** Every quest line as two lines: the current goal and its XP, then the progress. */
+    /**
+     * Every quest, in the order a player should care about it: what boosts are running,
+     * today's board, this week's board, the community goal, then the season milestones.
+     */
     void openQuests(Player player, Consumer<Player> back) {
         SeasonStore.Row row = rowFor(player);
+        ensureBoards(player, row);
         List<DialogBody> page = new ArrayList<>();
-        page.add(DialogBody.plainMessage(MenuText.muted("Complete a goal to unlock the next one."), RULE_WIDTH));
-        page.add(DialogBody.plainMessage(Component.empty(), RULE_WIDTH));
         StringBuilder plain = new StringBuilder();
+
+        boosts(row).forEach(boost -> {
+            page.add(DialogBody.plainMessage(MenuText.upright(boost), RULE_WIDTH));
+            plain.append(net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer.plainText()
+                    .serialize(boost)).append('\n');
+        });
+        page.add(DialogBody.plainMessage(Component.empty(), RULE_WIDTH));
+
+        board(page, plain, "DAILY", "resets in " + untilTomorrow(), row.daily,
+                variables.integer("season.daily.xp"), variables.integer("season.daily.sweep-xp"), row);
+        board(page, plain, "WEEKLY", "resets in " + untilNextWeek(), row.weekly,
+                variables.integer("season.weekly.xp"), variables.integer("season.weekly.sweep-xp"), row);
+        community(page, plain, player);
+
+        header(page, plain, "SEASON MILESTONES", "long-term goals, bigger every level");
         for (SeasonPassRules.QuestType type : SeasonPassRules.QuestType.values()) {
             long total = row.quests.getOrDefault(type.key(), 0L);
             int level = SeasonPassRules.levelFor(type, total);
@@ -604,30 +1021,148 @@ final class SeasonPassService implements Listener, CommandExecutor {
             if (quest.isEmpty()) {
                 page.add(DialogBody.plainMessage(MenuText.upright(Component.empty()
                         .append(MenuText.sprite("item/lime_dye")).append(Component.text(" "))
-                        .append(Component.text(type.title() + " complete  ✔", MenuText.VALUE))), RULE_WIDTH));
-                plain.append(type.title()).append(": complete\n");
-            } else {
-                long previous = level == 0 ? 0L : SeasonPassRules.quest(type, level - 1).orElseThrow().target();
-                long into = Math.max(0L, total - previous);
-                long span = Math.max(1L, quest.get().target() - previous);
-                int filled = (int) Math.min(12L, into * 12L / span);
-                String amount = type == SeasonPassRules.QuestType.SELL_MONEY
-                        ? EconomyFormat.dollars(total) + " / " + EconomyFormat.dollars(quest.get().target())
-                        : String.format(Locale.ROOT, "%,d / %,d", total, quest.get().target());
-                page.add(DialogBody.plainMessage(MenuText.upright(Component.empty()
-                        .append(MenuText.sprite(type.sprite())).append(Component.text(" "))
-                        .append(Component.text(quest.get().label(), NamedTextColor.WHITE))
-                        .append(Component.text("   +" + quest.get().xp() + " XP", MenuText.GOLD))), RULE_WIDTH));
-                page.add(DialogBody.plainMessage(MenuText.upright(Component.text("█".repeat(filled), MenuText.VALUE)
-                        .append(Component.text("█".repeat(12 - filled), TextColor.color(0x3A3F4B)))
-                        .append(Component.text("  " + amount + "   ·   Level " + (level + 1) + " of " + type.levels(),
-                                MenuText.MUTED))), RULE_WIDTH));
-                plain.append(quest.get().label()).append(" (").append(amount).append(") +")
-                        .append(quest.get().xp()).append(" XP\n");
+                        .append(Component.text(type.title() + " mastered  ✔", MenuText.VALUE))), RULE_WIDTH));
+                plain.append(type.title()).append(": mastered\n");
+                continue;
             }
-            page.add(DialogBody.plainMessage(Component.empty(), RULE_WIDTH));
+            long previous = level == 0 ? 0L : SeasonPassRules.quest(type, level - 1).orElseThrow().target();
+            String amount = type == SeasonPassRules.QuestType.SELL_MONEY
+                    ? EconomyFormat.dollars(total) + " / " + EconomyFormat.dollars(quest.get().target())
+                    : String.format(Locale.ROOT, "%,d / %,d", total, quest.get().target());
+            page.add(DialogBody.plainMessage(MenuText.upright(Component.empty()
+                    .append(MenuText.sprite(type.sprite())).append(Component.text(" "))
+                    .append(Component.text(quest.get().label(), NamedTextColor.WHITE))
+                    .append(Component.text("   +" + quest.get().xp() + " XP", MenuText.GOLD))), RULE_WIDTH));
+            page.add(DialogBody.plainMessage(MenuText.upright(bar(total - previous, quest.get().target() - previous)
+                    .append(Component.text("  " + amount + "   ·   Level " + (level + 1) + " of " + type.levels(),
+                            MenuText.MUTED))), RULE_WIDTH));
+            plain.append(quest.get().label()).append(" (").append(amount).append(")\n");
         }
         show(player, "Quests", page, plain.toString().strip(), List.of(), back == null ? this::openPass : back);
+    }
+
+    /** The boosts running for this player right now, or what would start one. */
+    List<Component> boosts(SeasonStore.Row row) {
+        List<Component> lines = new ArrayList<>();
+        if (variables.bool("season.rally.enabled")) {
+            lines.add(rally
+                    ? Component.text("RALLY LIVE  ", ORANGE, TextDecoration.BOLD)
+                            .append(Component.text(multiplier(rallyPercent()) + " Season XP while "
+                                    + (rallyThreshold - 1) + "+ players stay on", NamedTextColor.WHITE)
+                                    .decoration(TextDecoration.BOLD, false))
+                    : Component.text("Rally at " + rallyThreshold + " active players", NamedTextColor.WHITE)
+                            .append(Component.text("   " + activeCount + " now  ·  "
+                                    + multiplier(variables.integer("season.rally.xp-percent"))
+                                    + " Season XP. Bring friends.", MenuText.MUTED)));
+        }
+        int tier = SeasonPassRules.tier(row.xp, xpPerTier(), maximumTier());
+        int pace = paceTier();
+        if (SeasonQuestRules.catchingUp(tier, pace)) {
+            lines.add(Component.text("CATCH-UP  ", NamedTextColor.GREEN, TextDecoration.BOLD)
+                    .append(Component.text("Quest XP " + multiplier(variables.integer("season.catch-up.xp-percent"))
+                            + " until Tier " + pace, NamedTextColor.WHITE).decoration(TextDecoration.BOLD, false)));
+        }
+        return lines;
+    }
+
+    private void header(List<DialogBody> page, StringBuilder plain, String title, String note) {
+        page.add(DialogBody.plainMessage(MenuText.upright(Component.text(title, NamedTextColor.WHITE, TextDecoration.BOLD)
+                .append(Component.text("   " + note, MenuText.MUTED).decoration(TextDecoration.BOLD, false))),
+                RULE_WIDTH));
+        plain.append('\n').append(title).append(" (").append(note).append(")\n");
+    }
+
+    private void board(
+            List<DialogBody> page, StringBuilder plain, String title, String note, SeasonStore.Board board,
+            long base, long sweepXp, SeasonStore.Row row
+    ) {
+        header(page, plain, title, note);
+        if (board == null) return;
+        long xp = questXp(row, base);
+        for (SeasonStore.Slot slot : board.slots) {
+            var objective = SeasonQuestRules.Objective.of(slot.objective);
+            if (objective.isEmpty()) continue;
+            String goal = goalLabel(slot.goal);
+            String label = objective.get().label(slot.target);
+            if (slot.done) {
+                page.add(DialogBody.plainMessage(MenuText.upright(Component.empty()
+                        .append(MenuText.sprite("item/lime_dye")).append(Component.text(" "))
+                        .append(Component.text(label + "  ✔", MenuText.VALUE))
+                        .append(Component.text("   " + goal, MenuText.MUTED))), RULE_WIDTH));
+                plain.append("✔ ").append(label).append('\n');
+                continue;
+            }
+            page.add(DialogBody.plainMessage(MenuText.upright(Component.empty()
+                    .append(MenuText.sprite(objective.get().sprite)).append(Component.text(" "))
+                    .append(Component.text(label, NamedTextColor.WHITE))
+                    .append(Component.text("   +" + xp + " XP", MenuText.GOLD))), RULE_WIDTH));
+            page.add(DialogBody.plainMessage(MenuText.upright(bar(slot.progress, slot.target)
+                    .append(Component.text(String.format(Locale.ROOT, "  %,d / %,d   ·   %s",
+                            slot.progress, slot.target, goal), MenuText.MUTED))), RULE_WIDTH));
+            plain.append(goal).append(": ").append(label)
+                    .append(String.format(Locale.ROOT, " (%,d/%,d) +%d XP%n", slot.progress, slot.target, xp));
+        }
+        if (sweepXp > 0L) {
+            boolean swept = board.swept;
+            page.add(DialogBody.plainMessage(MenuText.muted(swept ? "Board cleared  ✔"
+                    : "Finish all three for +" + questXp(row, sweepXp) + " bonus XP"), RULE_WIDTH));
+            plain.append(swept ? "Board cleared\n" : "All three: +" + questXp(row, sweepXp) + " bonus XP\n");
+        }
+        page.add(DialogBody.plainMessage(Component.empty(), RULE_WIDTH));
+    }
+
+    private void community(List<DialogBody> page, StringBuilder plain, Player player) {
+        if (!variables.bool("season.community.enabled")) return;
+        SeasonStore.Community goal = store.community();
+        var objective = SeasonQuestRules.Objective.of(goal.objective);
+        if (objective.isEmpty() || goal.week != SeasonQuestRules.weeklyPeriod(today())) return;
+        header(page, plain, "COMMUNITY GOAL", "the whole server, this week");
+        long mine = goal.contributions.getOrDefault(player.getUniqueId().toString(), 0L);
+        long minimum = SeasonQuestRules.contributorMinimum(objective.get(), goal.target);
+        String label = objective.get().label(goal.target);
+        page.add(DialogBody.plainMessage(MenuText.upright(Component.empty()
+                .append(MenuText.sprite(goal.completed ? "item/lime_dye" : objective.get().sprite))
+                .append(Component.text(" "))
+                .append(Component.text(label + (goal.completed ? "  ✔" : ""),
+                        goal.completed ? MenuText.VALUE : NamedTextColor.WHITE))
+                .append(Component.text("   +" + variables.integer("season.community.xp") + " XP each",
+                        MenuText.GOLD))), RULE_WIDTH));
+        String share = mine >= minimum ? String.format(Locale.ROOT, "you helped: %,d", mine)
+                : String.format(Locale.ROOT, "you: %,d of %,d to share the reward", mine, minimum);
+        page.add(DialogBody.plainMessage(MenuText.upright(bar(goal.progress, goal.target)
+                .append(Component.text(String.format(Locale.ROOT, "  %,d / %,d   ·   %s",
+                        goal.progress, goal.target, share), MenuText.MUTED))), RULE_WIDTH));
+        plain.append("Community: ").append(label)
+                .append(String.format(Locale.ROOT, " (%,d/%,d), %s%n", goal.progress, goal.target, share));
+        page.add(DialogBody.plainMessage(Component.empty(), RULE_WIDTH));
+    }
+
+    private static String goalLabel(String goal) {
+        try {
+            return SeasonQuestRules.Goal.valueOf(goal).label;
+        } catch (IllegalArgumentException unknown) {
+            return "Quest";
+        }
+    }
+
+    private static Component bar(long into, long span) {
+        int filled = (int) Math.max(0L, Math.min(12L, into * 12L / Math.max(1L, span)));
+        return Component.text("█".repeat(filled), MenuText.VALUE)
+                .append(Component.text("█".repeat(12 - filled), TextColor.color(0x3A3F4B)));
+    }
+
+    /** Open quests on each board, for the pass overview. */
+    Component questSummary(UUID playerId) {
+        SeasonStore.Row row = store.row(playerId);
+        long today = today();
+        long daily = row.daily != null && row.daily.period == today ? SeasonQuestRules.done(row.daily) : 0L;
+        long weekly = row.weekly != null && row.weekly.period == SeasonQuestRules.weeklyPeriod(today)
+                ? SeasonQuestRules.done(row.weekly) : 0L;
+        return Component.text("Daily " + daily + "/3   ·   Weekly " + weekly + "/3", NamedTextColor.WHITE);
+    }
+
+    List<Component> boosts(UUID playerId) {
+        return boosts(store.row(playerId));
     }
 
     /** Bedrock has no dialogs: the same overview as a form, and each tier still opens its chest. */
@@ -635,7 +1170,10 @@ final class SeasonPassService implements Listener, CommandExecutor {
         int tier = tier(player.getUniqueId());
         int first = Math.min(maximumTier(), tier + 1);
         StringBuilder text = new StringBuilder("Tier " + tier + " of " + maximumTier() + ". Season ends " + endsIn()
-                + ".\nSeason Hearts " + store.hearts(player.getUniqueId()) + " / " + heartCap() + "\n\nTap a tier to see its rewards.");
+                + ".\nSeason Hearts " + store.hearts(player.getUniqueId()) + " / " + heartCap()
+                + "\n" + net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer.plainText()
+                        .serialize(questSummary(player.getUniqueId()))
+                + "\n\nTap a tier to see its rewards.");
         List<BedrockForms.Button> buttons = new ArrayList<>();
         for (int next = first; next <= Math.min(maximumTier(), first + 5); next++) {
             int chosen = next;

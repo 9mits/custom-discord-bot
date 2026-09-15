@@ -839,6 +839,9 @@ final class AmethystBlockEventService implements Listener {
                     "keys", String.valueOf(keys), "block", blockName())));
             player.playSound(player.getLocation(), Sound.UI_TOAST_CHALLENGE_COMPLETE, 1f,
                     completion ? 1.35f : 1.1f);
+            if (completion && plugin.seasonPass() != null) {
+                plugin.seasonPass().record(player, SeasonQuestRules.Objective.JOIN_EVENT, 1L);
+            }
         }
     }
 

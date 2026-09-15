@@ -29,6 +29,43 @@ final class SeasonStore {
         /** Quest line key to how many of its levels have been paid, so a retuned ladder pays exactly once. */
         Map<String, Integer> questPaid = new LinkedHashMap<>();
         int owedShards;
+        /** Lifetime totals by quest objective plus active minutes: how boards learn what a player does. */
+        Map<String, Long> activity = new LinkedHashMap<>();
+        Board daily;
+        Board weekly;
+        /** The UTC day being counted toward the weekly return quest, and its active minutes so far. */
+        long activeDay = -1L;
+        int activeDayMinutes;
+        /** Season XP earned while offline, such as a community goal or a referral, paid at the next join. */
+        long owedXp;
+    }
+
+    /** One quest on a daily or weekly board. */
+    static final class Slot {
+        String objective = "";
+        String goal = "";
+        long target;
+        long progress;
+        boolean done;
+    }
+
+    /** A daily or weekly board, dealt for one period. */
+    static final class Board {
+        long period = Long.MIN_VALUE;
+        List<Slot> slots = new ArrayList<>();
+        boolean swept;
+    }
+
+    /** The server-wide goal for one week. */
+    static final class Community {
+        long week = Long.MIN_VALUE;
+        String objective = "";
+        long target;
+        long progress;
+        boolean completed;
+        /** The highest quarter already announced, so each milestone is said once. */
+        int announcedQuarter;
+        Map<String, Long> contributions = new LinkedHashMap<>();
     }
 
     static final class Podium {
@@ -46,6 +83,16 @@ final class SeasonStore {
         List<Podium> history = new ArrayList<>();
         /** Season Hearts earned this season. A new season clears them. */
         Map<String, Integer> hearts = new LinkedHashMap<>();
+        /** Most active players seen in each recent UTC hour, keyed by epoch hour; sizes the Rally. */
+        Map<String, Integer> hourlyPeaks = new LinkedHashMap<>();
+        /** Server totals by objective for the week being counted, and the one before it. */
+        long totalsWeek = Long.MIN_VALUE;
+        Map<String, Long> weekTotals = new LinkedHashMap<>();
+        Map<String, Long> lastWeekTotals = new LinkedHashMap<>();
+        List<String> weekPlayers = new ArrayList<>();
+        int lastWeekPlayers;
+        Community community = new Community();
+        long lastRallyPingAt;
     }
 
     private final Path file;
@@ -66,7 +113,14 @@ final class SeasonStore {
         if (data.players == null) data.players = new LinkedHashMap<>();
         if (data.history == null) data.history = new ArrayList<>();
         if (data.hearts == null) data.hearts = new LinkedHashMap<>();
+        if (data.hourlyPeaks == null) data.hourlyPeaks = new LinkedHashMap<>();
+        if (data.weekTotals == null) data.weekTotals = new LinkedHashMap<>();
+        if (data.lastWeekTotals == null) data.lastWeekTotals = new LinkedHashMap<>();
+        if (data.weekPlayers == null) data.weekPlayers = new ArrayList<>();
+        if (data.community == null) data.community = new Community();
+        if (data.community.contributions == null) data.community.contributions = new LinkedHashMap<>();
         for (Row row : data.players.values()) {
+            if (row.activity == null) row.activity = new LinkedHashMap<>();
             if (row.quests == null) row.quests = new LinkedHashMap<>();
             if (row.questPaid == null) row.questPaid = new LinkedHashMap<>();
             if (row.name == null) row.name = "";
@@ -114,6 +168,84 @@ final class SeasonStore {
     synchronized void setHearts(UUID playerId, int hearts) {
         if (hearts <= 0) data.hearts.remove(playerId.toString());
         else data.hearts.put(playerId.toString(), hearts);
+    }
+
+    /** Keeps one peak per UTC hour for the last week. */
+    synchronized void recordActive(long epochHour, int active) {
+        String key = Long.toString(epochHour);
+        data.hourlyPeaks.merge(key, active, Math::max);
+        data.hourlyPeaks.keySet().removeIf(hour -> {
+            try {
+                return Long.parseLong(hour) <= epochHour - 168L;
+            } catch (NumberFormatException invalid) {
+                return true;
+            }
+        });
+    }
+
+    synchronized List<Integer> hourlyPeaks() {
+        return List.copyOf(data.hourlyPeaks.values());
+    }
+
+    /**
+     * Rolls the server's weekly totals when a new week begins. Returns whether it rolled,
+     * so the caller can set the week's community goal from the totals just archived.
+     */
+    synchronized boolean rollWeek(long week) {
+        if (data.totalsWeek == week) return false;
+        // Only a consecutive week is "last week"; after a long gap there is no recent history.
+        boolean consecutive = data.totalsWeek == week - 1L;
+        data.lastWeekTotals = consecutive ? new LinkedHashMap<>(data.weekTotals) : new LinkedHashMap<>();
+        data.lastWeekPlayers = consecutive ? data.weekPlayers.size() : 0;
+        data.weekTotals.clear();
+        data.weekPlayers.clear();
+        data.totalsWeek = week;
+        return true;
+    }
+
+    synchronized void addWeekTotal(String objective, long amount) {
+        data.weekTotals.merge(objective, amount, Long::sum);
+    }
+
+    synchronized void markWeekPlayer(UUID playerId) {
+        String id = playerId.toString();
+        if (!data.weekPlayers.contains(id)) data.weekPlayers.add(id);
+    }
+
+    synchronized long lastWeekTotal(String objective) {
+        return data.lastWeekTotals.getOrDefault(objective, 0L);
+    }
+
+    synchronized int lastWeekPlayers() {
+        return data.lastWeekPlayers;
+    }
+
+    synchronized Community community() {
+        return data.community;
+    }
+
+    synchronized void community(Community community) {
+        data.community = community;
+    }
+
+    synchronized long lastRallyPingAt() {
+        return data.lastRallyPingAt;
+    }
+
+    synchronized void lastRallyPingAt(long at) {
+        data.lastRallyPingAt = at;
+    }
+
+    synchronized Map<UUID, Row> rows() {
+        Map<UUID, Row> rows = new LinkedHashMap<>();
+        data.players.forEach((id, row) -> {
+            try {
+                rows.put(UUID.fromString(id), row);
+            } catch (IllegalArgumentException invalid) {
+                // skipped
+            }
+        });
+        return rows;
     }
 
     synchronized Row row(UUID playerId) {

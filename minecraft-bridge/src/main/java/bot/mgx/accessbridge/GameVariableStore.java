@@ -1528,6 +1528,52 @@ final class GameVariableStore {
                         + " commas. A ladder longer than this list reuses the last value.",
                 SeasonPassRules.ladderText(java.util.Arrays.stream(SeasonPassRules.LEVEL_XP).asLongStream().toArray()),
                 240);
+        // Boards exist to bring players back and together, so a day of quests is worth
+        // more than an hour of grinding: 600 XP a day against 120 for an active hour.
+        integer("season.daily.xp", "XP per daily quest", "Season Quests",
+                "Season XP for each of the three daily quests. Boards reset at 00:00 UTC.",
+                150, 0, 10_000, "xp", false);
+        integer("season.daily.sweep-xp", "Daily board bonus", "Season Quests",
+                "Extra Season XP for finishing all three daily quests.", 150, 0, 10_000, "xp", false);
+        integer("season.weekly.xp", "XP per weekly quest", "Season Quests",
+                "Season XP for each of the three weekly quests. Weeks reset Monday 00:00 UTC.",
+                700, 0, 50_000, "xp", false);
+        integer("season.weekly.sweep-xp", "Weekly board bonus", "Season Quests",
+                "Extra Season XP for finishing all three weekly quests.", 700, 0, 50_000, "xp", false);
+        integer("season.weekly.play-days", "Days for the return quest", "Season Quests",
+                "Different days a player must play for the weekly Come Back quest.", 4, 1, 7, "days", false);
+        integer("season.daily.active-day-minutes", "Minutes that make a day", "Season Quests",
+                "Active minutes in one UTC day before it counts toward the Come Back quest.",
+                10, 1, 240, "minutes", false);
+        integer("season.together.radius", "Together radius", "Season Quests",
+                "Blocks within which another active player counts as playing together.",
+                48, 8, 256, "blocks", false);
+        bool("season.community.enabled", "Community goal", "Season Quests",
+                "Run a weekly server-wide goal. Its target is last week's total plus the growth below.", true);
+        integer("season.community.xp", "Community goal XP", "Season Quests",
+                "Season XP for every player who helped when the community goal is reached.",
+                1_000, 0, 50_000, "xp", false);
+        integer("season.community.growth-percent", "Community goal growth", "Season Quests",
+                "How much more than last week's server total the community goal asks for.",
+                10, 0, 100, "percent", false);
+        bool("season.rally.enabled", "Rallies", "Season Quests",
+                "Boost Season XP while the server is busy, and ping Discord Event Pings when one starts.", true);
+        integer("season.rally.minimum-players", "Rally minimum players", "Season Quests",
+                "Fewest active players that can start a Rally. The real threshold follows the busiest"
+                        + " quarter of the last week's hours and is never lower than this.",
+                6, 2, 200, "players", false);
+        integer("season.rally.xp-percent", "Rally XP", "Season Quests",
+                "Season XP earned during a Rally, as a percentage of normal.", 150, 100, 400, "percent", false);
+        integer("season.rally.ping-cooldown-minutes", "Rally ping cooldown", "Season Quests",
+                "Least time between two Discord pings for a Rally starting.", 180, 15, 1_440, "minutes", false);
+        integer("season.catch-up.pace-percent", "Catch-up pace", "Season Quests",
+                "Share of the pass the season's pace line reaches by its last day. Players below the"
+                        + " line earn boosted quest XP. 0 turns catch-up off.", 50, 0, 100, "percent", false);
+        integer("season.catch-up.xp-percent", "Catch-up XP", "Season Quests",
+                "Quest XP for a player below the pace line, as a percentage of normal.", 200, 100, 500, "percent", false);
+        integer("season.referral-xp", "Referral XP", "Season Quests",
+                "Season XP for the inviter each time a referral is paid, on top of its Shards.",
+                1_500, 0, 50_000, "xp", false);
 
         bool("streaks.enabled", "Daily login streaks", "Login Streaks",
                 "Reward players for playing a few active minutes every UTC day.", true);
