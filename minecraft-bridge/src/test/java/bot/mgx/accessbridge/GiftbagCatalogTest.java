@@ -2,6 +2,9 @@ package bot.mgx.accessbridge;
 
 import org.junit.jupiter.api.Test;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
 import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -31,5 +34,23 @@ final class GiftbagCatalogTest {
         assertTrue(GiftbagCatalog.forSeason(999).stream().noneMatch(entry ->
                 entry.kind() == GiftbagCatalog.Kind.SEASON_GEAR
                         || entry.kind() == GiftbagCatalog.Kind.SEASON_COSMETIC));
+    }
+
+    @Test
+    void mythicItemIdsAreCompleteAndStableForAdminTesting() {
+        assertEquals(List.of("riftcleaver", "worldcarver", "fatebound_idol"),
+                GiftbagCatalog.mythicItemIds());
+        assertTrue(GiftbagCatalog.mythicItemIds().stream().allMatch(id ->
+                GiftbagCatalog.find(id).orElseThrow().rarity() == GiftbagCatalog.Rarity.MYTHIC_ITEM));
+    }
+
+    @Test
+    void giftbagPresentationUsesPlainEnglishVanillaStyle() throws Exception {
+        for (String file : List.of("GiftbagCatalog.java", "GiftbagService.java",
+                "MythicGiftItemService.java", "SeasonPassMenu.java", "SeasonPassService.java")) {
+            String source = Files.readString(Path.of("src/main/java/bot/mgx/accessbridge", file));
+            assertTrue(!source.contains("幻"), file + " contains the discarded placeholder character");
+            assertTrue(!source.contains("IMPOSSIBLE"), file + " still labels a Giftbag item as impossible");
+        }
     }
 }

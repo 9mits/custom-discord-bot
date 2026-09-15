@@ -26,9 +26,9 @@ import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 
-/** The three permanent, extremely rare power items that only a Giftbag can hatch. */
+/** The three permanent, extremely rare power items found only in a Mythic Giftbag. */
 final class MythicGiftItemService implements Listener {
-    private static final TextColor IMPOSSIBLE = TextColor.color(0x53E5FF);
+    private static final TextColor MYTHIC = TextColor.color(0x53E5FF);
 
     private final MGXAccessBridge plugin;
     private final GameVariableStore variables;
@@ -88,12 +88,13 @@ final class MythicGiftItemService implements Listener {
         switch (kind.get()) {
             case "riftcleaver" -> {
                 int looting = variables.integer("season.giftbag.riftcleaver.looting-level");
-                meta.displayName(name("✦ Riftcleaver ✦"));
+                meta.displayName(name("Riftcleaver"));
                 meta.lore(List.of(
-                        lore("Permanent. Unbreakable. Impossible."),
+                        lore("Unbreakable"),
                         lore("Deals " + formatMultiplier(variables.decimal("season.giftbag.riftcleaver.mob-damage-multiplier"))
-                                + " total damage to mobs."),
-                        lore("Looting " + looting + ". Never gains bonus damage against players."),
+                                + " damage to mobs"),
+                        lore("Looting " + looting),
+                        lore("No bonus damage against players"),
                         rarity()
                 ));
                 meta.addEnchant(Enchantment.SHARPNESS, 5, true);
@@ -104,11 +105,11 @@ final class MythicGiftItemService implements Listener {
             case "worldcarver" -> {
                 int efficiency = variables.integer("season.giftbag.worldcarver.efficiency-level");
                 int fortune = variables.integer("season.giftbag.worldcarver.fortune-level");
-                meta.displayName(name("✦ Worldcarver ✦"));
+                meta.displayName(name("Worldcarver"));
                 meta.lore(List.of(
-                        lore("Permanent. Unbreakable. Impossible."),
-                        lore("Efficiency " + efficiency + " · Fortune " + fortune),
-                        lore("A tool spoken about more often than it is seen."),
+                        lore("Unbreakable"),
+                        lore("Efficiency " + efficiency),
+                        lore("Fortune " + fortune),
                         rarity()
                 ));
                 meta.removeEnchant(Enchantment.EFFICIENCY);
@@ -119,11 +120,11 @@ final class MythicGiftItemService implements Listener {
             case "fatebound_idol" -> {
                 int charges = Math.max(1, meta.getPersistentDataContainer()
                         .getOrDefault(chargesKey, PersistentDataType.INTEGER, defaultCharges(kind.get())));
-                meta.displayName(name("✦ Fatebound Idol ✦"));
+                meta.displayName(name("Fatebound Idol"));
                 meta.lore(List.of(
-                        lore("Fate refuses to take you " + charges + (charges == 1 ? " time." : " times.")),
-                        lore("Each resurrection consumes one sealed charge."),
-                        lore("The last charge consumes the Idol."),
+                        lore(charges + (charges == 1 ? " charge" : " charges")),
+                        lore("Consumes one charge on use"),
+                        lore("The final charge consumes the Idol"),
                         rarity()
                 ));
             }
@@ -228,7 +229,7 @@ final class MythicGiftItemService implements Listener {
     }
 
     private static Component name(String text) {
-        return Component.text(text, IMPOSSIBLE, TextDecoration.BOLD).decoration(TextDecoration.ITALIC, false);
+        return Component.text(text, MYTHIC).decoration(TextDecoration.ITALIC, false);
     }
 
     private static Component lore(String text) {
@@ -236,7 +237,7 @@ final class MythicGiftItemService implements Listener {
     }
 
     private static Component rarity() {
-        return Component.text("幻 IMPOSSIBLE · MYTHIC GIFTBAG ONLY", IMPOSSIBLE, TextDecoration.BOLD)
+        return Component.text("Mythic Giftbag item", MYTHIC)
                 .decoration(TextDecoration.ITALIC, false);
     }
 

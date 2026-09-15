@@ -28,7 +28,7 @@ final class AdminGive {
 
 
     static final List<String> TYPES = List.of(
-            "money", "key", "shard", "giftbag", "cosmetic", "cosmetics", "reward", "amethyst", "daily", "afk"
+            "money", "key", "shard", "giftbag", "mythic", "cosmetic", "cosmetics", "reward", "amethyst", "daily", "afk"
     );
 
     /** Every cosmetic an administrator can preview or grant through command completion. */
@@ -43,6 +43,7 @@ final class AdminGive {
         KEY,
         SHARD,
         GIFTBAG,
+        MYTHIC_ITEM,
         COSMETIC,
         LEADERBOARD_COSMETICS,
         REWARD,
@@ -100,6 +101,14 @@ final class AdminGive {
                 }
                 return new Request(Type.GIFTBAG, amount, null);
             }
+            case "mythic", "mythic_item", "mythicitem" -> {
+                if (value == null || value.isBlank()) {
+                    throw new IllegalArgumentException(
+                            "Give which mythic item? Use /mgxadmin give <player> mythic <id>."
+                    );
+                }
+                return new Request(Type.MYTHIC_ITEM, 1, value.trim().toLowerCase(Locale.ROOT));
+            }
             case "cosmetic" -> {
                 if (value == null || value.isBlank()) {
                     throw new IllegalArgumentException(
@@ -146,6 +155,6 @@ final class AdminGive {
 
     static String usage() {
         return "Usage: /mgxadmin give <player|everyone> "
-                + "<money|key|shard|giftbag [n]|cosmetic <id>|cosmetics|reward <id>|amethyst|daily <n>|afk <n>>";
+                + "<money|key|shard|giftbag [n]|mythic <id>|cosmetic <id>|cosmetics|reward <id>|amethyst|daily <n>|afk <n>>";
     }
 }

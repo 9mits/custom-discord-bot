@@ -45,15 +45,15 @@ final class SeasonItemService implements Listener {
         ItemMeta meta = stack.getItemMeta();
         meta.getPersistentDataContainer().set(itemKey, PersistentDataType.STRING, item.id);
         TextColor colour = TextColor.color(item.colour);
-        meta.displayName(Component.text(item.displayName, colour, TextDecoration.BOLD)
+        meta.displayName(Component.text(item.displayName, colour)
                 .decoration(TextDecoration.ITALIC, false));
         List<Component> lore = new ArrayList<>();
         lore.add(line(item.detail, NamedTextColor.GRAY));
         lore.add(Component.empty());
-        for (SeasonItemCatalog.Effect effect : item.effects) lore.add(line("• " + effect.describe(), NamedTextColor.WHITE));
+        for (SeasonItemCatalog.Effect effect : item.effects) lore.add(line(effect.describe(), NamedTextColor.WHITE));
         lore.add(Component.empty());
-        lore.add(line("Right-click to sound. Used up.", NamedTextColor.GRAY));
-        lore.add(Component.text("Season Pass Reward", colour, TextDecoration.BOLD).decoration(TextDecoration.ITALIC, false));
+        lore.add(line("Consumed on use", NamedTextColor.DARK_GRAY));
+        lore.add(Component.text("Season Pass", colour).decoration(TextDecoration.ITALIC, false));
         meta.lore(lore);
         meta.setEnchantmentGlintOverride(true);
         stack.setItemMeta(meta);

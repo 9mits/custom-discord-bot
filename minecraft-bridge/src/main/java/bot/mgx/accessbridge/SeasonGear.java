@@ -21,17 +21,17 @@ import java.util.Optional;
 final class SeasonGear {
     enum Piece {
         SCYTHE("scythe", "Scythe", "sword", "NETHERITE_SWORD",
-                "Reaper", "Deals 20% more damage to mobs"),
+                "Deals 20% more damage to mobs"),
         PICKAXE("pickaxe", "Pickaxe", "pickaxe", "NETHERITE_PICKAXE",
-                "Forge Touch", "Smelts the ores it mines"),
+                "Smelts the ores it mines"),
         AXE("axe", "Axe", "axe", "NETHERITE_AXE",
-                "Timber", "Fells up to 32 connected logs"),
+                "Fells up to 32 connected logs"),
         WINGS("wings", "Wings", "elytra", "ELYTRA",
-                "Never Breaks", "Shows this season's colours in flight"),
+                "Never breaks while gliding"),
         HOE("hoe", "Hoe", "hoe", "NETHERITE_HOE",
-                "Bountiful", "Harvests and replants a 5x5 of crops"),
+                "Harvests and replants a 5x5 of crops"),
         HELMET("helmet", "Helmet", "helmet", "NETHERITE_HELMET",
-                "Deepsight", "Night vision and water breathing while worn");
+                "Grants night vision and water breathing");
 
         /** Logs one swing of a Season Axe can fell. */
         static final int TIMBER_LIMIT = 32;
@@ -45,15 +45,13 @@ final class SeasonGear {
         /** The Amethyst kind whose abilities this piece carries. */
         final String kind;
         final String material;
-        final String ability;
         final String detail;
 
-        Piece(String key, String label, String kind, String material, String ability, String detail) {
+        Piece(String key, String label, String kind, String material, String detail) {
             this.key = key;
             this.label = label;
             this.kind = kind;
             this.material = material;
-            this.ability = ability;
             this.detail = detail;
         }
 

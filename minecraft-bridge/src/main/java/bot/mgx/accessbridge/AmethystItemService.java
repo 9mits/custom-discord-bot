@@ -384,7 +384,7 @@ final class AmethystItemService implements Listener {
         data.set(seasonPieceKey, PersistentDataType.STRING, piece.key);
         data.set(serialKey, PersistentDataType.STRING, UUID.randomUUID().toString());
         TextColor colour = TextColor.color(theme.primary());
-        meta.displayName(Component.text(SeasonGear.displayName(theme, piece), colour, TextDecoration.BOLD)
+        meta.displayName(Component.text(SeasonGear.displayName(theme, piece), colour)
                 .decoration(TextDecoration.ITALIC, false));
         NamespacedKey model = NamespacedKey.fromString(modelKey);
         if (model != null) meta.setItemModel(model);
@@ -425,9 +425,10 @@ final class AmethystItemService implements Listener {
             }
         }
         meta.lore(List.of(
-                line(piece.ability), line(piece.detail), Component.empty(),
-                Component.text("Season " + theme.season() + " Exclusive", colour, TextDecoration.BOLD)
-                        .decoration(TextDecoration.ITALIC, false)));
+                line(piece.detail), Component.empty(),
+                Component.text("Season " + theme.season(), NamedTextColor.DARK_GRAY)
+                        .decoration(TextDecoration.ITALIC, false),
+                Component.text("Season Exclusive", colour).decoration(TextDecoration.ITALIC, false)));
         item.setItemMeta(meta);
         return item;
     }

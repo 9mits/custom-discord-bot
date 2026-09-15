@@ -52,6 +52,14 @@ class AdminGiveTest {
     }
 
     @Test
+    void mythicGiftbagItemsCarryTheirIdNormalised() {
+        assertEquals(new AdminGive.Request(AdminGive.Type.MYTHIC_ITEM, 1L, "riftcleaver"),
+                AdminGive.parse("mythic", " Riftcleaver "));
+        assertThrows(IllegalArgumentException.class, () -> AdminGive.parse("mythic", null));
+        assertTrue(AdminGive.TYPES.contains("mythic"));
+    }
+
+    @Test
     void cosmeticsCarryTheirIdNormalised() {
         assertEquals(
                 new AdminGive.Request(AdminGive.Type.COSMETIC, 1L, "ember_trail"),
