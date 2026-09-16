@@ -18,8 +18,28 @@ import java.util.List;
 import java.util.Locale;
 
 final class GuideService implements CommandExecutor, TabCompleter {
-    static final String DISCORD_INVITE_URL = "https://discord.gg/mgx";
-    static final String DISCORD_INVITE_DISPLAY = "discord.gg/mgx";
+    /**
+     * Where the community lives, and the one thing a new player has to do before they can
+     * play. Held as a setting rather than a constant: the old server was deleted and every
+     * link in the game pointed at a dead invite until the plugin was rebuilt, which is not
+     * a thing that should need a deploy.
+     */
+    static final String DEFAULT_INVITE_URL = "https://discord.gg/twkrj8Ys5N";
+    private static volatile String inviteUrl = DEFAULT_INVITE_URL;
+
+    static void inviteSource(java.util.function.Supplier<String> setting) {
+        String configured = setting == null ? null : setting.get();
+        inviteUrl = configured == null || configured.isBlank() ? DEFAULT_INVITE_URL : configured.strip();
+    }
+
+    static String inviteUrl() {
+        return inviteUrl;
+    }
+
+    /** The invite as a player reads it: no scheme, so it fits a sidebar and a kick screen. */
+    static String inviteDisplay() {
+        return inviteUrl.replaceFirst("^https?://", "");
+    }
     private final PlayerMenuService menus;
 
     GuideService(PlayerMenuService menus) {
@@ -220,8 +240,8 @@ final class GuideService implements CommandExecutor, TabCompleter {
         title(player, "COMMUNITY DISCORD");
         player.sendMessage(body("Join for server news, support, applications, level progression, and community chat."));
         player.sendMessage(Component.empty());
-        player.sendMessage(Component.text(DISCORD_INVITE_DISPLAY, ORANGE, TextDecoration.BOLD)
-                .clickEvent(ClickEvent.openUrl(DISCORD_INVITE_URL))
+        player.sendMessage(Component.text(inviteDisplay(), ORANGE, TextDecoration.BOLD)
+                .clickEvent(ClickEvent.openUrl(inviteUrl()))
                 .hoverEvent(HoverEvent.showText(Component.text("Open the Mysterious SMP X Discord", NamedTextColor.GRAY))));
         footer(player);
     }
@@ -272,7 +292,7 @@ final class GuideService implements CommandExecutor, TabCompleter {
 
     private static void footer(Player player) {
         player.sendMessage(Component.empty());
-        player.sendMessage(Component.text("discord.gg/mgx", ORANGE));
+        player.sendMessage(Component.text(inviteDisplay(), ORANGE));
         player.sendMessage(Component.text("━━━━━━━━━━━━━━━━━━━━━━━━", NamedTextColor.DARK_GRAY));
     }
 

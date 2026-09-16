@@ -402,29 +402,39 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
                                 "Click to enter your Discord username"
                         ))))
                 .append(Component.text("  •  ", NamedTextColor.DARK_GRAY))
-                .append(Component.text("Need Discord?", NamedTextColor.GRAY)
-                        .clickEvent(ClickEvent.runCommand("/discord"))
+                .append(Component.text(GuideService.inviteDisplay(), NamedTextColor.AQUA)
+                        .clickEvent(ClickEvent.openUrl(GuideService.inviteUrl()))
                         .hoverEvent(HoverEvent.showText(Component.text(
-                                GuideService.DISCORD_INVITE_DISPLAY
+                                "Click to open the Discord"
                         ))));
         showCenterTitle(player, VERIFY_TITLE);
-        player.sendMessage(Component.text("LINK DISCORD TO PLAY", NamedTextColor.GOLD,
+        player.sendMessage(Component.text("JOIN THE DISCORD TO PLAY", NamedTextColor.GOLD,
                 TextDecoration.BOLD));
+        // The link is printed, not hidden behind a click: Geyser never delivers a click
+        // event, so a Bedrock player has to be able to read and type it.
         player.sendMessage(Component.text("1. ", NamedTextColor.YELLOW, TextDecoration.BOLD)
+                .append(Component.text("Join ", NamedTextColor.WHITE))
+                .append(Component.text(GuideService.inviteDisplay(), NamedTextColor.AQUA,
+                                TextDecoration.BOLD)
+                        .clickEvent(ClickEvent.openUrl(GuideService.inviteUrl()))
+                        .hoverEvent(HoverEvent.showText(Component.text("Click to open the Discord"))))
+                .append(Component.text(" — membership is required to play.", NamedTextColor.GRAY)));
+        player.sendMessage(Component.text("2. ", NamedTextColor.YELLOW, TextDecoration.BOLD)
                 .append(Component.text("Type ", NamedTextColor.WHITE))
                 .append(Component.text("/verify <your Discord username>", NamedTextColor.AQUA)
                         .clickEvent(ClickEvent.suggestCommand("/verify ")))
                 .append(Component.text(" — use your username, not display name.",
                         NamedTextColor.GRAY)));
-        player.sendMessage(Component.text("2. ", NamedTextColor.YELLOW, TextDecoration.BOLD)
+        player.sendMessage(Component.text("3. ", NamedTextColor.YELLOW, TextDecoration.BOLD)
                 .append(Component.text("Open the newest DM from Mysterious SMP X and press ",
                         NamedTextColor.WHITE))
                 .append(Component.text("Yes, This Is Me", NamedTextColor.GREEN,
                         TextDecoration.BOLD)));
-        player.sendMessage(Component.text("Keep Minecraft open—you will enter automatically.  •  Need Discord? ",
+        player.sendMessage(Component.text("Keep Minecraft open—you will enter automatically.  •  ",
                         NamedTextColor.GRAY)
                 .append(Component.text("/discord", NamedTextColor.LIGHT_PURPLE)
-                        .clickEvent(ClickEvent.runCommand("/discord"))));
+                        .clickEvent(ClickEvent.runCommand("/discord")))
+                .append(Component.text(" shows the link again.", NamedTextColor.GRAY)));
         UUID uuid = player.getUniqueId();
         prompts.put(uuid, prompt);
         actionBars.put(uuid, verifyAction());

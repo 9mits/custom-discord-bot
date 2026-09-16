@@ -1763,9 +1763,16 @@ final class GameVariableStore {
                 "Colour of the boss bar shown while a multiplier event runs.",
                 "YELLOW", colours);
 
+        // Joining the Discord is what lets a player onto the server at all, so the invite
+        // is a setting: when the community moves, nothing has to be rebuilt to follow it.
+        text("discord.invite-url", "Discord invite", "Presentation",
+                "The invite every in-game link opens: the guide, the sidebar and the screen"
+                        + " a new player sees before they are allowed in.",
+                GuideService.DEFAULT_INVITE_URL, 100);
         text("scoreboard.footer", "Scoreboard footer", "Presentation",
                 "The last line of the in-game sidebar.",
-                config.getString("scoreboard.footer", "discord.gg/mgx"), 32);
+                config.getString("scoreboard.footer", GuideService.DEFAULT_INVITE_URL
+                        .replaceFirst("^https?://", "")), 32);
 
         // Potions were fixed in code: a level and a duration per kind, seven of them.
         definePotion("healing", "Healing", 0, 2);

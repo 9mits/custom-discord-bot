@@ -290,7 +290,7 @@ record SettingMetadata(
         if (key.startsWith("enchants.")) {
             return Group.ENCHANTMENTS;
         }
-        if (key.startsWith("scoreboard.")) {
+        if (key.startsWith("scoreboard.") || key.startsWith("discord.")) {
             return Group.PRESENTATION;
         }
         if (key.startsWith("autopay.")) {

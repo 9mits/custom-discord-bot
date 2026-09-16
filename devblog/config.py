@@ -22,11 +22,10 @@ DEFAULT_CATEGORY = "Mysterious SMP X"
 SERVER_ADDRESS = "play.mysterioussmpx.blog"
 
 # --- links ------------------------------------------------------------------
-DISCORD_URL = "https://discord.gg/mgx"
-APPLY_URL = (
-    "https://discord.com/channels/1476839721731620938"
-    "/1537882766597955594/1538269923988471919"
-)
+DISCORD_URL = "https://discord.gg/twkrj8Ys5N"
+# The apply channel lived in the deleted guild. The Discord button is the way in now,
+# so this stays empty rather than becoming a second button to the same invite.
+APPLY_URL = ""
 REDDIT_URL = "https://reddit.com/r/MysteriousGirlfriendX"
 YOUTUBE_URL = ""               # e.g. "https://youtube.com/@yourchannel"
 TWITTER_URL = ""               # e.g. "https://x.com/yourhandle"

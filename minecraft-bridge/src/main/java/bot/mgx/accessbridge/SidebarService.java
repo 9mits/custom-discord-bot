@@ -653,7 +653,7 @@ final class SidebarService {
         footerComponent = footerComponent
                 .append(Component.text("/guide", GOLD))
                 .append(divider())
-                .append(Component.text("discord.gg/mgx", ORANGE))
+                .append(Component.text(GuideService.inviteDisplay(), ORANGE))
                 .append(Component.newline());
         player.sendPlayerListHeaderAndFooter(header, footerComponent);
     }

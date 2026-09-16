@@ -333,6 +333,12 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             PvpRank.tuningSource(tuning);
             CustomEnchants.capSource(
                     id -> gameVariables.integer("enchants." + id + ".maximum-level"));
+            GuideService.inviteSource(() -> gameVariables.string("discord.invite-url"));
+            gameVariables.onChange(key -> {
+                if (key.equals("discord.invite-url")) {
+                    GuideService.inviteSource(() -> gameVariables.string("discord.invite-url"));
+                }
+            });
             gameVariables.onChange(key -> {
                 if (key.startsWith("world.") || key.startsWith("spawn.")) {
                     getServer().getScheduler().runTask(this, () -> {
