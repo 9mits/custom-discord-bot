@@ -37,6 +37,8 @@ final class SerialSender {
     private boolean sending;
     private long sendStartedAt;
     private long dropped;
+    /** Bumped when a stalled chain is abandoned, so its late completion cannot resume it. */
+    private int generation;
 
     /**
      * @param executor where each completion continues, so a long queue never recurses
@@ -86,25 +88,51 @@ final class SerialSender {
     }
 
     /**
-     * Restarts a queue whose last frame never completed.
+     * Gives up on a queue whose last frame never completed.
+     *
+     * <p>A pending {@code sendText} cannot be cancelled, and a second one on the same
+     * socket fails with "Send pending" — so simply draining again would fail every frame
+     * in turn and empty the queue, which is what this class exists to prevent. The socket
+     * is what has to go: aborting it completes the pending send exceptionally and the
+     * bridge reconnects, and each dropped frame is still in the outbox it came from.
      *
      * @return whether it had to
      */
     boolean unstick() {
+        WebSocket stalled;
         synchronized (queue) {
             if (!sending || clock.getAsLong() - sendStartedAt <= STALL_MILLIS) {
                 return false;
             }
-            sendStartedAt = clock.getAsLong();
+            stalled = current.get();
+            dropped += queue.size();
+            queue.clear();
+            sending = false;
+            generation++;
         }
-        drain();
+        if (stalled != null) {
+            stalled.abort();
+        }
         return true;
     }
 
     private void drain() {
+        int mine;
+        synchronized (queue) {
+            mine = generation;
+        }
+        drain(mine);
+    }
+
+    private void drain(int chain) {
         Outgoing next;
         while (true) {
             synchronized (queue) {
+                if (chain != generation) {
+                    // An abandoned chain: unstick() already cleared the queue and the
+                    // socket it was writing to is gone.
+                    return;
+                }
                 next = queue.pollFirst();
                 if (next == null) {
                     sending = false;
@@ -121,12 +149,12 @@ final class SerialSender {
                 if (error != null) {
                     failures.accept(error);
                 }
-                drain();
+                drain(chain);
             }, executor);
         } catch (RuntimeException exception) {
             failures.accept(exception);
             try {
-                executor.execute(this::drain);
+                executor.execute(() -> drain(chain));
             } catch (RejectedExecutionException stopping) {
                 synchronized (queue) {
                     queue.clear();

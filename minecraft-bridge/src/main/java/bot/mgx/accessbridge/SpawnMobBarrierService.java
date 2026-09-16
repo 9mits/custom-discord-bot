@@ -225,9 +225,13 @@ final class SpawnMobBarrierService implements Listener {
         );
         for (Entity entity : world.getNearbyEntities(region, Monster.class::isInstance)) {
             Monster monster = (Monster) entity;
-            // A mob on the edge strip is the patrol's to put back, not to delete.
-            if (box.containsBeyondEdge(monster.getX(), monster.getZ(), EDGE_BAND)
-                    && hostile(monster)) {
+            // A mob on the edge strip is the patrol's to put back, not to delete — except
+            // one riding a boat or minecart, which the patrol skips because teleporting a
+            // passenger only dismounts it. Left to each other, neither handled it and it
+            // stayed parked inside the barrier.
+            if (hostile(monster)
+                    && (monster.isInsideVehicle()
+                    || box.containsBeyondEdge(monster.getX(), monster.getZ(), EDGE_BAND))) {
                 monster.remove();
             }
         }
