@@ -2409,6 +2409,22 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         }
     }
 
+    /**
+     * Whether a dropped item is spoil from terrain the Dragon just smashed, rather than
+     * something that merely happens to be lying in the rubble.
+     *
+     * <p>The distinction is what this class got wrong: a Shard paid for hitting the Dragon
+     * is the same {@code AMETHYST_SHARD} item a broken amethyst block drops, so a reward
+     * that landed near the impact was swept up a tick after it appeared and the player
+     * never got to pick it up. Every item this plugin mints carries persistent data;
+     * nothing broken out of the world does, which separates the two without having to
+     * name each reward.
+     */
+    static boolean terrainSpoil(ItemStack stack, Set<Material> destroyedTypes) {
+        return stack != null && destroyedTypes.contains(stack.getType())
+                && stack.getPersistentDataContainer().isEmpty();
+    }
+
     /** Dragon terrain damage remains visible, but it never creates block-item drops. */
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onDragonBreaksTerrain(EntityExplodeEvent event) {
@@ -2435,7 +2451,7 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                 Location centre = block.getLocation().add(.5, .5, .5);
                 for (Entity nearby : block.getWorld().getNearbyEntities(centre, 1.25, 1.25, 1.25)) {
                     if (nearby instanceof Item item
-                            && possibleDrops.contains(item.getItemStack().getType())
+                            && terrainSpoil(item.getItemStack(), possibleDrops)
                             && !item.getScoreboardTags().contains(KEY_EFFECT_TAG)) {
                         item.remove();
                     }
@@ -2551,10 +2567,21 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         if (amount <= 0) return;
         // items.shard() clamps to one stack, so large owner-configured rewards are handed
         // over as however many full stacks they need rather than quietly losing the rest.
+        int spilled = 0;
         for (int left = amount; left > 0; left -= 64) {
-            player.getInventory().addItem(items.shard(Math.min(64, left))).values()
-                    .forEach(spill -> player.getWorld()
-                            .dropItemNaturally(player.getLocation(), spill));
+            for (ItemStack spill : player.getInventory().addItem(items.shard(Math.min(64, left))).values()) {
+                // A full inventory mid-fight is normal, so the remainder is dropped as the
+                // player's own: nobody else can take it, and it survives the terrain sweep.
+                Item dropped = player.getWorld().dropItemNaturally(player.getLocation(), spill);
+                dropped.setOwner(player.getUniqueId());
+                dropped.setPickupDelay(20);
+                spilled += spill.getAmount();
+            }
+        }
+        if (spilled > 0) {
+            player.sendMessage(prefix().append(Component.text("Your inventory is full — " + spilled
+                    + (spilled == 1 ? " Shard is" : " Shards are") + " on the ground at your feet.",
+                    NamedTextColor.YELLOW)));
         }
     }
 

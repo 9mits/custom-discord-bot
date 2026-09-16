@@ -245,6 +245,35 @@ final class AmethystDragonServiceTest {
                 "worlds without a native Dragon bar still need the custom fallback");
     }
 
+    /**
+     * The sweep that stops the Dragon farming amethyst out of the terrain it smashes used
+     * to take the fight's own Shard rewards with it, because both are AMETHYST_SHARD items.
+     */
+    @Test
+    void theTerrainSweepLeavesRewardsLyingInTheRubble() throws IOException {
+        String source = Files.readString(Path.of(
+                "src/main/java/bot/mgx/accessbridge/AmethystDragonService.java"));
+        String sweep = method(source, "public void onDragonBreaksTerrain(EntityExplodeEvent event)",
+                "private void claimEgg(Player player, Block block)");
+        assertTrue(sweep.contains("terrainSpoil(item.getItemStack(), possibleDrops)"),
+                "the sweep must tell terrain spoil from a reward before removing anything");
+        assertFalse(sweep.contains("possibleDrops.contains(item.getItemStack().getType())"),
+                "a bare material match is what swept up the Shards");
+
+        String spoil = method(source, "static boolean terrainSpoil(",
+                "/** Dragon terrain damage remains visible");
+        assertTrue(spoil.contains("getPersistentDataContainer().isEmpty()"),
+                "every item this plugin mints carries persistent data; terrain drops do not");
+
+        String shards = method(source, "private void giveShards(Player player, int amount)",
+                "private void flushDamageStats()");
+        assertTrue(shards.contains("setOwner(player.getUniqueId())"),
+                "a spilled Shard belongs to the player who earned it");
+        assertTrue(shards.contains("setPickupDelay(20)"), "a spilled Shard must become pickable");
+        assertTrue(shards.contains("Your inventory is full"),
+                "a player whose inventory is full must be told where the Shards went");
+    }
+
     private static String method(String source, String start, String end) {
         int from = source.indexOf(start);
         int to = source.indexOf(end, from + start.length());
