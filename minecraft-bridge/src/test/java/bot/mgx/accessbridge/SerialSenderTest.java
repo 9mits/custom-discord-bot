@@ -27,6 +27,10 @@ final class SerialSenderTest {
         final AtomicLong rejected = new AtomicLong();
         volatile boolean closed;
 
+        /** When set, a frame is accepted and never completes, like a peer that stopped reading. */
+        volatile boolean hold;
+        private final List<CompletableFuture<WebSocket>> held = new CopyOnWriteArrayList<>();
+
         @Override
         public CompletableFuture<WebSocket> sendText(CharSequence data, boolean last) {
             if (!pending.compareAndSet(false, true)) {
@@ -34,12 +38,24 @@ final class SerialSenderTest {
                 return CompletableFuture.failedFuture(new IllegalStateException("Send pending"));
             }
             CompletableFuture<WebSocket> done = new CompletableFuture<>();
+            if (hold) {
+                held.add(done);
+                return done;
+            }
             wire.execute(() -> {
                 delivered.add(data.toString());
                 pending.set(false);
                 done.complete(this);
             });
             return done;
+        }
+
+        /** Lets a held frame finish, the way an abort makes the pending send complete. */
+        void release() {
+            hold = false;
+            pending.set(false);
+            held.forEach(future -> future.completeExceptionally(new IllegalStateException("aborted")));
+            held.clear();
         }
 
         @Override public CompletableFuture<WebSocket> sendBinary(ByteBuffer data, boolean last) { throw new UnsupportedOperationException(); }
@@ -111,5 +127,44 @@ final class SerialSenderTest {
         network.shutdownNow();
         old.wire.shutdownNow();
         fresh.wire.shutdownNow();
+    }
+
+    /**
+     * A frame that never completes used to be "restarted" by draining again, which put a
+     * second sendText on the same socket: every remaining frame then failed with "Send
+     * pending" and was thrown away one after another.
+     */
+    @Test
+    void aStalledFrameAbortsTheSocketInsteadOfRacingASecondSend() throws Exception {
+        FakeSocket socket = new FakeSocket();
+        socket.hold = true;
+        long[] now = {1_000L};
+        ExecutorService network = Executors.newSingleThreadExecutor();
+        SerialSender sender = new SerialSender(network, () -> socket, error -> { }, () -> now[0]);
+
+        assertTrue(sender.send(socket, "first"));
+        assertTrue(sender.send(socket, "second"));
+        assertFalse(sender.unstick(), "nothing is stalled yet");
+
+        now[0] += SerialSender.STALL_MILLIS + 1L;
+        assertTrue(sender.unstick(), "a frame outstanding past the stall window gives up");
+        assertTrue(socket.closed, "the socket the frame was stuck on is aborted");
+        assertEquals(0, sender.queued(), "the abandoned queue is cleared, not retried frame by frame");
+        assertEquals(0, socket.rejected.get(), "no second send is attempted on the stalled socket");
+
+        // The abandoned frame completing late must not resurrect the old chain.
+        socket.release();
+        awaitDrained(sender);
+        assertEquals(0, socket.rejected.get(), "a late completion must not start sending again");
+
+        FakeSocket reconnected = new FakeSocket();
+        SerialSender after = new SerialSender(network, () -> reconnected, error -> { }, () -> now[0]);
+        assertTrue(after.send(reconnected, "after"));
+        awaitDrained(after);
+        assertEquals(List.of("after"), reconnected.delivered, "the next socket sends normally");
+
+        network.shutdownNow();
+        socket.wire.shutdownNow();
+        reconnected.wire.shutdownNow();
     }
 }

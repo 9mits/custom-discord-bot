@@ -281,6 +281,7 @@ class MinecraftAccessBot(commands.Bot):
         self.application_maintenance.cancel()
         self.scheduled_actions.cancel()
         self.leaderboard_refresh.cancel()
+        self.live_status_refresh.cancel()
         await self.dashboard.close()
         await self.bridge.close()
         with suppress(Exception):

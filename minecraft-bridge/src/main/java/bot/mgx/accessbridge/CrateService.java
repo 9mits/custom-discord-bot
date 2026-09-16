@@ -2052,9 +2052,15 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         // The AFK Crate is the AFK reward, so time spent AFK earns its rolls in full.
         int openings = tier.afkOpenings();
         if (openings > 0 && passes != null) {
-            passes.add(player.getUniqueId(), CratePassStore.Pass.AFK, openings,
+            // What the bank actually took: at the cap it keeps fewer than were earned, and a
+            // receipt for rolls that were discarded is a receipt for something that never arrived.
+            int banked = passes.add(player.getUniqueId(), CratePassStore.Pass.AFK, openings,
                     variables.integer("crate.afk.bank-cap"));
-            delivered.add(openings + " AFK Crate " + (openings == 1 ? "roll" : "rolls") + rollAfkCrates(player));
+            if (banked > 0) {
+                delivered.add(banked + " AFK Crate " + (banked == 1 ? "roll" : "rolls") + rollAfkCrates(player));
+            } else {
+                delivered.add("no AFK Crate rolls (your saved rolls are at the cap)");
+            }
         }
         if (delivered.isEmpty()) {
             delivered.add("progress toward the next tier");

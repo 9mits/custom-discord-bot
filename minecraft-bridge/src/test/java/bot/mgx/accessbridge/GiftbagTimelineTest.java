@@ -76,6 +76,15 @@ final class GiftbagTimelineTest {
     }
 
     @Test
+    void theRevealOutlivesTheBagItCameOutOf() {
+        assertTrue(GiftbagService.staged(false, true, false), "the bag carries the buildup");
+        assertFalse(GiftbagService.staged(false, false, false), "a destroyed bag ends the opening");
+        assertTrue(GiftbagService.staged(true, false, true),
+                "after the burst the prize is the stage, and the bag is gone by design");
+        assertFalse(GiftbagService.staged(true, true, false), "a destroyed prize ends the reveal");
+    }
+
+    @Test
     void theOpeningIsToldByMotionNotABossBarAndTheBagHoldsNothing() throws Exception {
         String service = java.nio.file.Files.readString(java.nio.file.Path.of(
                 "src/main/java/bot/mgx/accessbridge/GiftbagService.java"));

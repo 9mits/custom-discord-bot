@@ -440,9 +440,21 @@ final class GiftbagService implements Listener {
         display.setTransformation(transformation);
     }
 
+    /**
+     * Whether the opening still has something on stage. Before the burst that is the bag;
+     * after it, the prize standing in its place — judging the prize by the bag is what
+     * ended the reveal one tick after it burst, taking the floating prize, its nameplate
+     * and its flight to the player with it.
+     */
+    static boolean staged(boolean burst, boolean bagValid, boolean prizeValid) {
+        return burst ? prizeValid : bagValid;
+    }
+
     private void tick(Reveal reveal) {
         Player player = Bukkit.getPlayer(reveal.playerId);
-        if (player == null || !player.isOnline() || !reveal.bag.isValid()
+        boolean onStage = staged(reveal.burstAt >= 0, reveal.bag.isValid(),
+                reveal.prize != null && reveal.prize.isValid());
+        if (player == null || !player.isOnline() || !onStage
                 || !player.getWorld().equals(reveal.anchor.getWorld())) {
             cleanup(reveal);
             return;
@@ -572,7 +584,10 @@ final class GiftbagService implements Listener {
                     viewer.spawnParticle(Particle.END_ROD, reveal.anchor.clone().add(0, .6 + local * 1.4, 0),
                             density, .05, local * .7, .05, .01);
                     // A pillar the neighbours can see over the trees, taller the rarer the prize.
-                    int height = (int) Math.round((6 + 18 * reveal.grandeur) * local);
+                    // Every other tick: at 20 a second it reads as solid either way, and this
+                    // is the densest per-viewer loop in the whole opening.
+                    int height = reveal.elapsed % 2 == 0
+                            ? (int) Math.round((6 + 18 * reveal.grandeur) * local) : 0;
                     for (int step = 0; step < height; step += 2) {
                         viewer.spawnParticle(Particle.DUST, reveal.anchor.clone().add(0, 1 + step, 0), 1,
                                 .08, .25, .08, 0, new Particle.DustOptions(Color.fromRGB(83, 229, 255), 1.6f));
