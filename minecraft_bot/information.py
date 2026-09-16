@@ -44,7 +44,8 @@ CONFIG_CHANNEL = "information_channel_id"
 CONFIG_MESSAGE = "information_message_id"
 
 #: Where members read how Discord levelling works.
-LEVELS_CHANNEL_URL = "https://discord.com/channels/1476839721731620938/1476839722734190647"
+# The old guild was deleted, so its channel link is dead; the invite is what resolves.
+LEVELS_CHANNEL_URL = "https://discord.gg/twkrj8Ys5N"
 
 #: Homes granted to the default rank, matching `sethome-multiple.default` in the
 #: EssentialsX config. Documenting the wrong figure is worse than omitting it.

@@ -205,7 +205,7 @@ The sidebar is configured in `plugins/MGXAccessBridge/config.yml`:
 
 ```yaml
 scoreboard:
-  footer: "discord.gg/mgx"
+  footer: "discord.gg/twkrj8Ys5N"
   update-ticks: 100
 world:
   max-view-distance: 6
