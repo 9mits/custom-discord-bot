@@ -491,7 +491,7 @@ final class SidebarService {
                 ? SidebarText.textWidth("[" + profile.rankLabel() + "] ", true) : 0;
         Optional<ClanStore.ClanView> clan = clans.clanOf(player.getUniqueId());
         if (clan.isPresent()) {
-            width += ClanTag.iconWidth() + SidebarText.textWidth(
+            width += SidebarText.textWidth(
                     ClanTag.plain(clan.get(), clanBattles.badges(clan.get().id())), true
             );
         }
@@ -510,7 +510,11 @@ final class SidebarService {
         Component rendered = rankTag(profile);
         Optional<ClanStore.ClanView> clan = clans.clanOf(player.getUniqueId());
         if (clan.isPresent()) {
-            rendered = rendered.append(clanTag(clan.get()));
+            // One player-list name is sent to everyone, so unlike chat and nametags this
+            // row cannot be built per viewer: a sprite here would print as text on every
+            // Bedrock client and take the column alignment with it. The tag stays, and
+            // the icon lives on the surfaces that can be rendered for one viewer.
+            rendered = rendered.append(ClanTag.textOnly(clan.get(), clanBattles.badges(clan.get().id())));
         }
         // The row carries only what a viewer cannot get elsewhere: level already has
         // its own sidebar row, and a Java client's device is always a desktop.
@@ -695,6 +699,7 @@ final class SidebarService {
 
     private void syncClanTeams(PlayerBoard board, Player viewer) {
         Scoreboard scoreboard = board.scoreboard;
+        boolean bedrockViewer = clientPlatform(viewer).bedrock();
         Map<String, Component> expected = new LinkedHashMap<>();
         Map<String, Set<String>> entries = new LinkedHashMap<>();
         Set<String> afkTeams = new LinkedHashSet<>();
@@ -714,7 +719,9 @@ final class SidebarService {
                     .append(showClan
                             ? clan.map(this::overheadClanTag).orElse(Component.empty())
                             : Component.empty());
-            expected.put(teamName, prefix);
+            // This board is one viewer's, so their edition decides: Bedrock cannot draw a
+            // sprite and would read its raw name over every head instead.
+            expected.put(teamName, bedrockViewer ? BedrockText.withoutSprites(prefix) : prefix);
             if (afkService != null && afkService.isAfk(online.getUniqueId())) {
                 afkTeams.add(teamName);
             }

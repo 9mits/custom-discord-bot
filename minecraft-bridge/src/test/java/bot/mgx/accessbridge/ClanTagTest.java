@@ -56,7 +56,11 @@ final class ClanTagTest {
         // The player-list column pads to a measured width, so a medal missing from
         // the measurement would push every following column out of line.
         assertTrue(plain(ClanTag.of(clan, badges)).endsWith(ClanTag.plain(clan, badges)));
-        assertEquals(12, ClanTag.iconWidth());
+        // The player-list row draws the icon-free tag, so what it measures is exactly
+        // what it prints — and a Bedrock client never reads a sprite's raw name there.
+        assertEquals(ClanTag.plain(clan, badges), plain(ClanTag.textOnly(clan, badges)));
+        assertFalse(BedrockText.hasSprite(ClanTag.textOnly(clan, badges)));
+        assertTrue(BedrockText.hasSprite(ClanTag.of(clan, badges)), "Java keeps its icon in chat");
     }
 
     @Test
