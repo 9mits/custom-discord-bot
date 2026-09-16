@@ -1488,10 +1488,10 @@ final class GameVariableStore {
                 "What every tier pays, tier 1 first, separated by |. Each entry's parts are separated"
                         + " by ; and read vanilla:<item id>[:count], book:<enchantment>[:level], hearts:N,"
                         + " shards:N, reward:<crate reward id>[:count], gear:<scythe|pickaxe|axe|hoe|wings|helmet>,"
-                        + " item:rally_horn, giftbag:N, cosmetic:<id> or cosmetic:season:<aura|trail|kill>.",
+                        + " giftbag:N, cosmetic:<id> or cosmetic:season:<aura|trail|kill>.",
                 "reward:fortune_potion_i:2 | vanilla:netherite_ingot | shards:1 | book:mending | reward:crate_luck_ii"
                         + " | vanilla:totem_of_undying | reward:fortune_potion_ii:2 | reward:enchant_unbreaking_iv | shards:2 | cosmetic:season:trail"
-                        + " | vanilla:netherite_ingot:2 | reward:crate_luck_ii:2 | item:rally_horn | vanilla:trident | gear:pickaxe"
+                        + " | vanilla:netherite_ingot:2 | reward:crate_luck_ii:2 | reward:daily_magnetite_shovel | vanilla:trident | gear:pickaxe"
                         + " | reward:fortune_potion_iii | reward:daily_lantern_helm | shards:3 | reward:enchant_fortune_iv | gear:axe"
                         + " | vanilla:totem_of_undying:2 | reward:crate_luck_iii | vanilla:netherite_ingot:4 | reward:daily_veinseeker_pickaxe | hearts:1;shards:2"
                         + " | reward:enchant_protection_v | reward:fortune_potion_iii:2 | gear:hoe | reward:daily_cloudstrider_boots | cosmetic:season:kill;shards:2"
@@ -1513,7 +1513,10 @@ final class GameVariableStore {
                 50, 10, 200, "ticks", false);
         integer("season.giftbag.viewer-radius", "Giftbag audience radius", "Season Giftbag",
                 "Distance from an opening at which players see its animation and hear its sounds.",
-                48, 8, 128, "blocks", false);
+                80, 8, 160, "blocks", false);
+        integer("season.giftbag.notice-radius", "Giftbag call-over radius", "Season Giftbag",
+                "Distance at which players are told where a Giftbag is being opened so they can come and watch.",
+                128, 0, 512, "blocks", false);
         integer("season.giftbag.particle-density", "Giftbag particle density", "Season Giftbag",
                 "Particles per animation pulse for viewers who keep crate VFX enabled.",
                 2, 1, 20, "particles", false);

@@ -89,7 +89,7 @@ final class GiftbagService implements Listener {
         final Location anchor;
         final ItemDisplay bag;
         final List<ItemDisplay> orbiters;
-        final List<UUID> audience;
+        final double grandeur;
         final int duration;
         ItemDisplay prize;
         TextDisplay caption;
@@ -99,14 +99,14 @@ final class GiftbagService implements Listener {
         BukkitTask task;
 
         Reveal(UUID playerId, GiftbagStore.Pending pending, GiftbagCatalog.Entry reward, Location anchor,
-                ItemDisplay bag, List<ItemDisplay> orbiters, List<UUID> audience, int duration) {
+                ItemDisplay bag, List<ItemDisplay> orbiters, double grandeur, int duration) {
             this.playerId = playerId;
             this.pending = pending;
             this.reward = reward;
             this.anchor = anchor;
             this.bag = bag;
             this.orbiters = orbiters;
-            this.audience = audience;
+            this.grandeur = grandeur;
             this.duration = duration;
         }
 
@@ -379,12 +379,13 @@ final class GiftbagService implements Listener {
         }
         int duration = Math.max(40, variables.integer("season.giftbag.animation-ticks"));
         Reveal reveal = new Reveal(player.getUniqueId(), pending, reward, anchor, bag, orbiters,
-                nearby(player, anchor), duration);
+                grandeur(reward.rarity()), duration);
         reveals.put(player.getUniqueId(), reveal);
         forAudience(reveal, viewer -> {
-            sound(viewer, Sound.BLOCK_BEACON_ACTIVATE, .9f, .6f);
-            sound(viewer, Sound.BLOCK_AMETHYST_BLOCK_RESONATE, 1f, .5f);
+            sound(viewer, Sound.BLOCK_BEACON_ACTIVATE, 1.4f, .6f);
+            sound(viewer, Sound.BLOCK_AMETHYST_BLOCK_RESONATE, 1.6f, .5f);
         });
+        callOver(player, anchor);
         reveal.task = Bukkit.getScheduler().runTaskTimer(plugin, () -> tick(reveal), 1L, 1L);
     }
 
@@ -472,18 +473,18 @@ final class GiftbagService implements Listener {
                 GiftbagTimeline.bagLift(t) + bob + (shake == 0 ? 0 : random.nextDouble(-shake, shake)),
                 shake == 0 ? 0 : random.nextDouble(-shake, shake),
                 (float) GiftbagTimeline.bagSpin(t, reveal.duration),
-                (float) GiftbagTimeline.bagScale(t)));
+                (float) GiftbagTimeline.bagScale(t, reveal.grandeur)));
     }
 
     private void animateRing(Reveal reveal, double t) {
         int count = reveal.orbiters.size();
-        double radius = GiftbagTimeline.orbitRadius(t);
+        double radius = GiftbagTimeline.orbitRadius(t, reveal.grandeur);
         float scale = (float) GiftbagTimeline.orbitScale(t);
         for (int index = 0; index < count; index++) {
             double angle = GiftbagTimeline.orbitAngle(t, index, count, reveal.duration);
             move(reveal.orbiters.get(index), transform(
                     Math.cos(angle) * radius,
-                    GiftbagTimeline.orbitHeight(t, index, count, reveal.duration),
+                    GiftbagTimeline.orbitHeight(t, index, count, reveal.duration, reveal.grandeur),
                     Math.sin(angle) * radius,
                     (float) (-angle + Math.PI / 2), scale));
         }
@@ -526,9 +527,7 @@ final class GiftbagService implements Listener {
         boolean beat = reveal.elapsed % GiftbagTimeline.beatPeriod(t) == 0;
         Particle.DustTransition violetToCyan = new Particle.DustTransition(
                 Color.fromRGB(181, 108, 255), Color.fromRGB(83, 229, 255), 1.1f);
-        for (UUID id : reveal.audience) {
-            Player viewer = Bukkit.getPlayer(id);
-            if (viewer == null) continue;
+        for (Player viewer : viewers(reveal)) {
             if (beat) {
                 if (phase == GiftbagTimeline.Phase.CHARGE) {
                     sound(viewer, Sound.ENTITY_WARDEN_HEARTBEAT, 1.2f, 1.0f + (float) GiftbagTimeline.within(t) * .5f);
@@ -551,11 +550,12 @@ final class GiftbagService implements Listener {
                 }
                 case ORBIT, CONVERGE -> {
                     int count = reveal.orbiters.size();
-                    double radius = GiftbagTimeline.orbitRadius(t);
+                    double radius = GiftbagTimeline.orbitRadius(t, reveal.grandeur);
                     for (int index = 0; index < count; index++) {
                         double angle = GiftbagTimeline.orbitAngle(t, index, count, reveal.duration);
                         Location at = reveal.anchor.clone().add(Math.cos(angle) * radius,
-                                GiftbagTimeline.orbitHeight(t, index, count, reveal.duration), Math.sin(angle) * radius);
+                                GiftbagTimeline.orbitHeight(t, index, count, reveal.duration, reveal.grandeur),
+                                Math.sin(angle) * radius);
                         viewer.spawnParticle(Particle.DUST_COLOR_TRANSITION, at, 1, 0, 0, 0, 0, violetToCyan);
                     }
                     if (phase == GiftbagTimeline.Phase.CONVERGE) {
@@ -571,6 +571,12 @@ final class GiftbagService implements Listener {
                     double local = GiftbagTimeline.within(t);
                     viewer.spawnParticle(Particle.END_ROD, reveal.anchor.clone().add(0, .6 + local * 1.4, 0),
                             density, .05, local * .7, .05, .01);
+                    // A pillar the neighbours can see over the trees, taller the rarer the prize.
+                    int height = (int) Math.round((6 + 18 * reveal.grandeur) * local);
+                    for (int step = 0; step < height; step += 2) {
+                        viewer.spawnParticle(Particle.DUST, reveal.anchor.clone().add(0, 1 + step, 0), 1,
+                                .08, .25, .08, 0, new Particle.DustOptions(Color.fromRGB(83, 229, 255), 1.6f));
+                    }
                     viewer.spawnParticle(Particle.DUST_COLOR_TRANSITION, reveal.anchor, density * 3,
                             .55, .55, .55, 0, violetToCyan);
                     for (int spoke = 0; spoke < 6; spoke++) {
@@ -611,28 +617,52 @@ final class GiftbagService implements Listener {
             text.setTransformation(transform(0, 0, 0, 0f, 0f));
         });
         boolean mythicItem = reward.rarity() == GiftbagCatalog.Rarity.MYTHIC_ITEM;
+        double grandeur = reveal.grandeur;
+        // Volume is also range in Minecraft: a 3.0 burst carries about 48 blocks, which is
+        // what turns a good pull into something the neighbours come running for.
+        float carry = (float) (1.0 + grandeur * 2.0);
+        int rays = (int) Math.round(48 + 72 * grandeur);
         forAudience(reveal, viewer -> {
             if (effects(viewer)) {
                 viewer.spawnParticle(Particle.FLASH, reveal.anchor, 1, 0, 0, 0, 0, colour);
                 viewer.spawnParticle(Particle.SONIC_BOOM, reveal.anchor, 1, 0, 0, 0, 0);
-                viewer.spawnParticle(Particle.TOTEM_OF_UNDYING, reveal.anchor, 90, .2, .2, .2, .75);
+                viewer.spawnParticle(Particle.TOTEM_OF_UNDYING, reveal.anchor,
+                        (int) Math.round(90 + 150 * grandeur), .2, .2, .2, .75 + grandeur * .5);
                 // A shell of sparks thrown straight outward: count 0 makes the offset a velocity.
-                for (int ray = 0; ray < 48; ray++) {
-                    double polar = Math.acos(1 - 2 * (ray + .5) / 48);
+                for (int ray = 0; ray < rays; ray++) {
+                    double polar = Math.acos(1 - 2 * (ray + .5) / rays);
                     double azimuth = Math.PI * (1 + Math.sqrt(5)) * ray;
+                    double speed = .45 + grandeur * .5;
                     viewer.spawnParticle(Particle.END_ROD, reveal.anchor, 0,
-                            Math.sin(polar) * Math.cos(azimuth), Math.cos(polar), Math.sin(polar) * Math.sin(azimuth), .45);
+                            Math.sin(polar) * Math.cos(azimuth), Math.cos(polar),
+                            Math.sin(polar) * Math.sin(azimuth), speed);
                 }
                 for (int ray = 0; ray < 36; ray++) {
                     double angle = ray * Math.PI * 2 / 36;
                     viewer.spawnParticle(Particle.FIREWORK, reveal.anchor, 0, Math.cos(angle), 0, Math.sin(angle), .38);
                 }
+                if (grandeur >= 0.45) {
+                    // Explosion emitters and fireworks are drawn far past the usual particle
+                    // range, so this is the part somebody across the valley actually sees.
+                    viewer.spawnParticle(Particle.EXPLOSION_EMITTER, reveal.anchor, 1, 0, 0, 0, 0);
+                    for (int step = 0; step < 26; step += 2) {
+                        viewer.spawnParticle(Particle.FIREWORK, reveal.anchor.clone().add(0, step, 0),
+                                (int) Math.round(2 + 4 * grandeur), .35, .35, .35, .06);
+                    }
+                }
             }
-            sound(viewer, Sound.ENTITY_GENERIC_EXPLODE, .55f, 1.5f);
-            sound(viewer, Sound.ITEM_TOTEM_USE, .7f, 1.1f);
+            sound(viewer, Sound.ENTITY_GENERIC_EXPLODE, .55f * carry, 1.5f);
+            sound(viewer, Sound.ITEM_TOTEM_USE, .7f * carry, 1.1f);
             sound(viewer, Sound.UI_TOAST_CHALLENGE_COMPLETE, .9f, 1.05f);
-            if (mythicItem) sound(viewer, Sound.ENTITY_ENDER_DRAGON_GROWL, .7f, 1.2f);
+            if (grandeur >= 0.45) sound(viewer, Sound.ENTITY_FIREWORK_ROCKET_LARGE_BLAST_FAR, carry, 1.1f);
+            if (mythicItem) {
+                sound(viewer, Sound.ENTITY_ENDER_DRAGON_GROWL, carry, 1.2f);
+                sound(viewer, Sound.ENTITY_LIGHTNING_BOLT_THUNDER, carry, 1.6f);
+            }
         });
+        // Harmless: the effect strike has no damage, no fire and no block change, and it is
+        // the one cue that reaches players who are nowhere near the opening.
+        if (mythicItem) reveal.anchor.getWorld().strikeLightningEffect(reveal.anchor);
         player.showTitle(Title.title(
                 Component.text(reward.rarity().label, TextColor.color(reward.rarity().colour), TextDecoration.BOLD),
                 Component.text(rewardName(reward, season), NamedTextColor.GOLD, TextDecoration.BOLD),
@@ -654,7 +684,7 @@ final class GiftbagService implements Listener {
         int hold = Math.max(10, variables.integer("season.giftbag.settle-ticks"));
         Color colour = Color.fromRGB(reveal.reward.rarity().colour);
         if (since <= hold) {
-            float scale = (float) GiftbagTimeline.revealScale(since);
+            float scale = (float) GiftbagTimeline.revealScale(since, reveal.grandeur);
             if (reveal.prize != null) {
                 move(reveal.prize, transform(0, .15 + Math.sin(since * .12) * .08, 0, since * .07f, scale));
             }
@@ -692,10 +722,7 @@ final class GiftbagService implements Listener {
     }
 
     private void forAudience(Reveal reveal, java.util.function.Consumer<Player> action) {
-        for (UUID id : reveal.audience) {
-            Player viewer = Bukkit.getPlayer(id);
-            if (viewer != null && viewer.getWorld().equals(reveal.anchor.getWorld())) action.accept(viewer);
-        }
+        viewers(reveal).forEach(action);
     }
 
     private void deliver(Player player, GiftbagStore.Pending pending, GiftbagCatalog.Entry reward) {
@@ -728,10 +755,6 @@ final class GiftbagService implements Listener {
     private ItemStack rewardItem(GiftbagCatalog.Entry reward, int season) {
         return switch (reward.kind()) {
             case SHARDS -> items.shard(reward.amount());
-            case SEASON_ITEM -> SeasonItemCatalog.find(reward.value())
-                    .filter(ignored -> plugin.seasonItems() != null)
-                    .map(item -> plugin.seasonItems().create(item, reward.amount()))
-                    .orElseGet(() -> items.shard(3));
             case SEASON_GEAR -> SeasonCosmetics.theme(season).flatMap(theme -> SeasonGear.Piece.parse(reward.value())
                     .map(piece -> plugin.amethystItems().createSeasonGear(theme, piece)))
                     .orElseGet(() -> items.shard(3));
@@ -743,10 +766,6 @@ final class GiftbagService implements Listener {
     private ItemStack rewardPreview(GiftbagCatalog.Entry reward, int season) {
         return SentinelHub.quietly(() -> switch (reward.kind()) {
             case SHARDS -> items.shard(reward.amount());
-            case SEASON_ITEM -> SeasonItemCatalog.find(reward.value())
-                    .filter(ignored -> plugin.seasonItems() != null)
-                    .map(item -> plugin.seasonItems().create(item, reward.amount()))
-                    .orElseGet(() -> new ItemStack(Material.GOAT_HORN));
             case SEASON_GEAR -> SeasonCosmetics.theme(season).flatMap(theme -> SeasonGear.Piece.parse(reward.value())
                     .map(piece -> plugin.amethystItems().createSeasonGear(theme, piece)))
                     .orElseGet(() -> new ItemStack(Material.NETHERITE_SWORD));
@@ -826,14 +845,45 @@ final class GiftbagService implements Listener {
         return reward.displayName();
     }
 
-    private List<UUID> nearby(Player owner, Location anchor) {
+    /** How big a win is coming, which is how far the bag swells before it opens. */
+    static double grandeur(GiftbagCatalog.Rarity rarity) {
+        return switch (rarity) {
+            case RARE -> 0.0;
+            case EXCLUSIVE -> 0.45;
+            case MYTHIC -> 0.7;
+            case MYTHIC_ITEM -> 1.0;
+        };
+    }
+
+    /**
+     * Whoever can see the opening right now, recomputed every tick: someone who runs over
+     * mid-animation should get the sounds and sparks, not just the silent entities.
+     */
+    private List<Player> viewers(Reveal reveal) {
         double radius = Math.max(8, variables.integer("season.giftbag.viewer-radius"));
-        List<UUID> audience = new ArrayList<>();
-        for (Player viewer : owner.getWorld().getPlayers()) {
-            if (viewer.getLocation().distanceSquared(anchor) <= radius * radius) audience.add(viewer.getUniqueId());
+        List<Player> viewers = new ArrayList<>();
+        for (Player viewer : reveal.anchor.getWorld().getPlayers()) {
+            if (viewer.getLocation().distanceSquared(reveal.anchor) <= radius * radius) viewers.add(viewer);
         }
-        if (!audience.contains(owner.getUniqueId())) audience.add(owner.getUniqueId());
-        return List.copyOf(audience);
+        Player owner = Bukkit.getPlayer(reveal.playerId);
+        if (owner != null && owner.isOnline() && !viewers.contains(owner)) viewers.add(owner);
+        return viewers;
+    }
+
+    /** Tells the wider neighbourhood where to look, once, as the seal starts to give. */
+    private void callOver(Player owner, Location anchor) {
+        double radius = Math.max(8, variables.integer("season.giftbag.notice-radius"));
+        Component line = Component.text("GIFTBAG » ", MYTHIC, TextDecoration.BOLD)
+                .append(Component.text(owner.getName() + " is opening a Mythic Giftbag nearby. ",
+                        NamedTextColor.WHITE))
+                .append(Component.text(Math.round(anchor.getX()) + ", " + Math.round(anchor.getY())
+                        + ", " + Math.round(anchor.getZ()), VIOLET));
+        for (Player viewer : anchor.getWorld().getPlayers()) {
+            if (viewer.equals(owner) || viewer.getLocation().distanceSquared(anchor) > radius * radius) continue;
+            if (!settings.isEnabled(viewer.getUniqueId(), PlayerSettingsStore.Setting.CRATE_ANNOUNCEMENTS)) continue;
+            viewer.sendMessage(line);
+            sound(viewer, Sound.BLOCK_AMETHYST_BLOCK_CHIME, 1.2f, .7f);
+        }
     }
 
     private boolean effects(Player player) {
