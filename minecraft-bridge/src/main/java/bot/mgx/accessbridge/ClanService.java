@@ -607,13 +607,26 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
                 prefix = prefix.append(clanTag(clan.get()));
             }
             prefix = prefix.append(identities.tag(event.getPlayer().getUniqueId()));
-            return prefix
+            Component line = prefix
                     .append(Component.text(source.getName(), CHAT_NAME_COLOUR)
                             .decoration(TextDecoration.BOLD, false))
                     .append(Component.text(": ", NamedTextColor.DARK_GRAY))
                     .append(message.colorIfAbsent(CHAT_MESSAGE_COLOUR)
                             .decoration(TextDecoration.BOLD, false));
+            // A sprite reaches Bedrock as the text "[item/…@items]", so that viewer's
+            // copy of the line is built without one.
+            return viewer instanceof Player watcher && isBedrock(watcher)
+                    ? BedrockText.withoutSprites(line) : line;
         });
+    }
+
+    private static boolean isBedrock(Player player) {
+        try {
+            return org.geysermc.floodgate.api.FloodgateApi.getInstance()
+                    .isFloodgatePlayer(player.getUniqueId());
+        } catch (RuntimeException | LinkageError unavailable) {
+            return false;
+        }
     }
 
     @EventHandler(priority = EventPriority.MONITOR)

@@ -22,11 +22,26 @@ final class ClanTag {
         return render(clan, badges, false);
     }
 
+    /**
+     * The tag without its atlas sprite — and without the space that separated it, so the
+     * row still measures as {@link #plain} says it does.
+     */
+    static Component textOnly(ClanStore.ClanView clan, ClanBattleStore.Badges badges) {
+        return render(clan, badges, true, false);
+    }
+
     private static Component render(
             ClanStore.ClanView clan, ClanBattleStore.Badges badges, boolean includeLevel
     ) {
-        Component tag = MenuText.sprite(ClanIcon.resolve(clan.icon()).sprite())
-                .append(Component.text(" "))
+        return render(clan, badges, includeLevel, true);
+    }
+
+    private static Component render(
+            ClanStore.ClanView clan, ClanBattleStore.Badges badges, boolean includeLevel, boolean icon
+    ) {
+        Component tag = (icon
+                ? MenuText.sprite(ClanIcon.resolve(clan.icon()).sprite()).append(Component.text(" "))
+                : Component.empty())
                 .append(Component.text(
                 "[" + clan.name() + "] ",
                 net.kyori.adventure.text.format.TextColor.color(clan.themeColor()),
@@ -46,11 +61,6 @@ final class ClanTag {
             text.append(ClanLevel.badge(clan.level())).append(' ');
         }
         return text.append(plainMedals(badges)).toString();
-    }
-
-    /** An inline object sprite is 8px wide, followed by the normal 4px space. */
-    static int iconWidth() {
-        return 12;
     }
 
     static Component medals(ClanBattleStore.Badges badges) {

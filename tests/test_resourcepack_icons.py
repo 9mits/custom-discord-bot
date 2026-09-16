@@ -275,16 +275,28 @@ class ResourcePackIconTests(unittest.TestCase):
         ).read_text(encoding="utf-8"))
         self.assertIn({"type": "reference", "id": "mgx:badges"}, default_font["providers"])
 
+        # Bedrock scales a whole cell to the line height, so a badge drawn edge to edge in
+        # its cell renders about twice the height of the text beside it. The artwork sits
+        # in a little over half its cell, the way vanilla's own glyphs do.
         with zipfile.ZipFile(
             RESOURCE_PACK / "bedrock" / "MysteriousSMPX-Bedrock.mcpack"
         ) as pack, Image.open(pack.open("font/glyph_E8.png")) as sheet:
-            self.assertEqual((1152, 1152), sheet.size)
+            cell, glyph, top = 64, 36, 8
+            self.assertEqual((cell * 16, cell * 16), sheet.size)
             for name, raw_code in catalog.items():
                 index = int(raw_code, 16) - 0xE800
-                cell = sheet.crop((index % 16 * 72, index // 16 * 72,
-                                   index % 16 * 72 + 72, index // 16 * 72 + 72))
-                with Image.open(BADGE_TEXTURES / f"{name}.png") as expected:
-                    self.assertEqual(expected.convert("RGBA").tobytes(), cell.convert("RGBA").tobytes())
+                left, upper = index % 16 * cell, index // 16 * cell
+                drawn = sheet.crop((left, upper + top, left + glyph, upper + top + glyph))
+                with Image.open(BADGE_TEXTURES / f"{name}.png") as source:
+                    expected = source.convert("RGBA").resize((glyph, glyph), Image.NEAREST)
+                    self.assertEqual(expected.tobytes(), drawn.tobytes())
+                whole = sheet.crop((left, upper, left + cell, upper + cell))
+                outside = whole.copy()
+                outside.paste((0, 0, 0, 0), (0, top, glyph, top + glyph))
+                self.assertIsNone(
+                    outside.getchannel("A").getbbox(),
+                    f"{name} must leave the rest of its cell empty so it draws at text size",
+                )
 
     def test_generated_icons_have_enough_light_to_read_as_solid(self):
         """A sprite with no light-to-dark range looks flat and lifeless in the slot.
