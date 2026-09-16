@@ -101,7 +101,6 @@ final class SeasonPassMenu implements Listener {
         return switch (grant.kind()) {
             case "giftbag" -> Rarity.MYTHIC;
             case "season_cosmetic", "season_gear" -> Rarity.EXCLUSIVE;
-            case "season_item" -> Rarity.EPIC;
             case "vanilla", "book" -> vanillaRarity(grant.id());
             case "hearts" -> Rarity.LEGENDARY;
             case "shards" -> grant.amount() >= 3 ? Rarity.LEGENDARY : Rarity.EPIC;
@@ -195,7 +194,6 @@ final class SeasonPassMenu implements Listener {
             case "shards" -> "mgx:item/shard";
             case "keys" -> "mgx:item/mystery_key";
             case "giftbag" -> "mgx:item/mythic_giftbag";
-            case "season_item" -> SeasonItemCatalog.find(grant.id()).map(item -> item.sprite).orElse("item/bundle");
             case "book" -> "item/enchanted_book";
             case "vanilla" -> vanillaSprite(grant.id());
             case "season_gear" -> pass.seasonGearModel(grant).map(SeasonPassMenu::textureOf).orElse("mgx:item/shard");
@@ -445,7 +443,6 @@ final class SeasonPassMenu implements Listener {
             case "keys" -> items.mysteryKey(Math.min(64, grant.amount()));
             case "giftbag" -> pass.giftbagPreview().orElseGet(() -> new ItemStack(Material.BUNDLE));
             case "season_gear" -> pass.seasonGearPreview(grant).orElseGet(() -> items.shard(3));
-            case "season_item" -> pass.seasonItemPreview(grant).orElseGet(() -> new ItemStack(Material.BARRIER));
             case "vanilla", "book" -> pass.vanillaItem(grant).map(item -> {
                 item.setAmount((int) Math.min(item.getMaxStackSize(), grant.amount()));
                 return item;

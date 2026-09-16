@@ -183,7 +183,7 @@ final class SeasonPassRules {
     static final long MAX_BOOK_LEVEL = 5L;
 
     /**
-     * Parses a tier reward such as {@code hearts:1;shards:2;vanilla:nether_star;book:mending;gear:scythe;cosmetic:season:aura;item:rally_horn;giftbag:1}.
+     * Parses a tier reward such as {@code hearts:1;shards:2;vanilla:nether_star;book:mending;gear:scythe;cosmetic:season:aura;giftbag:1}.
      *
      * <p>{@code cosmetic:season:<aura|trail|kill>} names this season's exclusive rather than
      * a fixed id, so one setting pays Season 1's crown in Season 1 and Season 2's in
@@ -255,21 +255,6 @@ final class SeasonPassRules {
                         }
                     }
                     if (book[0].strip().matches("[a-z_]+")) grants.add(new Grant(kind, level, book[0].strip()));
-                }
-                case "item" -> {
-                    // item:<season consumable id> or item:<id>:<count>
-                    String[] item = value.toLowerCase(Locale.ROOT).split(":", 2);
-                    long count = 1L;
-                    if (item.length == 2) {
-                        try {
-                            count = Math.max(1L, Math.min(MAX_REWARD_COUNT, Long.parseLong(item[1].strip())));
-                        } catch (NumberFormatException ignored) {
-                            continue;
-                        }
-                    }
-                    long copies = count;
-                    SeasonItemCatalog.find(item[0]).ifPresent(found ->
-                            grants.add(new Grant("season_item", copies, found.id)));
                 }
                 case "reward" -> {
                     // reward:<id> or reward:<id>:<count>, so a tier can pay a stack.

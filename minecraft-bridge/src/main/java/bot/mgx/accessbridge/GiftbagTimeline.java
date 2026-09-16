@@ -9,7 +9,11 @@ package bot.mgx.accessbridge;
  * the one prize that was really inside floating in its place.
  *
  * <p>{@code t} is progress through the buildup, 0 at the first tick and 1 at the burst.
- * Free of Bukkit so every phase boundary and curve is unit tested.
+ * {@code grandeur} is how big a win is coming, 0 for the ordinary and 1 for a mythic item:
+ * the bag swells further the better the prize, so everyone watching knows something rare is
+ * about to land long before it opens.
+ *
+ * <p>Free of Bukkit so every phase boundary and curve is unit tested.
  */
 final class GiftbagTimeline {
     enum Phase { RISE, ORBIT, CONVERGE, CHARGE }
@@ -24,6 +28,10 @@ final class GiftbagTimeline {
     static final double FAST_SPIN = 11.0;
     /** Ticks the reward takes to grow to full size after the burst. */
     static final int REVEAL_GROW_TICKS = 12;
+    /** Extra size at the burst for the very best prize: a mythic bag ends up twice as big. */
+    static final double GRANDEUR_GROWTH = 1.0;
+    /** How much wider the ring of prizes swings for the best prizes. */
+    static final double GRANDEUR_SPREAD = 0.3;
 
     private GiftbagTimeline() {
     }
@@ -49,7 +57,20 @@ final class GiftbagTimeline {
         };
     }
 
+    /**
+     * How much of its extra size the bag has taken on by {@code t}. It never jumps: the bag
+     * grows the whole way through, so the swell reads as a build rather than a reveal.
+     */
+    static double swell(double t, double grandeur) {
+        return 1.0 + Math.max(0.0, Math.min(1.0, grandeur)) * GRANDEUR_GROWTH * Math.pow(clamp(t), 1.4);
+    }
+
     /** The bag pops up with a little overshoot, holds, swells as it fills, then strains. */
+    static double bagScale(double t, double grandeur) {
+        return bagScale(t) * swell(t, grandeur);
+    }
+
+    /** The bag's own curve, before the prize's grandeur enlarges it. */
     static double bagScale(double t) {
         double local = within(t);
         return switch (phase(t)) {
@@ -68,6 +89,11 @@ final class GiftbagTimeline {
     /** Radians the bag has turned: a slow drift that winds up with the ring. */
     static double bagSpin(double t, int durationTicks) {
         return orbitAngle(t, 0, 1, durationTicks) * 0.35;
+    }
+
+    /** The ring swings wider for a better prize, so a big win fills more of the sky. */
+    static double orbitRadius(double t, double grandeur) {
+        return orbitRadius(t) * (1.0 + Math.max(0.0, Math.min(1.0, grandeur)) * GRANDEUR_SPREAD);
     }
 
     static double orbitRadius(double t) {
@@ -92,9 +118,9 @@ final class GiftbagTimeline {
     }
 
     /** Height of a prize above the bag's centre: the ring is tilted and each prize bobs. */
-    static double orbitHeight(double t, int index, int count, int durationTicks) {
+    static double orbitHeight(double t, int index, int count, int durationTicks, double grandeur) {
         double angle = orbitAngle(t, index, count, durationTicks);
-        return Math.sin(angle) * orbitRadius(t) * 0.28 + Math.sin(t * 40.0 + index) * 0.08;
+        return Math.sin(angle) * orbitRadius(t, grandeur) * 0.28 + Math.sin(t * 40.0 + index) * 0.08;
     }
 
     static double orbitScale(double t) {
@@ -126,10 +152,11 @@ final class GiftbagTimeline {
         return (float) (0.5 + 1.45 * t);
     }
 
-    /** The revealed prize grows with an overshoot, then idles. */
-    static double revealScale(int ticksSinceBurst) {
-        if (ticksSinceBurst >= REVEAL_GROW_TICKS) return 1.5;
-        return 1.5 * easeOutBack(ticksSinceBurst / (double) REVEAL_GROW_TICKS);
+    /** The revealed prize grows with an overshoot, then idles, larger the rarer it is. */
+    static double revealScale(int ticksSinceBurst, double grandeur) {
+        double full = 1.5 * (1.0 + Math.max(0.0, Math.min(1.0, grandeur)) * 0.45);
+        if (ticksSinceBurst >= REVEAL_GROW_TICKS) return full;
+        return full * easeOutBack(ticksSinceBurst / (double) REVEAL_GROW_TICKS);
     }
 
     static double easeOutBack(double x) {

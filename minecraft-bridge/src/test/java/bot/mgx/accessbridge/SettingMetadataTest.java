@@ -120,7 +120,7 @@ final class SettingMetadataTest {
         expected.put("airdrop.loot.rare", 13);
         expected.put("airdrop.loot.legendary", 13);
         expected.put("airdrop.loot.mythic", 13);
-        expected.put("season.giftbag", 17);
+        expected.put("season.giftbag", 16);
         assertEquals(new TreeMap<>(expected), tables,
                 "the loot tables changed shape — the panel's editors are built per table");
     }
@@ -169,7 +169,7 @@ final class SettingMetadataTest {
         expected.put("airdrop.loot.rare", 13);
         expected.put("airdrop.loot.legendary", 13);
         expected.put("airdrop.loot.mythic", 13);
-        expected.put("season.giftbag", 17);
+        expected.put("season.giftbag", 16);
         assertEquals(expected, entries, "a table gained or lost rows");
     }
 

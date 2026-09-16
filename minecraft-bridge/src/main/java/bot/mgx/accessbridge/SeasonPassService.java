@@ -207,12 +207,6 @@ final class SeasonPassService implements Listener, CommandExecutor {
                 ? java.util.Optional.empty() : java.util.Optional.of(new ItemStack(material));
     }
 
-    /** A season consumable as the real item, for a menu tile. */
-    java.util.Optional<ItemStack> seasonItemPreview(SeasonPassRules.Grant grant) {
-        return SeasonItemCatalog.find(grant.id()).filter(item -> plugin.seasonItems() != null)
-                .map(item -> plugin.seasonItems().create(item, (int) Math.min(64, grant.amount())));
-    }
-
     /** The real season-bound Giftbag a tier pays, built quietly for a menu tile. */
     java.util.Optional<ItemStack> giftbagPreview() {
         return plugin.giftbags() == null ? java.util.Optional.empty()
@@ -695,8 +689,6 @@ final class SeasonPassService implements Listener, CommandExecutor {
                 case "season_cosmetic" -> parts.add(seasonCosmetic(grant)
                         .map(definition -> definition.displayName() + " (Season " + store.season() + " Exclusive)")
                         .orElse(exclusiveFallbackShards() + " Shards"));
-                case "season_item" -> SeasonItemCatalog.find(grant.id()).ifPresent(item ->
-                        parts.add((grant.amount() > 1 ? grant.amount() + "x " : "") + item.displayName));
                 case "vanilla" -> parts.add((grant.amount() > 1 ? grant.amount() + "x " : "") + vanillaName(grant.id()));
                 case "book" -> parts.add(vanillaName(grant.id()) + (grant.amount() > 1 ? " " + roman((int) grant.amount()) : "")
                         + " Book");
@@ -779,15 +771,6 @@ final class SeasonPassService implements Listener, CommandExecutor {
                             giveShards(player, exclusiveFallbackShards());
                         }
                     }
-                    case "season_item" -> SeasonItemCatalog.find(grant.id()).ifPresent(item -> {
-                        if (plugin.seasonItems() == null) return;
-                        // A horn does not stack, so each copy is its own item.
-                        for (long left = grant.amount(); left > 0; ) {
-                            ItemStack stack = plugin.seasonItems().create(item, (int) left);
-                            give(player, stack);
-                            left -= stack.getAmount();
-                        }
-                    });
                     case "vanilla", "book" -> vanillaItem(grant).ifPresentOrElse(item -> {
                         for (long left = grant.amount(); left > 0; ) {
                             ItemStack stack = item.clone();

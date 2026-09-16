@@ -165,26 +165,11 @@ final class SeasonPassRulesTest {
         assertEquals("Music Disc Pigstep", SeasonPassService.vanillaName("music_disc_pigstep"));
     }
 
-    @Test
-    void theRallyHornNeverDecidesAFight() {
-        List<SeasonPassRules.Grant> grants = SeasonPassRules.parse("item:Rally_Horn:2;item:miners_tonic");
-        assertEquals(List.of(new SeasonPassRules.Grant("season_item", 2, "rally_horn")), grants,
-                "only the horn is a season consumable");
-        for (SeasonItemCatalog.Item item : SeasonItemCatalog.Item.values()) {
-            for (SeasonItemCatalog.Effect effect : item.effects) {
-                assertFalse(SeasonItemCatalog.COMBAT_EFFECTS.contains(effect.type()),
-                        item.id + " grants " + effect.type() + ", which wins fights");
-                assertTrue(effect.seconds() <= 300 && effect.amplifier() <= 1, item.id + " is too strong: " + effect);
-            }
-        }
-        assertEquals("Haste II for 5 min", SeasonItemCatalog.Item.RALLY_HORN.effects.get(0).describe());
-    }
-
     /**
      * The owner's rules for the track (September 2026): every tier pays something a player
-     * spends or wears, never a collectable (discs, sponges, trims, skulls); consumables may
-     * return only at a larger amount; and every reward has a real icon in the dialog rows,
-     * never a flat block face or a missing sprite.
+     * spends or wears, never a collectable (discs, sponges, trims, skulls) and never a season
+     * consumable; consumables may return only at a larger amount; and every reward has a real
+     * icon in the dialog rows, never a flat block face or a missing sprite.
      */
     @Test
     void theDefaultTrackPaysOnlyUsefulRewardsWithRealIcons() throws Exception {
@@ -208,7 +193,6 @@ final class SeasonPassRulesTest {
         Map<String, Long> repeated = new HashMap<>();
         Set<String> exclusives = new HashSet<>();
         Set<String> gear = new HashSet<>();
-        Set<String> seasonItems = new HashSet<>();
         for (int tier = 1; tier <= 50; tier++) {
             String entry = SeasonPassRules.trackEntry(track, tier);
             assertFalse(entry.contains("music_disc") || entry.contains("smithing_template") || entry.contains("sponge"),
@@ -255,7 +239,6 @@ final class SeasonPassRulesTest {
                     }
                     case "season_cosmetic" -> assertTrue(exclusives.add(grant.id()), "exclusive paid twice");
                     case "season_gear" -> assertTrue(gear.add(grant.id()), "gear paid twice");
-                    case "season_item" -> assertTrue(seasonItems.add(grant.id()), grant.id() + " is paid twice");
                     default -> throw new AssertionError("tier " + tier + " pays " + grant.kind());
                 }
             }

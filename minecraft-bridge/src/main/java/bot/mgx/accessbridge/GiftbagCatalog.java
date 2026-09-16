@@ -11,7 +11,7 @@ final class GiftbagCatalog {
     static final long DEFAULT_TOTAL_WEIGHT = 1_000_000L;
 
     enum Kind {
-        SHARDS, SEASON_ITEM, SEASON_GEAR, SEASON_COSMETIC, MYTHIC_ITEM
+        SHARDS, SEASON_GEAR, SEASON_COSMETIC, MYTHIC_ITEM
     }
 
     enum Rarity {
@@ -42,26 +42,24 @@ final class GiftbagCatalog {
             new Entry("shards_4", Kind.SHARDS, "", 4, 400_000, "4 Shards", Rarity.RARE),
             new Entry("shards_8", Kind.SHARDS, "", 8, 250_000, "8 Shards", Rarity.RARE),
             new Entry("shards_16", Kind.SHARDS, "", 16, 100_000, "16 Shards", Rarity.MYTHIC),
-            new Entry("shards_32", Kind.SHARDS, "", 32, 5_200, "32 Shards", Rarity.MYTHIC),
-            new Entry("rally_horn", Kind.SEASON_ITEM, "rally_horn", 1, 100_000,
-                    "Rally Horn", Rarity.RARE),
-            new Entry("season_pickaxe", Kind.SEASON_GEAR, "pickaxe", 1, 20_000,
+            new Entry("shards_32", Kind.SHARDS, "", 32, 9_200, "32 Shards", Rarity.MYTHIC),
+            new Entry("season_pickaxe", Kind.SEASON_GEAR, "pickaxe", 1, 34_000,
                     "Season Pickaxe", Rarity.EXCLUSIVE),
-            new Entry("season_axe", Kind.SEASON_GEAR, "axe", 1, 20_000,
+            new Entry("season_axe", Kind.SEASON_GEAR, "axe", 1, 34_000,
                     "Season Axe", Rarity.EXCLUSIVE),
-            new Entry("season_hoe", Kind.SEASON_GEAR, "hoe", 1, 20_000,
+            new Entry("season_hoe", Kind.SEASON_GEAR, "hoe", 1, 34_000,
                     "Season Hoe", Rarity.EXCLUSIVE),
-            new Entry("season_helmet", Kind.SEASON_GEAR, "helmet", 1, 20_000,
+            new Entry("season_helmet", Kind.SEASON_GEAR, "helmet", 1, 34_000,
                     "Season Helmet", Rarity.EXCLUSIVE),
-            new Entry("season_scythe", Kind.SEASON_GEAR, "scythe", 1, 15_000,
+            new Entry("season_scythe", Kind.SEASON_GEAR, "scythe", 1, 25_000,
                     "Season Scythe", Rarity.EXCLUSIVE),
-            new Entry("season_wings", Kind.SEASON_GEAR, "wings", 1, 10_000,
+            new Entry("season_wings", Kind.SEASON_GEAR, "wings", 1, 17_000,
                     "Season Wings", Rarity.EXCLUSIVE),
-            new Entry("season_trail", Kind.SEASON_COSMETIC, "trail", 1, 20_000,
+            new Entry("season_trail", Kind.SEASON_COSMETIC, "trail", 1, 32_000,
                     "Season Trail", Rarity.EXCLUSIVE),
-            new Entry("season_kill", Kind.SEASON_COSMETIC, "kill", 1, 12_000,
+            new Entry("season_kill", Kind.SEASON_COSMETIC, "kill", 1, 19_000,
                     "Season Kill Effect", Rarity.EXCLUSIVE),
-            new Entry("season_aura", Kind.SEASON_COSMETIC, "aura", 1, 6_000,
+            new Entry("season_aura", Kind.SEASON_COSMETIC, "aura", 1, 10_000,
                     "Season Aura", Rarity.EXCLUSIVE),
             new Entry("riftcleaver", Kind.MYTHIC_ITEM, "riftcleaver", 1, 1_000,
                     "Riftcleaver", Rarity.MYTHIC_ITEM),

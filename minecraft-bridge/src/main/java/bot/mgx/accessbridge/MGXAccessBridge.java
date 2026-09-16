@@ -87,7 +87,6 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private PersonalNotificationService personalNotifications;
     private CapabilityService capabilityService;
     private ClanStore clanStore;
-    private SeasonItemService seasonItems;
     private GiftbagService giftbags;
     private MythicGiftItemService mythicGiftItems;
     private ClanMenuService clanMenuService;
@@ -936,8 +935,6 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         } catch (IOException exception) {
             getLogger().severe("Daily login streaks are disabled: " + exception.getMessage());
         }
-        seasonItems = new SeasonItemService(this);
-        getServer().getPluginManager().registerEvents(seasonItems, this);
         mythicGiftItems = new MythicGiftItemService(this, gameVariables);
         getServer().getPluginManager().registerEvents(mythicGiftItems, this);
         try {
@@ -1682,10 +1679,6 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
 
     AmethystItemService amethystItems() {
         return amethystItems;
-    }
-
-    SeasonItemService seasonItems() {
-        return seasonItems;
     }
 
     GiftbagService giftbags() {
