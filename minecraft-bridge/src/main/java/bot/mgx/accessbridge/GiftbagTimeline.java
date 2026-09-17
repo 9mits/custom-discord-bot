@@ -22,16 +22,25 @@ final class GiftbagTimeline {
     static final double ORBIT_END = 0.60;
     static final double CONVERGE_END = 0.86;
     /** How far the prizes circle from the bag at their widest. */
-    static final double ORBIT_RADIUS = 1.7;
+    static final double ORBIT_RADIUS = 4.2;
     /** Radians per second the ring turns at the start of the orbit, and at its fastest. */
     static final double SLOW_SPIN = 1.3;
     static final double FAST_SPIN = 11.0;
     /** Ticks the reward takes to grow to full size after the burst. */
     static final int REVEAL_GROW_TICKS = 12;
-    /** Extra size at the burst for the very best prize: a mythic bag ends up twice as big. */
-    static final double GRANDEUR_GROWTH = 1.0;
-    /** How much wider the ring of prizes swings for the best prizes. */
-    static final double GRANDEUR_SPREAD = 0.3;
+    /**
+     * The bag's size in blocks, and the point of the whole thing: an ordinary bag ends up
+     * about twice a player's height, and a mythic one towers about five times over them.
+     * A display's scale is roughly blocks, and a player is 1.8 of them.
+     */
+    static final double BAG_RISEN = 2.6;
+    static final double BAG_FULL = 3.4;
+    /** What the best prize multiplies that by: 3.4 x 2.7 is a bag over nine blocks tall. */
+    static final double GRANDEUR_GROWTH = 1.7;
+    /** How much wider the ring of prizes swings for the best prizes, to clear the bag. */
+    static final double GRANDEUR_SPREAD = 0.45;
+    /** Blocks below the ground the bag starts, out of sight. */
+    static final double BURIED = 3.2;
 
     private GiftbagTimeline() {
     }
@@ -74,16 +83,28 @@ final class GiftbagTimeline {
     static double bagScale(double t) {
         double local = within(t);
         return switch (phase(t)) {
-            case RISE -> 1.2 * easeOutBack(local);
-            case ORBIT -> 1.2;
-            case CONVERGE -> 1.2 + 0.4 * easeInCubic(local);
-            case CHARGE -> 1.6 + 0.12 * Math.sin(local * Math.PI * 9.0) * local;
+            case RISE -> BAG_RISEN * easeOutBack(local);
+            case ORBIT -> BAG_RISEN;
+            case CONVERGE -> BAG_RISEN + (BAG_FULL - BAG_RISEN) * easeInCubic(local);
+            case CHARGE -> BAG_FULL + BAG_FULL * 0.075 * Math.sin(local * Math.PI * 9.0) * local;
         };
+    }
+
+    /**
+     * Height of the bag's centre above the ground it is standing on.
+     *
+     * <p>A display scales around its own origin, so a bag this size anchored at eye level
+     * would have half of itself underground. Lifting it by half its height instead keeps
+     * it standing on the floor and growing upwards, which is also what the rise is meant
+     * to look like.
+     */
+    static double bagCentre(double t, double grandeur) {
+        return bagScale(t, grandeur) * 0.5 + bagLift(t);
     }
 
     /** Blocks below its resting height: the bag climbs out of the floor during the rise. */
     static double bagLift(double t) {
-        return phase(t) == Phase.RISE ? -0.9 * (1.0 - easeOutCubic(within(t))) : 0.0;
+        return phase(t) == Phase.RISE ? -BURIED * (1.0 - easeOutCubic(within(t))) : 0.0;
     }
 
     /** Radians the bag has turned: a slow drift that winds up with the ring. */
@@ -118,17 +139,24 @@ final class GiftbagTimeline {
     }
 
     /** Height of a prize above the bag's centre: the ring is tilted and each prize bobs. */
+    /**
+     * Height of one circling prize above the ground: the ring is tilted, each prize bobs,
+     * and the whole ring rides at the height of the bag's middle rather than a player's.
+     */
     static double orbitHeight(double t, int index, int count, int durationTicks, double grandeur) {
         double angle = orbitAngle(t, index, count, durationTicks);
-        return Math.sin(angle) * orbitRadius(t, grandeur) * 0.28 + Math.sin(t * 40.0 + index) * 0.08;
+        return bagCentre(t, grandeur)
+                + Math.sin(angle) * orbitRadius(t, grandeur) * 0.28
+                + Math.sin(t * 40.0 + index) * 0.16;
     }
 
     static double orbitScale(double t) {
         double local = within(t);
+        // Big enough to read against a bag this size, without competing with it.
         return switch (phase(t)) {
             case RISE -> 0.0;
-            case ORBIT -> 0.62 * easeOutCubic(Math.min(1.0, local / 0.25));
-            case CONVERGE -> 0.62 * (1.0 - 0.8 * easeInCubic(local));
+            case ORBIT -> 1.3 * easeOutCubic(Math.min(1.0, local / 0.25));
+            case CONVERGE -> 1.3 * (1.0 - 0.8 * easeInCubic(local));
             case CHARGE -> 0.0;
         };
     }
@@ -137,8 +165,8 @@ final class GiftbagTimeline {
     static double shake(double t) {
         return switch (phase(t)) {
             case RISE, ORBIT -> 0.0;
-            case CONVERGE -> 0.05 * within(t);
-            case CHARGE -> 0.05 + 0.1 * within(t);
+            case CONVERGE -> 0.12 * within(t);
+            case CHARGE -> 0.12 + 0.25 * within(t);
         };
     }
 
@@ -154,7 +182,7 @@ final class GiftbagTimeline {
 
     /** The revealed prize grows with an overshoot, then idles, larger the rarer it is. */
     static double revealScale(int ticksSinceBurst, double grandeur) {
-        double full = 1.5 * (1.0 + Math.max(0.0, Math.min(1.0, grandeur)) * 0.45);
+        double full = 2.6 * (1.0 + Math.max(0.0, Math.min(1.0, grandeur)) * 0.5);
         if (ticksSinceBurst >= REVEAL_GROW_TICKS) return full;
         return full * easeOutBack(ticksSinceBurst / (double) REVEAL_GROW_TICKS);
     }

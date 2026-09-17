@@ -24,12 +24,14 @@ final class GiftbagTimelineTest {
         double step = 1.0 / DURATION;
         for (double t = step; t <= 1.0; t += step) {
             double before = t - step;
-            assertTrue(Math.abs(GiftbagTimeline.bagScale(t) - GiftbagTimeline.bagScale(before)) < 0.3,
-                    "the bag jumps in size at " + t);
-            assertTrue(Math.abs(GiftbagTimeline.orbitRadius(t) - GiftbagTimeline.orbitRadius(before)) < 0.4,
-                    "the ring jumps at " + t);
-            assertTrue(Math.abs(GiftbagTimeline.bagLift(t) - GiftbagTimeline.bagLift(before)) < 0.2,
-                    "the bag teleports at " + t);
+            // Relative to how big the thing actually is, so resizing the bag does not
+            // quietly turn this into a test of nothing.
+            assertTrue(Math.abs(GiftbagTimeline.bagScale(t) - GiftbagTimeline.bagScale(before))
+                            < GiftbagTimeline.BAG_FULL * 0.25, "the bag jumps in size at " + t);
+            assertTrue(Math.abs(GiftbagTimeline.orbitRadius(t) - GiftbagTimeline.orbitRadius(before))
+                            < GiftbagTimeline.ORBIT_RADIUS * 0.25, "the ring jumps at " + t);
+            assertTrue(Math.abs(GiftbagTimeline.bagLift(t) - GiftbagTimeline.bagLift(before))
+                            < GiftbagTimeline.BURIED * 0.2, "the bag teleports at " + t);
         }
     }
 
@@ -42,11 +44,12 @@ final class GiftbagTimelineTest {
         assertEquals(GiftbagTimeline.ORBIT_RADIUS, GiftbagTimeline.orbitRadius(0.45), 1e-9);
         assertEquals(0.0, GiftbagTimeline.orbitScale(0.9), "the prizes are inside the bag while it charges");
         assertTrue(GiftbagTimeline.bagScale(0.85) > GiftbagTimeline.bagScale(0.5), "the bag swells as it fills");
-        assertEquals(GiftbagTimeline.ORBIT_RADIUS * 1.3, GiftbagTimeline.orbitRadius(0.45, 1.0), 1e-9);
+        assertEquals(GiftbagTimeline.ORBIT_RADIUS * (1 + GiftbagTimeline.GRANDEUR_SPREAD),
+                GiftbagTimeline.orbitRadius(0.45, 1.0), 1e-9);
         assertEquals(0.0, GiftbagTimeline.shake(0.4), "the bag is steady until it fills");
         assertTrue(GiftbagTimeline.shake(0.99) > GiftbagTimeline.shake(0.7), "the bag strains hardest just before it bursts");
         assertTrue(GiftbagTimeline.beatPeriod(0.95) < GiftbagTimeline.beatPeriod(0.2), "the beat quickens");
-        assertEquals(1.5, GiftbagTimeline.revealScale(GiftbagTimeline.REVEAL_GROW_TICKS, 0.0));
+        assertEquals(2.6, GiftbagTimeline.revealScale(GiftbagTimeline.REVEAL_GROW_TICKS, 0.0));
     }
 
     @Test
@@ -64,8 +67,16 @@ final class GiftbagTimelineTest {
                     "a rarer prize is never the smaller bag at " + t);
         }
         assertEquals(1.0 + GiftbagTimeline.GRANDEUR_GROWTH, GiftbagTimeline.swell(1.0, 1.0), 1e-9);
-        assertTrue(GiftbagTimeline.bagScale(1.0, 1.0) > GiftbagTimeline.bagScale(1.0, 0.0) * 1.9,
+        assertTrue(GiftbagTimeline.bagScale(1.0, 1.0) > GiftbagTimeline.bagScale(1.0, 0.0) * 2.5,
                 "the mythic bag towers over the ordinary one");
+        // A player is 1.8 blocks, and a display's scale is roughly blocks.
+        assertTrue(GiftbagTimeline.bagScale(1.0, 1.0) >= 1.8 * 5,
+                "the best prize's bag stands about five players tall");
+        assertTrue(GiftbagTimeline.bagScale(1.0, 0.0) >= 1.8,
+                "even an ordinary bag is taller than the player opening it");
+        // It stands on the floor rather than being buried to the waist in it.
+        assertEquals(GiftbagTimeline.bagScale(1.0, 1.0) / 2, GiftbagTimeline.bagCentre(1.0, 1.0), 1e-9);
+        assertTrue(GiftbagTimeline.bagCentre(0.0, 1.0) < 0, "it starts below the ground it rises out of");
         assertTrue(GiftbagTimeline.revealScale(GiftbagTimeline.REVEAL_GROW_TICKS, 1.0)
                 > GiftbagTimeline.revealScale(GiftbagTimeline.REVEAL_GROW_TICKS, 0.0),
                 "the rarest prize is revealed largest");
