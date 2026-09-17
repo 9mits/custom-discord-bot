@@ -155,6 +155,9 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
     private final Map<UUID, Long> lastRequests = new ConcurrentHashMap<>();
     private final Map<UUID, Component> prompts = new ConcurrentHashMap<>();
     private final Map<UUID, Component> actionBars = new ConcurrentHashMap<>();
+    /** The wall of bars across the top of a lobby player's screen. */
+    private final Map<UUID, java.util.List<net.kyori.adventure.bossbar.BossBar>> lobbyBars =
+            new ConcurrentHashMap<>();
     private final Map<UUID, LobbyTitle> centerTitles = new ConcurrentHashMap<>();
     private final Map<UUID, Long> lastPromptMessages = new ConcurrentHashMap<>();
     private final Set<UUID> releasing = ConcurrentHashMap.newKeySet();
@@ -186,6 +189,7 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
         world.getWorldBorder().setSize(2048.0);
         buildRoom();
         spawn = new Location(world, 0.5, ROOM_FLOOR_Y + 1.0, 0.5, 0.0F, 0.0F);
+        raiseSign();
         world.setSpawnLocation(spawn);
         inventoryFile = new File(plugin.getDataFolder(), "verification-inventories.yml");
         inventoryStashes = YamlConfiguration.loadConfiguration(inventoryFile);
@@ -372,6 +376,7 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
         prompts.put(player.getUniqueId(), verifyPrompt());
         actionBars.put(player.getUniqueId(), verifyAction());
         centerTitles.put(player.getUniqueId(), VERIFY_TITLE);
+        showLobbyBars(player);
         // Essentials and other join listeners may speak later in the same event.
         // Limbo should begin as a clean black screen with one queue line, so draw it
         // after those messages and push the normal SMP history out of view.
@@ -469,8 +474,51 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
         showCenterTitle(player, centerTitle);
     }
 
+    /**
+     * Five bars saying one thing, because one of anything was not landing.
+     *
+     * <p>They are exclusive bars, so the Amethyst event's own bar — which has nothing to
+     * do with a player who cannot get in yet — is suppressed underneath them and comes
+     * back when they are released.
+     */
+    private void showLobbyBars(Player player) {
+        clearLobbyBars(player);
+        String invite = GuideService.inviteDisplay();
+        java.util.List<net.kyori.adventure.bossbar.BossBar> bars = java.util.List.of(
+                bar("\u26a0  THE DISCORD SERVER HAS MOVED  \u26a0",
+                        NamedTextColor.RED, net.kyori.adventure.bossbar.BossBar.Color.RED),
+                bar("JOIN  " + invite,
+                        NamedTextColor.AQUA, net.kyori.adventure.bossbar.BossBar.Color.BLUE),
+                bar("THE BOT CANNOT MESSAGE YOU UNTIL YOU JOIN IT",
+                        NamedTextColor.YELLOW, net.kyori.adventure.bossbar.BossBar.Color.YELLOW),
+                bar("YOU CANNOT PLAY UNTIL YOU ARE VERIFIED",
+                        NamedTextColor.RED, net.kyori.adventure.bossbar.BossBar.Color.RED),
+                bar("THEN TYPE  /verify <your Discord username>",
+                        NamedTextColor.GREEN, net.kyori.adventure.bossbar.BossBar.Color.GREEN)
+        );
+        plugin.bossBars().suppress(player);
+        bars.forEach(bar -> plugin.bossBars().showExclusive(player, bar));
+        lobbyBars.put(player.getUniqueId(), bars);
+    }
+
+    private static net.kyori.adventure.bossbar.BossBar bar(
+            String text, NamedTextColor colour, net.kyori.adventure.bossbar.BossBar.Color bar
+    ) {
+        return net.kyori.adventure.bossbar.BossBar.bossBar(
+                Component.text(text, colour, TextDecoration.BOLD), 1f, bar,
+                net.kyori.adventure.bossbar.BossBar.Overlay.PROGRESS);
+    }
+
+    private void clearLobbyBars(Player player) {
+        java.util.List<net.kyori.adventure.bossbar.BossBar> bars =
+                lobbyBars.remove(player.getUniqueId());
+        if (bars != null) bars.forEach(bar -> plugin.bossBars().hideExclusive(player, bar));
+        plugin.bossBars().restore(player);
+    }
+
     private void clearPrompt(Player player) {
         UUID uuid = player.getUniqueId();
+        clearLobbyBars(player);
         prompts.remove(uuid);
         actionBars.remove(uuid);
         centerTitles.remove(uuid);
@@ -600,6 +648,51 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
 
     private boolean protectedPlayer(Player player) {
         return isLobbyPlayer(player.getUniqueId());
+    }
+
+    /**
+     * The sign standing in the middle of the cell, as tall as the room allows.
+     *
+     * <p>It follows the viewer, so there is no direction to face that does not have it in
+     * frame. The boss bars, the title, the action bar and the chat are all sayable things
+     * a player can look away from; this one they stand inside.
+     */
+    private void raiseSign() {
+        Location at = new Location(world, 0.5, ROOM_FLOOR_Y + 2.6, 3.5);
+        for (org.bukkit.entity.Entity existing : world.getNearbyEntities(at, 6, 6, 6)) {
+            if (existing instanceof org.bukkit.entity.TextDisplay) existing.remove();
+        }
+        String invite = GuideService.inviteDisplay();
+        world.spawn(at, org.bukkit.entity.TextDisplay.class, text -> {
+            text.text(Component.text("THE DISCORD SERVER HAS MOVED", NamedTextColor.RED,
+                            TextDecoration.BOLD)
+                    .append(Component.newline())
+                    .append(Component.newline())
+                    .append(Component.text("JOIN  ", NamedTextColor.WHITE, TextDecoration.BOLD))
+                    .append(Component.text(invite, NamedTextColor.AQUA, TextDecoration.BOLD))
+                    .append(Component.newline())
+                    .append(Component.newline())
+                    .append(Component.text("The bot cannot message you", NamedTextColor.YELLOW))
+                    .append(Component.newline())
+                    .append(Component.text("unless you are in the server with it.", NamedTextColor.YELLOW))
+                    .append(Component.newline())
+                    .append(Component.newline())
+                    .append(Component.text("Then type", NamedTextColor.GRAY))
+                    .append(Component.newline())
+                    .append(Component.text("/verify <your Discord username>", NamedTextColor.GREEN,
+                            TextDecoration.BOLD)));
+            text.setBillboard(org.bukkit.entity.Display.Billboard.CENTER);
+            text.setAlignment(org.bukkit.entity.TextDisplay.TextAlignment.CENTER);
+            text.setBackgroundColor(org.bukkit.Color.fromARGB(170, 20, 0, 0));
+            text.setBrightness(new org.bukkit.entity.Display.Brightness(15, 15));
+            text.setShadowed(true);
+            text.setSeeThrough(true);
+            text.setPersistent(false);
+            text.setViewRange(4f);
+            text.setTransformation(new org.bukkit.util.Transformation(
+                    new org.joml.Vector3f(), new org.joml.Quaternionf(),
+                    new org.joml.Vector3f(2.2f, 2.2f, 2.2f), new org.joml.Quaternionf()));
+        });
     }
 
     /** Build an invisible limbo cell even when the old flat lobby world already existed. */
