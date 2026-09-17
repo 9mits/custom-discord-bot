@@ -13,14 +13,6 @@ from typing import Callable, Optional
 import discord
 
 from . import clans
-from .perks import (
-    BOOSTER_DAMAGE_PERCENT,
-    BOOSTER_EXTRA_HEARTS,
-    BOOSTER_HUNGER_REDUCTION_PERCENT,
-    ELITE_DAMAGE_PERCENT,
-    LEVEL_ROLE_MILESTONES,
-    profile_for_role_ids,
-)
 from .presentation import (
     ABOUT_ATTACHMENT_URI,
     BRAND_NAME,
@@ -45,7 +37,6 @@ CONFIG_MESSAGE = "information_message_id"
 
 #: Where members read how Discord levelling works.
 # The old guild was deleted, so its channel link is dead; the invite is what resolves.
-LEVELS_CHANNEL_URL = "https://discord.gg/twkrj8Ys5N"
 
 #: Homes granted to the default rank, matching `sethome-multiple.default` in the
 #: EssentialsX config. Documenting the wrong figure is worse than omitting it.
@@ -73,27 +64,6 @@ CLAN_THEME_COLOURS = (
     "green",
     "white",
 )
-
-
-def _hearts(count: int) -> str:
-    return f"{count} extra heart" if count == 1 else f"{count} extra hearts"
-
-
-def _milestone_rewards() -> str:
-    """The ladder, showing the running total a member holds at each milestone.
-
-    Derived by asking the real perk function what each rung grants, so the copy
-    cannot drift from what the bridge actually applies.
-    """
-    lines = []
-    for index, (role_id, _level) in enumerate(LEVEL_ROLE_MILESTONES):
-        owned = [held for held, _milestone in LEVEL_ROLE_MILESTONES[: index + 1]]
-        profile = profile_for_role_ids(owned)
-        reward = f"**{_hearts(profile.extra_hearts)}**"
-        if profile.elite:
-            reward += f" and **+{ELITE_DAMAGE_PERCENT}% damage**"
-        lines.append(f"> <@&{role_id}> — {reward}")
-    return "\n".join(lines)
 
 
 def _embed(title: str, description: str) -> discord.Embed:
@@ -595,70 +565,6 @@ def clans_leaving_embed(settings=None) -> discord.Embed:
     )
 
 
-def levels_embed() -> discord.Embed:
-    max_hearts = profile_for_role_ids(
-        [role_id for role_id, _level in LEVEL_ROLE_MILESTONES]
-    ).extra_hearts
-    combined_damage = ELITE_DAMAGE_PERCENT + BOOSTER_DAMAGE_PERCENT
-    return _page(
-        "Levels and Perks",
-        "Chatting in text channels and talking in voice earns Discord levels, "
-        "which become permanent bonuses in Minecraft.",
-        [
-            ("What each milestone gives you", _milestone_rewards()),
-            (
-                "It all stacks",
-                "> Milestones add up — the figure beside each role is your total\n"
-                f"> **Boosting** — +{BOOSTER_EXTRA_HEARTS} heart and "
-                f"+{BOOSTER_DAMAGE_PERCENT}% damage on top of your level\n"
-                f"> **Maximum** — {_hearts(max_hearts + BOOSTER_EXTRA_HEARTS)} and "
-                f"+{combined_damage}% damage",
-            ),
-            (
-                "Checking yours",
-                "> `/perks` — your level, hearts and damage bonus\n"
-                "> The sidebar shows the same while you play\n"
-                f"> How levelling works: {LEVELS_CHANNEL_URL}",
-            ),
-        ],
-    )
-
-
-def boosting_embed() -> discord.Embed:
-    max_hearts = profile_for_role_ids(
-        [role_id for role_id, _level in LEVEL_ROLE_MILESTONES]
-    ).extra_hearts
-    combined_damage = ELITE_DAMAGE_PERCENT + BOOSTER_DAMAGE_PERCENT
-    return _page(
-        "Boosting",
-        "Boosting the Discord server adds bonuses on top of your level rewards.",
-        [
-            (
-                "What boosting adds",
-                f"> **+{BOOSTER_EXTRA_HEARTS} extra heart**\n"
-                f"> **+{BOOSTER_DAMAGE_PERCENT}% damage**\n"
-                f"> **Hunger drains {BOOSTER_HUNGER_REDUCTION_PERCENT}% more "
-                "slowly**",
-            ),
-            (
-                "How it stacks",
-                "> Added to your level rewards, never instead of them\n"
-                f"> Damage adds rather than multiplies — level 50 plus boosting "
-                f"is **+{combined_damage}%**\n"
-                f"> **Maximum** — {_hearts(max_hearts + BOOSTER_EXTRA_HEARTS)} and "
-                f"+{combined_damage}% damage",
-            ),
-            (
-                "If you stop boosting",
-                "> Your boosting perks are removed immediately\n"
-                "> Keep boosting to keep them\n"
-                "> \n"
-                "> *Your level rewards, rank and clan are unaffected.*",
-            ),
-        ],
-    )
-
-
 def mods_embed() -> discord.Embed:
     xaeros_link = mod_link("Xaero's Minimap")
     return _page(
@@ -749,8 +655,6 @@ def technical_embed(settings=None) -> discord.Embed:
 PAGES: dict[str, tuple[str, Callable[[Optional[object]], discord.Embed]]] = {
     "commands": ("Commands", lambda _settings: commands_embed()),
     "clans": ("Clans", lambda _settings: clans_embed()),
-    "levels": ("Levels & Perks", lambda _settings: levels_embed()),
-    "boosting": ("Boosting", lambda _settings: boosting_embed()),
     "mods": ("Mods & Voice Chat", lambda _settings: mods_embed()),
     "rules": ("Rules", lambda _settings: rules_embed()),
     "versions": ("Server & Versions", technical_embed),

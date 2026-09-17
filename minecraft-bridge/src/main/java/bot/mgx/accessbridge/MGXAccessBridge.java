@@ -1657,6 +1657,22 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 && luckPermsService.hasGroupLoaded(minecraftUuid, "owner");
     }
 
+    /**
+     * The Developer rank: the one with every permission.
+     *
+     * <p>Owner outranks it in Discord and is the tag players see, but control runs the
+     * other way round — Developer is what the destructive commands ask for. Operators
+     * count too, so losing the Discord can never lock the server out of its own console.
+     */
+    boolean hasFullControl(CommandSender sender) {
+        if (!(sender instanceof Player player)) {
+            return true;
+        }
+        return player.isOp()
+                || (luckPermsService != null
+                && luckPermsService.hasGroupLoaded(player.getUniqueId(), "developer"));
+    }
+
     java.util.concurrent.CompletableFuture<Boolean> hasOwnerRank(UUID minecraftUuid) {
         return luckPermsService == null
                 ? java.util.concurrent.CompletableFuture.completedFuture(false)

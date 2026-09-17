@@ -2,6 +2,8 @@ package bot.mgx.accessbridge;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.Set;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -61,12 +63,10 @@ class PlayerProfileRankTest {
     }
 
     @Test
-    void managedGroupsCoverEveryRankGroup() {
+    void managedGroupsAreTheTwoRanksThatStillExist() {
         // Mirrors RANK_ROLES in minecraft_bot/perks.py; both lists must stay in step.
-        assertEquals(9, LuckPermsService.MANAGED_GROUPS.size());
-        assertTrue(LuckPermsService.MANAGED_GROUPS.contains("owner"));
-        assertTrue(LuckPermsService.MANAGED_GROUPS.contains("community-manager"));
-        assertTrue(LuckPermsService.MANAGED_GROUPS.contains("booster"));
+        // The ladder below them belonged to the deleted Discord and went with it.
+        assertEquals(Set.of("owner", "developer"), LuckPermsService.MANAGED_GROUPS);
     }
 
     @Test

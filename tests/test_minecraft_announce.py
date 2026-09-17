@@ -233,7 +233,7 @@ class AnnouncePreviewCommandTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_a_non_owner_is_refused_and_nothing_is_sent(self):
         bot, command = self._command()
-        bot.is_owner_member = lambda member: False
+        bot.may_administer = lambda member: False
         member = Recipient(5)
         interaction = self._interaction(member)
 
@@ -241,11 +241,11 @@ class AnnouncePreviewCommandTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual([], member.received)
         embed = interaction.response.send_message.await_args.kwargs["embed"]
-        self.assertEqual("Owner Access Required", embed.title)
+        self.assertEqual("Staff Access Required", embed.title)
 
     async def test_the_owner_receives_the_draft_as_a_direct_message(self):
         bot, command = self._command()
-        bot.is_owner_member = lambda member: True
+        bot.may_administer = lambda member: True
         bot.data = SimpleNamespace(get_config=AsyncMock(return_value="0"))
         bot.settings = SimpleNamespace(member_role_id=0)
         bot._configured_guild = AsyncMock(return_value=None)
@@ -267,7 +267,7 @@ class AnnouncePreviewCommandTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_an_unusable_draft_is_reported_without_sending(self):
         bot, command = self._command()
-        bot.is_owner_member = lambda member: True
+        bot.may_administer = lambda member: True
         member = Recipient(5)
         interaction = self._interaction(member)
 
@@ -279,7 +279,7 @@ class AnnouncePreviewCommandTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_a_closed_inbox_is_explained_rather_than_raised(self):
         bot, command = self._command()
-        bot.is_owner_member = lambda member: True
+        bot.may_administer = lambda member: True
         member = Recipient(5)
         member.send = AsyncMock(
             side_effect=discord.Forbidden(SimpleNamespace(status=403, reason=""), "closed")

@@ -34,7 +34,7 @@ def load_bot():
     try:
         from minecraft_bot import information as info
         from minecraft_bot import presentation as pres
-        from minecraft_bot.perks import LEVEL_ROLE_MILESTONES, RANK_ROLES
+        from minecraft_bot.perks import RANK_ROLES
     except ModuleNotFoundError as exc:  # pragma: no cover - guidance beats a traceback
         sys.exit(
             "Could not import the bot package (%s).\n"
@@ -46,14 +46,12 @@ def load_bot():
     # mentions has to resolve to a name here or the sync fails rather than
     # shipping a raw snowflake.
     labels = {}
-    for role_id, level in LEVEL_ROLE_MILESTONES:
-        labels[int(role_id)] = "Level %d" % level
     for entry in RANK_ROLES:
         labels[int(entry[0])] = str(entry[2]).title()
     return info, pres, labels
 
 
-GUIDE_PAGES = ("commands", "clans", "levels", "boosting", "mods", "versions")
+GUIDE_PAGES = ("commands", "clans", "mods", "versions")
 
 #: Web-specific rewrites applied while converting Discord copy. Connection
 #: details now come from the same public defaults used by the bot.

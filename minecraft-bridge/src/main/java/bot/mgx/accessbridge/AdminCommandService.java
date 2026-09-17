@@ -42,6 +42,17 @@ import static bot.mgx.accessbridge.MenuItems.ORANGE;
 final class AdminCommandService implements CommandExecutor, TabCompleter {
     static final String PERMISSION = "mgxaccessbridge.admin";
     /**
+     * What only the Developer rank may run.
+     *
+     * <p>Owner keeps the day-to-day admin commands and is deliberately kept off anything
+     * that wipes, resets, hands out items or edits the live settings. Everything here
+     * either destroys state or mints it, which is the line between the two ranks.
+     */
+    private static final Set<String> DEVELOPER_ONLY = Set.of(
+            "reset", "give", "eco", "variables", "variable", "vars", "serials", "season",
+            "ranks", "cosmetics", "wipe"
+    );
+    /**
      * What completion offers at the root.
      *
      * <p>Deliberately excludes {@code airdrop}, {@code abuse} and {@code multiplier}:
@@ -168,11 +179,11 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             MgxCommandRouter.noteDeprecation(sender, "/" + label, args);
         }
         String action = args.length == 0 ? "help" : args[0].toLowerCase(Locale.ROOT);
+        if (DEVELOPER_ONLY.contains(action) && !plugin.hasFullControl(sender)) {
+            error(sender, "That one is DEVELOPER only.");
+            return true;
+        }
         if (action.equals("variables") || action.equals("variable") || action.equals("vars")) {
-            if (sender instanceof Player player && !plugin.hasOwnerRankLoaded(player.getUniqueId())) {
-                error(sender, "Only the synced OWNER role can change live game variables.");
-                return true;
-            }
             try {
                 variables(sender, args);
             } catch (IllegalArgumentException exception) {
