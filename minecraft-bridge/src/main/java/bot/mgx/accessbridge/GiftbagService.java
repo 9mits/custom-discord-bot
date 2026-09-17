@@ -93,6 +93,8 @@ final class GiftbagService implements Listener {
         final int duration;
         ItemDisplay prize;
         TextDisplay caption;
+        /** Height of the bag's middle when it burst; everything after it is staged there. */
+        double middle;
         int elapsed;
         int burstAt = -1;
         GiftbagTimeline.Phase phase;
@@ -365,13 +367,19 @@ final class GiftbagService implements Listener {
     // ------------------------------------------------------------------ the opening
 
     private void startReveal(Player player, GiftbagStore.Pending pending, GiftbagCatalog.Entry reward) {
+        int season = pending.season();
+        double grandeur = grandeur(reward.rarity());
         Location eye = player.getEyeLocation();
         org.bukkit.util.Vector ahead = eye.getDirection().setY(0);
         if (ahead.lengthSquared() < 1.0e-4) ahead = new org.bukkit.util.Vector(0, 0, 1);
-        Location anchor = eye.clone().add(ahead.normalize().multiply(3.2)).add(0, -0.25, 0);
+        // Far enough back to see all of it, and further still for the bags that end up
+        // towering; the anchor is the floor it stands on, not the player's eyeline.
+        double distance = 6.5 + 4.5 * grandeur;
+        Location anchor = player.getLocation().clone()
+                .add(ahead.normalize().multiply(distance));
+        anchor.setY(standingHeight(anchor));
         anchor.setYaw(0f);
         anchor.setPitch(0f);
-        int season = pending.season();
         ItemDisplay bag = spawnItem(anchor, preview(season), true, Color.fromRGB(181, 108, 255));
         List<ItemDisplay> orbiters = new ArrayList<>();
         for (ItemStack prize : orbitPrizes(season)) {
@@ -379,7 +387,7 @@ final class GiftbagService implements Listener {
         }
         int duration = Math.max(40, variables.integer("season.giftbag.animation-ticks"));
         Reveal reveal = new Reveal(player.getUniqueId(), pending, reward, anchor, bag, orbiters,
-                grandeur(reward.rarity()), duration);
+                grandeur, duration);
         reveals.put(player.getUniqueId(), reveal);
         forAudience(reveal, viewer -> {
             sound(viewer, Sound.BLOCK_BEACON_ACTIVATE, 1.4f, .6f);
@@ -479,10 +487,11 @@ final class GiftbagService implements Listener {
     private void animateBag(Reveal reveal, double t) {
         ThreadLocalRandom random = ThreadLocalRandom.current();
         double shake = GiftbagTimeline.shake(t);
-        double bob = Math.sin(reveal.elapsed * 0.12) * 0.06;
+        double bob = Math.sin(reveal.elapsed * 0.12) * 0.12;
         move(reveal.bag, transform(
                 shake == 0 ? 0 : random.nextDouble(-shake, shake),
-                GiftbagTimeline.bagLift(t) + bob + (shake == 0 ? 0 : random.nextDouble(-shake, shake)),
+                GiftbagTimeline.bagCentre(t, reveal.grandeur) + bob
+                        + (shake == 0 ? 0 : random.nextDouble(-shake, shake)),
                 shake == 0 ? 0 : random.nextDouble(-shake, shake),
                 (float) GiftbagTimeline.bagSpin(t, reveal.duration),
                 (float) GiftbagTimeline.bagScale(t, reveal.grandeur)));
@@ -550,15 +559,16 @@ final class GiftbagService implements Listener {
             if (!effects(viewer)) continue;
             switch (phase) {
                 case RISE -> {
-                    double lift = GiftbagTimeline.bagLift(t);
-                    for (int spoke = 0; spoke < 3; spoke++) {
-                        double angle = reveal.elapsed * .35 + spoke * Math.PI * 2 / 3;
+                    // Dust breaking around the foot of something coming up through it.
+                    double ring = 1.2 + GiftbagTimeline.bagScale(t, reveal.grandeur) * 0.4;
+                    for (int spoke = 0; spoke < 5; spoke++) {
+                        double angle = reveal.elapsed * .35 + spoke * Math.PI * 2 / 5;
                         viewer.spawnParticle(Particle.DUST_COLOR_TRANSITION, reveal.anchor.clone().add(
-                                Math.cos(angle) * .9, lift - .4, Math.sin(angle) * .9), density, .02, .02, .02, 0,
+                                Math.cos(angle) * ring, .2, Math.sin(angle) * ring), density, .05, .05, .05, 0,
                                 violetToCyan);
                     }
-                    viewer.spawnParticle(Particle.REVERSE_PORTAL, reveal.anchor.clone().add(0, lift, 0),
-                            density * 2, .35, .2, .35, .02);
+                    viewer.spawnParticle(Particle.REVERSE_PORTAL, reveal.anchor.clone().add(0, .3, 0),
+                            density * 3, ring * .5, .3, ring * .5, .02);
                 }
                 case ORBIT, CONVERGE -> {
                     int count = reveal.orbiters.size();
@@ -570,35 +580,41 @@ final class GiftbagService implements Listener {
                                 Math.sin(angle) * radius);
                         viewer.spawnParticle(Particle.DUST_COLOR_TRANSITION, at, 1, 0, 0, 0, 0, violetToCyan);
                     }
+                    Location middle = reveal.anchor.clone()
+                            .add(0, GiftbagTimeline.bagCentre(t, reveal.grandeur), 0);
+                    double body = GiftbagTimeline.bagScale(t, reveal.grandeur) * .45;
                     if (phase == GiftbagTimeline.Phase.CONVERGE) {
-                        viewer.spawnParticle(Particle.REVERSE_PORTAL, reveal.anchor, density * 3, 1.4, .8, 1.4, .06);
+                        viewer.spawnParticle(Particle.REVERSE_PORTAL, middle, density * 4,
+                                body, body, body, .06);
                         if (reveal.elapsed % 3 == 0) {
-                            viewer.spawnParticle(Particle.ELECTRIC_SPARK, reveal.anchor, density, .25, .25, .25, .05);
+                            viewer.spawnParticle(Particle.ELECTRIC_SPARK, middle, density, body, body, body, .05);
                         }
                     } else if (reveal.elapsed % 4 == 0) {
-                        viewer.spawnParticle(Particle.ENCHANT, reveal.anchor, density * 3, .6, .6, .6, .6);
+                        viewer.spawnParticle(Particle.ENCHANT, middle, density * 4, body, body, body, .6);
                     }
                 }
                 case CHARGE -> {
                     double local = GiftbagTimeline.within(t);
-                    viewer.spawnParticle(Particle.END_ROD, reveal.anchor.clone().add(0, .6 + local * 1.4, 0),
-                            density, .05, local * .7, .05, .01);
+                    double height = GiftbagTimeline.bagScale(t, reveal.grandeur);
+                    Location middle = reveal.anchor.clone().add(0, height * .5, 0);
+                    viewer.spawnParticle(Particle.END_ROD, reveal.anchor.clone().add(0, height * (.5 + local), 0),
+                            density, .1, local * .9, .1, .01);
                     // A pillar the neighbours can see over the trees, taller the rarer the prize.
                     // Every other tick: at 20 a second it reads as solid either way, and this
                     // is the densest per-viewer loop in the whole opening.
-                    int height = reveal.elapsed % 2 == 0
-                            ? (int) Math.round((6 + 18 * reveal.grandeur) * local) : 0;
-                    for (int step = 0; step < height; step += 2) {
-                        viewer.spawnParticle(Particle.DUST, reveal.anchor.clone().add(0, 1 + step, 0), 1,
-                                .08, .25, .08, 0, new Particle.DustOptions(Color.fromRGB(83, 229, 255), 1.6f));
+                    int pillar = reveal.elapsed % 2 == 0
+                            ? (int) Math.round((10 + 22 * reveal.grandeur) * local) : 0;
+                    for (int step = 0; step < pillar; step += 2) {
+                        viewer.spawnParticle(Particle.DUST, reveal.anchor.clone().add(0, height + step, 0), 1,
+                                .08, .25, .08, 0, new Particle.DustOptions(Color.fromRGB(83, 229, 255), 2.2f));
                     }
-                    viewer.spawnParticle(Particle.DUST_COLOR_TRANSITION, reveal.anchor, density * 3,
-                            .55, .55, .55, 0, violetToCyan);
-                    for (int spoke = 0; spoke < 6; spoke++) {
-                        double angle = spoke * Math.PI / 3 + reveal.elapsed * .5;
-                        double reach = 2.4 * (1 - local);
+                    viewer.spawnParticle(Particle.DUST_COLOR_TRANSITION, middle, density * 4,
+                            height * .4, height * .4, height * .4, 0, violetToCyan);
+                    for (int spoke = 0; spoke < 8; spoke++) {
+                        double angle = spoke * Math.PI / 4 + reveal.elapsed * .5;
+                        double reach = (height + 3.0) * (1 - local);
                         viewer.spawnParticle(Particle.GLOW, reveal.anchor.clone().add(Math.cos(angle) * reach,
-                                0, Math.sin(angle) * reach), 1, 0, 0, 0, 0);
+                                .4, Math.sin(angle) * reach), 1, 0, 0, 0, 0);
                     }
                 }
             }
@@ -615,8 +631,14 @@ final class GiftbagService implements Listener {
         reveal.orbiters.forEach(orbiter -> {
             if (orbiter.isValid()) orbiter.remove();
         });
+        // Everything after the burst is staged around the middle of the bag that just
+        // went, so the prize appears where the player was already looking.
+        reveal.middle = GiftbagTimeline.bagCentre(1.0, reveal.grandeur);
         reveal.prize = spawnItem(reveal.anchor, rewardPreview(reward, season), true, colour);
-        reveal.caption = reveal.anchor.getWorld().spawn(reveal.anchor.clone().add(0, 1.35, 0), TextDisplay.class, text -> {
+        double nameplate = reveal.middle + GiftbagTimeline.revealScale(
+                GiftbagTimeline.REVEAL_GROW_TICKS, reveal.grandeur) * 0.6 + 0.8;
+        reveal.caption = reveal.anchor.getWorld().spawn(
+                reveal.anchor.clone().add(0, nameplate, 0), TextDisplay.class, text -> {
             text.text(Component.text(reward.rarity().label.toUpperCase(Locale.ROOT),
                             TextColor.color(reward.rarity().colour), TextDecoration.BOLD)
                     .append(Component.newline())
@@ -638,30 +660,31 @@ final class GiftbagService implements Listener {
         float carry = (float) (1.0 + grandeur * 2.0);
         int rays = (int) Math.round(48 + 72 * grandeur);
         forAudience(reveal, viewer -> {
+            Location centre = reveal.anchor.clone().add(0, reveal.middle, 0);
             if (effects(viewer)) {
-                viewer.spawnParticle(Particle.FLASH, reveal.anchor, 1, 0, 0, 0, 0, colour);
-                viewer.spawnParticle(Particle.SONIC_BOOM, reveal.anchor, 1, 0, 0, 0, 0);
-                viewer.spawnParticle(Particle.TOTEM_OF_UNDYING, reveal.anchor,
+                viewer.spawnParticle(Particle.FLASH, centre, 1, 0, 0, 0, 0, colour);
+                viewer.spawnParticle(Particle.SONIC_BOOM, centre, 1, 0, 0, 0, 0);
+                viewer.spawnParticle(Particle.TOTEM_OF_UNDYING, centre,
                         (int) Math.round(90 + 150 * grandeur), .2, .2, .2, .75 + grandeur * .5);
                 // A shell of sparks thrown straight outward: count 0 makes the offset a velocity.
                 for (int ray = 0; ray < rays; ray++) {
                     double polar = Math.acos(1 - 2 * (ray + .5) / rays);
                     double azimuth = Math.PI * (1 + Math.sqrt(5)) * ray;
                     double speed = .45 + grandeur * .5;
-                    viewer.spawnParticle(Particle.END_ROD, reveal.anchor, 0,
+                    viewer.spawnParticle(Particle.END_ROD, centre, 0,
                             Math.sin(polar) * Math.cos(azimuth), Math.cos(polar),
                             Math.sin(polar) * Math.sin(azimuth), speed);
                 }
                 for (int ray = 0; ray < 36; ray++) {
                     double angle = ray * Math.PI * 2 / 36;
-                    viewer.spawnParticle(Particle.FIREWORK, reveal.anchor, 0, Math.cos(angle), 0, Math.sin(angle), .38);
+                    viewer.spawnParticle(Particle.FIREWORK, centre, 0, Math.cos(angle), 0, Math.sin(angle), .38);
                 }
                 if (grandeur >= 0.45) {
                     // Explosion emitters and fireworks are drawn far past the usual particle
                     // range, so this is the part somebody across the valley actually sees.
-                    viewer.spawnParticle(Particle.EXPLOSION_EMITTER, reveal.anchor, 1, 0, 0, 0, 0);
-                    for (int step = 0; step < 26; step += 2) {
-                        viewer.spawnParticle(Particle.FIREWORK, reveal.anchor.clone().add(0, step, 0),
+                    viewer.spawnParticle(Particle.EXPLOSION_EMITTER, centre, 1, 0, 0, 0, 0);
+                    for (int step = 0; step < 34; step += 2) {
+                        viewer.spawnParticle(Particle.FIREWORK, reveal.anchor.clone().add(0, reveal.middle + step, 0),
                                 (int) Math.round(2 + 4 * grandeur), .35, .35, .35, .06);
                     }
                 }
@@ -701,20 +724,25 @@ final class GiftbagService implements Listener {
         if (since <= hold) {
             float scale = (float) GiftbagTimeline.revealScale(since, reveal.grandeur);
             if (reveal.prize != null) {
-                move(reveal.prize, transform(0, .15 + Math.sin(since * .12) * .08, 0, since * .07f, scale));
+                move(reveal.prize, transform(0, reveal.middle + Math.sin(since * .12) * .18, 0,
+                        since * .07f, scale));
             }
             if (reveal.caption != null && since == 2) move(reveal.caption, transform(0, 0, 0, 0f, 1f));
             if (since % 2 == 0) {
                 forAudience(reveal, viewer -> {
                     if (!effects(viewer)) return;
                     double angle = since * .3;
-                    for (int spoke = 0; spoke < 3; spoke++) {
-                        double around = angle + spoke * Math.PI * 2 / 3;
-                        viewer.spawnParticle(Particle.DUST, reveal.anchor.clone().add(Math.cos(around) * 1.1,
-                                -.4 + (since % 20) / 20.0 * 1.2, Math.sin(around) * 1.1), 1, 0, 0, 0, 0,
-                                new Particle.DustOptions(colour, 1.3f));
+                    double ring = 1.1 + reveal.middle * .45;
+                    for (int spoke = 0; spoke < 4; spoke++) {
+                        double around = angle + spoke * Math.PI / 2;
+                        viewer.spawnParticle(Particle.DUST, reveal.anchor.clone().add(Math.cos(around) * ring,
+                                (since % 20) / 20.0 * reveal.middle * 1.6, Math.sin(around) * ring), 1, 0, 0, 0, 0,
+                                new Particle.DustOptions(colour, 2.0f));
                     }
-                    if (since % 6 == 0) viewer.spawnParticle(Particle.GLOW, reveal.anchor, 2, .5, .5, .5, 0);
+                    if (since % 6 == 0) {
+                        viewer.spawnParticle(Particle.GLOW, reveal.anchor.clone().add(0, reveal.middle, 0),
+                                3, .8, .8, .8, 0);
+                    }
                 });
             }
             return;
@@ -722,7 +750,8 @@ final class GiftbagService implements Listener {
         int flight = since - hold;
         if (flight == 1) {
             Location target = player.getEyeLocation().subtract(0, .4, 0);
-            org.bukkit.util.Vector towards = target.toVector().subtract(reveal.anchor.toVector());
+            org.bukkit.util.Vector towards = target.toVector()
+                    .subtract(reveal.anchor.clone().add(0, reveal.middle, 0).toVector());
             if (reveal.prize != null) {
                 reveal.prize.setInterpolationDuration(8);
                 move(reveal.prize, transform(towards.getX(), towards.getY(), towards.getZ(), 3f, .2f));
@@ -858,6 +887,17 @@ final class GiftbagService implements Listener {
                     .map(CosmeticCatalog.Definition::displayName).orElse(reward.displayName());
         }
         return reward.displayName();
+    }
+
+    /**
+     * The floor the bag stands on: the highest ground under the anchor, within a few
+     * blocks of the player's own feet so an opening on a hillside does not put the stage
+     * at the bottom of a valley or on top of a tree.
+     */
+    private double standingHeight(Location anchor) {
+        double ground = anchor.getWorld().getHighestBlockYAt(anchor) + 1.0;
+        double feet = anchor.getY();
+        return Math.abs(ground - feet) > 6.0 ? feet : ground;
     }
 
     /** How big a win is coming, which is how far the bag swells before it opens. */
