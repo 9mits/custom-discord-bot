@@ -828,9 +828,20 @@ final class SeasonPassService implements Listener, CommandExecutor {
 
     /** Starts the first season, or ends a finished one and starts the next. */
     private boolean ensureSeason(long today) {
-        long length = Math.max(1, variables.integer("season.length-days"));
+        long length = variables.integer("season.length-days");
         if (store.season() <= 0) {
-            store.startSeason(1, today, today + length);
+            store.startSeason(1, today, length <= 0 ? SeasonStore.NO_END : today + length);
+            return true;
+        }
+        // A season with no length outlives every clock: it ends when the server's own run
+        // does, which is an administrator running /mgxadmin season end, not a date.
+        if (length <= 0) {
+            if (store.endsDay() == SeasonStore.NO_END) return false;
+            store.openEnded();
+            return true;
+        }
+        if (store.endsDay() == SeasonStore.NO_END) {
+            store.startSeason(store.season(), store.startedDay(), today + length);
             return true;
         }
         if (today < store.endsDay()) return false;
@@ -1390,10 +1401,26 @@ final class SeasonPassService implements Listener, CommandExecutor {
         else Screens.show(player, title, page, buttons, columns, back);
     }
 
+    /** Reads after the word "ends", so it has to finish that sentence either way. */
     String endsIn() {
+        if (store.endsDay() == SeasonStore.NO_END) return "when the server does";
         long millis = LocalDate.ofEpochDay(store.endsDay()).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
                 - System.currentTimeMillis();
         return "in " + compact(millis);
+    }
+
+    /** Ends the season now and starts the next one, for a server that is wrapping up. */
+    void endSeasonNow() {
+        long today = today();
+        endSeason(today);
+        long length = variables.integer("season.length-days");
+        store.startSeason(store.season() + 1, today, length <= 0 ? SeasonStore.NO_END : today + length);
+        plugin.getServer().getOnlinePlayers().forEach(this::applyHearts);
+        Component line = Component.text("SEASON " + store.season() + " HAS STARTED", ORANGE, TextDecoration.BOLD)
+                .append(Component.text("  •  Every tier is back on the table. /pass", NamedTextColor.WHITE));
+        plugin.getServer().getOnlinePlayers().forEach(player -> player.sendMessage(line));
+        dirty = true;
+        save();
     }
 
     private static String compact(long millis) {

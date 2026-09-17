@@ -142,6 +142,17 @@ final class SeasonStore {
         return data.endsDay;
     }
 
+    /**
+     * The end day of a season that has none. A real day number, far enough out that every
+     * "has it finished yet" comparison answers no, so nothing else needs a special case.
+     */
+    static final long NO_END = 99_999_999L;
+
+    /** Takes the clock off the running season without disturbing anybody's progress. */
+    synchronized void openEnded() {
+        data.endsDay = NO_END;
+    }
+
     synchronized void startSeason(int season, long today, long endsDay) {
         data.season = season;
         data.startedDay = today;

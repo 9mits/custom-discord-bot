@@ -1450,8 +1450,10 @@ final class GameVariableStore {
         bool("season.enabled", "Season Pass", "Season Pass",
                 "Run the Season Pass: daily and weekly quests, Season XP and tier rewards.", true);
         integer("season.length-days", "Season length", "Season Pass",
-                "Days a season runs before its top three are paid and the next begins.",
-                3, 1, 365, "days", false);
+                "Days a season runs before its top three are paid and the next begins."
+                        + " Zero runs the season until an administrator ends it with"
+                        + " /mgxadmin season end, which is what a server with its own end date wants.",
+                0, 0, 365, "days", false);
         integer("season.tiers", "Season tiers", "Season Pass",
                 "Tiers in the pass. Each pays a reward the moment it is reached.",
                 50, 10, 200, "tiers", false);
