@@ -1696,6 +1696,62 @@ class MinecraftDataManager:
                 results.append(application)
         return results
 
+    async def queue_reverification(self, moderator_id: int, reason: str) -> list[MinecraftAccess]:
+        """Sends every verified player back through verification, once.
+
+        Each verified access is revoked the same way a departure is, so the whitelist
+        entry goes with it and the player lands in the verification lobby on their next
+        join. Nothing else is touched: links, economy, cosmetics and homes all stay, and a
+        player who re-verifies keeps the account they already had.
+        """
+        current = _now()
+        db = self._connection()
+        queued: list[int] = []
+        async with self._write_lock:
+            try:
+                await self._begin(db)
+                rows = await db.execute_fetchall(
+                    "SELECT * FROM minecraft_access WHERE status=?",
+                    (AccessStatus.VERIFIED.value,),
+                )
+                for row in rows:
+                    application = self._access(row)
+                    if not application.minecraft_uuid:
+                        continue
+                    queued.append(application.id)
+                    await self._queue(
+                        db,
+                        BridgeAction.REVOKE,
+                        {
+                            "application_id": application.id,
+                            "edition": application.edition.value,
+                            "minecraft_uuid": application.minecraft_uuid,
+                            "reason": reason[:500],
+                        },
+                        idempotency_key=f"access:{application.id}:revoke",
+                        access_id=application.id,
+                        timestamp=current,
+                    )
+                    await self._audit(
+                        db,
+                        "REVERIFICATION_QUEUED",
+                        access_id=application.id,
+                        actor_id=moderator_id,
+                        target_id=application.discord_user_id,
+                        payload={"reason": reason[:500]},
+                        timestamp=current,
+                    )
+                await db.commit()
+            except BaseException:
+                await db.rollback()
+                raise
+        results = []
+        for access_id in queued:
+            application = await self.get_access(access_id)
+            if application is not None:
+                results.append(application)
+        return results
+
     async def unlink_account(
         self,
         discord_user_id: int | str,

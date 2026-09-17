@@ -357,6 +357,50 @@ class MinecraftDataTests(unittest.IsolatedAsyncioTestCase):
         await self.data.record_stat_snapshot({})
         self.assertEqual(await self.data.stat_metrics(), [])
 
+    async def test_reverification_unwhitelists_everyone_and_keeps_their_links(self):
+        """The one-time reset after the Discord server moved.
+
+        Every verified player has to join the new Discord and verify again, so each one is
+        revoked the way a departure is — but nothing else about them is touched.
+        """
+        first = await self.create_pending(user_id=42, username="PlayerOne")
+        await self.data.record_verification(
+            access_id=first.id,
+            edition=Edition.JAVA,
+            minecraft_uuid="123e4567-e89b-12d3-a456-426614174000",
+            current_username="playerone",
+            xuid=None,
+            event_idempotency_key="verify-one",
+            now=1010,
+        )
+        second = await self.create_pending(user_id=77, username="PlayerTwo")
+        await self.data.record_verification(
+            access_id=second.id,
+            edition=Edition.JAVA,
+            minecraft_uuid="223e4567-e89b-12d3-a456-426614174000",
+            current_username="playertwo",
+            xuid=None,
+            event_idempotency_key="verify-two",
+            now=1011,
+        )
+        waiting = await self.create_pending(user_id=99, username="NotYetVerified")
+
+        affected = await self.data.queue_reverification(7, "Discord server moved")
+
+        self.assertEqual({first.id, second.id}, {access.id for access in affected},
+                         "only verified players are sent back through verification")
+        revokes = [
+            record for record in await self.data.get_outbox_batch()
+            if record.action is BridgeAction.REVOKE
+        ]
+        self.assertEqual({first.id, second.id},
+                         {record.payload["application_id"] for record in revokes},
+                         "each one has a whitelist removal queued")
+        still_pending = await self.data.get_access(waiting.id)
+        self.assertEqual(still_pending.status, AccessStatus.PENDING_VERIFICATION)
+        self.assertEqual(len(await self.data.list_accounts_for_user(42)), 1,
+                         "the linked account survives, so verifying again restores them")
+
     async def test_java_verification_transitions_and_is_idempotent(self):
         application = await self.create_pending()
         verified, changed = await self.data.record_verification(

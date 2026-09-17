@@ -121,6 +121,70 @@ class RateLimiter:
         return True
 
 
+class ReverifyConfirmationModal(discord.ui.Modal, title="Require Everyone To Verify Again"):
+    """The one-time reset for a moved Discord server.
+
+    Every verified player is unwhitelisted and meets the verification lobby on their next
+    join, where they are told to join the Discord and run /verify. Nothing else is
+    touched, so a player who verifies again finds their base, balance and cosmetics
+    exactly as they left them.
+    """
+
+    confirmation = discord.ui.TextInput(
+        label="Type REVERIFY to confirm",
+        placeholder="Everyone must join the Discord and verify again.",
+        min_length=1,
+        max_length=10,
+    )
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        bot = interaction.client
+        if not bot.is_owner_member(interaction.user):
+            await interaction.response.send_message(
+                **branded_send(
+                    info_embed(
+                        "Owner Access Required",
+                        "> You need the Discord **OWNER** role to reset verification.",
+                        error=True,
+                    )
+                ),
+                ephemeral=True,
+            )
+            return
+        if str(self.confirmation).strip() != "REVERIFY":
+            await interaction.response.send_message(
+                **branded_send(
+                    info_embed(
+                        "Nothing Changed",
+                        "> No access was reset.\n"
+                        "> Type exactly `REVERIFY` to confirm.",
+                        error=True,
+                    )
+                ),
+                ephemeral=True,
+            )
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        affected = await bot.data.queue_reverification(
+            interaction.user.id, "Discord server moved: verification reset"
+        )
+        await bot.dispatch_outbox_if_connected()
+        await interaction.edit_original_response(
+            **branded_edit(
+                info_embed(
+                    "Verification Reset",
+                    f"> **{len(affected)}** player(s) must join the Discord and run "
+                    "`/verify` again.\n"
+                    "> The whitelist clears as the queued removals reach the server; "
+                    "anyone online now keeps playing until they disconnect.\n"
+                    "> Nothing else was touched — bases, balances and cosmetics are all "
+                    "still theirs.",
+                    success=True,
+                )
+            )
+        )
+
+
 class WipeConfirmationModal(discord.ui.Modal, title="Wipe All Minecraft Data"):
     confirmation = discord.ui.TextInput(
         label="Type WIPE to confirm",
@@ -3454,6 +3518,25 @@ class MinecraftAccessBot(commands.Bot):
                 )
                 return
             await interaction.response.send_modal(WipeConfirmationModal())
+
+        @admin_group.command(
+            name="reverify",
+            description="OWNER role only: make every verified player join the Discord and verify again.",
+        )
+        async def reverify(interaction: discord.Interaction) -> None:
+            if not self.is_owner_member(interaction.user):
+                await interaction.response.send_message(
+                    **branded_send(
+                        info_embed(
+                            "Owner Access Required",
+                            "> You need the Discord **OWNER** role to reset verification.",
+                            error=True,
+                        )
+                    ),
+                    ephemeral=True,
+                )
+                return
+            await interaction.response.send_modal(ReverifyConfirmationModal())
 
         @staff_group.command(name="status", description="Show Minecraft bridge and queue health.")
         async def status(interaction: discord.Interaction) -> None:
