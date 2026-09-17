@@ -45,12 +45,9 @@ from .models import (
     ReverseLinkStatus,
 )
 from .perks import (
-    BOOSTER_ROLE_ID,
-    LEVEL_ROLE_MILESTONES,
+    DEVELOPER_ROLE_ID,
     OWNER_ROLE_ID,
     RANK_ROLES,
-    is_booster,
-    profile_for_role_ids,
     rank_for_role_ids,
 )
 from .presentation import (
@@ -139,12 +136,12 @@ class ReverifyConfirmationModal(discord.ui.Modal, title="Require Everyone To Ver
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         bot = interaction.client
-        if not bot.is_owner_member(interaction.user):
+        if not bot.has_full_control(interaction.user):
             await interaction.response.send_message(
                 **branded_send(
                     info_embed(
-                        "Owner Access Required",
-                        "> You need the Discord **OWNER** role to reset verification.",
+                        "Developer Access Required",
+                        "> You need the Discord **DEVELOPER** role to reset verification.",
                         error=True,
                     )
                 ),
@@ -195,12 +192,12 @@ class WipeConfirmationModal(discord.ui.Modal, title="Wipe All Minecraft Data"):
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         bot = interaction.client
-        if not bot.is_owner_member(interaction.user):
+        if not bot.has_full_control(interaction.user):
             await interaction.response.send_message(
                 **branded_send(
                     info_embed(
-                        "Owner Access Required",
-                        "> You need the Discord **OWNER** role to wipe Minecraft data.",
+                        "Developer Access Required",
+                        "> You need the Discord **DEVELOPER** role to wipe Minecraft data.",
                         error=True,
                     )
                 ),
@@ -433,6 +430,17 @@ class MinecraftAccessBot(commands.Bot):
     def is_administrator(member: discord.Member | discord.User) -> bool:
         permissions = getattr(member, "guild_permissions", None)
         return bool(permissions is not None and permissions.administrator)
+
+    def has_full_control(self, member: discord.Member | discord.User) -> bool:
+        """The Developer role, which is the one that may do anything."""
+        return any(
+            int(getattr(role, "id", 0) or 0) == DEVELOPER_ROLE_ID
+            for role in getattr(member, "roles", ())
+        )
+
+    def may_administer(self, member: discord.Member | discord.User) -> bool:
+        """Owner or Developer: the two roles that may touch anything at all."""
+        return self.is_owner_member(member) or self.has_full_control(member)
 
     def is_owner_member(self, member: discord.Member | discord.User) -> bool:
         """The member holding the exact Discord role mapped to LuckPerms owner."""
@@ -1438,7 +1446,6 @@ class MinecraftAccessBot(commands.Bot):
             reverse=True,
         )
         member_role_ids = [role.id for role in member_roles]
-        profile = profile_for_role_ids(member_role_ids)
         rank = rank_for_role_ids(member_role_ids)
         # Player-list ordering mirrors Discord hierarchy, so send the winning
         # role's position as the sort weight.
@@ -1454,15 +1461,17 @@ class MinecraftAccessBot(commands.Bot):
             )
         return await self.bridge.send_player_profile(
             minecraft_uuid=minecraft_uuid,
-            level=profile.level,
-            extra_hearts=profile.extra_hearts,
-            elite=profile.elite,
+            # The level and boost perks went with the Discord they were tied to. The
+            # fields stay on the wire so an older plugin still parses the message.
+            level=0,
+            extra_hearts=0,
+            elite=False,
             discord_username=getattr(linked_user, "name", ""),
             rank_group=rank.group if rank else "",
             rank_label=rank.label if rank else "",
             rank_colour=rank.colour if rank else 0,
             rank_weight=rank_weight,
-            booster=is_booster(member_role_ids),
+            booster=False,
             # Without a resolved member we do not know their Discord roles. Saying
             # "no rank" would wipe their LuckPerms groups, including any set by hand.
             rank_known=member is not None,
@@ -1474,9 +1483,7 @@ class MinecraftAccessBot(commands.Bot):
         )
 
     async def on_member_update(self, before: discord.Member, after: discord.Member) -> None:
-        synced_ids = {role_id for role_id, _level in LEVEL_ROLE_MILESTONES}
-        synced_ids.update(role_id for role_id, _group, _label, _colour in RANK_ROLES)
-        synced_ids.add(BOOSTER_ROLE_ID)
+        synced_ids = {role_id for role_id, _group, _label, _colour in RANK_ROLES}
         before_roles = {role.id for role in before.roles} & synced_ids
         after_roles = {role.id for role in after.roles} & synced_ids
         if before_roles == after_roles or not self.bridge.supports_profile_sync:
@@ -3277,12 +3284,12 @@ class MinecraftAccessBot(commands.Bot):
             image: Optional[str] = None,
             footer: Optional[str] = None,
         ) -> None:
-            if not self.is_owner_member(interaction.user):
+            if not self.may_administer(interaction.user):
                 await interaction.response.send_message(
                     **branded_send(
                         info_embed(
-                            "Owner Access Required",
-                            "> You need the Discord **OWNER** role to compose update notices.",
+                            "Staff Access Required",
+                            "> You need the Discord **OWNER** or **DEVELOPER** role to compose update notices.",
                             error=True,
                         )
                     ),
@@ -3407,12 +3414,12 @@ class MinecraftAccessBot(commands.Bot):
             interaction: discord.Interaction,
             template: str,
         ) -> None:
-            if not self.is_owner_member(interaction.user):
+            if not self.may_administer(interaction.user):
                 await interaction.response.send_message(
                     **branded_send(
                         info_embed(
-                            "Owner Access Required",
-                            "> You need the Discord **OWNER** role to send update notices.",
+                            "Staff Access Required",
+                            "> You need the Discord **OWNER** or **DEVELOPER** role to send update notices.",
                             error=True,
                         )
                     ),
@@ -3502,15 +3509,15 @@ class MinecraftAccessBot(commands.Bot):
 
         @admin_group.command(
             name="wipe",
-            description="OWNER role only: delete every access and whitelist record, keeping settings.",
+            description="DEVELOPER role only: delete every access and whitelist record, keeping settings.",
         )
         async def wipe(interaction: discord.Interaction) -> None:
-            if not self.is_owner_member(interaction.user):
+            if not self.has_full_control(interaction.user):
                 await interaction.response.send_message(
                     **branded_send(
                         info_embed(
-                            "Owner Access Required",
-                            "> You need the Discord **OWNER** role to wipe Minecraft data.",
+                            "Developer Access Required",
+                            "> You need the Discord **DEVELOPER** role to wipe Minecraft data.",
                             error=True,
                         )
                     ),
@@ -3521,15 +3528,15 @@ class MinecraftAccessBot(commands.Bot):
 
         @admin_group.command(
             name="reverify",
-            description="OWNER role only: make every verified player join the Discord and verify again.",
+            description="DEVELOPER role only: make every verified player join the Discord and verify again.",
         )
         async def reverify(interaction: discord.Interaction) -> None:
-            if not self.is_owner_member(interaction.user):
+            if not self.has_full_control(interaction.user):
                 await interaction.response.send_message(
                     **branded_send(
                         info_embed(
-                            "Owner Access Required",
-                            "> You need the Discord **OWNER** role to reset verification.",
+                            "Developer Access Required",
+                            "> You need the Discord **DEVELOPER** role to reset verification.",
                             error=True,
                         )
                     ),

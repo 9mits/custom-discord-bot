@@ -1007,7 +1007,7 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(kwargs["link_known"])
         self.assertEqual(kwargs["discord_username"], "")
 
-    async def test_level_role_change_resyncs_all_linked_accounts(self):
+    async def test_rank_role_change_resyncs_all_linked_accounts(self):
         bot = object.__new__(MinecraftAccessBot)
         bot.bridge = SimpleNamespace(supports_profile_sync=True)
         bot.data = SimpleNamespace(
@@ -1018,9 +1018,9 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         )
         bot.sync_player_profile = AsyncMock(return_value=True)
         unchanged = SimpleNamespace(id=7)
-        milestone = SimpleNamespace(id=1476839722172158018)
+        developer = SimpleNamespace(id=1550144558296334366)
         before = SimpleNamespace(id=99, roles=[unchanged])
-        after = SimpleNamespace(id=99, roles=[unchanged, milestone])
+        after = SimpleNamespace(id=99, roles=[unchanged, developer])
 
         await bot.on_member_update(before, after)
 
@@ -1039,9 +1039,9 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         )
         bot.data = SimpleNamespace(account_for_uuid=AsyncMock(return_value=None))
         # Deliberately listed lowest-first, the order discord.py yields.
-        booster = SimpleNamespace(id=1476877246902960249, position=2)
-        owner = SimpleNamespace(id=1476839722247786593, position=40)
-        member = SimpleNamespace(id=99, roles=[booster, owner], name="mits")
+        developer = SimpleNamespace(id=1550144558296334366, position=2)
+        owner = SimpleNamespace(id=1550144602554634320, position=40)
+        member = SimpleNamespace(id=99, roles=[developer, owner], name="mits")
 
         await bot.sync_player_profile(
             "123e4567-e89b-12d3-a456-426614174000",
@@ -1060,10 +1060,10 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
             send_player_profile=AsyncMock(return_value=True),
         )
         bot.data = SimpleNamespace(account_for_uuid=AsyncMock(return_value=None))
-        # Booster dragged above owner in Discord: hierarchy, not code order, decides.
-        booster = SimpleNamespace(id=1476877246902960249, position=90)
-        owner = SimpleNamespace(id=1476839722247786593, position=40)
-        member = SimpleNamespace(id=99, roles=[owner, booster], name="mits")
+                # Developer dragged above owner in Discord: hierarchy, not code order, decides.
+        developer = SimpleNamespace(id=1550144558296334366, position=90)
+        owner = SimpleNamespace(id=1550144602554634320, position=40)
+        member = SimpleNamespace(id=99, roles=[owner, developer], name="mits")
 
         await bot.sync_player_profile(
             "123e4567-e89b-12d3-a456-426614174000",
@@ -1073,7 +1073,7 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(
             bot.bridge.send_player_profile.await_args.kwargs["rank_group"],
-            "booster",
+            "developer",
         )
 
 
@@ -2357,50 +2357,6 @@ class MinecraftInformationPanelTests(unittest.TestCase):
                 self.assertEqual(builder(0).footer.text, BRAND_NAME)
         self.assertEqual(self.information.overview_embed(0).footer.text, BRAND_NAME)
 
-    def test_levels_page_mentions_every_milestone_role(self):
-        from minecraft_bot.perks import LEVEL_ROLE_MILESTONES
-
-        description = self.embed_text(self.information.levels_embed())
-
-        # The mention already renders as "@Level 10", so restating the number
-        # beside it was noise; the reward goes there instead.
-        for role_id, _level in LEVEL_ROLE_MILESTONES:
-            self.assertIn(f"<@&{role_id}>", description)
-        self.assertIn(self.information.LEVELS_CHANNEL_URL, description)
-
-    def test_levels_page_explains_how_levels_are_earned(self):
-        description = self.embed_text(self.information.levels_embed())
-
-        self.assertIn("Chatting", description)
-        self.assertIn("voice", description)
-
-    def test_milestone_ladder_shows_the_running_heart_total(self):
-        # "+1 heart" beside every rung reads as though they do not accumulate.
-        # The ladder shows what a member actually holds at each milestone.
-        from minecraft_bot.perks import LEVEL_ROLE_MILESTONES, profile_for_role_ids
-
-        described = self.embed_text(self.information.levels_embed())
-
-        for index, (role_id, level) in enumerate(LEVEL_ROLE_MILESTONES):
-            owned = [held for held, _m in LEVEL_ROLE_MILESTONES[: index + 1]]
-            expected = profile_for_role_ids(owned).extra_hearts
-            noun = "heart" if expected == 1 else "hearts"
-            with self.subTest(level=level):
-                self.assertIn(f"<@&{role_id}> — **{expected} extra {noun}**", described)
-
-    def test_stacking_is_stated_on_both_perk_pages(self):
-        # Members repeatedly misread these as alternatives rather than additive.
-        for name, builder in (
-            ("levels", self.information.levels_embed),
-            ("boosting", self.information.boosting_embed),
-        ):
-            with self.subTest(page=name):
-                described = self.embed_text(builder())
-
-                self.assertIn("+25% damage", described)
-                self.assertIn("6 extra hearts", described)
-                self.assertIn("stack", described.lower())
-
     def test_clan_figures_match_the_plugin_that_enforces_them(self):
         import re
         from pathlib import Path
@@ -2563,35 +2519,6 @@ class MinecraftInformationPanelTests(unittest.TestCase):
         self.assertRegex(described, r"(?i)only the owner can\s+remove")
         self.assertIn("otherwise you become staff", described)
 
-    def test_perk_figures_match_the_plugin_that_applies_them(self):
-        # The bridge is authoritative at runtime; copy quoting a stale figure is
-        # worse than copy omitting it. Parse the Java rather than trusting memory.
-        import re
-        from pathlib import Path
-
-        from minecraft_bot import perks
-
-        source = (
-            Path(__file__).resolve().parent.parent
-            / "minecraft-bridge/src/main/java/bot/mgx/accessbridge/PlayerPerkService.java"
-        ).read_text()
-
-        def constant(name):
-            match = re.search(rf"{name} = ([0-9.]+)f?;", source)
-            self.assertIsNotNone(match, f"{name} vanished from PlayerPerkService")
-            return float(match.group(1))
-
-        self.assertEqual(
-            perks.ELITE_DAMAGE_PERCENT, round(constant("ELITE_DAMAGE_BONUS") * 100)
-        )
-        self.assertEqual(
-            perks.BOOSTER_DAMAGE_PERCENT, round(constant("BOOSTER_DAMAGE_BONUS") * 100)
-        )
-        self.assertEqual(
-            perks.BOOSTER_HUNGER_REDUCTION_PERCENT,
-            round((1 - constant("BOOSTER_EXHAUSTION_MULTIPLIER")) * 100),
-        )
-
     def test_members_are_never_offered_a_way_to_unlink(self):
         # Linking only ever adds. Unlinking is a staff action through /mgxstaff
         # unlink, and a member-facing button would let someone shed an account to
@@ -2641,13 +2568,6 @@ class MinecraftInformationPanelTests(unittest.TestCase):
                         source,
                         f"{name} should read the bonus from the class that applies it",
                     )
-
-    def test_boosting_page_states_the_stacked_totals(self):
-        description = self.embed_text(self.information.boosting_embed())
-
-        self.assertIn("+10% damage", description)
-        self.assertIn("+25% damage", description)
-        self.assertIn("6 extra hearts", description)
 
     def test_buttons_route_back_to_their_page(self):
         pattern = self.information.InformationButton.__discord_ui_compiled_template__

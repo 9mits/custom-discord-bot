@@ -31,14 +31,7 @@ import java.util.logging.Level;
 final class LuckPermsService {
     static final Set<String> MANAGED_GROUPS = Set.of(
             "owner",
-            "admin",
-            "community-manager",
-            "staff",
-            "legend",
-            "og",
-            "supporter",
-            "partner",
-            "booster"
+            "developer"
     );
     static final Set<String> GRIM_PRINTER_PERMISSIONS = Set.of(
             "grim.nomodifypacket.airliquidplace",
