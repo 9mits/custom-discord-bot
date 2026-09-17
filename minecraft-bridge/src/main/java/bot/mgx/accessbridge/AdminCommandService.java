@@ -52,7 +52,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
      */
     private static final List<String> SUBCOMMANDS = List.of(
             "startserver", "teststart", "pvp", "give", "ranks", "eco", "bounty", "hologram",
-            "reset", "testverify", "testcrate", "testseason", "testlatest", "testairdrop", "testamethystblock", "devblog", "update", "serials",
+            "reset", "season", "testverify", "testcrate", "testseason", "testlatest", "testairdrop", "testamethystblock", "devblog", "update", "serials",
             "cosmetics", "clanbattle", "event", "variables", "perf", "help"
     );
     private static final List<String> CRATE_REVEAL_TIERS = List.of("legendary", "mythic", "exotic", "secret", "dragonsecret");
@@ -197,6 +197,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 case "pvp" -> pvp(sender, args);
                 case "give" -> give(sender, args);
                 case "testseason" -> testSeason(sender, args);
+                case "season" -> season(sender, args);
                 case "ranks" -> ranks(sender, args);
                 case "eco" -> eco(sender, args);
                 case "bounty" -> bounty(sender, args);
@@ -1152,6 +1153,28 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         plugin.beginTestVerificationReset(player.getUniqueId());
     }
 
+    /**
+     * Ends the running season and starts the next one.
+     *
+     * <p>A season with no length has no clock to end it, which is the point: this server's
+     * season lasts as long as the server does. This is the switch that pays the podium and
+     * opens the next one when that day comes.
+     */
+    private void season(CommandSender sender, String[] args) {
+        SeasonPassService pass = plugin.seasonPass();
+        if (pass == null) {
+            throw new IllegalArgumentException("The Season Pass is unavailable.");
+        }
+        if (args.length < 3 || !args[1].equalsIgnoreCase("end") || !args[2].equalsIgnoreCase("confirm")) {
+            throw new IllegalArgumentException("Usage: /mgxadmin season end confirm"
+                    + "  (pays the top three, clears Season Hearts, starts the next season)");
+        }
+        int ended = pass.season();
+        pass.endSeasonNow();
+        success(sender, "Season " + ended + " ended. Its podium was paid and Season "
+                + pass.season() + " has started.");
+    }
+
     /** Local-only controls for exercising the real Season XP, tier reward, and title path. */
     private void testSeason(CommandSender sender, String[] args) {
         if (!plugin.isLocalTestServer()) {
@@ -1859,6 +1882,11 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         }
         if (action.equals("testverify")) {
             return args.length == 2 ? partial(args[1], List.of("reset")) : List.of();
+        }
+        if (action.equals("season")) {
+            if (args.length == 2) return partial(args[1], List.of("end"));
+            if (args.length == 3 && args[1].equalsIgnoreCase("end")) return partial(args[2], List.of("confirm"));
+            return List.of();
         }
         if (action.equals("testseason")) {
             if (args.length == 2) return partial(args[1], List.of("xp", "tier"));

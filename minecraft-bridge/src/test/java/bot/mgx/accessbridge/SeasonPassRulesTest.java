@@ -83,19 +83,20 @@ final class SeasonPassRulesTest {
     }
 
     @Test
-    void everyLadderFitsInsideTheThreeDaysASeasonRuns() throws Exception {
-        // At the live server's own rates — about 50 hostile kills and 12 ores an hour —
-        // three days of real play is a few hundred kills and a couple of hundred ores. The
-        // last rung is meant to be a stretch, not a six-week grind left permanently unfinished.
+    void theSeasonHasNoClockAndItsLaddersAreDaysNotWeeks() throws Exception {
+        // The season lasts as long as the server does, so nothing counts it down. The
+        // ladders are still sized for a handful of evenings at the live server's own rates
+        // — about 50 hostile kills and 12 ores an hour — rather than a six-week grind
+        // nobody ever finished.
         String store = java.nio.file.Files.readString(java.nio.file.Path.of(
                 "src/main/java/bot/mgx/accessbridge/GameVariableStore.java"));
         String length = store.substring(store.indexOf("integer(\"season.length-days\""));
-        assertTrue(length.substring(0, length.indexOf(");")).contains("3, 1, 365"),
-                "a season runs three days, so the ladders below are sized for three days");
+        assertTrue(length.substring(0, length.indexOf(");")).contains("0, 0, 365"),
+                "a season with no length runs until an administrator ends it");
         assertTrue(SeasonPassRules.quest(SeasonPassRules.QuestType.KILL_MOBS, 7).orElseThrow().target() <= 3_000);
         assertTrue(SeasonPassRules.quest(SeasonPassRules.QuestType.MINE_ORES, 6).orElseThrow().target() <= 800);
         assertTrue(SeasonPassRules.quest(SeasonPassRules.QuestType.PLAY_MINUTES, 5).orElseThrow().target()
-                <= 3 * 24 * 60, "nobody can play more minutes than the season has");
+                <= 3 * 24 * 60, "the longest line is days of play, not weeks of it");
         assertTrue(SeasonPassRules.quest(SeasonPassRules.QuestType.SELL_MONEY, 6).orElseThrow().target() <= 10_000_000);
         // The first rung of every line is still one session's work.
         for (SeasonPassRules.QuestType type : SeasonPassRules.QuestType.values()) {
