@@ -30,6 +30,7 @@ except ImportError:  # pragma: no cover - the message is the whole handling
 REPO = Path(__file__).resolve().parent.parent
 PACK_ITEMS = REPO / "assets" / "resourcepack" / "src" / "assets" / "mgx" / "textures" / "item"
 MEDIA = Path(__file__).resolve().parent / "media"
+INLINE_ICONS = Path(__file__).resolve().parent / "static" / "minecraft-items"
 
 #: Bold grotesque, to match the update artwork already on the site.
 FONTS = [
@@ -60,11 +61,14 @@ def font(size: int) -> ImageFont.FreeTypeFont:
 
 
 def sprite(name: str) -> Image.Image:
-    path = PACK_ITEMS / f"{name}.png"
-    if not path.exists():
-        path = PACK_ITEMS / "cosmetic" / f"{name}.png"
-    if not path.exists():
-        sys.exit(f"No sprite named {name} in the resource pack.")
+    """The pack's sprite, or the blog's own icon set for a vanilla item it names."""
+    for path in (PACK_ITEMS / f"{name}.png",
+                 PACK_ITEMS / "cosmetic" / f"{name}.png",
+                 INLINE_ICONS / f"{name}.png"):
+        if path.exists():
+            break
+    else:
+        sys.exit(f"No sprite named {name} in the resource pack or the blog's icons.")
     with Image.open(path) as image:
         return image.convert("RGBA")
 
