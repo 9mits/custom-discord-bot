@@ -16,12 +16,18 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
-/** One crash-safe Giftbag reward per player, selected before its reveal begins. */
+/**
+ * The Giftbag ledger: one crash-safe reward per player mid-reveal, the bags owed to
+ * players who were offline when they earned one, and who has already taken the welcome
+ * gift — a bag each player may claim exactly once, however many times they log in.
+ */
 final class GiftbagStore {
     record Pending(UUID spinId, String rewardId, int season, long reservedAt) { }
 
     private final Path file;
     private final LinkedHashMap<UUID, Pending> pending = new LinkedHashMap<>();
+    private final LinkedHashMap<UUID, Integer> owed = new LinkedHashMap<>();
+    private final java.util.LinkedHashSet<UUID> welcomed = new java.util.LinkedHashSet<>();
 
     GiftbagStore(Path file) throws IOException {
         this.file = file;
@@ -39,9 +45,56 @@ final class GiftbagStore {
                         value.get("reserved_at").getAsLong()
                 ));
             }
+            JsonObject debts = root.has("owed") ? root.getAsJsonObject("owed") : new JsonObject();
+            for (Map.Entry<String, JsonElement> entry : debts.entrySet()) {
+                owed.put(UUID.fromString(entry.getKey()), entry.getValue().getAsInt());
+            }
+            if (root.has("welcomed")) {
+                root.getAsJsonArray("welcomed").forEach(id -> welcomed.add(UUID.fromString(id.getAsString())));
+            }
         } catch (RuntimeException exception) {
             throw new IOException("Giftbag store is unreadable", exception);
         }
+    }
+
+    /** Records a bag earned while its owner was away; it arrives at their next join. */
+    synchronized void owe(UUID playerId, int bags) {
+        if (bags <= 0) return;
+        owed.merge(playerId, bags, Integer::sum);
+        save();
+    }
+
+    /** Takes everything owed to a player, to be handed over now. */
+    synchronized int takeOwed(UUID playerId) {
+        Integer waiting = owed.remove(playerId);
+        if (waiting == null || waiting <= 0) return 0;
+        try {
+            save();
+        } catch (RuntimeException failure) {
+            owed.put(playerId, waiting);
+            throw failure;
+        }
+        return waiting;
+    }
+
+    /**
+     * Claims the one welcome gift a player ever gets.
+     *
+     * @return whether this call is the one that claimed it
+     */
+    synchronized boolean claimWelcome(UUID playerId) {
+        if (!welcomed.add(playerId)) return false;
+        try {
+            save();
+        } catch (RuntimeException failure) {
+            welcomed.remove(playerId);
+            throw failure;
+        }
+        return true;
+    }
+
+    synchronized boolean welcomed(UUID playerId) {
+        return welcomed.contains(playerId);
     }
 
     synchronized Pending reserve(UUID playerId, UUID spinId, String rewardId, int season, long now) {
@@ -90,6 +143,12 @@ final class GiftbagStore {
             saved.add(playerId.toString(), value);
         });
         root.add("pending", saved);
+        JsonObject debts = new JsonObject();
+        owed.forEach((playerId, bags) -> debts.addProperty(playerId.toString(), bags));
+        root.add("owed", debts);
+        com.google.gson.JsonArray claimed = new com.google.gson.JsonArray();
+        welcomed.forEach(playerId -> claimed.add(playerId.toString()));
+        root.add("welcomed", claimed);
         try {
             Path temporary = file.resolveSibling(file.getFileName() + ".tmp");
             Files.writeString(temporary, root.toString(), StandardCharsets.UTF_8);

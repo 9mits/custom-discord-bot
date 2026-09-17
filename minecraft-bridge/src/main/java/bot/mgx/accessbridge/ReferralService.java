@@ -260,6 +260,11 @@ final class ReferralService implements Listener, CommandExecutor, TabCompleter {
                     + " back to the server.");
         }
         if (plugin.seasonPass() != null) plugin.seasonPass().referralXp(referrerId, referee.getName());
+        // A bag each, both ways: the one who invited and the one who came.
+        payGiftbags(referrerId, "for bringing " + referee.getName() + " to the server");
+        if (welcome.kind == ReferralRules.Kind.NEW) {
+            payGiftbags(referee.getUniqueId(), "for joining through " + referrerName + "'s invite");
+        }
         audit(referee, "referral_reward", referee.getName() + " was referred by " + referrerName,
                 referrerName, refereeShards + referrerShards);
     }
@@ -401,6 +406,13 @@ final class ReferralService implements Listener, CommandExecutor, TabCompleter {
                     + variables.integer("referrals.new-referrer-shards") + "."));
         }
         player.sendMessage(Component.empty());
+    }
+
+    /** Mythic Giftbags for a referral, held in the Giftbag ledger if they are offline. */
+    private void payGiftbags(UUID playerId, String reason) {
+        if (plugin.giftbags() == null) return;
+        int bags = variables.integer("season.giftbag.referral-bags");
+        for (int copy = 0; copy < bags; copy++) plugin.giftbags().award(playerId, reason);
     }
 
     private void pay(UUID playerId, int shards, String reason) {

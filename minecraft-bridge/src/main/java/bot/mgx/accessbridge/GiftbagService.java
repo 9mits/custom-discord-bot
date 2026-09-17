@@ -13,6 +13,7 @@ import org.bukkit.NamespacedKey;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.entity.Display;
+import org.bukkit.entity.Item;
 import org.bukkit.entity.ItemDisplay;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.TextDisplay;
@@ -839,8 +840,79 @@ final class GiftbagService implements Listener {
     public void onJoin(PlayerJoinEvent event) {
         modernize(event.getPlayer());
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
-            if (event.getPlayer().isOnline()) retry(event.getPlayer());
+            Player player = event.getPlayer();
+            if (!player.isOnline()) return;
+            retry(player);
+            deliverOwed(player);
+            // Not while they are sealed in the verification lobby: the gift is for
+            // arriving on the server, so it waits for the join that actually gets them in.
+            if (!VerificationLobbyService.isLobbyWorld(player.getWorld())) welcomeGift(player);
         }, 80L);
+    }
+
+    /** Bags earned while their owner was offline, handed over the moment they arrive. */
+    private void deliverOwed(Player player) {
+        int bags = store.takeOwed(player.getUniqueId());
+        for (int copy = 0; copy < bags; copy++) hand(player, create(seasonNow()));
+        if (bags > 0) {
+            present(player, bags == 1 ? "A MYTHIC GIFTBAG" : bags + " MYTHIC GIFTBAGS",
+                    "Earned while you were away",
+                    "You were owed " + (bags == 1 ? "a Mythic Giftbag" : bags + " Mythic Giftbags")
+                            + ". Right-click to open.");
+        }
+    }
+
+    /**
+     * One Mythic Giftbag per player, as a thank-you for turning up after the update.
+     *
+     * <p>Claimed once ever, so relogging does not farm it, and only while the gift is
+     * switched on — it is a limited-time welcome, not a permanent join reward.
+     */
+    void welcomeGift(Player player) {
+        if (!variables.bool("season.giftbag.welcome-gift")) return;
+        long endsAt = variables.integer("season.giftbag.welcome-gift-ends-at");
+        if (endsAt > 0L && System.currentTimeMillis() / 1_000L > endsAt) return;
+        if (store.welcomed(player.getUniqueId())) return;
+        if (!store.claimWelcome(player.getUniqueId())) return;
+        hand(player, create(seasonNow()));
+        present(player, "A GIFT FOR YOU", "Thank you for playing",
+                "A Mythic Giftbag is in your inventory. Right-click it anywhere to open it.");
+    }
+
+    /** Puts a bag in a player's hands, or at their feet if there is nowhere to put it. */
+    private void hand(Player player, ItemStack bag) {
+        player.getInventory().addItem(bag).values().forEach(spill -> {
+            Item dropped = player.getWorld().dropItemNaturally(player.getLocation(), spill);
+            dropped.setOwner(player.getUniqueId());
+            dropped.setPickupDelay(20);
+        });
+    }
+
+    private int seasonNow() {
+        return plugin.seasonPass() == null ? 1 : plugin.seasonPass().season();
+    }
+
+    /** The bit that lands on their screen: a title card, the line under it, and a sound. */
+    private void present(Player player, String title, String subtitle, String message) {
+        player.showTitle(Title.title(
+                Component.text(title, MYTHIC, TextDecoration.BOLD),
+                Component.text(subtitle, VIOLET),
+                Title.Times.times(Duration.ofMillis(300), Duration.ofSeconds(4), Duration.ofMillis(800))));
+        tell(player, message, NamedTextColor.WHITE);
+        sound(player, Sound.UI_TOAST_CHALLENGE_COMPLETE, 1f, 1.05f);
+        sound(player, Sound.BLOCK_AMETHYST_BLOCK_CHIME, 1f, .8f);
+    }
+
+    /** One bag for somebody who is not here to take it; it waits in the ledger. */
+    void award(java.util.UUID playerId, String reason) {
+        Player online = Bukkit.getPlayer(playerId);
+        if (online == null) {
+            store.owe(playerId, 1);
+            return;
+        }
+        hand(online, create(seasonNow()));
+        present(online, "A MYTHIC GIFTBAG", reason,
+                "A Mythic Giftbag " + reason.toLowerCase(Locale.ROOT) + ". Right-click to open.");
     }
 
     @EventHandler
