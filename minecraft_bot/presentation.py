@@ -13,6 +13,11 @@ import discord
 from .models import AccessStatus, MinecraftAccess, ReverseLinkRequest
 
 
+#: The one address that still resolves after the server move. Player-facing copy
+#: quotes this rather than typing the invite out, so a future move is one edit.
+DISCORD_INVITE = "https://discord.gg/twkrj8Ys5N"
+
+
 BRAND_NAME = "Mysterious SMP X"
 THEME_COLOUR = discord.Colour.from_rgb(255, 153, 0)
 SUCCESS_COLOUR = discord.Colour.from_rgb(87, 242, 135)
