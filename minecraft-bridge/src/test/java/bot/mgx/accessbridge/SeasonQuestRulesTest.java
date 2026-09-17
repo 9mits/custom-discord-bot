@@ -212,10 +212,10 @@ final class SeasonQuestRulesTest {
         assertEquals(5_500, SeasonQuestRules.communityTarget(ores, 5_000, 20, 10));
         assertEquals(2_000, SeasonQuestRules.communityTarget(ores, 2_000, 0, 0),
                 "no growth means last week again");
-        assertEquals(1_500, SeasonQuestRules.communityTarget(ores, 0, 20, 10),
+        assertEquals(700, SeasonQuestRules.communityTarget(ores, 0, 20, 10),
                 "no history: half a weekly quest for each of last week's players");
-        assertEquals(450, SeasonQuestRules.communityTarget(ores, 10, 1, 10), "never below three weekly quests");
-        assertEquals(20, SeasonQuestRules.contributorMinimum(ores, 5_500), "a day's quest counts as helping");
+        assertEquals(210, SeasonQuestRules.communityTarget(ores, 10, 1, 10), "never below three weekly quests");
+        assertEquals(15, SeasonQuestRules.contributorMinimum(ores, 5_500), "a day's quest counts as helping");
         assertEquals(9, SeasonQuestRules.contributorMinimum(ores, 450), "or 2% of a small goal");
         assertEquals(SeasonQuestRules.COMMUNITY.size(), java.util.stream.LongStream.range(0, 8)
                 .mapToObj(SeasonQuestRules::communityObjective).distinct().count(), "goals rotate");

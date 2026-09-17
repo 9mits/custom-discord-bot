@@ -1451,16 +1451,16 @@ final class GameVariableStore {
                 "Run the Season Pass: daily and weekly quests, Season XP and tier rewards.", true);
         integer("season.length-days", "Season length", "Season Pass",
                 "Days a season runs before its top three are paid and the next begins.",
-                42, 7, 365, "days", false);
+                3, 1, 365, "days", false);
         integer("season.tiers", "Season tiers", "Season Pass",
                 "Tiers in the pass. Each pays a reward the moment it is reached.",
                 50, 10, 200, "tiers", false);
         integer("season.xp-per-tier", "XP per tier", "Season Pass",
-                "Season XP between one tier and the next.", 1_000, 50, 100_000, "xp", false);
+                "Season XP between one tier and the next.", 700, 50, 100_000, "xp", false);
         integer("season.xp-per-active-minute", "XP per active minute", "Season Pass",
-                "Season XP for every non-AFK minute on the server.", 2, 0, 100, "xp", false);
+                "Season XP for every non-AFK minute on the server.", 8, 0, 100, "xp", false);
         integer("season.streak-xp", "XP per streak day", "Season Pass",
-                "Season XP for claiming a daily login streak day.", 100, 0, 10_000, "xp", false);
+                "Season XP for claiming a daily login streak day.", 400, 0, 10_000, "xp", false);
         integer("season.first-place-shards", "First place Shards", "Season Pass",
                 "Shards for the highest Season XP when the season ends.", 10, 0, 640, "shards", false);
         integer("season.second-place-shards", "Second place Shards", "Season Pass",
@@ -1555,16 +1555,16 @@ final class GameVariableStore {
         // more than an hour of grinding: 600 XP a day against 120 for an active hour.
         integer("season.daily.xp", "XP per daily quest", "Season Quests",
                 "Season XP for each of the three daily quests. Boards reset at 00:00 UTC.",
-                150, 0, 10_000, "xp", false);
+                500, 0, 10_000, "xp", false);
         integer("season.daily.sweep-xp", "Daily board bonus", "Season Quests",
-                "Extra Season XP for finishing all three daily quests.", 150, 0, 10_000, "xp", false);
+                "Extra Season XP for finishing all three daily quests.", 500, 0, 10_000, "xp", false);
         integer("season.weekly.xp", "XP per weekly quest", "Season Quests",
                 "Season XP for each of the three weekly quests. Weeks reset Monday 00:00 UTC.",
-                700, 0, 50_000, "xp", false);
+                1_500, 0, 50_000, "xp", false);
         integer("season.weekly.sweep-xp", "Weekly board bonus", "Season Quests",
-                "Extra Season XP for finishing all three weekly quests.", 700, 0, 50_000, "xp", false);
+                "Extra Season XP for finishing all three weekly quests.", 1_500, 0, 50_000, "xp", false);
         integer("season.weekly.play-days", "Days for the return quest", "Season Quests",
-                "Different days a player must play for the weekly Come Back quest.", 4, 1, 7, "days", false);
+                "Different days a player must play for the weekly Come Back quest.", 2, 1, 7, "days", false);
         integer("season.daily.active-day-minutes", "Minutes that make a day", "Season Quests",
                 "Active minutes in one UTC day before it counts toward the Come Back quest.",
                 10, 1, 240, "minutes", false);
@@ -1575,7 +1575,7 @@ final class GameVariableStore {
                 "Run a weekly server-wide goal. Its target is last week's total plus the growth below.", true);
         integer("season.community.xp", "Community goal XP", "Season Quests",
                 "Season XP for every player who helped when the community goal is reached.",
-                1_000, 0, 50_000, "xp", false);
+                2_000, 0, 50_000, "xp", false);
         integer("season.community.growth-percent", "Community goal growth", "Season Quests",
                 "How much more than last week's server total the community goal asks for.",
                 10, 0, 100, "percent", false);
@@ -3271,36 +3271,44 @@ final class GameVariableStore {
                     migrated = true;
                 }
                 // The first configurable Season quest ladders copied the old end-game
-                // scale into level one. Replace only those exact shipped lists so a
-                // player's first goals become approachable without overwriting an
+                // scale into level one, and the set after them was still sized for a
+                // six-week season. Replace only those exact shipped lists so a player's
+                // goals fit the three days a season now runs, without overwriting an
                 // owner's custom progression.
                 if (value instanceof String text) {
                     String easier = switch (canonical) {
                         case "season.quest.kill_mobs.targets" -> text.equals(
                                 "100, 300, 750, 1500, 3000, 6000, 12000, 25000")
+                                || text.equals("10, 50, 200, 750, 3000, 6000, 12000, 25000")
                                 ? SeasonPassRules.ladderText(
                                         SeasonPassRules.QuestType.KILL_MOBS.defaultTargets()) : null;
                         case "season.quest.mine_ores.targets" -> text.equals(
                                 "50, 150, 400, 800, 1500, 3000, 6000")
+                                || text.equals("5, 25, 100, 400, 1500, 3000, 6000")
                                 ? SeasonPassRules.ladderText(
                                         SeasonPassRules.QuestType.MINE_ORES.defaultTargets()) : null;
                         case "season.quest.harvest_crops.targets" -> text.equals(
                                 "100, 300, 750, 1500, 3000, 6000, 12000")
+                                || text.equals("20, 100, 400, 1500, 3000, 6000, 12000")
                                 ? SeasonPassRules.ladderText(
                                         SeasonPassRules.QuestType.HARVEST_CROPS.defaultTargets()) : null;
                         case "season.quest.open_crates.targets" -> text.equals(
                                 "50, 200, 500, 1000, 2500, 5000")
+                                || text.equals("1, 5, 25, 100, 500, 5000")
                                 ? SeasonPassRules.ladderText(
                                         SeasonPassRules.QuestType.OPEN_CRATES.defaultTargets()) : null;
                         case "season.quest.sell_money.targets" -> text.equals(
                                 "100000, 500000, 1000000, 2500000, 5000000, 10000000, 25000000")
+                                || text.equals("5000, 25000, 100000, 500000, 2500000, 10000000, 25000000")
                                 ? SeasonPassRules.ladderText(
                                         SeasonPassRules.QuestType.SELL_MONEY.defaultTargets()) : null;
                         case "season.quest.play_minutes.targets" -> text.equals(
                                 "120, 480, 1200, 2400, 4800, 9600")
+                                || text.equals("15, 60, 240, 1200, 4800, 9600")
                                 ? SeasonPassRules.ladderText(
                                         SeasonPassRules.QuestType.PLAY_MINUTES.defaultTargets()) : null;
                         case "season.quest.win_pvp.targets" -> text.equals("3, 10, 25, 50, 100")
+                                || text.equals("1, 5, 20, 50, 100")
                                 ? SeasonPassRules.ladderText(
                                         SeasonPassRules.QuestType.WIN_PVP.defaultTargets()) : null;
                         default -> null;

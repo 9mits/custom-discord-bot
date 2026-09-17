@@ -69,15 +69,15 @@ final class SeasonQuestRules {
      * change what anybody does.
      */
     enum Objective {
-        KILL_MOBS("Defeat %s hostile mobs", "item/iron_sword", Kind.GRIND, 30, 250, 60),
-        MINE_ORES("Mine %s ores", "item/iron_pickaxe", Kind.GRIND, 20, 150, 40),
-        HARVEST_CROPS("Harvest %s fully grown crops", "item/wheat", Kind.GRIND, 60, 400, 120),
-        TOGETHER_MINUTES("Play %s active minutes near other players", "item/cake", Kind.SOCIAL, 15, 120, 0),
-        CLAN_MINUTES("Play %s active minutes with a clanmate online", "item/name_tag", Kind.SOCIAL, 20, 150, 0),
-        JOIN_EVENT("Take part in %s server events", "item/amethyst_shard", Kind.FEATURE, 1, 4, 2),
-        PLAY_PVP("Finish %s ranked PvP matches", "item/netherite_sword", Kind.FEATURE, 1, 5, 2),
-        BUY_AUCTION("Buy %s items from players on /ah", "item/gold_ingot", Kind.FEATURE, 1, 5, 2),
-        PLAY_DAYS("Play on %s different days", "item/clock_00", Kind.RETURN, 0, 4, 0);
+        KILL_MOBS("Defeat %s hostile mobs", "item/iron_sword", Kind.GRIND, 25, 120, 60),
+        MINE_ORES("Mine %s ores", "item/iron_pickaxe", Kind.GRIND, 15, 70, 40),
+        HARVEST_CROPS("Harvest %s fully grown crops", "item/wheat", Kind.GRIND, 40, 180, 120),
+        TOGETHER_MINUTES("Play %s active minutes near other players", "item/cake", Kind.SOCIAL, 12, 60, 0),
+        CLAN_MINUTES("Play %s active minutes with a clanmate online", "item/name_tag", Kind.SOCIAL, 15, 75, 0),
+        JOIN_EVENT("Take part in %s server events", "item/amethyst_shard", Kind.FEATURE, 1, 2, 2),
+        PLAY_PVP("Finish %s ranked PvP matches", "item/netherite_sword", Kind.FEATURE, 1, 3, 2),
+        BUY_AUCTION("Buy %s items from players on /ah", "item/gold_ingot", Kind.FEATURE, 1, 3, 2),
+        PLAY_DAYS("Play on %s different days", "item/clock_00", Kind.RETURN, 0, 2, 0);
 
         private final String template;
         final String sprite;

@@ -15,28 +15,29 @@ final class SeasonPassRules {
      * What a quest counts, and its ladder.
      *
      * <p>Each line is a season-long ladder of cumulative targets: reach one and the next,
-     * harder level begins, paying more XP. Targets are
-     * sized from the live server's own numbers (September 2026): a typical engaged
-     * player kills about 50 hostile mobs and mines about 12 ores an hour, the top tenth
-     * have 12,000+ kills and 3,000+ ores, and the richest balances run to hundreds of
-     * millions. The first rungs fit a player's first session; each next rung asks for a
-     * larger amount of new work, and the last remains a whole season of effort.
+     * harder level begins, paying more XP. A season is three days, so these are sized for
+     * three days of play rather than six weeks: from the live server's own rates
+     * (September 2026) an engaged player kills about 50 hostile mobs and mines about 12
+     * ores an hour, which over a few evenings is a few hundred kills and something over a
+     * hundred ores. The first rung of every line is one session's work, the middle rungs
+     * are where most players finish, and the last is for somebody who plays the whole
+     * three days.
      */
     enum QuestType {
         KILL_MOBS("Mob Hunter", "Defeat %s hostile mobs", "item/iron_sword",
-                10, 50, 200, 750, 3_000, 6_000, 12_000, 25_000),
+                5, 25, 75, 200, 400, 800, 1_500, 3_000),
         MINE_ORES("Deep Miner", "Mine %s ores", "item/iron_pickaxe",
-                5, 25, 100, 400, 1_500, 3_000, 6_000),
+                3, 15, 40, 100, 200, 400, 800),
         HARVEST_CROPS("Harvester", "Harvest %s fully grown crops", "item/wheat",
-                20, 100, 400, 1_500, 3_000, 6_000, 12_000),
+                10, 50, 150, 400, 800, 1_500, 3_000),
         OPEN_CRATES("Crate Opener", "Open %s crates", "item/trial_key",
-                1, 5, 25, 100, 500, 5_000),
+                1, 3, 10, 25, 60, 150),
         SELL_MONEY("Merchant", "Earn %s from /sell", "item/gold_ingot",
-                5_000, 25_000, 100_000, 500_000, 2_500_000, 10_000_000, 25_000_000),
+                2_500, 10_000, 50_000, 200_000, 1_000_000, 3_000_000, 10_000_000),
         PLAY_MINUTES("Playtime", "Play %s active minutes", "item/clock_00",
-                15, 60, 240, 1_200, 4_800, 9_600),
+                10, 30, 90, 240, 600, 1_200),
         WIN_PVP("Champion", "Win %s ranked PvP matches", "item/netherite_sword",
-                1, 5, 20, 50, 100);
+                1, 3, 8, 20, 40);
 
         private final String title;
         private final String template;
