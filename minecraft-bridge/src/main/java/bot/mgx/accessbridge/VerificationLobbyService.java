@@ -421,12 +421,12 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
         // The link is printed, not hidden behind a click: Geyser never delivers a click
         // event, so a Bedrock player has to be able to read and type it.
         player.sendMessage(Component.text("1. ", NamedTextColor.YELLOW, TextDecoration.BOLD)
-                .append(Component.text("Join ", NamedTextColor.WHITE))
+                .append(Component.text("JOIN ", NamedTextColor.WHITE, TextDecoration.BOLD))
                 .append(Component.text(GuideService.inviteDisplay(), NamedTextColor.AQUA,
                                 TextDecoration.BOLD)
                         .clickEvent(ClickEvent.openUrl(GuideService.inviteUrl()))
                         .hoverEvent(HoverEvent.showText(Component.text("Click to open the Discord"))))
-                .append(Component.text(" — membership is required to play.", NamedTextColor.GRAY)));
+                .append(Component.text(" — nothing else works until you do.", NamedTextColor.GRAY)));
         player.sendMessage(Component.text("2. ", NamedTextColor.YELLOW, TextDecoration.BOLD)
                 .append(Component.text("Type ", NamedTextColor.WHITE))
                 .append(Component.text("/verify <your Discord username>", NamedTextColor.AQUA)

@@ -44,6 +44,7 @@ from .models import (
     ReverseLinkRequest,
     ReverseLinkStatus,
 )
+from .presentation import DISCORD_INVITE
 from .perks import (
     DEVELOPER_ROLE_ID,
     OWNER_ROLE_ID,
@@ -1679,7 +1680,11 @@ class MinecraftAccessBot(commands.Bot):
                 request_id=attached.request_id,
                 minecraft_uuid=attached.minecraft_uuid,
                 status="DMS_CLOSED",
-                message="Discord found you, but could not DM you. Allow direct messages from server members, then run /verify again.",
+                message=(
+                "Found you, but Discord would not let the bot message you. Open Privacy"
+                " Settings and allow direct messages from server members, then run /verify"
+                " again."
+            ),
             )
             return False
         await self.bridge.send_reverse_link_status(
@@ -1717,7 +1722,12 @@ class MinecraftAccessBot(commands.Bot):
             request_id=request.request_id,
             minecraft_uuid=request.minecraft_uuid,
             status="JOIN_DISCORD",
-            message="That username is not in our Discord yet. Use /discord to join within 10 minutes; the confirmation DM arrives automatically. If it takes longer, run /verify again.",
+            message=(
+                "THE DISCORD SERVER MOVED. That username is not in the new one, and the bot"
+                f" cannot message anyone it shares no server with. Join {DISCORD_INVITE}"
+                " — the confirmation DM arrives by itself within 10 minutes of joining."
+                " If it takes longer, run /verify again."
+            ),
         )
 
     async def on_member_join(self, member: discord.Member) -> None:
