@@ -324,17 +324,17 @@ final class GameVariableStoreTest {
 
         GameVariableStore variables = store();
 
-        assertEquals("10, 50, 200, 750, 3000, 6000, 12000, 25000",
+        assertEquals("5, 25, 75, 200, 400, 800, 1500, 3000",
                 variables.string("season.quest.kill_mobs.targets"));
-        assertEquals("5, 25, 100, 400, 1500, 3000, 6000",
+        assertEquals("3, 15, 40, 100, 200, 400, 800",
                 variables.string("season.quest.mine_ores.targets"));
-        assertEquals("20, 100, 400, 1500, 3000, 6000, 12000",
+        assertEquals("10, 50, 150, 400, 800, 1500, 3000",
                 variables.string("season.quest.harvest_crops.targets"));
-        assertEquals("1, 5, 25, 100, 500, 5000",
+        assertEquals("1, 3, 10, 25, 60, 150",
                 variables.string("season.quest.open_crates.targets"));
-        assertEquals("5000, 25000, 100000, 500000, 2500000, 10000000, 25000000",
+        assertEquals("2500, 10000, 50000, 200000, 1000000, 3000000, 10000000",
                 variables.string("season.quest.sell_money.targets"));
-        assertEquals("15, 60, 240, 1200, 4800, 9600",
+        assertEquals("10, 30, 90, 240, 600, 1200",
                 variables.string("season.quest.play_minutes.targets"));
         assertEquals("1, 7, 30, 70, 150", variables.string("season.quest.win_pvp.targets"),
                 "an owner-custom ladder must not be replaced");

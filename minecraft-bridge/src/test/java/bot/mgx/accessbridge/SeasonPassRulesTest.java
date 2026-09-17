@@ -44,20 +44,20 @@ final class SeasonPassRulesTest {
             assertTrue(SeasonPassRules.quest(type, type.levels()).isEmpty(), "a finished ladder has no next rung");
             assertTrue(type.levels() >= 5, type + " needs a real ladder");
         }
-        assertEquals(0, SeasonPassRules.levelFor(SeasonPassRules.QuestType.KILL_MOBS, 9));
-        assertEquals(1, SeasonPassRules.levelFor(SeasonPassRules.QuestType.KILL_MOBS, 10));
-        assertEquals(3, SeasonPassRules.levelFor(SeasonPassRules.QuestType.KILL_MOBS, 300));
+        assertEquals(0, SeasonPassRules.levelFor(SeasonPassRules.QuestType.KILL_MOBS, 4));
+        assertEquals(1, SeasonPassRules.levelFor(SeasonPassRules.QuestType.KILL_MOBS, 5));
+        assertEquals(3, SeasonPassRules.levelFor(SeasonPassRules.QuestType.KILL_MOBS, 100));
         assertEquals(8, SeasonPassRules.levelFor(SeasonPassRules.QuestType.KILL_MOBS, 1_000_000));
     }
 
     @Test
     void everyQuestLineStartsWithAFirstSessionGoal() {
-        assertEquals(10, firstTarget(SeasonPassRules.QuestType.KILL_MOBS));
-        assertEquals(5, firstTarget(SeasonPassRules.QuestType.MINE_ORES));
-        assertEquals(20, firstTarget(SeasonPassRules.QuestType.HARVEST_CROPS));
+        assertEquals(5, firstTarget(SeasonPassRules.QuestType.KILL_MOBS));
+        assertEquals(3, firstTarget(SeasonPassRules.QuestType.MINE_ORES));
+        assertEquals(10, firstTarget(SeasonPassRules.QuestType.HARVEST_CROPS));
         assertEquals(1, firstTarget(SeasonPassRules.QuestType.OPEN_CRATES));
-        assertEquals(5_000, firstTarget(SeasonPassRules.QuestType.SELL_MONEY));
-        assertEquals(15, firstTarget(SeasonPassRules.QuestType.PLAY_MINUTES));
+        assertEquals(2_500, firstTarget(SeasonPassRules.QuestType.SELL_MONEY));
+        assertEquals(10, firstTarget(SeasonPassRules.QuestType.PLAY_MINUTES));
         assertEquals(1, firstTarget(SeasonPassRules.QuestType.WIN_PVP));
     }
 
@@ -83,12 +83,24 @@ final class SeasonPassRulesTest {
     }
 
     @Test
-    void theHardestRungsMatchTheLiveServer() {
-        // September 2026: top-tenth players have 12,000+ mob kills and 3,000+ ores, and the
-        // richest balances run to hundreds of millions. The last rungs must be a stretch.
-        assertTrue(SeasonPassRules.quest(SeasonPassRules.QuestType.KILL_MOBS, 7).orElseThrow().target() >= 12_000);
-        assertTrue(SeasonPassRules.quest(SeasonPassRules.QuestType.MINE_ORES, 6).orElseThrow().target() >= 3_000);
-        assertTrue(SeasonPassRules.quest(SeasonPassRules.QuestType.SELL_MONEY, 6).orElseThrow().target() >= 10_000_000);
+    void everyLadderFitsInsideTheThreeDaysASeasonRuns() throws Exception {
+        // At the live server's own rates — about 50 hostile kills and 12 ores an hour —
+        // three days of real play is a few hundred kills and a couple of hundred ores. The
+        // last rung is meant to be a stretch, not a six-week grind left permanently unfinished.
+        String store = java.nio.file.Files.readString(java.nio.file.Path.of(
+                "src/main/java/bot/mgx/accessbridge/GameVariableStore.java"));
+        String length = store.substring(store.indexOf("integer(\"season.length-days\""));
+        assertTrue(length.substring(0, length.indexOf(");")).contains("3, 1, 365"),
+                "a season runs three days, so the ladders below are sized for three days");
+        assertTrue(SeasonPassRules.quest(SeasonPassRules.QuestType.KILL_MOBS, 7).orElseThrow().target() <= 3_000);
+        assertTrue(SeasonPassRules.quest(SeasonPassRules.QuestType.MINE_ORES, 6).orElseThrow().target() <= 800);
+        assertTrue(SeasonPassRules.quest(SeasonPassRules.QuestType.PLAY_MINUTES, 5).orElseThrow().target()
+                <= 3 * 24 * 60, "nobody can play more minutes than the season has");
+        assertTrue(SeasonPassRules.quest(SeasonPassRules.QuestType.SELL_MONEY, 6).orElseThrow().target() <= 10_000_000);
+        // The first rung of every line is still one session's work.
+        for (SeasonPassRules.QuestType type : SeasonPassRules.QuestType.values()) {
+            assertTrue(SeasonPassRules.quest(type, 0).orElseThrow().xp() > 0, type + " pays for its first rung");
+        }
     }
 
     private static long firstTarget(SeasonPassRules.QuestType type) {
