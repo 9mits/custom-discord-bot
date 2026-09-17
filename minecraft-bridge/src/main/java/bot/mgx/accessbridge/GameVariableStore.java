@@ -1507,6 +1507,16 @@ final class GameVariableStore {
 
         bool("season.giftbag.enabled", "Giftbag openings", "Season Giftbag",
                 "Allow players to unseal and roll their Mythic Giftbags.", true);
+        bool("season.giftbag.welcome-gift", "Welcome Giftbag", "Season Giftbag",
+                "Give every player one Mythic Giftbag the first time they arrive, as a"
+                        + " thank-you for playing. Claimed once each, however often they log in.", true);
+        integer("season.giftbag.welcome-gift-ends-at", "Welcome Giftbag ends", "Season Giftbag",
+                "Unix time the welcome gift stops being handed out. Zero leaves it running"
+                        + " until the switch above is turned off.",
+                0, 0, 4_102_444_800L, "epoch seconds", false);
+        integer("season.giftbag.referral-bags", "Referral Giftbags", "Season Giftbag",
+                "Mythic Giftbags paid to each side of a referral: the player who invited"
+                        + " somebody, and the player who arrived.", 1, 0, 8, "giftbags", false);
         integer("season.giftbag.animation-ticks", "Giftbag buildup", "Season Giftbag",
                 "Ticks the opening builds (rise, orbit, pull-in, charge) before the Giftbag bursts.",
                 180, 40, 600, "ticks", false);

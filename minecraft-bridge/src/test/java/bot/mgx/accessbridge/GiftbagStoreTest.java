@@ -33,4 +33,38 @@ final class GiftbagStoreTest {
         reopened.complete(player, spin);
         assertTrue(reopened.all().isEmpty());
     }
+
+    @Test
+    void theWelcomeGiftIsClaimedOnceHoweverOftenAPlayerLogsIn() throws Exception {
+        Path file = directory.resolve("welcome.json");
+        GiftbagStore store = new GiftbagStore(file);
+        UUID player = UUID.randomUUID();
+        UUID other = UUID.randomUUID();
+
+        assertFalse(store.welcomed(player));
+        assertTrue(store.claimWelcome(player), "the first claim is the one that counts");
+        assertFalse(store.claimWelcome(player), "relogging cannot farm a second bag");
+        assertTrue(store.welcomed(player));
+        assertTrue(store.claimWelcome(other), "every player still gets their own");
+
+        // A restart must not hand everybody a second one.
+        GiftbagStore reopened = new GiftbagStore(file);
+        assertTrue(reopened.welcomed(player));
+        assertFalse(reopened.claimWelcome(player));
+    }
+
+    @Test
+    void bagsEarnedWhileOfflineWaitInTheLedgerAndAreHandedOverOnce() throws Exception {
+        Path file = directory.resolve("owed.json");
+        GiftbagStore store = new GiftbagStore(file);
+        UUID player = UUID.randomUUID();
+
+        assertEquals(0, store.takeOwed(player), "nothing owed is nothing to hand over");
+        store.owe(player, 1);
+        store.owe(player, 2);
+
+        GiftbagStore reopened = new GiftbagStore(file);
+        assertEquals(3, reopened.takeOwed(player), "both referrals survived the restart");
+        assertEquals(0, reopened.takeOwed(player), "and they are handed over exactly once");
+    }
 }

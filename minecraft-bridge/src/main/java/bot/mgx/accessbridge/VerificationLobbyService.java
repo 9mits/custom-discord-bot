@@ -318,6 +318,14 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
         player.sendMessage(Component.text("Your Discord account @" + discordUsername
                 + " is linked. Welcome!", NamedTextColor.GREEN));
         releasing.remove(player.getUniqueId());
+        // Verification is the first thing a new player does, and the welcome gift is the
+        // second: they are on the server now, so it lands here rather than waiting for a
+        // relog. After the VERIFIED title has had its moment.
+        if (plugin.giftbags() != null) {
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                if (player.isOnline()) plugin.giftbags().welcomeGift(player);
+            }, 80L);
+        }
     }
 
     private Player playerForAccount(UUID accountUuid) {
