@@ -78,6 +78,9 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
     /** A sparse status line proves the otherwise-black lobby is still responsive. */
     private static final long PROMPT_INTERVAL_TICKS = 200L;
     private static final long PROMPT_INTERVAL_MILLIS = PROMPT_INTERVAL_TICKS * 50L;
+    /** Every spelling of the confirmation the lobby accepts, so nobody is stuck on a typo. */
+    private static final Set<String> JOINED_LABELS =
+            Set.of("joined", "ijoined", "joineddiscord", "joinedserver");
     private static final int ROOM_RADIUS = 24;
     private static final int ROOM_FLOOR_Y = 64;
     private static final int ROOM_CEILING_Y = 72;
@@ -105,13 +108,23 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
 
     static Component verifyPrompt() {
         return rendered("messages.verify.step-one-chat",
-                statusLine("Step 1 of 2: type /verify <your Discord username>"));
+                statusLine("Join " + GuideService.inviteDisplay()
+                        + " — then type /joined to confirm"));
     }
 
+    /**
+     * The bar under the crosshair, and the one line every player in here reads twenty
+     * times. It names the invite rather than the command: nobody can be verified before
+     * they are in the server, because a bot cannot message somebody it shares no server
+     * with.
+     */
     static Component verifyAction() {
         return rendered("messages.verify.step-one",
-                Component.text("STEP 1 OF 2  \u2022  ", NamedTextColor.GOLD, TextDecoration.BOLD)
-                        .append(Component.text("/verify <Discord username>", NamedTextColor.YELLOW)));
+                Component.text("JOIN  ", NamedTextColor.RED, TextDecoration.BOLD)
+                        .append(Component.text(GuideService.inviteDisplay(), NamedTextColor.AQUA,
+                                TextDecoration.BOLD))
+                        .append(Component.text("  THEN TYPE  ", NamedTextColor.RED, TextDecoration.BOLD))
+                        .append(Component.text("/joined", NamedTextColor.GREEN, TextDecoration.BOLD)));
     }
 
     private static Component confirmAction() {
@@ -125,8 +138,8 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
             Duration.ZERO, Duration.ofSeconds(2), Duration.ZERO
     );
     private static final LobbyTitle VERIFY_TITLE = lobbyTitle(
-            "LINK DISCORD TO PLAY", NamedTextColor.GOLD,
-            "Step 1: /verify <your Discord username>", NamedTextColor.YELLOW
+            "JOIN THE NEW DISCORD", NamedTextColor.RED,
+            "Then type /joined to confirm", NamedTextColor.YELLOW
     );
     private static final LobbyTitle CONFIRM_TITLE = lobbyTitle(
             "CHECK YOUR DISCORD DMS", NamedTextColor.GOLD,
@@ -155,6 +168,14 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
     private final Map<UUID, Long> lastRequests = new ConcurrentHashMap<>();
     private final Map<UUID, Component> prompts = new ConcurrentHashMap<>();
     private final Map<UUID, Component> actionBars = new ConcurrentHashMap<>();
+    /**
+     * Who has said, in as many words, that they are in the Discord.
+     *
+     * <p>{@code /verify} does nothing until they have. Nobody reads a wall of text, but
+     * everybody reads the thing standing between them and the server — so the gate is the
+     * instruction: a player cannot reach step two without answering step one.
+     */
+    private final Set<UUID> joinedDiscord = ConcurrentHashMap.newKeySet();
     /** The wall of bars across the top of a lobby player's screen. */
     private final Map<UUID, java.util.List<net.kyori.adventure.bossbar.BossBar>> lobbyBars =
             new ConcurrentHashMap<>();
@@ -434,11 +455,17 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
                 .append(Component.text(" — nothing else works until you do.", NamedTextColor.GRAY)));
         player.sendMessage(Component.text("2. ", NamedTextColor.YELLOW, TextDecoration.BOLD)
                 .append(Component.text("Type ", NamedTextColor.WHITE))
+                .append(Component.text("/joined", NamedTextColor.GREEN, TextDecoration.BOLD)
+                        .clickEvent(ClickEvent.runCommand("/joined"))
+                        .hoverEvent(HoverEvent.showText(Component.text("Click once you are in the server"))))
+                .append(Component.text(" to confirm you are in the server.", NamedTextColor.GRAY)));
+        player.sendMessage(Component.text("3. ", NamedTextColor.YELLOW, TextDecoration.BOLD)
+                .append(Component.text("Type ", NamedTextColor.WHITE))
                 .append(Component.text("/verify <your Discord username>", NamedTextColor.AQUA)
                         .clickEvent(ClickEvent.suggestCommand("/verify ")))
                 .append(Component.text(" — use your username, not display name.",
                         NamedTextColor.GRAY)));
-        player.sendMessage(Component.text("3. ", NamedTextColor.YELLOW, TextDecoration.BOLD)
+        player.sendMessage(Component.text("4. ", NamedTextColor.YELLOW, TextDecoration.BOLD)
                 .append(Component.text("Open the newest DM from Mysterious SMP X and press ",
                         NamedTextColor.WHITE))
                 .append(Component.text("Yes, This Is Me", NamedTextColor.GREEN,
@@ -493,7 +520,7 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
                         NamedTextColor.YELLOW, net.kyori.adventure.bossbar.BossBar.Color.YELLOW),
                 bar("YOU CANNOT PLAY UNTIL YOU ARE VERIFIED",
                         NamedTextColor.RED, net.kyori.adventure.bossbar.BossBar.Color.RED),
-                bar("THEN TYPE  /verify <your Discord username>",
+                bar("ONCE YOU ARE IN, TYPE  /joined",
                         NamedTextColor.GREEN, net.kyori.adventure.bossbar.BossBar.Color.GREEN)
         );
         plugin.bossBars().suppress(player);
@@ -516,8 +543,87 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
         plugin.bossBars().restore(player);
     }
 
+    /** Step one, answered. From here {@code /verify} is allowed. */
+    private void confirmJoined(Player player) {
+        if (!joinedDiscord.add(player.getUniqueId())) {
+            player.sendMessage(statusLine("Already confirmed. Now type /verify <your Discord username>"));
+            showStepTwo(player);
+            return;
+        }
+        player.playSound(player, org.bukkit.Sound.ENTITY_PLAYER_LEVELUP, 0.8f, 1.3f);
+        player.sendMessage(Component.empty());
+        player.sendMessage(Component.text("✔ Thank you. Step 1 done.", NamedTextColor.GREEN,
+                TextDecoration.BOLD));
+        player.sendMessage(Component.text("If you have not actually joined ", NamedTextColor.GRAY)
+                .append(Component.text(GuideService.inviteDisplay(), NamedTextColor.AQUA))
+                .append(Component.text(", the next step cannot work — the bot has no way to",
+                        NamedTextColor.GRAY))
+                .append(Component.newline())
+                .append(Component.text("message you until you are in the server with it.",
+                        NamedTextColor.GRAY)));
+        showStepTwo(player);
+    }
+
+    /** The screen after the gate: one bar, one instruction. */
+    private void showStepTwo(Player player) {
+        clearLobbyBars(player);
+        plugin.bossBars().suppress(player);
+        java.util.List<net.kyori.adventure.bossbar.BossBar> bars = java.util.List.of(
+                bar("STEP 2  \u2022  /verify <your Discord username>",
+                        NamedTextColor.GREEN, net.kyori.adventure.bossbar.BossBar.Color.GREEN),
+                bar("Use your USERNAME, not your display name",
+                        NamedTextColor.YELLOW, net.kyori.adventure.bossbar.BossBar.Color.YELLOW)
+        );
+        bars.forEach(one -> plugin.bossBars().showExclusive(player, one));
+        lobbyBars.put(player.getUniqueId(), bars);
+        Component step = Component.text("STEP 2 OF 2  \u2022  ", NamedTextColor.GREEN, TextDecoration.BOLD)
+                .append(Component.text("/verify <Discord username>", NamedTextColor.YELLOW));
+        actionBars.put(player.getUniqueId(), step);
+        centerTitles.put(player.getUniqueId(), lobbyTitle(
+                "NOW VERIFY", NamedTextColor.GREEN,
+                "/verify <your Discord username>", NamedTextColor.YELLOW));
+        prompts.put(player.getUniqueId(),
+                statusLine("Step 2 of 2: type /verify <your Discord username>"));
+        player.sendActionBar(step);
+        showCenterTitle(player, centerTitles.get(player.getUniqueId()));
+    }
+
+    /** What {@code /verify} says before the gate is answered. */
+    private void refuseUntilJoined(Player player) {
+        player.playSound(player, org.bukkit.Sound.ENTITY_VILLAGER_NO, 0.9f, 1.0f);
+        Component rule = Component.text("━".repeat(46), NamedTextColor.DARK_RED);
+        player.sendMessage(Component.empty());
+        player.sendMessage(rule);
+        player.sendMessage(Component.text("  JOIN THE DISCORD FIRST", NamedTextColor.RED,
+                TextDecoration.BOLD));
+        player.sendMessage(Component.text("  The server moved. Verifying cannot work until you",
+                        NamedTextColor.WHITE)
+                .append(Component.newline())
+                .append(Component.text("  are in the new one — the bot cannot message somebody",
+                        NamedTextColor.WHITE))
+                .append(Component.newline())
+                .append(Component.text("  it shares no server with.", NamedTextColor.WHITE)));
+        player.sendMessage(Component.empty());
+        player.sendMessage(Component.text("  1. ", NamedTextColor.YELLOW, TextDecoration.BOLD)
+                .append(Component.text("Join ", NamedTextColor.WHITE))
+                .append(Component.text(GuideService.inviteDisplay(), NamedTextColor.AQUA,
+                                TextDecoration.BOLD)
+                        .clickEvent(ClickEvent.openUrl(GuideService.inviteUrl()))
+                        .hoverEvent(HoverEvent.showText(Component.text("Click to open the Discord")))));
+        player.sendMessage(Component.text("  2. ", NamedTextColor.YELLOW, TextDecoration.BOLD)
+                .append(Component.text("Come back and type ", NamedTextColor.WHITE))
+                .append(Component.text("/joined", NamedTextColor.GREEN, TextDecoration.BOLD)
+                        .clickEvent(ClickEvent.runCommand("/joined"))
+                        .hoverEvent(HoverEvent.showText(Component.text("Click once you are in the server")))));
+        player.sendMessage(Component.text("  3. ", NamedTextColor.YELLOW, TextDecoration.BOLD)
+                .append(Component.text("Then ", NamedTextColor.WHITE))
+                .append(Component.text("/verify <your Discord username>", NamedTextColor.GRAY)));
+        player.sendMessage(rule);
+    }
+
     private void clearPrompt(Player player) {
         UUID uuid = player.getUniqueId();
+        joinedDiscord.remove(uuid);
         clearLobbyBars(player);
         prompts.remove(uuid);
         actionBars.remove(uuid);
@@ -583,6 +689,14 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
             player.sendMessage(Component.text("Your Minecraft account is already verified.", NamedTextColor.GREEN));
             return true;
         }
+        if (command.getName().equalsIgnoreCase("joined")) {
+            confirmJoined(player);
+            return true;
+        }
+        if (!joinedDiscord.contains(player.getUniqueId())) {
+            refuseUntilJoined(player);
+            return true;
+        }
         if (args.length != 1) {
             showInstructions(player);
             return true;
@@ -631,16 +745,18 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
                     CONFIRM_TITLE
             );
         } else {
-            Component reconnecting = Component.text(
-                    "Request saved  •  Stay here while Discord reconnects automatically",
+            Component waiting = Component.text(
+                    "Request saved  •  Make sure you really have joined " + GuideService.inviteDisplay(),
                     NamedTextColor.YELLOW
             );
             updatePrompt(
                     player,
-                    statusLine("Discord is reconnecting; your request is safely saved"),
-                    reconnecting,
-                    lobbyTitle("DISCORD RECONNECTING", NamedTextColor.GOLD,
-                            "Stay here—no need to type it again", NamedTextColor.YELLOW)
+                    statusLine("Your request is saved and sends the moment Discord is back — and it"
+                            + " can only reach you if you have joined " + GuideService.inviteDisplay()),
+                    waiting,
+                    lobbyTitle("WAITING FOR DISCORD", NamedTextColor.GOLD,
+                            "Join " + GuideService.inviteDisplay() + " while you wait",
+                            NamedTextColor.YELLOW)
             );
         }
         return true;
@@ -677,10 +793,9 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
                     .append(Component.text("unless you are in the server with it.", NamedTextColor.YELLOW))
                     .append(Component.newline())
                     .append(Component.newline())
-                    .append(Component.text("Then type", NamedTextColor.GRAY))
+                    .append(Component.text("Once you are in, type", NamedTextColor.GRAY))
                     .append(Component.newline())
-                    .append(Component.text("/verify <your Discord username>", NamedTextColor.GREEN,
-                            TextDecoration.BOLD)));
+                    .append(Component.text("/joined", NamedTextColor.GREEN, TextDecoration.BOLD)));
             text.setBillboard(org.bukkit.entity.Display.Billboard.CENTER);
             text.setAlignment(org.bukkit.entity.TextDisplay.TextAlignment.CENTER);
             text.setBackgroundColor(org.bukkit.Color.fromARGB(170, 20, 0, 0));
@@ -794,7 +909,7 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
             return;
         }
         String label = event.getMessage().substring(1).split(" ", 2)[0].toLowerCase(Locale.ROOT);
-        if (!label.equals("verify") && !label.equals("discord")) {
+        if (!label.equals("verify") && !label.equals("discord") && !JOINED_LABELS.contains(label)) {
             event.setCancelled(true);
             event.getPlayer().sendMessage(Component.text(
                     "Only /verify and /discord work in this lobby. Link Discord first to enter.",

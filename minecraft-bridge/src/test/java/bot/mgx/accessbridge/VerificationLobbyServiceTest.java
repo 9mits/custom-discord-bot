@@ -16,16 +16,21 @@ class VerificationLobbyServiceTest {
     }
 
     @Test
-    void initialPromptMakesTheFirstActionUnmissable() {
+    void theFirstThingAskedForIsJoiningTheDiscord() {
         PlainTextComponentSerializer serializer = PlainTextComponentSerializer.plainText();
         // Rendered on demand now rather than held as constants, so that an owner can
         // reword them; with no message store wired the built-in text is what comes back.
         String prompt = serializer.serialize(VerificationLobbyService.verifyPrompt());
         String action = serializer.serialize(VerificationLobbyService.verifyAction());
 
-        assertTrue(prompt.contains("Step 1 of 2"));
-        assertTrue(prompt.contains("/verify <your Discord username>"));
-        assertTrue(action.contains("STEP 1 OF 2"));
-        assertTrue(action.contains("/verify <Discord username>"));
+        // A bot cannot DM somebody it shares no server with, so /verify is not the first
+        // step and must not be presented as one: joining is, and /joined is the gate.
+        String invite = GuideService.inviteDisplay();
+        assertTrue(prompt.contains(invite), prompt);
+        assertTrue(prompt.contains("/joined"), prompt);
+        assertTrue(action.contains("JOIN"), action);
+        assertTrue(action.contains(invite), action);
+        assertTrue(action.contains("/joined"), action);
+        assertFalse(action.contains("/verify"), "the action bar must not jump to step two");
     }
 }

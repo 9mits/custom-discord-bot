@@ -544,6 +544,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 || getCommand("afk") == null
                 || getCommand("pvp") == null
                 || getCommand("verify") == null
+                || getCommand("joined") == null
                 || getCommand("referredby") == null
                 || getCommand("streak") == null
                 || getCommand("pass") == null
@@ -567,6 +568,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getCommand("perks").setExecutor(guideService);
         getCommand("discord").setExecutor(guideService);
         getCommand("verify").setExecutor(verificationLobby);
+        getCommand("joined").setExecutor(verificationLobby);
         getCommand("discordnames").setExecutor(identityService);
         PlayerSettingsService settingsService = new PlayerSettingsService(this, playerSettings, playerMenuService);
         getCommand("settings").setExecutor(settingsService);
