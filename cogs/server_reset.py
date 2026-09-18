@@ -1,4 +1,4 @@
-"""Owner-only workflow for returning a Discord guild to an empty shell."""
+"""Administrator-only workflow for returning a Discord guild to an empty shell."""
 
 from __future__ import annotations
 
@@ -18,6 +18,13 @@ ACTIVE_SERVER_RESETS: set[int] = set()
 
 def server_reset_confirmation_phrase(guild_id: int) -> str:
     return f"DELETE EVERYTHING {guild_id}"
+
+
+def can_reset_server(interaction: discord.Interaction) -> bool:
+    permissions = getattr(interaction.user, "guild_permissions", None)
+    return interaction.guild is not None and bool(
+        permissions and permissions.administrator
+    )
 
 
 @dataclass
@@ -238,11 +245,11 @@ def build_reset_summary(guild_name: str, result: ServerResetResult) -> discord.E
 
 
 class ServerResetModal(discord.ui.Modal):
-    def __init__(self, *, guild_id: int, guild_name: str, owner_id: int) -> None:
+    def __init__(self, *, guild_id: int, guild_name: str, requester_id: int) -> None:
         super().__init__(title="Confirm Complete Server Reset", timeout=180)
         self.guild_id = guild_id
         self.guild_name = guild_name
-        self.owner_id = owner_id
+        self.requester_id = requester_id
         phrase = server_reset_confirmation_phrase(guild_id)
         self.confirmation = discord.ui.TextInput(
             label="Type the exact confirmation phrase",
@@ -254,11 +261,16 @@ class ServerResetModal(discord.ui.Modal):
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         guild = interaction.guild
-        if guild is None or guild.id != self.guild_id or interaction.user.id != self.owner_id:
+        if (
+            guild is None
+            or guild.id != self.guild_id
+            or interaction.user.id != self.requester_id
+            or not can_reset_server(interaction)
+        ):
             await interaction.response.send_message(
                 embed=make_embed(
                     "Access Denied",
-                    "> Only the current Discord server owner can confirm this reset.",
+                    "> Only a current Discord administrator can confirm this reset.",
                     kind="danger",
                     scope=SCOPE_SYSTEM,
                     guild=guild,
@@ -319,7 +331,7 @@ class ServerResetModal(discord.ui.Modal):
             except discord.HTTPException:
                 pass
 
-            reason = f"Full server reset requested by guild owner {interaction.user} ({interaction.user.id})"
+            reason = f"Full server reset requested by administrator {interaction.user} ({interaction.user.id})"
             current_channel = interaction.channel
             final_channel_ids = {
                 int(channel_id)
@@ -338,7 +350,7 @@ class ServerResetModal(discord.ui.Modal):
             try:
                 await interaction.user.send(embed=summary)
             except discord.HTTPException:
-                logger.warning("Could not DM the server-reset summary to owner %s", interaction.user.id)
+                logger.warning("Could not DM the server-reset summary to administrator %s", interaction.user.id)
             try:
                 await interaction.edit_original_response(embed=summary)
             except discord.HTTPException:
@@ -361,24 +373,24 @@ class ServerResetModal(discord.ui.Modal):
 
 
 class ServerResetConfirmView(discord.ui.View):
-    def __init__(self, *, guild_id: int, guild_name: str, owner_id: int) -> None:
+    def __init__(self, *, guild_id: int, guild_name: str, requester_id: int) -> None:
         super().__init__(timeout=120)
         self.guild_id = guild_id
         self.guild_name = guild_name
-        self.owner_id = owner_id
+        self.requester_id = requester_id
 
     @discord.ui.button(label="Continue to Typed Confirmation", style=discord.ButtonStyle.danger)
     async def continue_reset(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if (
             interaction.guild is None
             or interaction.guild.id != self.guild_id
-            or interaction.user.id != self.owner_id
-            or interaction.user.id != interaction.guild.owner_id
+            or interaction.user.id != self.requester_id
+            or not can_reset_server(interaction)
         ):
             await interaction.response.send_message(
                 embed=make_embed(
                     "Access Denied",
-                    "> Only the current Discord server owner can use this control.",
+                    "> Only a current Discord administrator can use this control.",
                     kind="danger",
                     scope=SCOPE_SYSTEM,
                     guild=interaction.guild,
@@ -390,7 +402,7 @@ class ServerResetConfirmView(discord.ui.View):
             ServerResetModal(
                 guild_id=self.guild_id,
                 guild_name=self.guild_name,
-                owner_id=self.owner_id,
+                requester_id=self.requester_id,
             )
         )
 
@@ -415,11 +427,11 @@ class ServerResetConfirmView(discord.ui.View):
 )
 async def reset_server(interaction: discord.Interaction) -> None:
     guild = interaction.guild
-    if guild is None or interaction.user.id != guild.owner_id:
+    if guild is None or not can_reset_server(interaction):
         await interaction.response.send_message(
             embed=make_embed(
                 "Access Denied",
-                "> Only the current Discord server owner can run this command.",
+                "> Only a Discord administrator can run this command.",
                 kind="danger",
                 scope=SCOPE_SYSTEM,
                 guild=guild,
@@ -472,7 +484,7 @@ async def reset_server(interaction: discord.Interaction) -> None:
         view=ServerResetConfirmView(
             guild_id=guild.id,
             guild_name=guild.name,
-            owner_id=guild.owner_id,
+            requester_id=interaction.user.id,
         ),
         ephemeral=True,
     )

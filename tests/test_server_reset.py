@@ -6,7 +6,11 @@ import discord
 
 from core.actions import RiskLevel, get_action_spec
 from core.services import has_capability
-from cogs.server_reset import perform_server_reset, server_reset_confirmation_phrase
+from cogs.server_reset import (
+    can_reset_server,
+    perform_server_reset,
+    server_reset_confirmation_phrase,
+)
 
 
 class FakeItem:
@@ -97,19 +101,19 @@ class ServerResetPolicyTests(unittest.TestCase):
     def test_confirmation_phrase_is_bound_to_the_guild(self):
         self.assertEqual(server_reset_confirmation_phrase(42), "DELETE EVERYTHING 42")
 
-    def test_action_is_owner_only_destructive_and_requires_administrator(self):
+    def test_action_is_admin_only_destructive_and_requires_bot_administrator(self):
         spec = get_action_spec("reset-server")
         self.assertIsNotNone(spec)
         self.assertEqual(spec.capability, "server.reset")
         self.assertEqual(spec.bot_permissions, ("administrator",))
         self.assertIs(spec.risk_level, RiskLevel.DESTRUCTIVE)
 
-    def test_administrator_is_not_enough_to_run_owner_reset(self):
+    def test_administrator_can_run_reset_but_ordinary_member_cannot(self):
         self.assertFalse(has_capability(
             [],
             "server.reset",
             {},
-            administrator=True,
+            administrator=False,
             user_id=10,
             guild_owner_id=99,
         ))
@@ -117,10 +121,19 @@ class ServerResetPolicyTests(unittest.TestCase):
             [],
             "server.reset",
             {},
-            administrator=False,
-            user_id=99,
+            administrator=True,
+            user_id=10,
             guild_owner_id=99,
         ))
+
+    def test_confirmation_rechecks_current_administrator_permission(self):
+        interaction = SimpleNamespace(
+            guild=SimpleNamespace(id=42),
+            user=SimpleNamespace(guild_permissions=SimpleNamespace(administrator=True)),
+        )
+        self.assertTrue(can_reset_server(interaction))
+        interaction.user.guild_permissions.administrator = False
+        self.assertFalse(can_reset_server(interaction))
 
 
 class ServerResetExecutionTests(unittest.IsolatedAsyncioTestCase):

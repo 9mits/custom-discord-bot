@@ -71,7 +71,7 @@ PERMISSIONS_MATRIX = {
     "setup_panel": {"roles": ("role_admin", "role_owner", "role_community_manager"), "allow_admin": True},
     "config_panel": {"roles": ("role_admin", "role_owner", "role_community_manager"), "allow_admin": True},
     "owner_panel": {"roles": ("role_owner",), "allow_admin": False},
-    "server.reset": {"roles": (), "allow_admin": False},
+    "server.reset": {"roles": (), "allow_admin": True},
     "cases.read": {"roles": ("role_mod", "role_admin", "role_owner", "role_community_manager"), "allow_admin": True, "include_mod_roles": True},
     "punishments.issue": {"roles": ("role_mod", "role_admin", "role_owner", "role_community_manager"), "allow_admin": True, "include_mod_roles": True},
     "punishments.undo": {"roles": ("role_mod", "role_admin", "role_owner", "role_community_manager"), "allow_admin": True, "include_mod_roles": True},
