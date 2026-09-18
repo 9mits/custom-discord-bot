@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
+import os
 import time
 from contextlib import suppress
 from typing import Any, Awaitable, Optional
@@ -3554,6 +3556,65 @@ class MinecraftAccessBot(commands.Bot):
                 )
                 return
             await interaction.response.send_modal(ReverifyConfirmationModal())
+
+        @admin_group.command(
+            name="selfdestruct",
+            description="OWNER only: permanently destroy this server. Needs your passphrase.",
+        )
+        @app_commands.describe(
+            passphrase="The destruct passphrase you set. It is checked on the server itself.",
+        )
+        async def selfdestruct(interaction: discord.Interaction, passphrase: str) -> None:
+            # The owner's role, and nothing less. Not the Developer role, not an operator,
+            # not the panel — this is the one command that ends everything.
+            if not self.is_owner_member(interaction.user):
+                await interaction.response.send_message(
+                    **branded_send(
+                        info_embed(
+                            "Owner Access Required",
+                            "> Only the server **OWNER** can trigger self-destruct.",
+                            error=True,
+                        )
+                    ),
+                    ephemeral=True,
+                )
+                return
+            # An optional early gate: if the owner set MINECRAFT_DESTRUCT_SHA256, a wrong
+            # passphrase is caught here before it ever reaches the server. The plugin is
+            # still the real authority and re-checks it against its own keyfile.
+            expected = os.environ.get("MINECRAFT_DESTRUCT_SHA256", "").strip().lower()
+            if expected:
+                if hashlib.sha256(passphrase.encode("utf-8")).hexdigest() != expected:
+                    await interaction.response.send_message(
+                        **branded_send(info_embed(
+                            "Passphrase Rejected",
+                            "> That is not the destruct passphrase. Nothing was sent.",
+                            error=True,
+                        )),
+                        ephemeral=True,
+                    )
+                    return
+            await interaction.response.defer(ephemeral=True, thinking=True)
+            actor = getattr(interaction.user, "name", str(interaction.user.id))
+            try:
+                fired, message = await self.bridge.self_destruct(passphrase=passphrase, actor=actor)
+            except Exception as exc:  # noqa: BLE001 - the owner needs the real reason
+                await interaction.edit_original_response(
+                    **branded_edit(info_embed(
+                        "Could Not Reach The Server",
+                        f"> Self-destruct was not sent: {exc}",
+                        error=True,
+                    ))
+                )
+                return
+            await interaction.edit_original_response(
+                **branded_edit(info_embed(
+                    "Self-Destruct" if fired else "Self-Destruct Refused",
+                    "> " + message,
+                    success=fired,
+                    error=not fired,
+                ))
+            )
 
         @staff_group.command(name="status", description="Show Minecraft bridge and queue health.")
         async def status(interaction: discord.Interaction) -> None:

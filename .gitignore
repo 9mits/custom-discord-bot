@@ -34,3 +34,9 @@ minecraft-bridge/run/
 # AI agent local overrides (personal, not shared)
 CLAUDE.local.md
 .claude/settings.local.json
+
+# Self-destruct: the owner-placed licence key and the termination marker never enter git.
+mgx-license.key
+mgx-terminated.flag
+**/mgx-license.key
+**/mgx-terminated.flag
