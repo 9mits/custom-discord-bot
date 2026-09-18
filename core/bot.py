@@ -527,6 +527,11 @@ class MGXBot(commands.Bot):
             self._commands_synced = True
             await self._auto_sync_commands()
 
+    async def on_guild_join(self, guild: discord.Guild) -> None:
+        """Register commands when a fresh single-guild instance is first invited."""
+        logger.info("Joined guild %s (id=%s); checking command sync targets", guild.name, guild.id)
+        await self._auto_sync_commands()
+
     @status_task.before_loop
     async def before_status_task(self) -> None:
         await self.wait_until_ready()

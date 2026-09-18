@@ -190,5 +190,15 @@ class ScopedSyncTargetsTests(unittest.IsolatedAsyncioTestCase):
         data_manager.set_config_values.assert_awaited_once()
 
 
+class GuildJoinSyncTests(unittest.IsolatedAsyncioTestCase):
+    async def test_join_rechecks_sync_targets_for_a_fresh_instance(self):
+        fake = SimpleNamespace(_auto_sync_commands=AsyncMock())
+        guild = SimpleNamespace(id=777, name="Fresh Server")
+
+        await MGXBot.on_guild_join(fake, guild)
+
+        fake._auto_sync_commands.assert_awaited_once_with()
+
+
 if __name__ == "__main__":
     unittest.main()
