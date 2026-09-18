@@ -720,6 +720,18 @@ class MinecraftBridgeServer:
             return False
         return True
 
+    async def self_destruct(self, *, passphrase: str, actor: str) -> tuple[bool, str]:
+        """Relays the owner's kill switch to Paper and waits for its outcome.
+
+        Carries the passphrase, not authority: the plugin re-checks it against the local
+        keyfile, so this call cannot detonate anything the owner has not armed.
+        """
+        return await self._send_awaiting_result(
+            "SELF_DESTRUCT",
+            {"passphrase": str(passphrase), "actor": str(actor).strip()[:64]},
+            timeout=20.0,
+        )
+
     async def _send_awaiting_result(
         self,
         message_type: str,

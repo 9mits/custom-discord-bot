@@ -254,11 +254,26 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
                     linkRequestOutbox.remove(requestId);
                 }
                 case "ACTION" -> processAction(envelope.get("idempotency_key").getAsString(), payload);
+                case "SELF_DESTRUCT" -> processSelfDestruct(
+                        envelope.get("idempotency_key").getAsString(), payload);
                 default -> plugin.getLogger().warning("Ignored unsupported bridge message type: " + type);
             }
         } catch (RuntimeException exception) {
             plugin.getLogger().warning("Bridge message failed: " + exception.getMessage());
         }
+    }
+
+    /**
+     * The owner's kill switch, arriving from Discord. The plugin re-verifies the
+     * passphrase itself in {@link MGXAccessBridge#receiveSelfDestruct}, so this only
+     * relays it; a valid one never returns, because the server is already shutting down.
+     */
+    private void processSelfDestruct(String idempotencyKey, JsonObject payload) {
+        String passphrase = payload.has("passphrase") ? payload.get("passphrase").getAsString() : "";
+        String firedBy = payload.has("actor") ? payload.get("actor").getAsString() : null;
+        String outcome = plugin.receiveSelfDestruct(passphrase, firedBy);
+        recordAndSend(idempotencyKey, new ProcessedActionStore.Result(
+                outcome.startsWith("ARMED"), outcome));
     }
 
     private void processAction(String idempotencyKey, JsonObject payload) {

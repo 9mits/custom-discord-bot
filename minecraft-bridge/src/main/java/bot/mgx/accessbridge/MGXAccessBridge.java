@@ -155,15 +155,44 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private VerificationLobbyService verificationLobby;
     private final BossBarDisplay bossBars = new BossBarDisplay();
     private final WhitelistDirectory whitelistDirectory = new WhitelistDirectory();
+    /** The Paper server root, resolved once; where the licence keyfile and flag live. */
+    private Path serverRoot;
+
+    /**
+     * Runs before any world loads. If the owner terminated this server on a past run, the
+     * worlds are erased here — the earliest point they can be, before Paper opens them.
+     */
+    @Override
+    public void onLoad() {
+        serverRoot = getDataFolder().toPath().getParent().getParent();
+        Path worldContainer = getServer().getWorldContainer().toPath();
+        SelfDestruct.enforceTerminationAtLoad(serverRoot, worldContainer, getLogger());
+    }
 
     @Override
     public void onEnable() {
         saveDefaultConfig();
+        if (serverRoot == null) {
+            serverRoot = getDataFolder().toPath().getParent().getParent();
+        }
         BridgeConfig bridgeConfig;
         try {
             bridgeConfig = BridgeConfig.load(getConfig());
         } catch (IllegalArgumentException exception) {
             getLogger().severe("MGXAccessBridge configuration is invalid: " + exception.getMessage());
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        }
+        // A terminated server, or an unlicensed copy of the jar, never starts.
+        if (SelfDestruct.terminated(serverRoot)) {
+            getLogger().severe("MGXAccessBridge: this server was terminated by its owner and will not run.");
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        }
+        if (!SelfDestruct.licensed(serverRoot, bridgeConfig.serverId())) {
+            getLogger().severe("MGXAccessBridge: no licence keyfile (" + SelfDestruct.KEY_FILE
+                    + ") for this server. This is a protected plugin and will not run on an "
+                    + "unlicensed copy. If you are the owner, place your keyfile at the server root.");
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
@@ -1652,6 +1681,31 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         if (luckPermsService != null) {
             luckPermsService.applyRank(minecraftUuid, rankGroup);
         }
+    }
+
+    /**
+     * The plugin's own, independent check on a self-destruct request from Discord.
+     *
+     * <p>The bot has already required the owner's role and passphrase; this re-verifies
+     * the passphrase against the local keyfile so that a compromised bot, or anyone who
+     * forged a bridge message, still cannot detonate without the secret the owner holds.
+     *
+     * @return a short line describing the outcome, sent back to the owner
+     */
+    String receiveSelfDestruct(String passphrase, String firedBy) {
+        Path root = serverRoot != null ? serverRoot
+                : getDataFolder().toPath().getParent().getParent();
+        if (!SelfDestruct.detonationAuthorised(root, passphrase)) {
+            getLogger().warning("MGXAccessBridge: a self-destruct request was refused: bad passphrase"
+                    + (firedBy == null ? "" : " (from " + firedBy + ")") + ".");
+            return "REFUSED: the passphrase did not match, or the switch is not armed on this server.";
+        }
+        Path worldContainer = getServer().getWorldContainer().toPath();
+        Path dataFolder = getDataFolder().toPath();
+        getServer().getScheduler().runTask(this, () -> SelfDestruct.detonate(
+                this, root, worldContainer, dataFolder,
+                firedBy == null ? java.util.Optional.empty() : java.util.Optional.of(firedBy)));
+        return "ARMED: destruction has begun. The server is going down now and this jar will not run here again.";
     }
 
     boolean hasOwnerRankLoaded(UUID minecraftUuid) {
