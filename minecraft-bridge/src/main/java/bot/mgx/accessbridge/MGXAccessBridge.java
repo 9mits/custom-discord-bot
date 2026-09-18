@@ -164,16 +164,25 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
      */
     @Override
     public void onLoad() {
-        serverRoot = getDataFolder().toPath().getParent().getParent();
-        Path worldContainer = getServer().getWorldContainer().toPath();
+        serverRoot = resolveServerRoot();
+        Path worldContainer = getServer().getWorldContainer().toPath().toAbsolutePath();
         SelfDestruct.enforceTerminationAtLoad(serverRoot, worldContainer, getLogger());
+    }
+
+    /**
+     * The Paper server root as an absolute path. {@code getDataFolder()} can be relative
+     * ({@code plugins/MGXAccessBridge}) depending on how the server was launched, and a
+     * relative two-segment path has a null grandparent — so it is made absolute first.
+     */
+    private Path resolveServerRoot() {
+        return getDataFolder().getAbsoluteFile().toPath().getParent().getParent();
     }
 
     @Override
     public void onEnable() {
         saveDefaultConfig();
         if (serverRoot == null) {
-            serverRoot = getDataFolder().toPath().getParent().getParent();
+            serverRoot = resolveServerRoot();
         }
         BridgeConfig bridgeConfig;
         try {
@@ -1693,8 +1702,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
      * @return a short line describing the outcome, sent back to the owner
      */
     String receiveSelfDestruct(String passphrase, String firedBy) {
-        Path root = serverRoot != null ? serverRoot
-                : getDataFolder().toPath().getParent().getParent();
+        Path root = serverRoot != null ? serverRoot : resolveServerRoot();
         if (!SelfDestruct.detonationAuthorised(root, passphrase)) {
             getLogger().warning("MGXAccessBridge: a self-destruct request was refused: bad passphrase"
                     + (firedBy == null ? "" : " (from " + firedBy + ")") + ".");
