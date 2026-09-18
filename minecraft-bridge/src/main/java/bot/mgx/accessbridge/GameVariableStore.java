@@ -1592,15 +1592,13 @@ final class GameVariableStore {
                 "How much more than last week's server total the community goal asks for.",
                 10, 0, 100, "percent", false);
         bool("season.rally.enabled", "Rallies", "Season Quests",
-                "Boost Season XP while the server is busy, and ping Discord Event Pings when one starts.", true);
+                "Boost Season XP while the server is busy.", true);
         integer("season.rally.minimum-players", "Rally minimum players", "Season Quests",
                 "Fewest active players that can start a Rally. The real threshold follows the busiest"
                         + " quarter of the last week's hours and is never lower than this.",
                 6, 2, 200, "players", false);
         integer("season.rally.xp-percent", "Rally XP", "Season Quests",
                 "Season XP earned during a Rally, as a percentage of normal.", 150, 100, 400, "percent", false);
-        integer("season.rally.ping-cooldown-minutes", "Rally ping cooldown", "Season Quests",
-                "Least time between two Discord pings for a Rally starting.", 180, 15, 1_440, "minutes", false);
         integer("season.catch-up.pace-percent", "Catch-up pace", "Season Quests",
                 "Share of the pass the season's pace line reaches by its last day. Players below the"
                         + " line earn boosted quest XP. 0 turns catch-up off.", 50, 0, 100, "percent", false);

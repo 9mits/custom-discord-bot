@@ -2370,14 +2370,6 @@ class MinecraftDataManager:
         )
         return [str(r[0]) for r in rows]
 
-    async def latest_online_count(self) -> int:
-        """The online count carried by the newest join or leave, for the live panel."""
-        rows = await self._connection().execute_fetchall(
-            "SELECT online_count FROM minecraft_player_activity "
-            "ORDER BY occurred_at DESC, id DESC LIMIT 1"
-        )
-        return int(rows[0]["online_count"]) if rows else 0
-
     async def player_activity_metrics(self, *, days: int = 30) -> dict[str, Any]:
         since = _now() - max(1, min(90, int(days))) * 86_400
         db = self._connection()

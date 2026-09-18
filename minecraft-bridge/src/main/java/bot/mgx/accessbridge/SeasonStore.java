@@ -94,7 +94,6 @@ final class SeasonStore {
         List<String> weekPlayers = new ArrayList<>();
         int lastWeekPlayers;
         Community community = new Community();
-        long lastRallyPingAt;
     }
 
     private final Path file;
@@ -240,14 +239,6 @@ final class SeasonStore {
 
     synchronized void community(Community community) {
         data.community = community;
-    }
-
-    synchronized long lastRallyPingAt() {
-        return data.lastRallyPingAt;
-    }
-
-    synchronized void lastRallyPingAt(long at) {
-        data.lastRallyPingAt = at;
     }
 
     synchronized Map<UUID, Row> rows() {
