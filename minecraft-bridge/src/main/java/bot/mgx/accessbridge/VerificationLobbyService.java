@@ -137,10 +137,12 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
     private static final Title.Times PERSISTENT_TITLE_TIMES = Title.Times.times(
             Duration.ZERO, Duration.ofSeconds(2), Duration.ZERO
     );
-    private static final LobbyTitle VERIFY_TITLE = lobbyTitle(
-            "JOIN THE NEW DISCORD", NamedTextColor.RED,
-            "Then type /joined to confirm", NamedTextColor.YELLOW
-    );
+    private static LobbyTitle verifyTitle() {
+        return lobbyTitle(
+                "JOIN  " + GuideService.inviteDisplay(), NamedTextColor.AQUA,
+                "The Discord moved — then type /joined", NamedTextColor.YELLOW
+        );
+    }
     private static final LobbyTitle CONFIRM_TITLE = lobbyTitle(
             "CHECK YOUR DISCORD DMS", NamedTextColor.GOLD,
             "Step 2: press Yes, This Is Me", NamedTextColor.YELLOW
@@ -396,7 +398,7 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
         }
         prompts.put(player.getUniqueId(), verifyPrompt());
         actionBars.put(player.getUniqueId(), verifyAction());
-        centerTitles.put(player.getUniqueId(), VERIFY_TITLE);
+        centerTitles.put(player.getUniqueId(), verifyTitle());
         showLobbyBars(player);
         // Essentials and other join listeners may speak later in the same event.
         // Limbo should begin as a clean black screen with one queue line, so draw it
@@ -428,22 +430,32 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
     }
 
     private void showInstructions(Player player) {
-        Component prompt = Component.text("Step 1 of 2: ", NamedTextColor.GOLD,
-                        TextDecoration.BOLD)
-                .append(Component.text("/verify <your Discord username>", NamedTextColor.YELLOW)
-                        .clickEvent(ClickEvent.suggestCommand("/verify "))
-                        .hoverEvent(HoverEvent.showText(Component.text(
-                                "Click to enter your Discord username"
-                        ))))
-                .append(Component.text("  •  ", NamedTextColor.DARK_GRAY))
-                .append(Component.text(GuideService.inviteDisplay(), NamedTextColor.AQUA)
+        Component prompt = Component.text("Step 1: JOIN ", NamedTextColor.GOLD, TextDecoration.BOLD)
+                .append(Component.text(GuideService.inviteDisplay(), NamedTextColor.AQUA,
+                                TextDecoration.BOLD)
                         .clickEvent(ClickEvent.openUrl(GuideService.inviteUrl()))
+                        .hoverEvent(HoverEvent.showText(Component.text("Click to open the Discord"))))
+                .append(Component.text("  •  then  ", NamedTextColor.DARK_GRAY))
+                .append(Component.text("/joined", NamedTextColor.GREEN, TextDecoration.BOLD)
+                        .clickEvent(ClickEvent.runCommand("/joined"))
                         .hoverEvent(HoverEvent.showText(Component.text(
-                                "Click to open the Discord"
+                                "Click once you are in the server"
                         ))));
-        showCenterTitle(player, VERIFY_TITLE);
-        player.sendMessage(Component.text("JOIN THE DISCORD TO PLAY", NamedTextColor.GOLD,
+        showCenterTitle(player, verifyTitle());
+        Component rule = Component.text("━".repeat(46), NamedTextColor.DARK_RED);
+        player.sendMessage(Component.empty());
+        player.sendMessage(rule);
+        player.sendMessage(Component.text("  THE DISCORD SERVER HAS MOVED", NamedTextColor.RED,
                 TextDecoration.BOLD));
+        player.sendMessage(Component.text("  ", NamedTextColor.WHITE)
+                .append(Component.text(GuideService.inviteDisplay(), NamedTextColor.AQUA,
+                                TextDecoration.BOLD)
+                        .clickEvent(ClickEvent.openUrl(GuideService.inviteUrl()))
+                        .hoverEvent(HoverEvent.showText(Component.text("Click to open the Discord")))));
+        player.sendMessage(Component.text("  The bot cannot message you until you are in it.",
+                NamedTextColor.WHITE));
+        player.sendMessage(rule);
+        player.sendMessage(Component.empty());
         // The link is printed, not hidden behind a click: Geyser never delivers a click
         // event, so a Bedrock player has to be able to read and type it.
         player.sendMessage(Component.text("1. ", NamedTextColor.YELLOW, TextDecoration.BOLD)
@@ -478,7 +490,7 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
         UUID uuid = player.getUniqueId();
         prompts.put(uuid, prompt);
         actionBars.put(uuid, verifyAction());
-        centerTitles.put(uuid, VERIFY_TITLE);
+        centerTitles.put(uuid, verifyTitle());
         lastPromptMessages.put(uuid, System.currentTimeMillis());
         player.sendActionBar(verifyAction());
     }
@@ -596,6 +608,10 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
         player.sendMessage(rule);
         player.sendMessage(Component.text("  JOIN THE DISCORD FIRST", NamedTextColor.RED,
                 TextDecoration.BOLD));
+        player.sendMessage(Component.text("  " + GuideService.inviteDisplay(), NamedTextColor.AQUA,
+                        TextDecoration.BOLD)
+                .clickEvent(ClickEvent.openUrl(GuideService.inviteUrl()))
+                .hoverEvent(HoverEvent.showText(Component.text("Click to open the Discord"))));
         player.sendMessage(Component.text("  The server moved. Verifying cannot work until you",
                         NamedTextColor.WHITE)
                 .append(Component.newline())
