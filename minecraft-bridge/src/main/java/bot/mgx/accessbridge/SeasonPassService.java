@@ -638,7 +638,7 @@ final class SeasonPassService implements Listener, CommandExecutor {
     /**
      * Starts or ends a Rally from how many people are actually playing. The threshold is
      * the busiest quarter of the last week's hours, so it always asks for a busier server
-     * than usual, and the start pings Discord's Event Pings role to fill it further.
+     * than usual.
      */
     private void updateRally(int active) {
         activeCount = active;
@@ -659,13 +659,6 @@ final class SeasonPassService implements Listener, CommandExecutor {
                         .append(Component.text("The Rally has ended. It starts again at " + rallyThreshold
                                 + " active players.", NamedTextColor.WHITE));
         plugin.getServer().getOnlinePlayers().forEach(player -> player.sendMessage(line));
-        long now = System.currentTimeMillis();
-        long cooldown = variables.integer("season.rally.ping-cooldown-minutes") * 60_000L;
-        if (live && now - store.lastRallyPingAt() >= cooldown) {
-            store.lastRallyPingAt(now);
-            plugin.pingDiscord("ping_event_live", "A Season XP Rally started with " + active + " players online",
-                    Map.of("event", boost + " Season XP Rally"));
-        }
     }
 
     // ------------------------------------------------------------------ rewards
@@ -853,8 +846,6 @@ final class SeasonPassService implements Listener, CommandExecutor {
         Component line = Component.text("SEASON " + store.season() + " HAS STARTED", ORANGE, TextDecoration.BOLD)
                 .append(Component.text("  •  Every tier is back on the table. /pass", NamedTextColor.WHITE));
         plugin.getServer().getOnlinePlayers().forEach(player -> player.sendMessage(line));
-        plugin.pingDiscord("ping_event_live", "Season " + store.season() + " has started",
-                Map.of("event", "Season " + store.season() + " Pass"));
         return true;
     }
 

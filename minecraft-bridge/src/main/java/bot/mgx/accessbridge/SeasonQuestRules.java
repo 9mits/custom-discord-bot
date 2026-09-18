@@ -22,7 +22,7 @@ import java.util.UUID;
  *       hours ground.</li>
  *   <li><b>Players play alone.</b> Every board carries a Together quest that only
  *       progresses with other people nearby or a clanmate online, and a Rally raises
- *       Season XP while the server is busy, with a Discord ping that brings more in.</li>
+ *       Season XP while the server is busy.</li>
  *   <li><b>Multiplayer features sit unused.</b> Ranked PvP, server events and the auction
  *       house get a fraction of the traffic of /shop. The Try Something slot deals the one
  *       a player has used least.</li>

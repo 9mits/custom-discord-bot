@@ -107,11 +107,6 @@ final class ServerEventService implements Listener {
             visible.remove(type);
         }
         announce(type, enabled, seconds);
-        if (enabled) {
-            plugin.pingDiscord("ping_event_live", type.motdLabel(store.factor(type)),
-                    java.util.Map.of("event", type.displayName(store.factor(type)),
-                            "duration", seconds > 0 ? humanDuration(seconds * 1_000L) : ""));
-        }
         refresh();
         return true;
     }

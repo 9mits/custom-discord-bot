@@ -156,8 +156,6 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
     private Instant scheduledAt;
     /** Factor used to calculate scheduledAt, so live starts, stops and expiry reschedule it. */
     private int scheduledFrequencyFactor = 1;
-    /** The run the Discord ten-minute heads-up was already sent for. */
-    private Instant pingedFor;
     private long phaseEndsAt;
     private World arena;
     private EnderDragon dragon;
@@ -238,7 +236,6 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                 if (phase == Phase.WAITING && (key.equals("dragon-event.schedule-utc")
                         || key.equals("dragon-event.enabled") || frequencyFactor)) {
                     scheduledAt = nextEvent(Instant.now());
-                    pingedFor = null;
                 }
                 if (arena != null && key.equals("dragon-event.border-size")) {
                     arena.getWorldBorder().setSize(variables.integer("dragon-event.border-size"));
@@ -389,14 +386,6 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
                 }
                 long openAt = scheduledAt.toEpochMilli()
                         - variables.integer("dragon-event.portal-open-minutes") * 60_000L;
-                if (now >= openAt - 600_000L && now < openAt && !scheduledAt.equals(pingedFor)) {
-                    pingedFor = scheduledAt;
-                    long minutes = Math.max(1L, (openAt - now + 59_999L) / 60_000L);
-                    plugin.pingDiscord("ping_event_soon",
-                            "The Amethyst Dragon portal opens in " + minutes + " minutes",
-                            java.util.Map.of("event", "Amethyst Dragon",
-                                    "minutes", String.valueOf(minutes)));
-                }
                 if (now >= openAt && now < scheduledAt.toEpochMilli()) {
                     openPortal();
                 }
@@ -467,7 +456,6 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         if (factor == scheduledFrequencyFactor) return;
         if (phase == Phase.PORTAL_OPEN || phase == Phase.SUMMONING) return;
         scheduledAt = nextEvent(Instant.now());
-        pingedFor = null;
     }
 
     private List<LocalTime> schedule() {
@@ -502,8 +490,6 @@ final class AmethystDragonService implements Listener, CommandExecutor, TabCompl
         lastPortalReminderSecond = -1L;
         openPortalBar();
         announcePortalOpen();
-        plugin.pingDiscord("ping_event_live", "The Amethyst Dragon portal is open",
-                java.util.Map.of("event", "Amethyst Dragon"));
         portalTransition(true);
     }
 
