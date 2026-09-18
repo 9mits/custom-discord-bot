@@ -57,7 +57,7 @@ blog-poll-minutes: 5
 # The sidebar refreshes live player, level, heart, clan, combat, and server data.
 # 100 ticks (5s) keeps ping/TPS current without rebuilding every scoreboard each second.
 scoreboard:
-  footer: "discord.gg/twkrj8Ys5N"
+  footer: "discord.gg/sa3VdWrFAe"
   update-ticks: 100
 
 # Rebuild standings every five minutes. Statistics are read asynchronously and unchanged

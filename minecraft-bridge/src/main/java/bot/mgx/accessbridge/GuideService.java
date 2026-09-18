@@ -24,7 +24,7 @@ final class GuideService implements CommandExecutor, TabCompleter {
      * link in the game pointed at a dead invite until the plugin was rebuilt, which is not
      * a thing that should need a deploy.
      */
-    static final String DEFAULT_INVITE_URL = "https://discord.gg/twkrj8Ys5N";
+    static final String DEFAULT_INVITE_URL = "https://discord.gg/sa3VdWrFAe";
     private static volatile String inviteUrl = DEFAULT_INVITE_URL;
 
     static void inviteSource(java.util.function.Supplier<String> setting) {
