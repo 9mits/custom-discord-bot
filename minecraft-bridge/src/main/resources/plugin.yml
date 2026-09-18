@@ -26,6 +26,10 @@ commands:
   discord:
     description: Open the Mysterious SMP X Discord invite.
     usage: /discord
+  joined:
+    description: Confirm you have joined the Discord server, which /verify requires first.
+    usage: /joined
+    aliases: [ijoined, joineddiscord, joinedserver]
   verify:
     description: Link the Minecraft account currently in the verification lobby to Discord.
     usage: /verify <discord_username>
