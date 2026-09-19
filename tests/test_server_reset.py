@@ -255,6 +255,27 @@ class ServerResetExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result.requester_kicked)
         self.assertEqual(result.failure_count, 0)
 
+    async def test_kick_command_preserves_requester(self):
+        guild = FakeGuild()
+        owner = FakeMember(10, "owner", top_position=100)
+        bot_member = FakeMember(999, "cleanup-bot", top_position=10)
+        ordinary = FakeMember(20, "ordinary")
+        requester = FakeMember(30, "requester", top_position=5)
+
+        result = await perform_kick_all_members(
+            guild,
+            [owner, bot_member, requester, ordinary],
+            requester_id=requester.id,
+            reason="test kick command",
+            keep_requester=True,
+        )
+
+        self.assertEqual(guild.kick_log, [ordinary.id])
+        self.assertEqual(result.kicked, 1)
+        self.assertEqual(result.attempted, 1)
+        self.assertFalse(result.requester_kicked)
+        self.assertEqual(result.failure_count, 0)
+
     async def test_kick_failure_preserves_requester_for_recovery(self):
         guild = FakeGuild()
         ordinary = FakeMember(20, "ordinary")
