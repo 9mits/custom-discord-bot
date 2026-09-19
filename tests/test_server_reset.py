@@ -8,6 +8,7 @@ from cogs.server_reset import (
     MemberRemovalResult,
     ServerResetResult,
     _delete_other_integrations,
+    _execute_server_destruction,
     _member_hierarchy_blockers,
     _role_hierarchy_blockers,
     build_destroy_summary,
@@ -69,9 +70,10 @@ class FakeMember:
 
 
 class FakeIntegration(FakeItem):
-    def __init__(self, item_id, name, deletion_log, *, application_id):
+    def __init__(self, item_id, name, deletion_log, *, application_id, integration_type="discord"):
         super().__init__(item_id, name, deletion_log)
         self.application = SimpleNamespace(id=application_id)
+        self.type = integration_type
 
 
 class FakeGuild:
@@ -359,11 +361,18 @@ class ServerResetExecutionTests(unittest.IsolatedAsyncioTestCase):
             ["equal", "high"],
         )
 
-    async def test_destroy_removes_other_integrations_but_keeps_cleanup_bot(self):
+    async def test_destroy_leaves_bot_integrations_for_member_kicks_and_removes_external_ones(self):
         guild = FakeGuild()
         cleanup = FakeIntegration(501, "cleanup", guild.deletion_log, application_id=999)
-        other = FakeIntegration(502, "other", guild.deletion_log, application_id=123)
-        guild.resources["integrations"] = [cleanup, other]
+        other_bot = FakeIntegration(502, "other-bot", guild.deletion_log, application_id=123)
+        external = FakeIntegration(
+            503,
+            "external",
+            guild.deletion_log,
+            application_id=456,
+            integration_type="twitch",
+        )
+        guild.resources["integrations"] = [cleanup, other_bot, external]
         result = ServerResetResult()
 
         await _delete_other_integrations(
@@ -376,7 +385,8 @@ class ServerResetExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.failure_count, 0)
         self.assertEqual(result.sections["Integrations"].deleted, 1)
         self.assertNotIn(cleanup.id, guild.deletion_log)
-        self.assertIn(other.id, guild.deletion_log)
+        self.assertNotIn(other_bot.id, guild.deletion_log)
+        self.assertIn(external.id, guild.deletion_log)
 
     async def test_destroy_summary_reports_intentional_permission_limits(self):
         reset_result = ServerResetResult(hierarchy_blocked_roles=["higher-role (4)"])
@@ -396,6 +406,58 @@ class ServerResetExecutionTests(unittest.IsolatedAsyncioTestCase):
             [field.name for field in embed.fields if "Permission Limits" in field.name],
             ["Roles Left By Permission Limits", "Members Left By Permission Limits"],
         )
+
+    async def test_destroy_continues_to_member_kicks_after_content_failure(self):
+        guild = SimpleNamespace(
+            id=42,
+            name="Reset Me",
+            me=SimpleNamespace(id=999),
+        )
+        requester = FakeMember(30, "requester")
+        requester.send = AsyncMock()
+        interaction = SimpleNamespace(
+            guild=guild,
+            user=requester,
+            channel=SimpleNamespace(id=101, parent_id=None),
+            edit_original_response=AsyncMock(),
+        )
+        reset_result = ServerResetResult()
+        reset_result.section("Channels").failures.append("one channel failed")
+        kick_result = MemberRemovalResult(kicked=1, attempted=1)
+
+        with (
+            patch(
+                "cogs.server_reset.make_embed",
+                side_effect=lambda title, description, **kwargs: discord.Embed(
+                    title=title,
+                    description=description,
+                ),
+            ),
+            patch(
+                "cogs.server_reset.perform_server_reset",
+                new=AsyncMock(return_value=reset_result),
+            ),
+            patch("cogs.server_reset._scrub_guild_identity", new=AsyncMock()),
+            patch("cogs.server_reset._delete_other_integrations", new=AsyncMock()),
+            patch(
+                "cogs.server_reset._fetch_all_members",
+                new=AsyncMock(return_value=[requester]),
+            ),
+            patch(
+                "cogs.server_reset.perform_kick_all_members",
+                new=AsyncMock(return_value=kick_result),
+            ) as kick_members,
+            patch(
+                "cogs.server_reset.build_destroy_summary",
+                return_value=discord.Embed(title="summary"),
+            ),
+            patch("cogs.server_reset._send_dm", new=AsyncMock()),
+            patch("cogs.server_reset._create_recovery_access", new=AsyncMock()),
+        ):
+            await _execute_server_destruction(interaction, guild_name="Reset Me")
+
+        kick_members.assert_awaited_once()
+        self.assertTrue(kick_members.await_args.kwargs["keep_requester"])
 
 
 if __name__ == "__main__":
