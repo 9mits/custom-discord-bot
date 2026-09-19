@@ -1,14 +1,16 @@
 import unittest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import discord
 
 from cogs.server_reset import (
+    MemberRemovalResult,
     ServerResetResult,
     _delete_other_integrations,
     _member_hierarchy_blockers,
     _role_hierarchy_blockers,
+    build_destroy_summary,
     can_reset_server,
     destroy_server_confirmation_phrase,
     kick_all_confirmation_phrase,
@@ -214,6 +216,7 @@ class ServerResetExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("@everyone (1)", result.protected_roles)
         self.assertIn("managed (3)", result.protected_roles)
         self.assertIn("above bot (4)", result.protected_roles)
+        self.assertEqual(result.hierarchy_blocked_roles, ["above bot (4)"])
         self.assertLess(guild.deletion_log.index(103), guild.deletion_log.index(101))
         self.assertEqual(guild.deletion_log[-1], 101)
         self.assertEqual(len(guild.edits), 5)
@@ -293,6 +296,43 @@ class ServerResetExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.failure_count, 1)
         self.assertFalse(result.requester_kicked)
 
+    async def test_partial_destruction_skips_known_hierarchy_blockers(self):
+        guild = FakeGuild()
+        blocked = FakeMember(20, "blocked", top_position=11)
+        ordinary = FakeMember(21, "ordinary")
+        requester = FakeMember(30, "requester", top_position=5)
+
+        result = await perform_kick_all_members(
+            guild,
+            [blocked, ordinary, requester],
+            requester_id=requester.id,
+            reason="test partial destruction",
+            skip_member_ids={blocked.id},
+        )
+
+        self.assertEqual(guild.kick_log, [ordinary.id, requester.id])
+        self.assertEqual(result.skipped, ["blocked (20)"])
+        self.assertEqual(result.failure_count, 0)
+        self.assertTrue(result.requester_kicked)
+
+    async def test_partial_destruction_can_skip_blocked_requester(self):
+        guild = FakeGuild()
+        ordinary = FakeMember(21, "ordinary")
+        requester = FakeMember(30, "requester", top_position=11)
+
+        result = await perform_kick_all_members(
+            guild,
+            [ordinary, requester],
+            requester_id=requester.id,
+            reason="test partial destruction",
+            skip_member_ids={requester.id},
+        )
+
+        self.assertEqual(guild.kick_log, [ordinary.id])
+        self.assertEqual(result.skipped, ["requester (30)"])
+        self.assertEqual(result.failure_count, 0)
+        self.assertFalse(result.requester_kicked)
+
     async def test_hierarchy_preflight_finds_only_real_blockers(self):
         guild = FakeGuild()
         equal_role = FakeRole(6, "equal", guild.deletion_log, position=10)
@@ -337,6 +377,25 @@ class ServerResetExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.sections["Integrations"].deleted, 1)
         self.assertNotIn(cleanup.id, guild.deletion_log)
         self.assertIn(other.id, guild.deletion_log)
+
+    async def test_destroy_summary_reports_intentional_permission_limits(self):
+        reset_result = ServerResetResult(hierarchy_blocked_roles=["higher-role (4)"])
+        member_result = MemberRemovalResult(skipped=["higher-member (20)"])
+
+        with patch(
+            "cogs.server_reset.make_embed",
+            side_effect=lambda title, description, **kwargs: discord.Embed(
+                title=title,
+                description=description,
+            ),
+        ):
+            embed = build_destroy_summary("Reset Me", reset_result, member_result)
+
+        self.assertEqual(embed.title, "Server Destruction Finished With Permission Limits")
+        self.assertEqual(
+            [field.name for field in embed.fields if "Permission Limits" in field.name],
+            ["Roles Left By Permission Limits", "Members Left By Permission Limits"],
+        )
 
 
 if __name__ == "__main__":
