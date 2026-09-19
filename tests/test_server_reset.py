@@ -1,5 +1,6 @@
 import unittest
 from contextlib import ExitStack
+from importlib import import_module
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -9,7 +10,6 @@ from cogs.server_reset import (
     MemberRemovalResult,
     ServerResetResult,
     _delete_other_integrations,
-    _execute_server_destruction,
     _member_hierarchy_blockers,
     _role_hierarchy_blockers,
     build_destroy_summary,
@@ -426,15 +426,22 @@ class ServerResetExecutionTests(unittest.IsolatedAsyncioTestCase):
         reset_result = ServerResetResult()
         reset_result.section("Channels").failures.append("one channel failed")
         kick_result = MemberRemovalResult(kicked=1, attempted=1)
+        # Loading and closing a bot unloads every extension, which drops
+        # cogs.server_reset out of sys.modules. Patch by target string and the
+        # re-import hands back a second module object whose mocks this module's
+        # already-imported function never sees, so patch the object being called.
+        module = import_module("cogs.server_reset")
 
         with ExitStack() as stack:
             def stub(name, **kwargs):
-                return stack.enter_context(patch(f"cogs.server_reset.{name}", **kwargs))
+                return stack.enter_context(patch.object(module, name, **kwargs))
 
-            # make_embed reads the live theme colour off the bot runtime, which no
-            # unit test starts.
-            stack.enter_context(
-                patch("cogs.shared.get_theme_color", return_value=discord.Color.red())
+            stub(
+                "make_embed",
+                side_effect=lambda title, description, **kwargs: discord.Embed(
+                    title=title,
+                    description=description,
+                ),
             )
             server_reset = stub("perform_server_reset", new=AsyncMock(return_value=reset_result))
             stub("_scrub_guild_identity", new=AsyncMock())
@@ -446,7 +453,7 @@ class ServerResetExecutionTests(unittest.IsolatedAsyncioTestCase):
             stub("_send_dm", new=AsyncMock())
             recovery = stub("_create_recovery_access", new=AsyncMock())
 
-            await _execute_server_destruction(interaction, guild_name="Reset Me")
+            await module._execute_server_destruction(interaction, guild_name="Reset Me")
 
         server_reset.assert_awaited_once()
         kick_members.assert_awaited_once()
