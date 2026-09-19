@@ -1,4 +1,5 @@
 import unittest
+from contextlib import ExitStack
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -411,6 +412,7 @@ class ServerResetExecutionTests(unittest.IsolatedAsyncioTestCase):
         guild = SimpleNamespace(
             id=42,
             name="Reset Me",
+            icon=None,
             me=SimpleNamespace(id=999),
         )
         requester = FakeMember(30, "requester")
@@ -425,39 +427,31 @@ class ServerResetExecutionTests(unittest.IsolatedAsyncioTestCase):
         reset_result.section("Channels").failures.append("one channel failed")
         kick_result = MemberRemovalResult(kicked=1, attempted=1)
 
-        with (
-            patch(
-                "cogs.server_reset.make_embed",
-                side_effect=lambda title, description, **kwargs: discord.Embed(
-                    title=title,
-                    description=description,
-                ),
-            ),
-            patch(
-                "cogs.server_reset.perform_server_reset",
-                new=AsyncMock(return_value=reset_result),
-            ),
-            patch("cogs.server_reset._scrub_guild_identity", new=AsyncMock()),
-            patch("cogs.server_reset._delete_other_integrations", new=AsyncMock()),
-            patch(
-                "cogs.server_reset._fetch_all_members",
-                new=AsyncMock(return_value=[requester]),
-            ),
-            patch(
-                "cogs.server_reset.perform_kick_all_members",
-                new=AsyncMock(return_value=kick_result),
-            ) as kick_members,
-            patch(
-                "cogs.server_reset.build_destroy_summary",
-                return_value=discord.Embed(title="summary"),
-            ),
-            patch("cogs.server_reset._send_dm", new=AsyncMock()),
-            patch("cogs.server_reset._create_recovery_access", new=AsyncMock()),
-        ):
+        with ExitStack() as stack:
+            def stub(name, **kwargs):
+                return stack.enter_context(patch(f"cogs.server_reset.{name}", **kwargs))
+
+            # make_embed reads the live theme colour off the bot runtime, which no
+            # unit test starts.
+            stack.enter_context(
+                patch("cogs.shared.get_theme_color", return_value=discord.Color.red())
+            )
+            server_reset = stub("perform_server_reset", new=AsyncMock(return_value=reset_result))
+            stub("_scrub_guild_identity", new=AsyncMock())
+            stub("_delete_other_integrations", new=AsyncMock())
+            stub("_fetch_all_members", new=AsyncMock(return_value=[requester]))
+            kick_members = stub(
+                "perform_kick_all_members", new=AsyncMock(return_value=kick_result)
+            )
+            stub("_send_dm", new=AsyncMock())
+            recovery = stub("_create_recovery_access", new=AsyncMock())
+
             await _execute_server_destruction(interaction, guild_name="Reset Me")
 
+        server_reset.assert_awaited_once()
         kick_members.assert_awaited_once()
         self.assertTrue(kick_members.await_args.kwargs["keep_requester"])
+        recovery.assert_awaited_once()
 
 
 if __name__ == "__main__":
