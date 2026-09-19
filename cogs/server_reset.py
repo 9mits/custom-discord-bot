@@ -48,6 +48,7 @@ class ResetSectionResult:
 class ServerResetResult:
     sections: dict[str, ResetSectionResult] = field(default_factory=dict)
     protected_roles: list[str] = field(default_factory=list)
+    hierarchy_blocked_roles: list[str] = field(default_factory=list)
 
     def section(self, name: str) -> ResetSectionResult:
         return self.sections.setdefault(name, ResetSectionResult())
@@ -62,6 +63,7 @@ class MemberRemovalResult:
     attempted: int = 0
     kicked: int = 0
     failures: list[str] = field(default_factory=list)
+    skipped: list[str] = field(default_factory=list)
     requester_kicked: bool = False
 
     @property
@@ -121,6 +123,26 @@ def _hierarchy_blocker_text(
         suffix = f" and {len(members) - 10} more" if len(members) > 10 else ""
         lines.append(f"Unkickable members: {names}{suffix}")
     lines.append(f"Bot role to move: **{guild.me.top_role.name if guild.me else 'bot role unavailable'}**")
+    return "\n".join(lines)
+
+
+def _hierarchy_limit_text(
+    *,
+    roles: Sequence[discord.Role] = (),
+    members: Sequence[discord.Member] = (),
+) -> str:
+    lines = [
+        "Discord's role hierarchy prevents the bot from removing the following items.",
+        "Everything else can still be erased if you choose to proceed.",
+    ]
+    if roles:
+        names = ", ".join(f"`{role.name}`" for role in roles[:10])
+        suffix = f" and {len(roles) - 10} more" if len(roles) > 10 else ""
+        lines.append(f"Roles that will remain: {names}{suffix}")
+    if members:
+        names = ", ".join(f"`{member}`" for member in members[:10])
+        suffix = f" and {len(members) - 10} more" if len(members) > 10 else ""
+        lines.append(f"Members the bot cannot kick: {names}{suffix}")
     return "\n".join(lines)
 
 
@@ -248,14 +270,19 @@ async def perform_kick_all_members(
     requester_id: int,
     reason: str,
     keep_requester: bool = False,
+    skip_member_ids: Iterable[int] = (),
 ) -> MemberRemovalResult:
     """Kick removable members, optionally preserving the requester."""
     result = MemberRemovalResult()
     me_id = getattr(getattr(guild, "me", None), "id", None)
+    skipped_ids = {int(member_id) for member_id in skip_member_ids}
     requester = None
     targets = []
     for member in members:
         if member.id in {guild.owner_id, me_id}:
+            continue
+        if member.id in skipped_ids:
+            result.skipped.append(_item_label(member))
             continue
         if member.id == requester_id:
             requester = member
@@ -411,8 +438,13 @@ async def perform_server_reset(
         is_default = bool(role.is_default())
         is_managed = bool(getattr(role, "managed", False))
         above_bot = top_role is not None and int(getattr(role, "position", 0)) >= int(top_position)
-        if is_default or is_managed or above_bot:
+        if is_default or is_managed:
             result.protected_roles.append(_item_label(role))
+            continue
+        if above_bot:
+            label = _item_label(role)
+            result.protected_roles.append(label)
+            result.hierarchy_blocked_roles.append(label)
             continue
         deletable_roles.append(role)
     deletable_roles.sort(key=lambda role: int(getattr(role, "position", 0)), reverse=True)
@@ -711,14 +743,27 @@ def build_destroy_summary(
     complete = reset_result.failure_count == 0 and (
         member_result is not None and member_result.failure_count == 0
     )
+    limited = bool(reset_result.hierarchy_blocked_roles) or bool(
+        member_result is not None and member_result.skipped
+    )
+    if complete and limited:
+        title = "Server Destruction Finished With Permission Limits"
+        description = (
+            f"> **{guild_name}** was stripped everywhere the bot's role hierarchy allowed. "
+            "The previously listed protected items remain."
+        )
+    elif complete:
+        title = "Server Destruction Finished"
+        description = f"> **{guild_name}** was stripped as far as Discord's API allows."
+    else:
+        title = "Server Destruction Incomplete"
+        description = (
+            f"> **{guild_name}** was only partially stripped. Recovery access was recreated where possible."
+        )
     embed = make_embed(
-        "Server Destruction Finished" if complete else "Server Destruction Incomplete",
-        (
-            f"> **{guild_name}** was stripped as far as Discord's API allows."
-            if complete
-            else f"> **{guild_name}** was only partially stripped. Recovery access was recreated where possible."
-        ),
-        kind="success" if complete else "warning",
+        title,
+        description,
+        kind="success" if complete and not limited else "warning",
         scope=SCOPE_SYSTEM,
     )
     reset_lines = [
@@ -735,8 +780,21 @@ def build_destroy_summary(
             name="Members",
             value=(
                 f"**{member_result.kicked}/{member_result.attempted}** targeted members removed. "
+                f"**{len(member_result.skipped)}** hierarchy-blocked member(s) skipped. "
                 "Discord's legal owner remains."
             ),
+            inline=False,
+        )
+    if reset_result.hierarchy_blocked_roles:
+        embed.add_field(
+            name="Roles Left By Permission Limits",
+            value="\n".join(f"- {role}" for role in reset_result.hierarchy_blocked_roles)[:1024],
+            inline=False,
+        )
+    if member_result is not None and member_result.skipped:
+        embed.add_field(
+            name="Members Left By Permission Limits",
+            value="\n".join(f"- {member}" for member in member_result.skipped)[:1024],
             inline=False,
         )
     failures = [
@@ -986,6 +1044,183 @@ class KickAllMembersView(discord.ui.View):
         self.stop()
 
 
+async def _execute_server_destruction(
+    interaction: discord.Interaction,
+    *,
+    guild_name: str,
+    skip_member_ids: Iterable[int] = (),
+) -> None:
+    guild = interaction.guild
+    if guild is None:
+        return
+
+    await interaction.edit_original_response(
+        embed=make_embed(
+            "Server Destruction In Progress",
+            "> Content and bans are being erased first, then every removable member will be kicked and the bot will leave.",
+            kind="danger",
+            scope=SCOPE_SYSTEM,
+            guild=guild,
+        ),
+        view=None,
+    )
+    await _send_dm(
+        interaction.user,
+        make_embed(
+            "Server Destruction Started",
+            f"> **{guild.name}** (`{guild.id}`) is now being stripped. Final results will arrive here.",
+            kind="danger",
+            scope=SCOPE_SYSTEM,
+            guild=guild,
+        ),
+    )
+    reason = f"Full server destruction requested by administrator {interaction.user} ({interaction.user.id})"
+    current_channel = interaction.channel
+    final_channel_ids = {
+        int(channel_id)
+        for channel_id in (
+            getattr(current_channel, "id", None),
+            getattr(current_channel, "parent_id", None),
+        )
+        if channel_id is not None
+    }
+    reset_result = await perform_server_reset(
+        guild,
+        reason=reason,
+        final_channel_ids=final_channel_ids,
+    )
+    member_result = None
+    if reset_result.failure_count == 0:
+        await _scrub_guild_identity(
+            guild,
+            reset_result,
+            reason=reason,
+        )
+    if reset_result.failure_count == 0:
+        await _delete_other_integrations(
+            guild,
+            reset_result,
+            current_bot_id=guild.me.id,
+            reason=reason,
+        )
+    if reset_result.failure_count == 0:
+        try:
+            members = await _fetch_all_members(guild)
+        except discord.HTTPException as exc:
+            reset_result.section("Members").failures.append(
+                f"Could not refresh members: {type(exc).__name__}: {exc}"
+            )
+    if reset_result.failure_count == 0:
+        member_result = await perform_kick_all_members(
+            guild,
+            members,
+            requester_id=interaction.user.id,
+            reason=reason,
+            skip_member_ids=skip_member_ids,
+        )
+    summary = build_destroy_summary(guild_name, reset_result, member_result)
+    await _send_dm(interaction.user, summary)
+    complete = (
+        reset_result.failure_count == 0
+        and member_result is not None
+        and member_result.failure_count == 0
+    )
+    if complete:
+        try:
+            await guild.leave()
+        except discord.HTTPException as exc:
+            logger.warning("Cleanup bot could not leave destroyed guild %s: %s", guild.id, exc)
+    else:
+        await _create_recovery_access(
+            guild,
+            interaction.user.id,
+            reason=reason,
+            summary=summary,
+        )
+
+
+class DestroyHierarchyWarningView(discord.ui.View):
+    def __init__(self, *, guild_id: int, guild_name: str, requester_id: int) -> None:
+        super().__init__(timeout=120)
+        self.guild_id = guild_id
+        self.guild_name = guild_name
+        self.requester_id = requester_id
+
+    @discord.ui.button(label="Proceed With Partial Destruction", style=discord.ButtonStyle.danger)
+    async def proceed(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        guild = interaction.guild
+        if (
+            guild is None
+            or guild.id != self.guild_id
+            or interaction.user.id != self.requester_id
+            or not can_reset_server(interaction)
+        ):
+            await interaction.response.send_message(
+                embed=make_embed(
+                    "Access Denied",
+                    "> Only the initiating Discord administrator can approve partial destruction.",
+                    kind="danger",
+                    scope=SCOPE_SYSTEM,
+                    guild=guild,
+                ),
+                ephemeral=True,
+            )
+            return
+        if guild.id in ACTIVE_SERVER_RESETS:
+            await interaction.response.send_message(
+                embed=make_embed(
+                    "Destructive Action Already Running",
+                    "> Another destructive operation is already running in this server.",
+                    kind="warning",
+                    scope=SCOPE_SYSTEM,
+                    guild=guild,
+                ),
+                ephemeral=True,
+            )
+            return
+
+        ACTIVE_SERVER_RESETS.add(guild.id)
+        await interaction.response.defer(ephemeral=True)
+        try:
+            try:
+                members = await _fetch_all_members(guild)
+            except discord.HTTPException as exc:
+                await interaction.edit_original_response(
+                    embed=make_embed(
+                        "Preflight Failed",
+                        f"> I could not refresh the member hierarchy. Nothing was deleted.\n> `{exc}`",
+                        kind="danger",
+                        scope=SCOPE_SYSTEM,
+                        guild=guild,
+                    ),
+                    view=None,
+                )
+                return
+            member_blockers = _member_hierarchy_blockers(guild, members)
+            await _execute_server_destruction(
+                interaction,
+                guild_name=self.guild_name,
+                skip_member_ids={member.id for member in member_blockers},
+            )
+        finally:
+            ACTIVE_SERVER_RESETS.discard(guild.id)
+            self.stop()
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.response.edit_message(
+            embed=make_embed(
+                "Destruction Cancelled",
+                "> Nothing was deleted or kicked.",
+                kind="muted",
+                scope=SCOPE_SYSTEM,
+                guild=interaction.guild,
+            ),
+            view=None,
+        )
+        self.stop()
+
+
 class DestroyServerModal(discord.ui.Modal):
     def __init__(self, *, guild_id: int, guild_name: str, requester_id: int) -> None:
         super().__init__(title="Confirm Server Destruction", timeout=180)
@@ -1068,100 +1303,27 @@ class DestroyServerModal(discord.ui.Modal):
             if role_blockers or member_blockers:
                 await interaction.edit_original_response(
                     embed=make_embed(
-                        "Move My Role Higher First",
-                        "> Nothing was deleted or kicked.\n\n" + _hierarchy_blocker_text(
-                            guild,
+                        "Some Items Cannot Be Removed",
+                        "> Nothing has been deleted or kicked yet.\n\n" + _hierarchy_limit_text(
                             roles=role_blockers,
                             members=member_blockers,
-                        ),
-                        kind="danger",
+                        ) + "\n\nDo you want to proceed with everything the bot can remove?",
+                        kind="warning",
                         scope=SCOPE_SYSTEM,
                         guild=guild,
-                    )
+                    ),
+                    view=DestroyHierarchyWarningView(
+                        guild_id=guild.id,
+                        guild_name=self.guild_name,
+                        requester_id=self.requester_id,
+                    ),
                 )
                 return
 
-            await interaction.edit_original_response(
-                embed=make_embed(
-                    "Server Destruction In Progress",
-                    "> Content and bans are being erased first, then every removable member will be kicked and the bot will leave.",
-                    kind="danger",
-                    scope=SCOPE_SYSTEM,
-                    guild=guild,
-                )
+            await _execute_server_destruction(
+                interaction,
+                guild_name=self.guild_name,
             )
-            await _send_dm(
-                interaction.user,
-                make_embed(
-                    "Server Destruction Started",
-                    f"> **{guild.name}** (`{guild.id}`) is now being stripped. Final results will arrive here.",
-                    kind="danger",
-                    scope=SCOPE_SYSTEM,
-                    guild=guild,
-                ),
-            )
-            reason = f"Full server destruction requested by administrator {interaction.user} ({interaction.user.id})"
-            current_channel = interaction.channel
-            final_channel_ids = {
-                int(channel_id)
-                for channel_id in (
-                    getattr(current_channel, "id", None),
-                    getattr(current_channel, "parent_id", None),
-                )
-                if channel_id is not None
-            }
-            reset_result = await perform_server_reset(
-                guild,
-                reason=reason,
-                final_channel_ids=final_channel_ids,
-            )
-            member_result = None
-            if reset_result.failure_count == 0:
-                await _scrub_guild_identity(
-                    guild,
-                    reset_result,
-                    reason=reason,
-                )
-            if reset_result.failure_count == 0:
-                await _delete_other_integrations(
-                    guild,
-                    reset_result,
-                    current_bot_id=guild.me.id,
-                    reason=reason,
-                )
-            if reset_result.failure_count == 0:
-                try:
-                    members = await _fetch_all_members(guild)
-                except discord.HTTPException as exc:
-                    reset_result.section("Members").failures.append(
-                        f"Could not refresh members: {type(exc).__name__}: {exc}"
-                    )
-            if reset_result.failure_count == 0:
-                member_result = await perform_kick_all_members(
-                    guild,
-                    members,
-                    requester_id=interaction.user.id,
-                    reason=reason,
-                )
-            summary = build_destroy_summary(self.guild_name, reset_result, member_result)
-            await _send_dm(interaction.user, summary)
-            complete = (
-                reset_result.failure_count == 0
-                and member_result is not None
-                and member_result.failure_count == 0
-            )
-            if complete:
-                try:
-                    await guild.leave()
-                except discord.HTTPException as exc:
-                    logger.warning("Cleanup bot could not leave destroyed guild %s: %s", guild.id, exc)
-            else:
-                await _create_recovery_access(
-                    guild,
-                    interaction.user.id,
-                    reason=reason,
-                    summary=summary,
-                )
         finally:
             ACTIVE_SERVER_RESETS.discard(guild.id)
 
@@ -1405,7 +1567,8 @@ async def destroy_server(interaction: discord.Interaction) -> None:
         name="Before Continuing",
         value=(
             "Move the **Mysterious Bot X** role above every ordinary role and every member's highest role. "
-            "A live preflight refuses before changing anything if the bot cannot finish.\n\n"
+            "If anything is still above it, a live preflight lists what cannot be removed and asks whether "
+            "you want to proceed with partial destruction.\n\n"
             f"The next screen requires: `{destroy_server_confirmation_phrase(guild.id)}`"
         ),
         inline=False,
