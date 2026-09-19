@@ -245,6 +245,7 @@ async def _delete_other_integrations(
         integration
         for integration in integrations
         if getattr(getattr(integration, "application", None), "id", None) != current_bot_id
+        and getattr(integration, "type", None) != "discord"
     ]
     await _delete_items(result, "Integrations", removable, reason=reason)
 
@@ -1090,32 +1091,30 @@ async def _execute_server_destruction(
         final_channel_ids=final_channel_ids,
     )
     member_result = None
-    if reset_result.failure_count == 0:
-        await _scrub_guild_identity(
-            guild,
-            reset_result,
-            reason=reason,
+    await _scrub_guild_identity(
+        guild,
+        reset_result,
+        reason=reason,
+    )
+    await _delete_other_integrations(
+        guild,
+        reset_result,
+        current_bot_id=guild.me.id,
+        reason=reason,
+    )
+    try:
+        members = await _fetch_all_members(guild)
+    except discord.HTTPException as exc:
+        reset_result.section("Members").failures.append(
+            f"Could not refresh members: {type(exc).__name__}: {exc}"
         )
-    if reset_result.failure_count == 0:
-        await _delete_other_integrations(
-            guild,
-            reset_result,
-            current_bot_id=guild.me.id,
-            reason=reason,
-        )
-    if reset_result.failure_count == 0:
-        try:
-            members = await _fetch_all_members(guild)
-        except discord.HTTPException as exc:
-            reset_result.section("Members").failures.append(
-                f"Could not refresh members: {type(exc).__name__}: {exc}"
-            )
-    if reset_result.failure_count == 0:
+    else:
         member_result = await perform_kick_all_members(
             guild,
             members,
             requester_id=interaction.user.id,
             reason=reason,
+            keep_requester=reset_result.failure_count > 0,
             skip_member_ids=skip_member_ids,
         )
     summary = build_destroy_summary(guild_name, reset_result, member_result)
