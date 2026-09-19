@@ -247,8 +247,9 @@ async def perform_kick_all_members(
     *,
     requester_id: int,
     reason: str,
+    keep_requester: bool = False,
 ) -> MemberRemovalResult:
-    """Kick every removable member, keeping the requester until all others succeed."""
+    """Kick removable members, optionally preserving the requester."""
     result = MemberRemovalResult()
     me_id = getattr(getattr(guild, "me", None), "id", None)
     requester = None
@@ -273,7 +274,7 @@ async def perform_kick_all_members(
         else:
             result.kicked += 1
 
-    if result.failures or requester is None or requester.id == guild.owner_id:
+    if keep_requester or result.failures or requester is None or requester.id == guild.owner_id:
         return result
 
     result.attempted += 1
@@ -674,7 +675,7 @@ def build_member_removal_summary(
         "Member Removal Finished" if complete else "Member Removal Incomplete",
         (
             f"> Removed **{result.kicked}/{result.attempted}** targeted members from **{guild_name}**.\n"
-            "> Discord's legal server owner cannot be kicked."
+            "> You were preserved. Discord's legal server owner cannot be kicked."
         ),
         kind="success" if complete else "warning",
         scope=SCOPE_SYSTEM,
@@ -682,7 +683,7 @@ def build_member_removal_summary(
     if complete:
         embed.add_field(
             name="Final Step",
-            value="The cleanup bot is leaving the server now. Only Discord-unremovable membership remains.",
+            value="The cleanup bot is leaving now. You remain in the emptied server with its legal owner.",
             inline=False,
         )
     else:
@@ -896,7 +897,7 @@ class KickAllMembersModal(discord.ui.Modal):
             await interaction.edit_original_response(
                 embed=make_embed(
                     "Member Removal In Progress",
-                    "> Every removable member and bot is being kicked. You are kept until the final step.",
+                    "> Every other removable member and bot is being kicked. You will remain in the server.",
                     kind="danger",
                     scope=SCOPE_SYSTEM,
                     guild=guild,
@@ -906,7 +907,7 @@ class KickAllMembersModal(discord.ui.Modal):
                 interaction.user,
                 make_embed(
                     "Member Removal Started",
-                    f"> Every removable member of **{guild.name}** is being kicked now.",
+                    f"> Every other removable member of **{guild.name}** is being kicked now. You will remain.",
                     kind="danger",
                     scope=SCOPE_SYSTEM,
                     guild=guild,
@@ -918,6 +919,7 @@ class KickAllMembersModal(discord.ui.Modal):
                 members,
                 requester_id=interaction.user.id,
                 reason=reason,
+                keep_requester=True,
             )
             complete = result.failure_count == 0
             summary = build_member_removal_summary(self.guild_name, result, complete=complete)
@@ -1288,7 +1290,7 @@ async def reset_server(interaction: discord.Interaction) -> None:
 
 @tree.command(
     name=KICK_ALL_COMMAND_NAME,
-    description="Kick every removable member and bot, then remove the cleanup bot.",
+    description="Kick every other removable member and bot, then remove the cleanup bot.",
 )
 async def kick_all_members(interaction: discord.Interaction) -> None:
     guild = interaction.guild
@@ -1304,10 +1306,15 @@ async def kick_all_members(interaction: discord.Interaction) -> None:
             ephemeral=True,
         )
         return
-    target_count = max(0, len(guild.members) - 2)
+    preserved_ids = {
+        guild.owner_id,
+        interaction.user.id,
+        getattr(guild.me, "id", None),
+    }
+    target_count = sum(member.id not in preserved_ids for member in guild.members)
     embed = make_embed(
-        "Kick Every Member?",
-        "> This permanently removes every member and bot Discord allows the cleanup bot to kick.",
+        "Kick Everyone Else?",
+        "> This permanently removes every other member and bot Discord allows the cleanup bot to kick.",
         kind="danger",
         scope=SCOPE_SYSTEM,
         guild=guild,
@@ -1315,14 +1322,16 @@ async def kick_all_members(interaction: discord.Interaction) -> None:
     embed.add_field(
         name="Targets",
         value=(
-            f"Approximately **{target_count} cached members**, including the initiating administrator at the final step. "
+            f"Approximately **{target_count} cached members**. The initiating administrator is always preserved. "
             "The command fetches the complete live member list before starting."
         ),
         inline=False,
     )
     embed.add_field(
         name="Discord Will Preserve",
-        value="The legal server owner cannot be kicked. The cleanup bot leaves by itself after every other removal succeeds.",
+        value=(
+            "You and the legal server owner remain. The cleanup bot leaves by itself after every other removal succeeds."
+        ),
         inline=False,
     )
     embed.add_field(
